@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>班级助理</title>
+    <meta name="description" content="班级助理：集中查看班级通知与活动。">
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%234f46e5'/%3E%3Cpath d='M16 24h32v18H26l-10 8z' fill='none' stroke='%23fff' stroke-width='3' stroke-linejoin='round'/%3E%3Cpath d='M24 30h16M24 34h10' stroke='%23fff' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
+    <link rel="stylesheet" href="assets/css/style.css">
+    <script>
+    /* 主题切换：localStorage('theme') 优先，其次跟随系统 prefers-color-scheme；同步写入 <html> 的 data-theme 防闪烁 */
+    (function () {
+        var KEY = 'theme';
+        var root = document.documentElement;
+        var mq = window.matchMedia('(prefers-color-scheme: dark)');
+        function system() { return mq.matches ? 'dark' : 'light'; }
+        function stored() { try { var v = localStorage.getItem(KEY); return (v === 'dark' || v === 'light') ? v : null; } catch (e) { return null; } }
+        function apply(t) { root.setAttribute('data-theme', t); }
+        function current() { return stored() || system(); }
+        apply(current());
+        function toggle() { var next = current() === 'dark' ? 'light' : 'dark'; apply(next); try { localStorage.setItem(KEY, next); } catch (e) {} }
+        function bind() {
+            var btn = document.getElementById('themeToggle');
+            if (btn) btn.addEventListener('click', toggle);
+            if (mq.addEventListener) mq.addEventListener('change', function (e) { if (!stored()) apply(e.matches ? 'dark' : 'light'); });
+            else if (mq.addListener) mq.addListener(function (e) { if (!stored()) apply(e.matches ? 'dark' : 'light'); });
+            window.addEventListener('storage', function (e) { if (e.key === KEY) apply(current()); });
+        }
+        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind); else bind();
+    })();
+    </script>
+</head>
+<body>
+    <!-- 应用壳（未登录也显示，登录后加载日程） -->
+    <div class="app-shell" id="appShell">
+        <aside class="sidebar" id="sidebar">
+            <a href="index.html" class="sidebar-brand">
+                <span class="brand-mark">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16v10H8l-4 4z"/><path d="M8 10h8"/><path d="M8 13h5"/></svg>
+                </span>
+                <span class="brand-text">班级助理</span>
+            </a>
+            <nav class="sidebar-nav">
+                <button type="button" class="side-link active" id="navHome" onclick="switchView('home')">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+                    <span class="side-text">主页</span>
+                </button>
+                <button type="button" class="side-link" id="navActivities" onclick="switchView('activities')">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                    <span class="side-text">活动</span>
+                </button>
+                <button type="button" class="side-link" id="navNotices" onclick="switchView('notices')">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                    <span class="side-text">通知</span>
+                </button>
+            </nav>
+            <div class="sidebar-bottom">
+                <div class="sidebar-tools">
+                    <button type="button" class="icon-btn" id="collapseBtn" title="折叠 / 展开侧边栏" onclick="toggleSidebar()">
+                        <svg class="icon-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+                        <svg class="icon-close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+                    </button>
+                    <button class="theme-toggle" id="appThemeToggle" type="button" aria-label="切换主题" title="切换主题">
+                        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+                        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                    </button>
+                </div>
+                <div id="authArea"><!-- 登录态由 JS 填充 --></div>
+            </div>
+        </aside>
+        <div class="app-content">
+            <!-- 主页视图：左日历 + 右通知/活动 -->
+            <div class="app-view" id="homeView">
+                <div style="max-width:1080px; margin:0 auto; padding:24px 24px 56px;">
+                    <div class="home-layout">
+                        <div class="calendar">
+                            <div class="cal-head">
+                                <span class="cal-title" id="calTitle"></span>
+                                <div class="cal-nav">
+                                    <button type="button" class="icon-btn" title="上个月" onclick="calPrev()">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+                                    </button>
+                                    <button type="button" class="icon-btn" title="下个月" onclick="calNext()">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="cal-week"><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span></div>
+                            <div class="cal-grid" id="calGrid"></div>
+                        </div>
+                        <div class="home-right">
+                            <div class="section-block" style="margin-top:0;">
+                                <div class="section-head">
+                                    <h2 class="section-title">最近通知</h2>
+                                    <button type="button" class="link-more" style="background:none;border:none;cursor:pointer;font-family:inherit;" onclick="switchView('notices')">查看全部</button>
+                                </div>
+                                <div class="list" id="noticeList"></div>
+                            </div>
+                            <div class="section-block">
+                                <div class="section-head">
+                                    <h2 class="section-title">最近活动</h2>
+                                    <button type="button" class="link-more" style="background:none;border:none;cursor:pointer;font-family:inherit;" onclick="switchView('activities')">查看全部</button>
+                                </div>
+                                <div class="list" id="activityList"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 登录视图 -->
+            <div class="app-view" id="loginView" style="display:none;">
+                <div style="max-width:420px; margin:48px auto; padding:0 16px;">
+                    <div class="login-panel">
+                        <div class="auth-brand">
+                            <span class="brand-mark auth-mark">
+                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16v10H8l-4 4z"/><path d="M8 10h8"/><path d="M8 13h5"/></svg>
+                            </span>
+                            <h1 class="auth-title">登录班级助理</h1>
+                        </div>
+                        <div class="form-error" id="loginError"></div>
+                        <form id="loginForm" novalidate>
+                            <div class="form-field">
+                                <label class="form-label" for="loginStudentId">学号</label>
+                                <input class="form-input" type="text" id="loginStudentId" placeholder="请输入学号" autocomplete="username">
+                            </div>
+                            <div class="form-field">
+                                <label class="form-label" for="loginPassword">密码</label>
+                                <input class="form-input" type="password" id="loginPassword" placeholder="请输入密码" autocomplete="current-password">
+                            </div>
+                            <button class="btn btn-primary btn-block" id="loginBtn" type="submit">登录</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 各视图独立 iframe -->
+            <iframe id="frameActivities" class="app-frame" data-loaded="0" style="display:none;" title="活动"></iframe>
+            <iframe id="frameNotices" class="app-frame" data-loaded="0" style="display:none;" title="通知"></iframe>
+            <iframe id="frameAccount" class="app-frame" data-loaded="0" style="display:none;" title="个人中心"></iframe>
+        </div>
+    </div>
+
+    <script src="assets/js/app.js"></script>
+    <script>
+    // ===== 初始化 =====
+    (function () {
+        var authed = !!localStorage.getItem(LS_TOKEN);
+        var user = getSession();
+        document.body.classList.add('app-mode');
+        var sb = document.getElementById('sidebar');
+        try { if (localStorage.getItem('sidebarCollapsed') === '1') sb.classList.add('collapsed'); } catch (e) {}
+        bindAppThemeToggle();
+        fillAuthArea(authed, user);
+        if (authed) {
+            loadSummary();
+            loadCalendar();
+        } else {
+            // 未登录：主页只显示框架，不加载日程
+            var now = new Date();
+            calYear = now.getFullYear();
+            calMonth = now.getMonth();
+            renderCalendar();
+            document.getElementById('noticeList').innerHTML = stateHTML('登录后查看班级通知');
+            document.getElementById('activityList').innerHTML = stateHTML('登录后查看班级活动');
+        }
+        switchView('home');
+    })();
+
+    // 用户职务显示（positions 为 JSON 字符串）
+    function userSub(u) {
+        if (u && u.positions) {
+            var s = String(u.positions);
+            if (s.charAt(0) === '[') {
+                try { var arr = JSON.parse(s); if (arr.length) return arr.join('、'); } catch (e) { return s; }
+            }
+            return s;
+        }
+        return '学生';
+    }
+
+    // 侧边栏底部登录区：未登录=登录按钮，已登录=用户块+退出
+    function fillAuthArea(authed, user) {
+        var area = document.getElementById('authArea');
+        if (authed) {
+            area.innerHTML =
+                '<button type="button" class="sidebar-user" id="userEntry" onclick="switchView(\'account\')">'
+                + '<span class="user-avatar">' + esc((user && user.name) ? user.name.charAt(0) : '?') + '</span>'
+                + '<span class="user-info">'
+                + '<span class="user-name">' + esc((user && user.name) || '同学') + '</span>'
+                + '<span class="user-sub">' + esc(userSub(user)) + '</span>'
+                + '</span>'
+                + '</button>'
+                + '<button type="button" class="btn btn-outline" onclick="logout()">退出登录</button>';
+        } else {
+            area.innerHTML = '<button type="button" class="btn btn-primary" onclick="switchView(\'login\')">登录</button>';
+        }
+    }
+
+    // ===== 侧边栏折叠 =====
+    function toggleSidebar() {
+        var sb = document.getElementById('sidebar');
+        var collapsed = sb.classList.toggle('collapsed');
+        try { localStorage.setItem('sidebarCollapsed', collapsed ? '1' : '0'); } catch (e) {}
+    }
+
+    // 应用壳内主题切换
+    function bindAppThemeToggle() {
+        var btn = document.getElementById('appThemeToggle');
+        if (!btn) return;
+        btn.addEventListener('click', function () {
+            var root = document.documentElement;
+            var next = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+            root.setAttribute('data-theme', next);
+            try { localStorage.setItem('theme', next); } catch (e) {}
+        });
+    }
+
+    // ===== 视图切换 =====
+    var FRAME_KEYS = { activities: 'frameActivities', notices: 'frameNotices', account: 'frameAccount' };
+    function switchView(key) {
+        var authed = !!localStorage.getItem(LS_TOKEN);
+        // 未登录访问受保护视图 → 显示登录视图
+        if (!authed && key !== 'home' && key !== 'login') key = 'login';
+        // 侧边栏 active 状态
+        ['home', 'activities', 'notices', 'account'].forEach(function (k) {
+            var el = document.getElementById('nav' + k.charAt(0).toUpperCase() + k.slice(1));
+            if (el) el.classList.toggle('active', k === key);
+        });
+        var ue = document.getElementById('userEntry');
+        if (ue) ue.classList.toggle('active', key === 'account');
+        // 显示对应视图
+        var isHome = key === 'home';
+        var isLogin = key === 'login';
+        document.getElementById('homeView').style.display = isHome ? 'block' : 'none';
+        document.getElementById('loginView').style.display = isLogin ? 'block' : 'none';
+        for (var fk in FRAME_KEYS) {
+            var f = document.getElementById(FRAME_KEYS[fk]);
+            var show = !isHome && !isLogin && fk === key;
+            f.style.display = show ? 'block' : 'none';
+            if (show && f.getAttribute('data-loaded') !== '1') {
+                f.src = fk + '.html';
+                f.setAttribute('data-loaded', '1');
+            }
+        }
+        if (isHome) document.getElementById('homeView').scrollTop = 0;
+    }
+
+    // ===== 日历 =====
+    var calYear, calMonth;
+    var eventDates = new Set();
+    var activeDate = null;
+
+    async function loadCalendar() {
+        try {
+            var res = await api('/api/activities?limit=100');
+            var list = (res.data && res.data.list) || [];
+            eventDates.clear();
+            list.forEach(function (a) {
+                var d = String(a.start_time || '').slice(0, 10);
+                if (d) eventDates.add(d);
+            });
+        } catch (e) {}
+        var now = new Date();
+        calYear = now.getFullYear();
+        calMonth = now.getMonth();
+        renderCalendar();
+    }
+
+    function pad2(n) { return n < 10 ? '0' + n : '' + n; }
+    function dateKey(y, m, d) { return y + '-' + pad2(m + 1) + '-' + pad2(d); }
+    function todayKey() { var t = new Date(); return dateKey(t.getFullYear(), t.getMonth(), t.getDate()); }
+
+    function renderCalendar() {
+        document.getElementById('calTitle').textContent = calYear + ' 年 ' + (calMonth + 1) + ' 月';
+        var first = new Date(calYear, calMonth, 1);
+        var start = (first.getDay() + 6) % 7; // 周一开头
+        var days = new Date(calYear, calMonth + 1, 0).getDate();
+        var prevDays = new Date(calYear, calMonth, 0).getDate();
+        var today = todayKey();
+        var html = '';
+        for (var i = 0; i < 42; i++) {
+            var n = i - start + 1;
+            var y = calYear, m = calMonth, other = false;
+            if (n < 1) { other = true; m = calMonth - 1; n = prevDays + n; }
+            else if (n > days) { other = true; m = calMonth + 1; n = n - days; }
+            if (m < 0) { m = 11; y = calYear - 1; }
+            if (m > 11) { m = 0; y = calYear + 1; }
+            var k = dateKey(y, m, n);
+            var cls = 'cal-day' + (other ? ' other' : '') + (eventDates.has(k) ? ' has-event' : '') + (k === today ? ' today' : '') + (k === activeDate ? ' active' : '');
+            var click = eventDates.has(k) ? ' onclick="selectDate(\'' + k + '\')"' : '';
+            html += '<div class="' + cls + '"' + click + '>' + n + '</div>';
+        }
+        document.getElementById('calGrid').innerHTML = html;
+    }
+
+    function selectDate(k) {
+        activeDate = k;
+        renderCalendar();
+        switchView('activities');
+    }
+    function calPrev() { calMonth--; if (calMonth < 0) { calMonth = 11; calYear--; } activeDate = null; renderCalendar(); }
+    function calNext() { calMonth++; if (calMonth > 11) { calMonth = 0; calYear++; } activeDate = null; renderCalendar(); }
+
+    // ===== 加载最近通知/活动（仅登录后调用） =====
+    function loadSummary() {
+        loadNotices();
+        loadActivities();
+    }
+
+    async function loadNotices() {
+        var el = document.getElementById('noticeList');
+        el.innerHTML = skeletonHTML(3);
+        try {
+            var res = await api('/api/notices?limit=3');
+            var list = (res.data && res.data.list) || [];
+            if (!list.length) { el.innerHTML = stateHTML('暂无通知'); return; }
+            el.innerHTML = list.map(function (n) {
+                return '<button type="button" class="list-row" onclick="switchView(\'notices\')">'
+                    + '<div class="list-row-main">'
+                    + '<div class="list-row-title">' + esc(n.title) + '</div>'
+                    + '<div class="list-row-meta">'
+                    + '<span class="badge badge-' + esc(n.source || 'manual') + '">' + esc(sourceName(n.source)) + '</span>'
+                    + '<span>' + esc(n.publisher || '') + '</span>'
+                    + '<span>' + esc(fmtDate(n.publish_time)) + '</span>'
+                    + '</div>'
+                    + '</div>'
+                    + '<svg class="list-row-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>'
+                    + '</button>';
+            }).join('');
+        } catch (err) {
+            el.innerHTML = stateHTML(err.message, true);
+        }
+    }
+
+    async function loadActivities() {
+        var el = document.getElementById('activityList');
+        el.innerHTML = skeletonHTML(3);
+        try {
+            var res = await api('/api/activities?limit=3');
+            var list = (res.data && res.data.list) || [];
+            if (!list.length) { el.innerHTML = stateHTML('暂无活动'); return; }
+            el.innerHTML = list.map(function (a) {
+                var meta = '<span>' + esc(fmtDate(a.start_time)) + '</span>';
+                if (a.location) meta += '<span>' + esc(a.location) + '</span>';
+                return '<button type="button" class="list-row" onclick="switchView(\'activities\')">'
+                    + '<div class="list-row-main">'
+                    + '<div class="list-row-title">' + esc(a.title) + '</div>'
+                    + '<div class="list-row-meta">' + meta + '</div>'
+                    + '</div>'
+                    + '<svg class="list-row-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>'
+                    + '</button>';
+            }).join('');
+        } catch (err) {
+            el.innerHTML = stateHTML(err.message, true);
+        }
+    }
+
+    // ===== 登录（应用壳内） =====
+    function showLogin() {
+        switchView('login');
+        var input = document.getElementById('loginStudentId');
+        if (input) input.focus();
+    }
+
+    var loginForm = document.getElementById('loginForm');
+    if (loginForm) {
+        loginForm.addEventListener('submit', async function (e) {
+            e.preventDefault();
+            var errBox = document.getElementById('loginError');
+            errBox.classList.remove('show');
+            var student_id = document.getElementById('loginStudentId').value.trim();
+            var password = document.getElementById('loginPassword').value;
+            if (!student_id || !password) {
+                errBox.textContent = '请填写学号和密码';
+                errBox.classList.add('show');
+                return;
+            }
+            var btn = document.getElementById('loginBtn');
+            btn.disabled = true; btn.textContent = '登录中…';
+            try {
+                var res = await api('/api/auth/login', { method: 'POST', body: JSON.stringify({ student_id: student_id, password: password }) });
+                saveSession(res.data);
+                window.location.reload(); // 重载后进入已登录状态
+            } catch (err) {
+                errBox.textContent = err.message;
+                errBox.classList.add('show');
+            } finally {
+                btn.disabled = false; btn.textContent = '登录';
+            }
+        });
+    }
+
+    function stateHTML(text, isError) {
+        var cls = isError ? 'state error' : 'state';
+        return '<div class="' + cls + '"><p>' + esc(text || '暂无数据') + '</p></div>';
+    }
+
+    function sourceName(s) {
+        if (s === 'crawler') return '抓取';
+        if (s === 'webhook') return '推送';
+        return '发布';
+    }
+    </script>
+</body>
+</html>

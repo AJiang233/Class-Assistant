@@ -1,0 +1,13 @@
+name = "class-assistant-api"
+main = "src/index.js"
+compatibility_date = "2024-09-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "class-assistant-db"
+# 替换为你的真实 D1 数据库 ID（Cloudflare Dashboard → D1 → 选择数据库）
+database_id = "6444f4bb-5197-4a53-a12b-264410e99f81"
+
+[vars]
+# JWT 过期时间（秒），默认 7 天
+JWT_EXPIRES_IN = "604800"

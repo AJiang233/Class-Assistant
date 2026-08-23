@@ -1,0 +1,16 @@
+{
+  "name": "class-assistant-backend",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "班级助手后端 API（Cloudflare Workers + D1）",
+  "main": "src/index.js",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:local": "wrangler d1 execute class-assistant-db --local --file=./schema.sql",
+    "db:remote": "wrangler d1 execute class-assistant-db --remote --file=./schema.sql"
+  },
+  "devDependencies": {
+    "wrangler": "^3.90.0"
+  }
+}

@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>个人中心 - 班级助理</title>
+    <meta name="description" content="班级助理：我的资料与退出登录。">
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%234f46e5'/%3E%3Cpath d='M16 24h32v18H26l-10 8z' fill='none' stroke='%23fff' stroke-width='3' stroke-linejoin='round'/%3E%3Cpath d='M24 30h16M24 34h10' stroke='%23fff' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
+    <link rel="stylesheet" href="assets/css/style.css">
+    <script>
+    /* 主题切换：localStorage('theme') 优先，其次跟随系统 prefers-color-scheme；同步写入 <html> 的 data-theme 防闪烁 */
+    (function () {
+        var KEY = 'theme';
+        var root = document.documentElement;
+        var mq = window.matchMedia('(prefers-color-scheme: dark)');
+        function system() { return mq.matches ? 'dark' : 'light'; }
+        function stored() { try { var v = localStorage.getItem(KEY); return (v === 'dark' || v === 'light') ? v : null; } catch (e) { return null; } }
+        function apply(t) { root.setAttribute('data-theme', t); }
+        function current() { return stored() || system(); }
+        apply(current());
+        function toggle() { var next = current() === 'dark' ? 'light' : 'dark'; apply(next); try { localStorage.setItem(KEY, next); } catch (e) {} }
+        function bind() {
+            var btn = document.getElementById('themeToggle');
+            if (btn) btn.addEventListener('click', toggle);
+            if (mq.addEventListener) mq.addEventListener('change', function (e) { if (!stored()) apply(e.matches ? 'dark' : 'light'); });
+            else if (mq.addListener) mq.addListener(function (e) { if (!stored()) apply(e.matches ? 'dark' : 'light'); });
+            window.addEventListener('storage', function (e) { if (e.key === KEY) apply(current()); });
+        }
+        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind); else bind();
+    })();
+    </script>
+</head>
+<body>
+    <div class="main">
+        <div class="container">
+            <div class="page-head">
+                <h1 class="page-title">个人中心</h1>
+                <p class="page-desc">查看自己的班级资料。</p>
+            </div>
+            <div class="profile-card" id="profileCard"></div>
+        </div>
+    </div>
+
+    <script src="assets/js/app.js"></script>
+    <script>
+    // ===== 需要登录 =====
+    if (!requireAuth()) return;
+
+    // ===== 加载我的资料 =====
+    (async function loadProfile() {
+        var card = document.getElementById('profileCard');
+        card.innerHTML = stateHTML('加载中…');
+        try {
+            var res = await api('/api/auth/me');
+            var u = res.data;
+            card.innerHTML =
+                '<div class="profile-head">'
+                + '<div class="profile-avatar">' + esc((u.name || '?').charAt(0)) + '</div>'
+                + '<div>'
+                + '<div class="profile-name">' + esc(u.name || '') + '</div>'
+                + '<div class="profile-sub">学号 ' + esc(u.student_id || '') + '</div>'
+                + '</div>'
+                + '</div>'
+                + '<div class="info-list">'
+                + '<div class="info-row"><span class="k">职务</span><span class="v">' + esc(fmtPositions(u.positions)) + '</span></div>'
+                + '<div class="info-row"><span class="k">联系方式</span><span class="v">' + esc(u.contact || '未填写') + '</span></div>'
+                + '<div class="info-row"><span class="k">更新时间</span><span class="v">' + esc(fmtDate(u.update_time)) + '</span></div>'
+                + '</div>'
+                + '<div class="profile-actions">'
+                + '<button class="btn btn-outline" onclick="window.parent.logout()">退出登录</button>'
+                + '</div>';
+        } catch (err) {
+            card.innerHTML = stateHTML(err.message, true);
+        }
+    })();
+
+    // 职务字段为 JSON 字符串（如 ["班长","学习委员"]），展示时转为可读文本
+    function fmtPositions(p) {
+        if (!p) return '学生';
+        var s = String(p);
+        if (s.charAt(0) === '[') {
+            try { return JSON.parse(s).join('、') || '学生'; } catch (e) { return s; }
+        }
+        return s;
+    }
+
+    function stateHTML(text, isError) {
+        var cls = isError ? 'state error' : 'state';
+        return '<div class="' + cls + '"><p>' + esc(text || '暂无数据') + '</p></div>';
+    }
+    </script>
+</body>
+</html>

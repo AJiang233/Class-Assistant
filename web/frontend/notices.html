@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>通知 - 班级助理</title>
+    <meta name="description" content="班级助理：班级通知列表与详情。">
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%234f46e5'/%3E%3Cpath d='M16 24h32v18H26l-10 8z' fill='none' stroke='%23fff' stroke-width='3' stroke-linejoin='round'/%3E%3Cpath d='M24 30h16M24 34h10' stroke='%23fff' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
+    <link rel="stylesheet" href="assets/css/style.css">
+    <script>
+    /* 主题切换：localStorage('theme') 优先，其次跟随系统 prefers-color-scheme；同步写入 <html> 的 data-theme 防闪烁 */
+    (function () {
+        var KEY = 'theme';
+        var root = document.documentElement;
+        var mq = window.matchMedia('(prefers-color-scheme: dark)');
+        function system() { return mq.matches ? 'dark' : 'light'; }
+        function stored() { try { var v = localStorage.getItem(KEY); return (v === 'dark' || v === 'light') ? v : null; } catch (e) { return null; } }
+        function apply(t) { root.setAttribute('data-theme', t); }
+        function current() { return stored() || system(); }
+        apply(current());
+        function toggle() { var next = current() === 'dark' ? 'light' : 'dark'; apply(next); try { localStorage.setItem(KEY, next); } catch (e) {} }
+        function bind() {
+            var btn = document.getElementById('themeToggle');
+            if (btn) btn.addEventListener('click', toggle);
+            if (mq.addEventListener) mq.addEventListener('change', function (e) { if (!stored()) apply(e.matches ? 'dark' : 'light'); });
+            else if (mq.addListener) mq.addListener(function (e) { if (!stored()) apply(e.matches ? 'dark' : 'light'); });
+            window.addEventListener('storage', function (e) { if (e.key === KEY) apply(current()); });
+        }
+        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind); else bind();
+    })();
+    </script>
+</head>
+<body>
+    <div class="main">
+        <div class="container">
+            <!-- 列表视图 -->
+            <div id="listView">
+                <div class="page-head">
+                    <h1 class="page-title">班级通知</h1>
+                    <p class="page-desc">班委发布的班级通知，按发布时间倒序排列。</p>
+                </div>
+                <div class="list" id="noticeList"></div>
+            </div>
+
+            <!-- 详情视图 -->
+            <div id="detailView" style="display:none;">
+                <div style="margin-bottom:20px;">
+                    <button type="button" class="btn btn-outline" onclick="backToList()">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:2px;"><path d="M19 12H5"/><polyline points="12 19 5 12 12 5"/></svg>
+                        返回列表
+                    </button>
+                </div>
+                <div class="detail-card" id="detailCard"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="assets/js/app.js"></script>
+    <script>
+    // ===== 需要登录 =====
+    if (!requireAuth()) return;
+
+    var listView = document.getElementById('listView');
+    var detailView = document.getElementById('detailView');
+
+    // ===== 加载列表 =====
+    (async function loadList() {
+        var el = document.getElementById('noticeList');
+        el.innerHTML = skeletonHTML(5);
+        try {
+            var res = await api('/api/notices');
+            var list = (res.data && res.data.list) || [];
+            if (!list.length) { el.innerHTML = stateHTML('暂无通知'); return; }
+            el.innerHTML = list.map(function (n) {
+                return '<button type="button" class="list-row" onclick="showDetail(' + n.id + ')">'
+                    + '<div class="list-row-main">'
+                    + '<div class="list-row-title">' + esc(n.title) + '</div>'
+                    + '<div class="list-row-meta">'
+                    + '<span class="badge badge-' + esc(n.source || 'manual') + '">' + esc(sourceName(n.source)) + '</span>'
+                    + '<span>' + esc(n.publisher || '') + '</span>'
+                    + '<span>' + esc(fmtDate(n.publish_time)) + '</span>'
+                    + '</div>'
+                    + '</div>'
+                    + '<svg class="list-row-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>'
+                    + '</button>';
+            }).join('');
+        } catch (err) {
+            el.innerHTML = stateHTML(err.message, true);
+        }
+    })();
+
+    // ===== 查看详情 =====
+    async function showDetail(id) {
+        listView.style.display = 'none';
+        detailView.style.display = 'block';
+        var card = document.getElementById('detailCard');
+        card.innerHTML = stateHTML('加载中…');
+        try {
+            var res = await api('/api/notices/' + id);
+            var n = res.data;
+            card.innerHTML =
+                '<div class="detail-title">' + esc(n.title) + '</div>'
+                + '<div class="detail-meta">'
+                + '<span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>' + esc(n.publisher || '') + '</span>'
+                + '<span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>' + esc(fmtDate(n.publish_time)) + '</span>'
+                + '<span class="badge badge-' + esc(n.source || 'manual') + '">' + esc(sourceName(n.source)) + '</span>'
+                + '</div>'
+                + '<div class="detail-body">' + esc(n.content || '') + '</div>';
+            window.scrollTo({ top: 0 });
+        } catch (err) {
+            card.innerHTML = stateHTML(err.message, true);
+        }
+    }
+
+    function backToList() {
+        detailView.style.display = 'none';
+        listView.style.display = 'block';
+        window.scrollTo({ top: 0 });
+    }
+
+    function stateHTML(text, isError) {
+        var cls = isError ? 'state error' : 'state';
+        return '<div class="' + cls + '"><p>' + esc(text || '暂无数据') + '</p></div>';
+    }
+
+    function sourceName(s) {
+        if (s === 'crawler') return '抓取';
+        if (s === 'webhook') return '推送';
+        return '发布';
+    }
+    </script>
+</body>
+</html>
