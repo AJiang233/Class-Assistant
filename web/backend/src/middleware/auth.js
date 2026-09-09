@@ -1,6 +1,7 @@
 import { verify } from '../utils/jwt.js';
 import { UserModel } from '../models/userModel.js';
-import { hasPermission } from '../utils/permissions.js';
+import { RoleModel } from '../models/roleModel.js';
+import { hasPermission, buildRoleMap } from '../utils/permissions.js';
 
 /**
  * 从请求头中提取并验证 JWT
@@ -83,7 +84,11 @@ export function withPermission(perm) {
       });
     }
 
-    if (!hasPermission(fresh.positions, perm)) {
+    // 加载自定义职位权限（roles 表），让自定义职位也能参与鉴权
+    const roleModel = new RoleModel(env.DB);
+    const customMap = buildRoleMap(await roleModel.list());
+
+    if (!hasPermission(fresh.positions, perm, customMap)) {
       return new Response(JSON.stringify({
         success: false,
         error: '没有操作权限',

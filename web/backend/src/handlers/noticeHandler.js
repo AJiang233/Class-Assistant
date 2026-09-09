@@ -2,12 +2,23 @@ import { NoticeModel } from '../models/noticeModel.js';
 import { success, error, jsonResponse } from '../utils/response.js';
 
 /**
+ * 把本地时间字符串（"YYYY-MM-DDTHH:MM"）转为 UTC 存储格式（"YYYY-MM-DD HH:MM:SS"）
+ * 空值返回 null，保证过期时间与数据库 datetime('now') 统一为 UTC 比较
+ */
+function toUTC(dt) {
+  if (!dt) return null;
+  const v = new Date(dt);
+  if (isNaN(v.getTime())) return null;
+  return v.toISOString().slice(0, 19).replace('T', ' ');
+}
+
+/**
  * 发布通知（需登录）
  */
 export async function handleCreateNotice(request, env, user) {
   try {
     const body = await request.json();
-    const { title, content, publish_time, remind_people = null } = body;
+    const { title, content, publish_time, remind_people = null, expire_time = null } = body;
 
     if (!title || !content || !publish_time) {
       return jsonResponse(error('标题、内容、发布时间为必填字段', 'MISSING_FIELDS'), 400);
@@ -20,7 +31,8 @@ export async function handleCreateNotice(request, env, user) {
       publish_time,
       publisher: user.name,  // 使用当前登录用户名
       remind_people: remind_people ? JSON.stringify(remind_people) : null,
-      source: 'manual'
+      source: 'manual',
+      expire_time: toUTC(expire_time)
     });
 
     return jsonResponse(success({ message: '通知发布成功' }), 201);
@@ -92,7 +104,12 @@ export async function handleUpdateNotice(request, env, user, params) {
       return jsonResponse(error('通知不存在', 'NOTICE_NOT_FOUND'), 404);
     }
 
-    await noticeModel.update(id, body);
+    // 过期时间统一转 UTC 存储
+    const { expire_time, ...rest } = body;
+    const payload = { ...rest };
+    if (expire_time !== undefined) payload.expire_time = toUTC(expire_time);
+
+    await noticeModel.update(id, payload);
 
     return jsonResponse(success({ message: '通知更新成功' }));
   } catch (e) {

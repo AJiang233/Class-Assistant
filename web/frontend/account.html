@@ -91,7 +91,21 @@
                             <option value="班长">班长</option>
                             <option value="团支书">团支书</option>
                             <option value="学习委员">学习委员</option>
+                            <option value="__custom__">自定义职位…</option>
                         </select>
+                    </div>
+
+                    <!-- 自定义职位 + 权限（仅选择"自定义职位"时显示） -->
+                    <div id="regCustomFields" style="display:none;">
+                        <div class="form-field">
+                            <label class="form-label" for="regCustomPosition">职位名称</label>
+                            <input class="form-input" type="text" id="regCustomPosition" placeholder="如：文艺委员" autocomplete="off">
+                        </div>
+                        <div class="form-field">
+                            <label class="form-label">权限</label>
+                            <label style="display:block; margin:6px 0;"><input type="checkbox" id="regPermWrite" value="content:write"> 可发布 / 取消 活动、通知</label>
+                            <label style="display:block; margin:6px 0;"><input type="checkbox" id="regPermManage" value="user:manage"> 可注册账号、管理班级成员</label>
+                        </div>
                     </div>
                     <button class="btn btn-primary btn-block" id="regBtn" type="submit">注册成员</button>
                 </form>
@@ -202,6 +216,12 @@
     }
 
     // ===== 注册新成员 =====
+    var regPositionSelect = document.getElementById('regPositions');
+    regPositionSelect.addEventListener('change', function () {
+        var custom = this.value === '__custom__';
+        document.getElementById('regCustomFields').style.display = custom ? 'block' : 'none';
+    });
+
     var regForm = document.getElementById('regForm');
     regForm.addEventListener('submit', async function (e) {
         e.preventDefault();
@@ -211,16 +231,27 @@
         var name = document.getElementById('regName').value.trim();
         var password = document.getElementById('regPassword').value;
         var contact = document.getElementById('regContact').value.trim();
-        var positions = document.getElementById('regPositions').value;
+        var positions = regPositionSelect.value;
+        var role_permissions;
+        if (positions === '__custom__') {
+            positions = document.getElementById('regCustomPosition').value.trim();
+            if (!positions) { errBox.textContent = '请输入自定义职位名称'; errBox.classList.add('show'); return; }
+            role_permissions = [];
+            if (document.getElementById('regPermWrite').checked) role_permissions.push('content:write');
+            if (document.getElementById('regPermManage').checked) role_permissions.push('user:manage');
+        }
         if (!student_id || !name || !password) { errBox.textContent = '学号、姓名、密码为必填'; errBox.classList.add('show'); return; }
         if (password.length < 6) { errBox.textContent = '密码长度至少 6 位'; errBox.classList.add('show'); return; }
         var btn = document.getElementById('regBtn');
         btn.disabled = true; var t = btn.textContent; btn.textContent = '注册中…';
         try {
-            await api('/api/auth/register', { method: 'POST', body: JSON.stringify({ student_id: student_id, name: name, password: password, positions: positions, contact: contact }) });
+            var payload = { student_id: student_id, name: name, password: password, positions: positions, contact: contact };
+            if (role_permissions) payload.role_permissions = role_permissions;
+            await api('/api/auth/register', { method: 'POST', body: JSON.stringify(payload) });
             errBox.classList.add('show');
             errBox.textContent = '注册成功';
             regForm.reset();
+            document.getElementById('regCustomFields').style.display = 'none';
             loadMembers();
         } catch (err) {
             errBox.textContent = err.message;
