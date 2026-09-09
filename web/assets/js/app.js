@@ -63,13 +63,18 @@ function userPositions() {
   return [s];
 }
 
-/** 能否发布/取消 通知、活动（班长/团支书/学习委员） */
+/** 能否发布/取消 通知、活动（权限由后端按职位+自定义职位计算） */
 function canContentWrite() {
+  const u = getSession();
+  if (u && Array.isArray(u.permissions)) return u.permissions.includes('content:write');
+  // 兼容未含 permissions 的旧会话：按固定职位名兜底
   return userPositions().some(r => r === '班长' || r === '团支书' || r === '学习委员');
 }
 
-/** 能否注册账号、管理班级成员（班长/团支书） */
+/** 能否注册账号、管理班级成员（权限由后端计算） */
 function canManageUsers() {
+  const u = getSession();
+  if (u && Array.isArray(u.permissions)) return u.permissions.includes('user:manage');
   return userPositions().some(r => r === '班长' || r === '团支书');
 }
 

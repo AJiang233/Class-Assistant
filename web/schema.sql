@@ -20,7 +20,15 @@ CREATE TABLE IF NOT EXISTS notices (
   publisher      TEXT NOT NULL,
   remind_people  TEXT,
   source         TEXT DEFAULT 'manual',
+  expire_time    DATETIME,
   created_at     DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS roles (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  name         TEXT UNIQUE NOT NULL,
+  permissions  TEXT NOT NULL,
+  created_at   DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS activities (

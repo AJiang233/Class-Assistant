@@ -38,12 +38,16 @@ export function parsePositions(positions) {
 /**
  * 汇总某用户可拥有的所有权限
  * @param {string|string[]} positions
+ * @param {Object} [customMap] - 自定义职位权限映射 { 职位名: [权限...] }，来自 roles 表
  * @returns {Set<string>}
  */
-export function getPermissions(positions) {
+export function getPermissions(positions, customMap = {}) {
   const set = new Set();
   for (const role of parsePositions(positions)) {
     for (const perm of (ROLE_PERMISSIONS[role] || [])) {
+      set.add(perm);
+    }
+    for (const perm of (customMap[role] || [])) {
       set.add(perm);
     }
   }
@@ -54,8 +58,27 @@ export function getPermissions(positions) {
  * 判断某用户是否拥有指定权限
  * @param {string|string[]} positions
  * @param {string} perm
+ * @param {Object} [customMap]
  * @returns {boolean}
  */
-export function hasPermission(positions, perm) {
-  return getPermissions(positions).has(perm);
+export function hasPermission(positions, perm, customMap = {}) {
+  return getPermissions(positions, customMap).has(perm);
+}
+
+/**
+ * 把 roles 表行记录构建为 职位名->权限数组 映射
+ * @param {Array} roleRows - [{ name, permissions }]
+ * @returns {Object}
+ */
+export function buildRoleMap(roleRows) {
+  const map = {};
+  for (const r of (roleRows || [])) {
+    try {
+      const arr = JSON.parse(r.permissions);
+      map[r.name] = Array.isArray(arr) ? arr : [];
+    } catch {
+      map[r.name] = [];
+    }
+  }
+  return map;
 }

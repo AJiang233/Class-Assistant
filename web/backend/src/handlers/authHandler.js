@@ -1,8 +1,22 @@
 import { UserModel } from '../models/userModel.js';
+import { RoleModel } from '../models/roleModel.js';
 import { hashPassword, verifyPassword } from '../utils/crypto.js';
 import { sign } from '../utils/jwt.js';
 import { success, error, jsonResponse } from '../utils/response.js';
-import { parsePositions } from '../utils/permissions.js';
+import { parsePositions, getPermissions, buildRoleMap } from '../utils/permissions.js';
+
+/**
+ * 计算某用户的权限集合（含自定义职位，来自 roles 表）
+ */
+async function computePermissions(env, positions) {
+  try {
+    const roleModel = new RoleModel(env.DB);
+    const customMap = buildRoleMap(await roleModel.list());
+    return Array.from(getPermissions(positions, customMap));
+  } catch (e) {
+    return Array.from(getPermissions(positions));
+  }
+}
 
 /**
  * 用户注册
@@ -10,11 +24,17 @@ import { parsePositions } from '../utils/permissions.js';
 export async function handleRegister(request, env) {
   try {
     const body = await request.json();
-    const { student_id, name, password, positions = '学生', contact = '' } = body;
+    const { student_id, name, password, positions = '学生', contact = '', role_permissions } = body;
 
     // 校验必填字段
     if (!student_id || !name || !password) {
       return jsonResponse(error('学号、姓名、密码为必填字段', 'MISSING_FIELDS'), 400);
+    }
+
+    // 若注册了自定义职位且指定了权限，则先把该职位写入 roles 表
+    if (role_permissions && Array.isArray(role_permissions) && role_permissions.length) {
+      const roleModel = new RoleModel(env.DB);
+      await roleModel.upsert(positions, JSON.stringify(role_permissions));
     }
 
     // positions 兼容数组（自动转 JSON 字符串）或字符串，D1 不接受 object 类型
@@ -81,6 +101,8 @@ export async function handleLogin(request, env) {
       env.JWT_SECRET
     );
 
+    const permissions = await computePermissions(env, user.positions);
+
     return jsonResponse(success({
       token,
       user: {
@@ -88,7 +110,8 @@ export async function handleLogin(request, env) {
         student_id: user.student_id,
         name: user.name,
         positions: user.positions,
-        contact: user.contact
+        contact: user.contact,
+        permissions
       }
     }));
   } catch (e) {
@@ -109,7 +132,9 @@ export async function handleMe(request, env, userPayload) {
       return jsonResponse(error('用户不存在', 'USER_NOT_FOUND'), 404);
     }
 
-    return jsonResponse(success(user));
+    const permissions = await computePermissions(env, user.positions);
+
+    return jsonResponse(success({ ...user, permissions }));
   } catch (e) {
     console.error('获取用户信息失败:', e);
     return jsonResponse(error('获取用户信息失败', 'FETCH_USER_FAILED'), 500);

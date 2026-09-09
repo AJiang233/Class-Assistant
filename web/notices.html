@@ -45,7 +45,7 @@
 
                 <!-- 发布表单（仅 content:write 权限者可见） -->
                 <div class="profile-card" id="publishBox" style="display:none; margin-bottom:20px;">
-                    <h3 style="margin:0 0 12px; font-size:1.1rem;">发布通知</h3>
+                    <h3 id="pubBoxTitle" style="margin:0 0 12px; font-size:1.1rem;">发布通知</h3>
                     <div class="form-error" id="pubError"></div>
                     <div class="form-field">
                         <label class="form-label">标题</label>
@@ -59,7 +59,11 @@
                         <label class="form-label">发布时间</label>
                         <input id="pubTime" class="form-input" type="datetime-local" autocomplete="off">
                     </div>
-                    <button type="button" class="btn btn-primary" onclick="submitNotice()">发布</button>
+                    <div class="form-field">
+                        <label class="form-label">存活至（选填，到期自动隐藏）</label>
+                        <input id="pubExpire" class="form-input" type="datetime-local" autocomplete="off">
+                    </div>
+                    <button type="button" class="btn btn-primary" id="pubSubmitBtn" onclick="submitNotice()">发布</button>
                     <button type="button" class="btn btn-outline" onclick="togglePublish()" style="margin-left:8px;">取消</button>
                 </div>
 
@@ -91,13 +95,26 @@
     // ===== 发布入口（仅 content:write 权限者可见） =====
     if (canContentWrite()) document.getElementById('publishToggle').style.display = 'block';
 
+    var editingNoticeId = null;
+
+    function resetNoticeForm() {
+        editingNoticeId = null;
+        document.getElementById('pubBoxTitle').textContent = '发布通知';
+        document.getElementById('pubSubmitBtn').textContent = '发布';
+        document.getElementById('pubTitle').value = '';
+        document.getElementById('pubContent').value = '';
+        document.getElementById('pubExpire').value = '';
+    }
+
     function togglePublish() {
         var box = document.getElementById('publishBox');
         if (box.style.display === 'none') {
+            resetNoticeForm();
             box.style.display = 'block';
             document.getElementById('pubTime').value = nowLocal();
         } else {
             box.style.display = 'none';
+            resetNoticeForm();
         }
     }
 
@@ -112,17 +129,21 @@
         var title = document.getElementById('pubTitle').value.trim();
         var content = document.getElementById('pubContent').value.trim();
         var publish_time = document.getElementById('pubTime').value;
+        var expire_time = document.getElementById('pubExpire').value || null;
         if (!title || !content || !publish_time) {
             errBox.textContent = '标题、内容、发布时间为必填';
             errBox.classList.add('show'); return;
         }
-        var btn = document.getElementById('publishBtn');
-        btn.disabled = true; var t = btn.textContent; btn.textContent = '发布中…';
+        var btn = document.getElementById('pubSubmitBtn');
+        btn.disabled = true; var t = btn.textContent; btn.textContent = '提交中…';
         try {
-            await api('/api/notices', { method: 'POST', body: JSON.stringify({ title: title, content: content, publish_time: publish_time }) });
+            var body = { title: title, content: content, publish_time: publish_time, expire_time: expire_time };
+            if (editingNoticeId) {
+                await api('/api/notices/' + editingNoticeId, { method: 'PUT', body: JSON.stringify(body) });
+            } else {
+                await api('/api/notices', { method: 'POST', body: JSON.stringify(body) });
+            }
             togglePublish();
-            document.getElementById('pubTitle').value = '';
-            document.getElementById('pubContent').value = '';
             loadList();
         } catch (err) {
             errBox.textContent = err.message;
@@ -168,8 +189,11 @@
         try {
             var res = await api('/api/notices/' + id);
             var n = res.data;
-            var delBtn = canContentWrite()
-                ? '<div style="margin-top:24px;"><button type="button" class="btn btn-outline" style="color:#dc2626;border-color:#dc2626;" onclick="deleteNotice(' + n.id + ')">删除通知</button></div>'
+            var actBtns = canContentWrite()
+                ? '<div style="margin-top:24px;">'
+                  + '<button type="button" class="btn btn-outline" onclick="startEdit(' + n.id + ')" style="margin-right:8px;">编辑</button>'
+                  + '<button type="button" class="btn btn-outline" style="color:#dc2626;border-color:#dc2626;" onclick="deleteNotice(' + n.id + ')">删除通知</button>'
+                  + '</div>'
                 : '';
             card.innerHTML =
                 '<div class="detail-title">' + esc(n.title) + '</div>'
@@ -179,7 +203,7 @@
                 + '<span class="badge badge-' + esc(n.source || 'manual') + '">' + esc(sourceName(n.source)) + '</span>'
                 + '</div>'
                 + '<div class="detail-body">' + esc(n.content || '') + '</div>'
-                + delBtn;
+                + actBtns;
             window.scrollTo({ top: 0 });
         } catch (err) {
             card.innerHTML = stateHTML(err.message, true);
@@ -195,6 +219,22 @@
         } catch (err) {
             alert(err.message);
         }
+    }
+
+    function startEdit(id) {
+        backToList();
+        var box = document.getElementById('publishBox');
+        if (box.style.display === 'none') { resetNoticeForm(); box.style.display = 'block'; }
+        api('/api/notices/' + id).then(function (res) {
+            var n = res.data;
+            document.getElementById('pubBoxTitle').textContent = '编辑通知';
+            document.getElementById('pubSubmitBtn').textContent = '保存';
+            document.getElementById('pubTitle').value = n.title || '';
+            document.getElementById('pubContent').value = n.content || '';
+            document.getElementById('pubTime').value = (n.publish_time || '').slice(0, 16);
+            document.getElementById('pubExpire').value = (n.expire_time || '').replace(' ', 'T').slice(0, 16);
+            editingNoticeId = id;
+        }).catch(function (err) { alert(err.message); });
     }
 
     function backToList() {
@@ -218,6 +258,7 @@
     window.togglePublish = togglePublish;
     window.submitNotice = submitNotice;
     window.deleteNotice = deleteNotice;
+    window.startEdit = startEdit;
     window.backToList = backToList;
     })();
     </script>

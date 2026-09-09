@@ -45,7 +45,7 @@
 
                 <!-- 发布表单（仅 content:write 权限者可见） -->
                 <div class="profile-card" id="publishBox" style="display:none; margin-bottom:20px;">
-                    <h3 style="margin:0 0 12px; font-size:1.1rem;">发布活动</h3>
+                    <h3 id="pubBoxTitle" style="margin:0 0 12px; font-size:1.1rem;">发布活动</h3>
                     <div class="form-error" id="pubError"></div>
                     <div class="form-field">
                         <label class="form-label">标题</label>
@@ -67,7 +67,7 @@
                         <label class="form-label">结束时间</label>
                         <input id="pubEnd" class="form-input" type="datetime-local" autocomplete="off">
                     </div>
-                    <button type="button" class="btn btn-primary" onclick="submitActivity()">发布</button>
+                    <button type="button" class="btn btn-primary" id="pubSubmitBtn" onclick="submitActivity()">发布</button>
                     <button type="button" class="btn btn-outline" onclick="togglePublish()" style="margin-left:8px;">取消</button>
                 </div>
 
@@ -99,15 +99,27 @@
     // ===== 发布入口（仅 content:write 权限者可见） =====
     if (canContentWrite()) document.getElementById('publishToggle').style.display = 'block';
 
+    var editingActivityId = null;
+
+    function resetActivityForm() {
+        editingActivityId = null;
+        document.getElementById('pubBoxTitle').textContent = '发布活动';
+        document.getElementById('pubSubmitBtn').textContent = '发布';
+        document.getElementById('pubTitle').value = '';
+        document.getElementById('pubContent').value = '';
+        document.getElementById('pubLocation').value = '';
+        document.getElementById('pubEnd').value = '';
+    }
+
     function togglePublish() {
         var box = document.getElementById('publishBox');
         if (box.style.display === 'none') {
+            resetActivityForm();
             box.style.display = 'block';
-            var now = nowLocal();
-            document.getElementById('pubStart').value = now;
-            document.getElementById('pubEnd').value = '';
+            document.getElementById('pubStart').value = nowLocal();
         } else {
             box.style.display = 'none';
+            resetActivityForm();
         }
     }
 
@@ -128,14 +140,16 @@
             errBox.textContent = '标题、开始时间为必填';
             errBox.classList.add('show'); return;
         }
-        var btn = document.getElementById('publishBtn');
-        btn.disabled = true; var t = btn.textContent; btn.textContent = '发布中…';
+        var btn = document.getElementById('pubSubmitBtn');
+        btn.disabled = true; var t = btn.textContent; btn.textContent = '提交中…';
         try {
-            await api('/api/activities', { method: 'POST', body: JSON.stringify({ title: title, content: content, location: location, start_time: start_time, end_time: end_time }) });
+            var body = { title: title, content: content, location: location, start_time: start_time, end_time: end_time };
+            if (editingActivityId) {
+                await api('/api/activities/' + editingActivityId, { method: 'PUT', body: JSON.stringify(body) });
+            } else {
+                await api('/api/activities', { method: 'POST', body: JSON.stringify(body) });
+            }
             togglePublish();
-            document.getElementById('pubTitle').value = '';
-            document.getElementById('pubContent').value = '';
-            document.getElementById('pubLocation').value = '';
             loadList();
         } catch (err) {
             errBox.textContent = err.message;
@@ -184,14 +198,17 @@
             if (a.end_time) meta += '<span>结束 ' + esc(fmtDate(a.end_time)) + '</span>';
             if (a.location) meta += '<span>' + esc(a.location) + '</span>';
             meta += '<span>' + esc(a.publisher || '') + '</span>';
-            var delBtn = canContentWrite()
-                ? '<div style="margin-top:24px;"><button type="button" class="btn btn-outline" style="color:#dc2626;border-color:#dc2626;" onclick="deleteActivity(' + a.id + ')">删除活动</button></div>'
+            var actBtns = canContentWrite()
+                ? '<div style="margin-top:24px;">'
+                  + '<button type="button" class="btn btn-outline" onclick="startEdit(' + a.id + ')" style="margin-right:8px;">编辑</button>'
+                  + '<button type="button" class="btn btn-outline" style="color:#dc2626;border-color:#dc2626;" onclick="deleteActivity(' + a.id + ')">删除活动</button>'
+                  + '</div>'
                 : '';
             card.innerHTML =
                 '<div class="detail-title">' + esc(a.title) + '</div>'
                 + '<div class="detail-meta">' + meta + '</div>'
                 + '<div class="detail-body">' + esc(a.content || '暂无活动说明') + '</div>'
-                + delBtn;
+                + actBtns;
             window.scrollTo({ top: 0 });
         } catch (err) {
             card.innerHTML = stateHTML(err.message, true);
@@ -209,6 +226,23 @@
         }
     }
 
+    function startEdit(id) {
+        backToList();
+        var box = document.getElementById('publishBox');
+        if (box.style.display === 'none') { resetActivityForm(); box.style.display = 'block'; }
+        api('/api/activities/' + id).then(function (res) {
+            var a = res.data;
+            document.getElementById('pubBoxTitle').textContent = '编辑活动';
+            document.getElementById('pubSubmitBtn').textContent = '保存';
+            document.getElementById('pubTitle').value = a.title || '';
+            document.getElementById('pubContent').value = a.content || '';
+            document.getElementById('pubLocation').value = a.location || '';
+            document.getElementById('pubStart').value = (a.start_time || '').slice(0, 16);
+            document.getElementById('pubEnd').value = (a.end_time || '').slice(0, 16);
+            editingActivityId = id;
+        }).catch(function (err) { alert(err.message); });
+    }
+
     function backToList() {
         detailView.style.display = 'none';
         listView.style.display = 'block';
@@ -224,6 +258,7 @@
     window.togglePublish = togglePublish;
     window.submitActivity = submitActivity;
     window.deleteActivity = deleteActivity;
+    window.startEdit = startEdit;
     window.backToList = backToList;
     })();
     </script>
