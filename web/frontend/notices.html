@@ -81,6 +81,7 @@
 
     <script src="assets/js/app.js"></script>
     <script>
+    (function () {
     // ===== 需要登录 =====
     if (!requireAuth()) return;
 
@@ -212,6 +213,13 @@
         if (s === 'webhook') return '推送';
         return '发布';
     }
+    // 供内联 onclick 调用
+    window.showDetail = showDetail;
+    window.togglePublish = togglePublish;
+    window.submitNotice = submitNotice;
+    window.deleteNotice = deleteNotice;
+    window.backToList = backToList;
+    })();
     </script>
 </body>
 </html>

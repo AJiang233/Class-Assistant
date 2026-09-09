@@ -108,6 +108,7 @@
 
     <script src="assets/js/app.js"></script>
     <script>
+    (function () {
     // ===== 需要登录 =====
     if (!requireAuth()) return;
 
@@ -243,6 +244,9 @@
         var cls = isError ? 'state error' : 'state';
         return '<div class="' + cls + '"><p>' + esc(text || '暂无数据') + '</p></div>';
     }
+    // 供内联 onclick 调用
+    window.delMember = delMember;
+    })();
     </script>
 </body>
 </html>
