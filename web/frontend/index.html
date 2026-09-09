@@ -143,6 +143,11 @@
 
     <script src="assets/js/app.js"></script>
     <script>
+    // ===== 日历状态变量（提前声明，避免初始化时因 var 提升导致 eventDates 为 undefined 而崩溃） =====
+    var calYear, calMonth;
+    var eventDates = new Set();
+    var activeDate = null;
+
     // ===== 初始化 =====
     (function () {
         var authed = !!localStorage.getItem(LS_TOKEN);
@@ -247,10 +252,6 @@
     }
 
     // ===== 日历 =====
-    var calYear, calMonth;
-    var eventDates = new Set();
-    var activeDate = null;
-
     async function loadCalendar() {
         try {
             var res = await api('/api/activities?limit=100');
