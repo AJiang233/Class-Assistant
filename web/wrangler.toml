@@ -1,0 +1,27 @@
+# =============================================================
+# Class Assistant —— 单一 Cloudflare Worker 部署配置（前端静态 + 后端 API）
+# 构建根目录：web/（Cloudflare 面板 Root Directory 请设为 web）
+# 部署后同一域名下：
+#   - / 等静态页面 由 assets(directory=frontend) 托管
+#   - /api/*        由 main（backend/src/index.js）处理后端逻辑
+# =============================================================
+
+name = "class-assistant"
+main = "backend/src/index.js"
+compatibility_date = "2024-09-01"
+
+[assets]
+# 前端静态资源目录（相对本文件）
+directory = "frontend"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "class-assistant-db"
+# 替换为你的真实 D1 数据库 ID（Cloudflare Dashboard → D1 → 选择数据库）
+database_id = "6444f4bb-5197-4a53-a12b-264410e99f81"
+
+[vars]
+# JWT 过期时间（秒），默认 7 天
+JWT_EXPIRES_IN = "604800"
+# JWT 签名密钥（生产环境务必更换为强随机值）
+JWT_SECRET = "change-me-to-a-strong-random-secret"

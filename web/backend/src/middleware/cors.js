@@ -6,7 +6,7 @@ const allowedOrigins = [
   'http://localhost:3000',
   'http://localhost:8080',      // 本地开发前端（静态服务器）
   'http://localhost:8787',      // wrangler dev 本地调试
-  'https://class.qxwkstudio.top/' // 生产前端域名，部署后替换
+  'https://class.qxwkstudio.top' // 生产前端域名（不带尾部斜杠，否则 Origin 比对失败）
 ];
 
 export function handleCors(request) {
