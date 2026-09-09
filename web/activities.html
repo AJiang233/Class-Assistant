@@ -67,6 +67,10 @@
                         <label class="form-label">结束时间</label>
                         <input id="pubEnd" class="form-input" type="datetime-local" autocomplete="off">
                     </div>
+                    <div class="form-field">
+                        <label class="form-label">提醒对象（选填）</label>
+                        <div id="pubRemind" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
+                    </div>
                     <button type="button" class="btn btn-primary" id="pubSubmitBtn" onclick="submitActivity()">发布</button>
                     <button type="button" class="btn btn-outline" onclick="togglePublish()" style="margin-left:8px;">取消</button>
                 </div>
@@ -97,7 +101,35 @@
     var detailView = document.getElementById('detailView');
 
     // ===== 发布入口（仅 content:write 权限者可见） =====
-    if (canContentWrite()) document.getElementById('publishToggle').style.display = 'block';
+    if (canContentWrite()) {
+        document.getElementById('publishToggle').style.display = 'block';
+        loadRemindChoices();
+    }
+
+    // ===== 提醒对象选择 =====
+    var remindChoices = [];
+
+    async function loadRemindChoices() {
+        try {
+            var res = await api('/api/auth/members-pick');
+            remindChoices = (res.data && res.data.list) || [];
+        } catch (e) {}
+    }
+
+    function renderRemindChoices(checkedNames) {
+        var box = document.getElementById('pubRemind');
+        if (!remindChoices.length) { box.innerHTML = '<span style="opacity:.6;font-size:.85rem;">暂无成员可提醒</span>'; return; }
+        box.innerHTML = remindChoices.map(function (m) {
+            var chk = (checkedNames && checkedNames.indexOf(m.name) >= 0) ? ' checked' : '';
+            return '<label style="display:inline-flex;align-items:center;margin-right:12px;margin-bottom:6px;font-size:.9rem;"><input type="checkbox" class="remind-cb" value="' + esc(m.name) + '"' + chk + ' style="margin-right:4px;">' + esc(m.name) + '</label>';
+        }).join('');
+    }
+
+    function collectRemind() {
+        var names = [];
+        document.querySelectorAll('#pubRemind .remind-cb:checked').forEach(function (el) { names.push(el.value); });
+        return names;
+    }
 
     var editingActivityId = null;
 
@@ -109,6 +141,7 @@
         document.getElementById('pubContent').value = '';
         document.getElementById('pubLocation').value = '';
         document.getElementById('pubEnd').value = '';
+        renderRemindChoices([]);
     }
 
     function togglePublish() {
@@ -143,7 +176,7 @@
         var btn = document.getElementById('pubSubmitBtn');
         btn.disabled = true; var t = btn.textContent; btn.textContent = '提交中…';
         try {
-            var body = { title: title, content: content, location: location, start_time: start_time, end_time: end_time };
+            var body = { title: title, content: content, location: location, start_time: start_time, end_time: end_time, remind_people: collectRemind() };
             if (editingActivityId) {
                 await api('/api/activities/' + editingActivityId, { method: 'PUT', body: JSON.stringify(body) });
             } else {
@@ -239,6 +272,9 @@
             document.getElementById('pubLocation').value = a.location || '';
             document.getElementById('pubStart').value = (a.start_time || '').slice(0, 16);
             document.getElementById('pubEnd').value = (a.end_time || '').slice(0, 16);
+            var names = [];
+            if (a.remind_people) { try { var arr = JSON.parse(a.remind_people); if (Array.isArray(arr)) names = arr; } catch (e) {} }
+            renderRemindChoices(names);
             editingActivityId = id;
         }).catch(function (err) { alert(err.message); });
     }

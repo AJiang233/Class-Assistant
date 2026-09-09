@@ -41,6 +41,9 @@
                     <div id="publishToggle" style="display:none; margin-top:12px;">
                         <button type="button" class="btn btn-primary" onclick="togglePublish()" id="publishBtn">发布通知</button>
                     </div>
+                    <div id="archiveToggle" style="display:none; margin-top:12px;">
+                        <button type="button" class="btn btn-outline" onclick="toggleArchive()" id="archiveBtn">查看过期</button>
+                    </div>
                 </div>
 
                 <!-- 发布表单（仅 content:write 权限者可见） -->
@@ -62,6 +65,10 @@
                     <div class="form-field">
                         <label class="form-label">存活至（选填，到期自动隐藏）</label>
                         <input id="pubExpire" class="form-input" type="datetime-local" autocomplete="off">
+                    </div>
+                    <div class="form-field">
+                        <label class="form-label">提醒对象（选填）</label>
+                        <div id="pubRemind" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
                     </div>
                     <button type="button" class="btn btn-primary" id="pubSubmitBtn" onclick="submitNotice()">发布</button>
                     <button type="button" class="btn btn-outline" onclick="togglePublish()" style="margin-left:8px;">取消</button>
@@ -93,7 +100,43 @@
     var detailView = document.getElementById('detailView');
 
     // ===== 发布入口（仅 content:write 权限者可见） =====
-    if (canContentWrite()) document.getElementById('publishToggle').style.display = 'block';
+    if (canContentWrite()) {
+        document.getElementById('publishToggle').style.display = 'block';
+        document.getElementById('archiveToggle').style.display = 'block';
+        loadRemindChoices();
+    }
+
+    // ===== 提醒对象选择 =====
+    var remindChoices = [];
+    var isArchive = false;
+
+    async function loadRemindChoices() {
+        try {
+            var res = await api('/api/auth/members-pick');
+            remindChoices = (res.data && res.data.list) || [];
+        } catch (e) {}
+    }
+
+    function renderRemindChoices(checkedNames) {
+        var box = document.getElementById('pubRemind');
+        if (!remindChoices.length) { box.innerHTML = '<span style="opacity:.6;font-size:.85rem;">暂无成员可提醒</span>'; return; }
+        box.innerHTML = remindChoices.map(function (m) {
+            var chk = (checkedNames && checkedNames.indexOf(m.name) >= 0) ? ' checked' : '';
+            return '<label style="display:inline-flex;align-items:center;margin-right:12px;margin-bottom:6px;font-size:.9rem;"><input type="checkbox" class="remind-cb" value="' + esc(m.name) + '"' + chk + ' style="margin-right:4px;">' + esc(m.name) + '</label>';
+        }).join('');
+    }
+
+    function collectRemind() {
+        var names = [];
+        document.querySelectorAll('#pubRemind .remind-cb:checked').forEach(function (el) { names.push(el.value); });
+        return names;
+    }
+
+    function toggleArchive() {
+        isArchive = !isArchive;
+        document.getElementById('archiveBtn').textContent = isArchive ? '返回正常' : '查看过期';
+        loadList();
+    }
 
     var editingNoticeId = null;
 
@@ -104,6 +147,7 @@
         document.getElementById('pubTitle').value = '';
         document.getElementById('pubContent').value = '';
         document.getElementById('pubExpire').value = '';
+        renderRemindChoices([]);
     }
 
     function togglePublish() {
@@ -137,7 +181,7 @@
         var btn = document.getElementById('pubSubmitBtn');
         btn.disabled = true; var t = btn.textContent; btn.textContent = '提交中…';
         try {
-            var body = { title: title, content: content, publish_time: publish_time, expire_time: expire_time };
+            var body = { title: title, content: content, publish_time: publish_time, expire_time: expire_time, remind_people: collectRemind() };
             if (editingNoticeId) {
                 await api('/api/notices/' + editingNoticeId, { method: 'PUT', body: JSON.stringify(body) });
             } else {
@@ -158,7 +202,7 @@
         var el = document.getElementById('noticeList');
         el.innerHTML = skeletonHTML(5);
         try {
-            var res = await api('/api/notices');
+            var res = await api(isArchive ? '/api/notices/archive' : '/api/notices');
             var list = (res.data && res.data.list) || [];
             if (!list.length) { el.innerHTML = stateHTML('暂无通知'); return; }
             el.innerHTML = list.map(function (n) {
@@ -233,6 +277,9 @@
             document.getElementById('pubContent').value = n.content || '';
             document.getElementById('pubTime').value = (n.publish_time || '').slice(0, 16);
             document.getElementById('pubExpire').value = (n.expire_time || '').replace(' ', 'T').slice(0, 16);
+            var names = [];
+            if (n.remind_people) { try { var a = JSON.parse(n.remind_people); if (Array.isArray(a)) names = a; } catch (e) {} }
+            renderRemindChoices(names);
             editingNoticeId = id;
         }).catch(function (err) { alert(err.message); });
     }
@@ -256,6 +303,7 @@
     // 供内联 onclick 调用
     window.showDetail = showDetail;
     window.togglePublish = togglePublish;
+    window.toggleArchive = toggleArchive;
     window.submitNotice = submitNotice;
     window.deleteNotice = deleteNotice;
     window.startEdit = startEdit;

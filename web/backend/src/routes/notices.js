@@ -1,6 +1,7 @@
 import {
   handleCreateNotice,
   handleListNotices,
+  handleListArchivedNotices,
   handleGetNotice,
   handleUpdateNotice,
   handleDeleteNotice
@@ -24,6 +25,11 @@ export async function noticeRoutes(request, env, ctx) {
   // 获取通知列表（需登录）
   if (path === '/api/notices' && method === 'GET') {
     return withAuth(handleListNotices)(request, env, ctx);
+  }
+
+  // 归档通知列表（含已过期，需 content:write）
+  if (path === '/api/notices/archive' && method === 'GET') {
+    return withPermission('content:write')(handleListArchivedNotices)(request, env, ctx);
   }
 
   // 获取/更新/删除单条通知

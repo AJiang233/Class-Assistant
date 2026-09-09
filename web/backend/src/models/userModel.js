@@ -38,6 +38,16 @@ export class UserModel {
   }
 
   /**
+   * 获取成员精简列表（仅 id/name，供提醒对象选择器等使用）
+   */
+  async listPicks() {
+    const result = await this.db.prepare(
+      'SELECT id, name FROM users ORDER BY name ASC'
+    ).all();
+    return result.results;
+  }
+
+  /**
    * 根据 ID 删除用户
    */
   async delete(id) {

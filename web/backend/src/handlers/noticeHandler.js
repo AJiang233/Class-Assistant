@@ -62,6 +62,25 @@ export async function handleListNotices(request, env, user) {
 }
 
 /**
+ * 获取归档通知列表（含已过期，需 content:write 权限，供管理员查看）
+ */
+export async function handleListArchivedNotices(request, env, user) {
+  try {
+    const url = new URL(request.url);
+    const limit = parseInt(url.searchParams.get('limit')) || 50;
+    const offset = parseInt(url.searchParams.get('offset')) || 0;
+
+    const noticeModel = new NoticeModel(env.DB);
+    const list = await noticeModel.listAll(limit, offset);
+
+    return jsonResponse(success({ list, total: list.length }));
+  } catch (e) {
+    console.error('获取归档通知失败:', e);
+    return jsonResponse(error('获取归档通知失败', 'LIST_NOTICES_FAILED'), 500);
+  }
+}
+
+/**
  * 获取单条通知（需登录）
  */
 export async function handleGetNotice(request, env, user, params) {
@@ -108,6 +127,9 @@ export async function handleUpdateNotice(request, env, user, params) {
     const { expire_time, ...rest } = body;
     const payload = { ...rest };
     if (expire_time !== undefined) payload.expire_time = toUTC(expire_time);
+    if (payload.remind_people !== undefined && payload.remind_people !== null) {
+      payload.remind_people = Array.isArray(payload.remind_people) ? JSON.stringify(payload.remind_people) : payload.remind_people;
+    }
 
     await noticeModel.update(id, payload);
 

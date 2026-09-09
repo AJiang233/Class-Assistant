@@ -34,6 +34,19 @@ export class NoticeModel {
   }
 
   /**
+   * 获取全部通知（含已过期，供管理员归档查看，按发布时间倒序）
+   */
+  async listAll(limit = 50, offset = 0) {
+    const result = await this.db.prepare(
+      `SELECT id, title, content, publish_time, publisher, remind_people, source, expire_time, created_at
+       FROM notices
+       ORDER BY publish_time DESC
+       LIMIT ? OFFSET ?`
+    ).bind(limit, offset).all();
+    return result.results;
+  }
+
+  /**
    * 根据 ID 获取通知
    */
   async findById(id) {

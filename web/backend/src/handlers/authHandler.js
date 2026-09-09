@@ -219,3 +219,52 @@ export async function handleDeleteUser(request, env, user, params) {
     return jsonResponse(error('删除成员失败', 'DELETE_USER_FAILED'), 500);
   }
 }
+
+/**
+ * 更新班级成员资料（姓名/职务/联系方式，需 user:manage 权限）
+ */
+export async function handleUpdateUser(request, env, user, params) {
+  try {
+    const id = parseInt(params.id);
+    if (!id) {
+      return jsonResponse(error('无效的用户ID', 'INVALID_ID'), 400);
+    }
+
+    const body = await request.json();
+    const { name, positions, contact } = body;
+    if (name === undefined && positions === undefined && contact === undefined) {
+      return jsonResponse(error('没有可更新的字段', 'MISSING_FIELDS'), 400);
+    }
+
+    const userModel = new UserModel(env.DB);
+    const existing = await userModel.findById(id);
+    if (!existing) {
+      return jsonResponse(error('用户不存在', 'USER_NOT_FOUND'), 404);
+    }
+
+    const data = {};
+    if (name !== undefined) data.name = name;
+    if (positions !== undefined) data.positions = Array.isArray(positions) ? JSON.stringify(positions) : positions;
+    if (contact !== undefined) data.contact = contact;
+
+    await userModel.update(id, data);
+    return jsonResponse(success({ message: '更新成功' }));
+  } catch (e) {
+    console.error('更新成员失败:', e);
+    return jsonResponse(error('更新成员失败', 'UPDATE_USER_FAILED'), 500);
+  }
+}
+
+/**
+ * 获取成员精简列表（任何登录用户可用，用于提醒对象选择）
+ */
+export async function handleListMembersPick(request, env, user) {
+  try {
+    const userModel = new UserModel(env.DB);
+    const list = await userModel.listPicks();
+    return jsonResponse(success({ list }));
+  } catch (e) {
+    console.error('获取成员列表失败:', e);
+    return jsonResponse(error('获取成员列表失败', 'LIST_USERS_FAILED'), 500);
+  }
+}

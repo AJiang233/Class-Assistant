@@ -92,7 +92,13 @@ export async function handleUpdateActivity(request, env, user, params) {
       return jsonResponse(error('活动不存在', 'ACTIVITY_NOT_FOUND'), 404);
     }
 
-    await activityModel.update(id, body);
+    // 提醒对象数组统一序列化为 JSON 字符串存储
+    const payload = { ...body };
+    if (payload.remind_people !== undefined && payload.remind_people !== null) {
+      payload.remind_people = Array.isArray(payload.remind_people) ? JSON.stringify(payload.remind_people) : payload.remind_people;
+    }
+
+    await activityModel.update(id, payload);
 
     return jsonResponse(success({ message: '活动更新成功' }));
   } catch (e) {

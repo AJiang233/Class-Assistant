@@ -4,7 +4,9 @@ import {
   handleMe,
   handleChangePassword,
   handleListUsers,
-  handleDeleteUser
+  handleDeleteUser,
+  handleUpdateUser,
+  handleListMembersPick
 } from '../handlers/authHandler.js';
 import { withAuth, withPermission } from '../middleware/auth.js';
 
@@ -41,13 +43,27 @@ export async function authRoutes(request, env, ctx) {
     return withPermission('user:manage')(handleListUsers)(request, env, ctx);
   }
 
-  // 删除班级成员（需 user:manage 权限）
+  // 获取成员精简列表（任何登录用户，用于提醒对象选择）
+  if (path === '/api/auth/members-pick' && method === 'GET') {
+    return withAuth(handleListMembersPick)(request, env, ctx);
+  }
+
+  // 更新/删除班级成员（需 user:manage 权限）
   const match = path.match(/^\/api\/auth\/users\/(\d+)$/);
-  if (match && method === 'DELETE') {
+  if (match) {
     const params = { id: match[1] };
-    return withPermission('user:manage')((req, env, c, user) =>
-      handleDeleteUser(req, env, user, params)
-    )(request, env, ctx);
+
+    if (method === 'PUT') {
+      return withPermission('user:manage')((req, env, c, user) =>
+        handleUpdateUser(req, env, user, params)
+      )(request, env, ctx);
+    }
+
+    if (method === 'DELETE') {
+      return withPermission('user:manage')((req, env, c, user) =>
+        handleDeleteUser(req, env, user, params)
+      )(request, env, ctx);
+    }
   }
 
   return null;
