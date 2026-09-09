@@ -1,35 +1,38 @@
 # Class Assistant · Web 模块
 
-「班级助理」项目的 Web 门户：**Cloudflare Worker 后端 API** + **纯 HTML/CSS/JS 前端**。
+「班级助理」项目的 Web 门户：**Cloudflare Pages 一体部署**（静态前端 + Functions 后端 + D1），纯 HTML/CSS/JS。
 
-- 后端：`backend/` — Cloudflare Workers + D1（SQLite），JWT + PBKDF2 认证，通知/活动 CRUD，**运行时零依赖**
-- 前端：`frontend/` — 原生 HTML/CSS/JS，应用壳布局（左侧固定栏 + 右侧内容区 iframe 嵌入）
+- 前端：根目录静态文件 — 原生 HTML/CSS/JS，应用壳布局（左侧固定栏 + 右侧内容区 iframe 嵌入）
+- 后端：`backend/src/` — 经 `functions/api/[[path]].js` 接入 Pages Functions，JWT + PBKDF2 认证，通知/活动 CRUD，**运行时零依赖**（Web Crypto / 原生 fetch）
+- 数据库：Cloudflare D1（SQLite）
 
 ---
 
 ## 目录结构
 
 ```
-web/
-├── backend/                  # Cloudflare Worker 后端 API
-│   ├── src/
-│   │   ├── index.js          # Worker 入口（CORS 预检 + 路由分发 + 404）
-│   │   ├── routes/           # 路由分发：auth / notices / activities
-│   │   ├── handlers/         # 业务逻辑：认证 / 通知 / 活动
-│   │   ├── models/           # D1 数据访问（users / notices / activities）
-│   │   ├── middleware/       # CORS / JWT 认证 / 日志
-│   │   └── utils/            # 统一响应 / PBKDF2 / JWT
-│   ├── schema.sql            # D1 表结构
-│   ├── wrangler.toml         # Cloudflare 配置（D1 binding、JWT_SECRET）
-│   └── package.json
-├── frontend/                 # 前端静态页面
-│   ├── index.html            # 应用壳：左侧固定栏 + 右侧内容区（iframe）
-│   ├── notices.html          # 通知列表/详情（iframe 内容页）
-│   ├── activities.html       # 活动列表/详情（iframe 内容页）
-│   ├── account.html          # 个人中心（iframe 内容页）
-│   └── assets/
-│       ├── css/style.css     # 共享样式（主题变量 + 组件）
-│       └── js/app.js         # API 封装 + 会话管理 + 工具
+web/                            # Cloudflare Pages 项目根目录（直接部署本层）
+├── functions/
+│   └── api/
+│       └── [[path]].js         # Pages Functions 入口：仅接管 /api/*，复用 backend/src 的 fetch handler
+├── index.html                  # 应用壳：左侧固定栏 + 右侧内容区（iframe）
+├── notices.html                # 通知列表/详情（iframe 内容页）
+├── activities.html             # 活动列表/详情（iframe 内容页）
+├── account.html                # 个人中心（iframe 内容页）
+├── assets/
+│   ├── css/style.css           # 共享样式（主题变量 + 组件）
+│   └── js/app.js               # API 封装 + 会话管理 + 工具
+├── backend/
+│   └── src/                    # 后端源码（被 functions 引入，同域运行）
+│       ├── index.js            # fetch 入口（CORS 预检 + 路由分发 + 404）
+│       ├── routes/             # 路由分发：auth / notices / activities
+│       ├── handlers/           # 业务逻辑：认证 / 通知 / 活动
+│       ├── models/             # D1 数据访问（users / notices / activities）
+│       ├── middleware/         # CORS / JWT 认证 / 日志
+│       └── utils/              # 统一响应 / PBKDF2 / JWT
+├── schema.sql                  # D1 表结构
+├── wrangler.toml               # 本地开发绑定（DB / JWT_SECRET，生产绑定在 Pages 面板配置）
+├── package.json                # wrangler devDependency + 脚本（dev / deploy / db）
 └── README.md
 ```
 
@@ -209,59 +212,55 @@ CREATE TABLE activities (
 - **纯 HTML/CSS/JS**，无构建、无框架，静态文件直接部署
 - **应用壳布局**：`index.html` 登录后显示左侧固定侧边栏（主页/活动/通知 + 底部用户区），右侧内容区以 iframe 嵌入 `notices.html` / `activities.html` / `account.html`
 - **登录面板**：未登录时也在应用壳内，点侧边栏「登录」在右侧显示登录表单；未登录不加载任何日程数据
-- **API 封装**：`frontend/assets/js/app.js` 提供 `api(path, options)`，自动附带 `Bearer` token、401 自动回登录页、`saveSession/logout` 等
+- **API 封装**：`assets/js/app.js` 提供 `api(path, options)`，自动附带 `Bearer` token、401 自动回登录页、`saveSession/logout` 等
 - **主题**：`data-theme` 深浅色，localStorage `theme`，iframe 内页同步
 - **侧边栏折叠**：状态存 localStorage `sidebarCollapsed`
 
-### 前端配置（接入时需改）
+### 前端配置
 
-`frontend/assets/js/app.js` 顶部：
+`assets/js/app.js` 顶部：
 
 ```js
-const API_BASE = 'http://127.0.0.1:8787'; // 生产改为后端 Worker 域名
+const API_BASE = ''; // 与后端同域部署，保持空字符串（相对路径 /api/* 走 Pages Functions）
 ```
 
 ---
 
-## 生产部署
+## 生产部署（Cloudflare Pages，前后端一体）
 
-### 1. 后端（Worker + D1）
+### 1. 创建 Pages 项目并绑定资源
+
+- Pages 项目构建根目录设为 `web/`（或本地直接 `npm run deploy`）
+- Dashboard → **Settings → Functions**：
+  - **D1 database bindings**：变量名 `DB`，选择 `class-assistant-db`
+  - **Environment variables**：`JWT_SECRET`（强随机值，如 `openssl rand -hex 32`）
+- 全新库建表：`npm run db:remote`
+
+### 2. 自定义域名（仅需 CNAME，无需域名转入账户）
+
+Pages → **Custom domains** → 添加域名，按提示在域名商把 CNAME 指向 `<项目名>.pages.dev`，Cloudflare 自动签发证书。
+
+### 3. 部署
 
 ```bash
-cd web/backend
+cd web
 npm install
-# 修改 wrangler.toml：填入真实 database_id（npx wrangler d1 list 可查）
-node_modules\.bin\wrangler deploy
+npm run deploy          # wrangler pages deploy .
 ```
 
-`wrangler.toml` 关键配置：
+或关联 git 仓库后 push 自动构建。
 
-```toml
-[[d1_databases]]
-binding = "DB"
-database_name = "class-assistant-db"
-database_id = "你的D1数据库ID"
+### 说明
 
-[vars]
-JWT_SECRET = "生产环境请更换强随机密钥"
-```
-
-> 线上 D1 若表已存在可跳过 schema；全新库用 `wrangler d1 execute class-assistant-db --remote --file=./schema.sql` 建表。
-
-### 2. 跨域（CORS）
-
-`web/backend/src/middleware/cors.js` 白名单加入前端真实域名（如 `https://your-app.pages.dev`）。
-
-### 3. 前端
-
-- `frontend/assets/js/app.js` 的 `API_BASE` 改为后端域名
-- 将 `frontend/` 整个目录部署到 Cloudflare Pages 或任意静态托管
+- `/api/*` 由 `functions/api/[[path]].js` 接管，静态页面与后端同域，**无需 CORS / 反向代理**
+- `API_BASE` 保持 `''`；`_redirects` 不再需要
+- 本地开发：`npm run dev`（`wrangler pages dev .`），首次运行前 `npm run db:local` 建本地 D1 库
 
 ---
 
 ## 安全说明
 
 - 密码使用 Web Crypto PBKDF2（10 万次迭代 + 随机盐），不存明文
-- JWT 密钥存放在 `wrangler.toml` vars，生产请更换为强随机值
+- JWT 密钥存放在 Pages 项目环境变量 `JWT_SECRET`，生产请更换为强随机值
 - 所有受保护接口（通知/活动/个人）均需有效 JWT
 - 前端所有用户输入经 `esc()` 转义，防止 XSS

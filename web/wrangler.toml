@@ -1,18 +1,13 @@
 # =============================================================
-# Class Assistant —— 单一 Cloudflare Worker 部署配置（前端静态 + 后端 API）
-# 构建根目录：web/（Cloudflare 面板 Root Directory 请设为 web）
-# 部署后同一域名下：
-#   - / 等静态页面 由 assets(directory=frontend) 托管
-#   - /api/*        由 main（backend/src/index.js）处理后端逻辑
+# Class Assistant · Pages 本地开发配置（仅 wrangler pages dev 使用）
+# 生产环境的绑定在 Cloudflare Pages 面板配置：
+#   Settings → Functions → D1 database bindings（变量名 DB）
+#   Settings → Environment variables（JWT_SECRET）
+# 构建根目录：web/（Pages 项目根目录，直接部署本层）
 # =============================================================
 
 name = "class-assistant"
-main = "backend/src/index.js"
 compatibility_date = "2024-09-01"
-
-[assets]
-# 前端静态资源目录（相对本文件）
-directory = "frontend"
 
 [[d1_databases]]
 binding = "DB"

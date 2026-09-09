@@ -1,12 +1,12 @@
 {
-  "name": "class-assistant-backend",
+  "name": "class-assistant-web",
   "version": "1.0.0",
+  "private": true,
   "type": "module",
-  "description": "班级助手后端 API（Cloudflare Workers + D1）",
-  "main": "src/index.js",
+  "description": "班级助手 Web 门户（Cloudflare Pages：静态前端 + Functions 后端 + D1）",
   "scripts": {
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
+    "dev": "wrangler pages dev .",
+    "deploy": "wrangler pages deploy .",
     "db:local": "wrangler d1 execute class-assistant-db --local --file=./schema.sql",
     "db:remote": "wrangler d1 execute class-assistant-db --remote --file=./schema.sql"
   },
