@@ -38,7 +38,31 @@
                 <div class="page-head">
                     <h1 class="page-title">班级通知</h1>
                     <p class="page-desc">班委发布的班级通知，按发布时间倒序排列。</p>
+                    <div id="publishToggle" style="display:none; margin-top:12px;">
+                        <button type="button" class="btn btn-primary" onclick="togglePublish()" id="publishBtn">发布通知</button>
+                    </div>
                 </div>
+
+                <!-- 发布表单（仅 content:write 权限者可见） -->
+                <div class="profile-card" id="publishBox" style="display:none; margin-bottom:20px;">
+                    <h3 style="margin:0 0 12px; font-size:1.1rem;">发布通知</h3>
+                    <div class="form-error" id="pubError"></div>
+                    <div class="form-field">
+                        <label class="form-label">标题</label>
+                        <input id="pubTitle" class="form-input" type="text" placeholder="请输入通知标题" autocomplete="off">
+                    </div>
+                    <div class="form-field">
+                        <label class="form-label">内容</label>
+                        <textarea id="pubContent" class="form-input" rows="4" placeholder="请输入通知内容"></textarea>
+                    </div>
+                    <div class="form-field">
+                        <label class="form-label">发布时间</label>
+                        <input id="pubTime" class="form-input" type="datetime-local" autocomplete="off">
+                    </div>
+                    <button type="button" class="btn btn-primary" onclick="submitNotice()">发布</button>
+                    <button type="button" class="btn btn-outline" onclick="togglePublish()" style="margin-left:8px;">取消</button>
+                </div>
+
                 <div class="list" id="noticeList"></div>
             </div>
 
@@ -63,8 +87,52 @@
     var listView = document.getElementById('listView');
     var detailView = document.getElementById('detailView');
 
+    // ===== 发布入口（仅 content:write 权限者可见） =====
+    if (canContentWrite()) document.getElementById('publishToggle').style.display = 'block';
+
+    function togglePublish() {
+        var box = document.getElementById('publishBox');
+        if (box.style.display === 'none') {
+            box.style.display = 'block';
+            document.getElementById('pubTime').value = nowLocal();
+        } else {
+            box.style.display = 'none';
+        }
+    }
+
+    function nowLocal() {
+        var d = new Date(); var pad = function (n) { return n < 10 ? '0' + n : '' + n; };
+        return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+    }
+
+    async function submitNotice() {
+        var errBox = document.getElementById('pubError');
+        errBox.classList.remove('show');
+        var title = document.getElementById('pubTitle').value.trim();
+        var content = document.getElementById('pubContent').value.trim();
+        var publish_time = document.getElementById('pubTime').value;
+        if (!title || !content || !publish_time) {
+            errBox.textContent = '标题、内容、发布时间为必填';
+            errBox.classList.add('show'); return;
+        }
+        var btn = document.getElementById('publishBtn');
+        btn.disabled = true; var t = btn.textContent; btn.textContent = '发布中…';
+        try {
+            await api('/api/notices', { method: 'POST', body: JSON.stringify({ title: title, content: content, publish_time: publish_time }) });
+            togglePublish();
+            document.getElementById('pubTitle').value = '';
+            document.getElementById('pubContent').value = '';
+            loadList();
+        } catch (err) {
+            errBox.textContent = err.message;
+            errBox.classList.add('show');
+        } finally {
+            btn.disabled = false; btn.textContent = t;
+        }
+    }
+
     // ===== 加载列表 =====
-    (async function loadList() {
+    async function loadList() {
         var el = document.getElementById('noticeList');
         el.innerHTML = skeletonHTML(5);
         try {
@@ -87,7 +155,8 @@
         } catch (err) {
             el.innerHTML = stateHTML(err.message, true);
         }
-    })();
+    }
+    loadList();
 
     // ===== 查看详情 =====
     async function showDetail(id) {
@@ -98,6 +167,9 @@
         try {
             var res = await api('/api/notices/' + id);
             var n = res.data;
+            var delBtn = canContentWrite()
+                ? '<div style="margin-top:24px;"><button type="button" class="btn btn-outline" style="color:#dc2626;border-color:#dc2626;" onclick="deleteNotice(' + n.id + ')">删除通知</button></div>'
+                : '';
             card.innerHTML =
                 '<div class="detail-title">' + esc(n.title) + '</div>'
                 + '<div class="detail-meta">'
@@ -105,10 +177,22 @@
                 + '<span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>' + esc(fmtDate(n.publish_time)) + '</span>'
                 + '<span class="badge badge-' + esc(n.source || 'manual') + '">' + esc(sourceName(n.source)) + '</span>'
                 + '</div>'
-                + '<div class="detail-body">' + esc(n.content || '') + '</div>';
+                + '<div class="detail-body">' + esc(n.content || '') + '</div>'
+                + delBtn;
             window.scrollTo({ top: 0 });
         } catch (err) {
             card.innerHTML = stateHTML(err.message, true);
+        }
+    }
+
+    async function deleteNotice(id) {
+        if (!confirm('确定删除该通知？')) return;
+        try {
+            await api('/api/notices/' + id, { method: 'DELETE' });
+            backToList();
+            loadList();
+        } catch (err) {
+            alert(err.message);
         }
     }
 

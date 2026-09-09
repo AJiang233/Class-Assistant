@@ -38,7 +38,39 @@
                 <div class="page-head">
                     <h1 class="page-title">班级活动</h1>
                     <p class="page-desc">班级活动的安排、地点与时间，按开始时间倒序排列。</p>
+                    <div id="publishToggle" style="display:none; margin-top:12px;">
+                        <button type="button" class="btn btn-primary" onclick="togglePublish()" id="publishBtn">发布活动</button>
+                    </div>
                 </div>
+
+                <!-- 发布表单（仅 content:write 权限者可见） -->
+                <div class="profile-card" id="publishBox" style="display:none; margin-bottom:20px;">
+                    <h3 style="margin:0 0 12px; font-size:1.1rem;">发布活动</h3>
+                    <div class="form-error" id="pubError"></div>
+                    <div class="form-field">
+                        <label class="form-label">标题</label>
+                        <input id="pubTitle" class="form-input" type="text" placeholder="请输入活动标题" autocomplete="off">
+                    </div>
+                    <div class="form-field">
+                        <label class="form-label">内容说明</label>
+                        <textarea id="pubContent" class="form-input" rows="3" placeholder="选填"></textarea>
+                    </div>
+                    <div class="form-field">
+                        <label class="form-label">地点</label>
+                        <input id="pubLocation" class="form-input" type="text" placeholder="选填" autocomplete="off">
+                    </div>
+                    <div class="form-field">
+                        <label class="form-label">开始时间</label>
+                        <input id="pubStart" class="form-input" type="datetime-local" autocomplete="off">
+                    </div>
+                    <div class="form-field">
+                        <label class="form-label">结束时间</label>
+                        <input id="pubEnd" class="form-input" type="datetime-local" autocomplete="off">
+                    </div>
+                    <button type="button" class="btn btn-primary" onclick="submitActivity()">发布</button>
+                    <button type="button" class="btn btn-outline" onclick="togglePublish()" style="margin-left:8px;">取消</button>
+                </div>
+
                 <div class="list" id="activityList"></div>
             </div>
 
@@ -63,8 +95,57 @@
     var listView = document.getElementById('listView');
     var detailView = document.getElementById('detailView');
 
+    // ===== 发布入口（仅 content:write 权限者可见） =====
+    if (canContentWrite()) document.getElementById('publishToggle').style.display = 'block';
+
+    function togglePublish() {
+        var box = document.getElementById('publishBox');
+        if (box.style.display === 'none') {
+            box.style.display = 'block';
+            var now = nowLocal();
+            document.getElementById('pubStart').value = now;
+            document.getElementById('pubEnd').value = '';
+        } else {
+            box.style.display = 'none';
+        }
+    }
+
+    function nowLocal() {
+        var d = new Date(); var pad = function (n) { return n < 10 ? '0' + n : '' + n; };
+        return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+    }
+
+    async function submitActivity() {
+        var errBox = document.getElementById('pubError');
+        errBox.classList.remove('show');
+        var title = document.getElementById('pubTitle').value.trim();
+        var content = document.getElementById('pubContent').value.trim();
+        var location = document.getElementById('pubLocation').value.trim();
+        var start_time = document.getElementById('pubStart').value;
+        var end_time = document.getElementById('pubEnd').value;
+        if (!title || !start_time) {
+            errBox.textContent = '标题、开始时间为必填';
+            errBox.classList.add('show'); return;
+        }
+        var btn = document.getElementById('publishBtn');
+        btn.disabled = true; var t = btn.textContent; btn.textContent = '发布中…';
+        try {
+            await api('/api/activities', { method: 'POST', body: JSON.stringify({ title: title, content: content, location: location, start_time: start_time, end_time: end_time }) });
+            togglePublish();
+            document.getElementById('pubTitle').value = '';
+            document.getElementById('pubContent').value = '';
+            document.getElementById('pubLocation').value = '';
+            loadList();
+        } catch (err) {
+            errBox.textContent = err.message;
+            errBox.classList.add('show');
+        } finally {
+            btn.disabled = false; btn.textContent = t;
+        }
+    }
+
     // ===== 加载列表 =====
-    (async function loadList() {
+    async function loadList() {
         var el = document.getElementById('activityList');
         el.innerHTML = skeletonHTML(5);
         try {
@@ -86,7 +167,8 @@
         } catch (err) {
             el.innerHTML = stateHTML(err.message, true);
         }
-    })();
+    }
+    loadList();
 
     // ===== 查看详情 =====
     async function showDetail(id) {
@@ -101,13 +183,28 @@
             if (a.end_time) meta += '<span>结束 ' + esc(fmtDate(a.end_time)) + '</span>';
             if (a.location) meta += '<span>' + esc(a.location) + '</span>';
             meta += '<span>' + esc(a.publisher || '') + '</span>';
+            var delBtn = canContentWrite()
+                ? '<div style="margin-top:24px;"><button type="button" class="btn btn-outline" style="color:#dc2626;border-color:#dc2626;" onclick="deleteActivity(' + a.id + ')">删除活动</button></div>'
+                : '';
             card.innerHTML =
                 '<div class="detail-title">' + esc(a.title) + '</div>'
                 + '<div class="detail-meta">' + meta + '</div>'
-                + '<div class="detail-body">' + esc(a.content || '暂无活动说明') + '</div>';
+                + '<div class="detail-body">' + esc(a.content || '暂无活动说明') + '</div>'
+                + delBtn;
             window.scrollTo({ top: 0 });
         } catch (err) {
             card.innerHTML = stateHTML(err.message, true);
+        }
+    }
+
+    async function deleteActivity(id) {
+        if (!confirm('确定删除该活动？')) return;
+        try {
+            await api('/api/activities/' + id, { method: 'DELETE' });
+            backToList();
+            loadList();
+        } catch (err) {
+            alert(err.message);
         }
     }
 

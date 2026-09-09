@@ -28,6 +28,26 @@ export class UserModel {
   }
 
   /**
+   * 获取全部班级成员（不含敏感字段）
+   */
+  async list() {
+    const result = await this.db.prepare(
+      'SELECT id, student_id, name, positions, contact, update_time FROM users ORDER BY id ASC'
+    ).all();
+    return result.results;
+  }
+
+  /**
+   * 根据 ID 删除用户
+   */
+  async delete(id) {
+    const result = await this.db.prepare(
+      'DELETE FROM users WHERE id = ?'
+    ).bind(id).run();
+    return result;
+  }
+
+  /**
    * 创建用户
    */
   async create(userData) {

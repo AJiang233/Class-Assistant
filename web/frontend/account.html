@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>个人中心 - 班级助理</title>
-    <meta name="description" content="班级助理：我的资料与退出登录。">
+    <meta name="description" content="班级助理：我的资料、修改密码与班级成员管理。">
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%234f46e5'/%3E%3Cpath d='M16 24h32v18H26l-10 8z' fill='none' stroke='%23fff' stroke-width='3' stroke-linejoin='round'/%3E%3Cpath d='M24 30h16M24 34h10' stroke='%23fff' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
     <link rel="stylesheet" href="assets/css/style.css">
     <script>
@@ -37,7 +37,72 @@
                 <h1 class="page-title">个人中心</h1>
                 <p class="page-desc">查看自己的班级资料。</p>
             </div>
+
             <div class="profile-card" id="profileCard"></div>
+
+            <!-- 修改密码（所有登录用户） -->
+            <div class="profile-card" style="margin-top:16px;">
+                <h2 style="margin:0 0 16px; font-size:1.25rem;">修改密码</h2>
+                <div class="form-error" id="pwdError"></div>
+                <form id="pwdForm" novalidate>
+                    <div class="form-field">
+                        <label class="form-label" for="oldPassword">旧密码</label>
+                        <input class="form-input" type="password" id="oldPassword" placeholder="请输入旧密码" autocomplete="current-password">
+                    </div>
+                    <div class="form-field">
+                        <label class="form-label" for="newPassword">新密码</label>
+                        <input class="form-input" type="password" id="newPassword" placeholder="至少 6 位" autocomplete="new-password">
+                    </div>
+                    <div class="form-field">
+                        <label class="form-label" for="confirmPassword">确认新密码</label>
+                        <input class="form-input" type="password" id="confirmPassword" placeholder="再次输入新密码" autocomplete="new-password">
+                    </div>
+                    <button class="btn btn-primary btn-block" id="pwdBtn" type="submit">确认修改</button>
+                </form>
+            </div>
+
+            <!-- 班级成员管理（仅班长/团支书） -->
+            <div class="profile-card" id="membersCard" style="margin-top:16px; display:none;">
+                <h2 style="margin:0 0 16px; font-size:1.25rem;">班级成员管理</h2>
+
+                <h3 style="margin:0 0 12px; font-size:1rem; opacity:.8;">添加新成员</h3>
+                <div class="form-error" id="regError"></div>
+                <form id="regForm" novalidate>
+                    <div class="form-field">
+                        <label class="form-label" for="regStudentId">学号</label>
+                        <input class="form-input" type="text" id="regStudentId" placeholder="请输入学号" autocomplete="off">
+                    </div>
+                    <div class="form-field">
+                        <label class="form-label" for="regName">姓名</label>
+                        <input class="form-input" type="text" id="regName" placeholder="请输入姓名" autocomplete="off">
+                    </div>
+                    <div class="form-field">
+                        <label class="form-label" for="regPassword">初始密码</label>
+                        <input class="form-input" type="password" id="regPassword" placeholder="至少 6 位" autocomplete="new-password">
+                    </div>
+                    <div class="form-field">
+                        <label class="form-label" for="regContact">联系方式</label>
+                        <input class="form-input" type="text" id="regContact" placeholder="选填" autocomplete="off">
+                    </div>
+                    <div class="form-field">
+                        <label class="form-label" for="regPositions">职务</label>
+                        <select class="form-input" id="regPositions">
+                            <option value="学生">学生</option>
+                            <option value="班长">班长</option>
+                            <option value="团支书">团支书</option>
+                            <option value="学习委员">学习委员</option>
+                        </select>
+                    </div>
+                    <button class="btn btn-primary btn-block" id="regBtn" type="submit">注册成员</button>
+                </form>
+
+                <h3 style="margin:24px 0 12px; font-size:1rem; opacity:.8;">成员列表</h3>
+                <div class="info-list" id="memberList"></div>
+            </div>
+
+            <div class="profile-actions" style="margin-top:16px;">
+                <button class="btn btn-outline" onclick="window.parent.logout()">退出登录</button>
+            </div>
         </div>
     </div>
 
@@ -65,14 +130,104 @@
                 + '<div class="info-row"><span class="k">职务</span><span class="v">' + esc(fmtPositions(u.positions)) + '</span></div>'
                 + '<div class="info-row"><span class="k">联系方式</span><span class="v">' + esc(u.contact || '未填写') + '</span></div>'
                 + '<div class="info-row"><span class="k">更新时间</span><span class="v">' + esc(fmtDate(u.update_time)) + '</span></div>'
-                + '</div>'
-                + '<div class="profile-actions">'
-                + '<button class="btn btn-outline" onclick="window.parent.logout()">退出登录</button>'
                 + '</div>';
         } catch (err) {
             card.innerHTML = stateHTML(err.message, true);
         }
     })();
+
+    // ===== 修改密码 =====
+    var pwdForm = document.getElementById('pwdForm');
+    pwdForm.addEventListener('submit', async function (e) {
+        e.preventDefault();
+        var errBox = document.getElementById('pwdError');
+        errBox.classList.remove('show');
+        var old_password = document.getElementById('oldPassword').value;
+        var new_password = document.getElementById('newPassword').value;
+        var confirm = document.getElementById('confirmPassword').value;
+        if (!old_password || !new_password || !confirm) { errBox.textContent = '请填写完整'; errBox.classList.add('show'); return; }
+        if (new_password.length < 6) { errBox.textContent = '新密码长度至少 6 位'; errBox.classList.add('show'); return; }
+        if (new_password !== confirm) { errBox.textContent = '两次输入的密码不一致'; errBox.classList.add('show'); return; }
+        var btn = document.getElementById('pwdBtn');
+        btn.disabled = true; var t = btn.textContent; btn.textContent = '提交中…';
+        try {
+            await api('/api/auth/change-password', { method: 'POST', body: JSON.stringify({ old_password: old_password, new_password: new_password }) });
+            errBox.classList.add('show');
+            errBox.textContent = '密码修改成功，请重新登录';
+            setTimeout(function () { if (window.parent.logout) window.parent.logout(); else { clearSession(); } }, 1200);
+        } catch (err) {
+            errBox.textContent = err.message;
+            errBox.classList.add('show');
+        } finally {
+            btn.disabled = false; btn.textContent = t;
+        }
+    });
+
+    // ===== 班级成员管理（仅班长/团支书） =====
+    if (canManageUsers()) {
+        document.getElementById('membersCard').style.display = 'block';
+        loadMembers();
+    }
+
+    async function loadMembers() {
+        var el = document.getElementById('memberList');
+        el.innerHTML = stateHTML('加载中…');
+        try {
+            var res = await api('/api/auth/users');
+            var list = (res.data && res.data.list) || [];
+            if (!list.length) { el.innerHTML = stateHTML('暂无成员'); return; }
+            el.innerHTML = list.map(function (m) {
+                var pos = (Array.isArray(m.positions) && m.positions.length) ? m.positions.join('、') : (m.positions || '学生');
+                return '<div class="info-row">'
+                    + '<span class="k">' + esc(m.name) + ' <span style="opacity:.6;">学号 ' + esc(m.student_id) + '</span></span>'
+                    + '<span class="v">' + esc(pos)
+                    + ' <button class="btn btn-outline" style="padding:2px 8px;font-size:12px;margin-left:8px;" onclick="delMember(' + m.id + ')">删除</button>'
+                    + '</span>'
+                    + '</div>';
+            }).join('');
+        } catch (err) {
+            el.innerHTML = stateHTML(err.message, true);
+        }
+    }
+
+    async function delMember(id) {
+        if (!confirm('确定删除该成员账号？')) return;
+        try {
+            await api('/api/auth/users/' + id, { method: 'DELETE' });
+            loadMembers();
+        } catch (err) {
+            alert(err.message);
+        }
+    }
+
+    // ===== 注册新成员 =====
+    var regForm = document.getElementById('regForm');
+    regForm.addEventListener('submit', async function (e) {
+        e.preventDefault();
+        var errBox = document.getElementById('regError');
+        errBox.classList.remove('show');
+        var student_id = document.getElementById('regStudentId').value.trim();
+        var name = document.getElementById('regName').value.trim();
+        var password = document.getElementById('regPassword').value;
+        var contact = document.getElementById('regContact').value.trim();
+        var positions = document.getElementById('regPositions').value;
+        if (!student_id || !name || !password) { errBox.textContent = '学号、姓名、密码为必填'; errBox.classList.add('show'); return; }
+        if (password.length < 6) { errBox.textContent = '密码长度至少 6 位'; errBox.classList.add('show'); return; }
+        var btn = document.getElementById('regBtn');
+        btn.disabled = true; var t = btn.textContent; btn.textContent = '注册中…';
+        try {
+            await api('/api/auth/register', { method: 'POST', body: JSON.stringify({ student_id: student_id, name: name, password: password, positions: positions, contact: contact }) });
+            errBox.classList.add('show');
+            errBox.textContent = '注册成功';
+            regForm.reset();
+            loadMembers();
+        } catch (err) {
+            errBox.textContent = err.message;
+            errBox.classList.add('show');
+        } finally {
+            btn.disabled = false; btn.textContent = t;
+        }
+    });
 
     // 职务字段为 JSON 字符串（如 ["班长","学习委员"]），展示时转为可读文本
     function fmtPositions(p) {

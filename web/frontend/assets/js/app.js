@@ -45,6 +45,34 @@ function getSession() {
   }
 }
 
+/** 解析当前用户的职位列表（兼容 JSON 字符串 / 普通字符串） */
+function userPositions() {
+  const u = getSession();
+  if (!u) return [];
+  const p = u.positions;
+  if (p == null || p === '') return [];
+  const s = String(p);
+  if (s.charAt(0) === '[') {
+    try {
+      const arr = JSON.parse(s);
+      return Array.isArray(arr) ? arr.filter(Boolean) : [s];
+    } catch {
+      return [s];
+    }
+  }
+  return [s];
+}
+
+/** 能否发布/取消 通知、活动（班长/团支书/学习委员） */
+function canContentWrite() {
+  return userPositions().some(r => r === '班长' || r === '团支书' || r === '学习委员');
+}
+
+/** 能否注册账号、管理班级成员（班长/团支书） */
+function canManageUsers() {
+  return userPositions().some(r => r === '班长' || r === '团支书');
+}
+
 /** 清除会话 */
 function clearSession() {
   localStorage.removeItem(LS_TOKEN);

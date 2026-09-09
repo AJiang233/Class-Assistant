@@ -1,9 +1,12 @@
 import {
   handleRegister,
   handleLogin,
-  handleMe
+  handleMe,
+  handleChangePassword,
+  handleListUsers,
+  handleDeleteUser
 } from '../handlers/authHandler.js';
-import { withAuth } from '../middleware/auth.js';
+import { withAuth, withPermission } from '../middleware/auth.js';
 
 /**
  * 认证路由
@@ -13,12 +16,12 @@ export async function authRoutes(request, env, ctx) {
   const path = url.pathname;
   const method = request.method;
 
-  // 注册
+  // 注册（需 user:manage 权限，仅班长/团支书可注册账号）
   if (path === '/api/auth/register' && method === 'POST') {
-    return handleRegister(request, env);
+    return withPermission('user:manage')(handleRegister)(request, env, ctx);
   }
 
-  // 登录
+  // 登录（公开）
   if (path === '/api/auth/login' && method === 'POST') {
     return handleLogin(request, env);
   }
@@ -26,6 +29,25 @@ export async function authRoutes(request, env, ctx) {
   // 获取当前用户信息（需要认证）
   if (path === '/api/auth/me' && method === 'GET') {
     return withAuth(handleMe)(request, env, ctx);
+  }
+
+  // 修改当前用户密码（需要认证）
+  if (path === '/api/auth/change-password' && method === 'POST') {
+    return withAuth(handleChangePassword)(request, env, ctx);
+  }
+
+  // 获取班级成员列表（需 user:manage 权限）
+  if (path === '/api/auth/users' && method === 'GET') {
+    return withPermission('user:manage')(handleListUsers)(request, env, ctx);
+  }
+
+  // 删除班级成员（需 user:manage 权限）
+  const match = path.match(/^\/api\/auth\/users\/(\d+)$/);
+  if (match && method === 'DELETE') {
+    const params = { id: match[1] };
+    return withPermission('user:manage')((req, env, c, user) =>
+      handleDeleteUser(req, env, user, params)
+    )(request, env, ctx);
   }
 
   return null;

@@ -5,22 +5,23 @@ import {
   handleUpdateNotice,
   handleDeleteNotice
 } from '../handlers/noticeHandler.js';
-import { withAuth } from '../middleware/auth.js';
+import { withAuth, withPermission } from '../middleware/auth.js';
 
 /**
- * 通知路由（全部需要认证）
+ * 通知路由
+ * 读取需登录，发布/编辑/删除需 content:write 权限（班长/团支书/学习委员）
  */
 export async function noticeRoutes(request, env, ctx) {
   const url = new URL(request.url);
   const path = url.pathname;
   const method = request.method;
 
-  // 发布通知
+  // 发布通知（需 content:write）
   if (path === '/api/notices' && method === 'POST') {
-    return withAuth(handleCreateNotice)(request, env, ctx);
+    return withPermission('content:write')(handleCreateNotice)(request, env, ctx);
   }
 
-  // 获取通知列表
+  // 获取通知列表（需登录）
   if (path === '/api/notices' && method === 'GET') {
     return withAuth(handleListNotices)(request, env, ctx);
   }
@@ -37,13 +38,13 @@ export async function noticeRoutes(request, env, ctx) {
     }
 
     if (method === 'PUT') {
-      return withAuth((req, env, ctx, user) =>
+      return withPermission('content:write')((req, env, c, user) =>
         handleUpdateNotice(req, env, user, params)
       )(request, env, ctx);
     }
 
     if (method === 'DELETE') {
-      return withAuth((req, env, ctx, user) =>
+      return withPermission('content:write')((req, env, c, user) =>
         handleDeleteNotice(req, env, user, params)
       )(request, env, ctx);
     }
