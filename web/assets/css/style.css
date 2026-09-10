@@ -295,24 +295,29 @@ body {
   font-size: 0.87rem; color: var(--text-secondary);
 }
 .detail-meta span { display: inline-flex; align-items: center; gap: 6px; }
+.detail-meta svg, .detail-byline svg { flex-shrink: 0; }
 .detail-body { font-size: 1.02rem; line-height: 1.95; color: var(--text); white-space: pre-wrap; word-break: break-word; }
+.detail-byline {
+  display: flex; flex-wrap: wrap; gap: 8px 22px;
+  margin-top: 26px; padding-top: 18px; border-top: 1px solid var(--border);
+  font-size: 0.87rem; color: var(--text-secondary);
+}
+.detail-byline span { display: inline-flex; align-items: center; gap: 6px; }
 
 /* ===== 弹窗（详情展示） ===== */
 .modal-overlay {
   position: fixed; inset: 0; z-index: 500;
   display: none; align-items: center; justify-content: center;
-  background: rgba(15, 17, 22, 0.42);
+  background: rgba(15, 17, 22, 0.6);
   -webkit-backdrop-filter: blur(6px);
   backdrop-filter: blur(6px);
   padding: 20px;
 }
 .modal-overlay.show { display: flex; }
 .modal {
-  background: var(--g-surface-strong);
+  background: var(--surface);
   border: 1px solid var(--g-border);
   border-radius: var(--radius-lg);
-  -webkit-backdrop-filter: blur(var(--g-blur)) saturate(var(--g-saturate));
-  backdrop-filter: blur(var(--g-blur)) saturate(var(--g-saturate));
   box-shadow: var(--g-shadow), var(--g-highlight);
   max-width: 720px; width: 100%; max-height: 86vh;
   display: flex; flex-direction: column; overflow: hidden;
@@ -643,8 +648,17 @@ body.app-mode { overflow: hidden; }
 }
 .cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
 .cal-title { font-size: 1rem; font-weight: 700; letter-spacing: -0.01em; color: var(--text); }
-.cal-nav { display: flex; gap: 4px; }
+.cal-nav { display: flex; align-items: center; gap: 4px; }
 .cal-nav .icon-btn { width: 30px; height: 30px; }
+.cal-today-btn {
+  height: 30px; padding: 0 12px; margin-right: 2px;
+  display: inline-flex; align-items: center;
+  background: var(--g-control); border: 1px solid var(--g-border); border-radius: var(--radius-pill);
+  color: var(--text-secondary); font-size: 0.78rem; font-weight: 600; cursor: pointer;
+  box-shadow: var(--g-highlight);
+  transition: all var(--transition);
+}
+.cal-today-btn:hover { color: var(--text); background: var(--g-hover); }
 .cal-week { display: grid; grid-template-columns: repeat(7, 1fr); text-align: center; margin-bottom: 6px; }
 .cal-week span { font-size: 0.74rem; color: var(--text-tertiary); padding: 4px 0; font-weight: 650; letter-spacing: 0.04em; }
 .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }

@@ -148,11 +148,33 @@ function stateHTML(text, isError) {
   return '<div class="' + cls + '"><p>' + esc(text || '暂无数据') + '</p></div>';
 }
 
-/** 通知来源显示名 */
+/** 通知来源显示名：手动发布 / 自动拉取 */
 function sourceName(s) {
-  if (s === 'crawler') return '抓取';
-  if (s === 'webhook') return '推送';
-  return '发布';
+  if (s === 'manual' || !s) return '手动发布';
+  return '自动拉取';
+}
+
+/** 详情弹窗小图标（14px 描边风格）：统一图标尺寸、线宽与文字基线对齐 */
+var DETAIL_ICONS = {
+  clock: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
+  pin: '<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/>',
+  user: '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  bell: '<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>',
+  calendar: '<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>'
+};
+function icon(name) {
+  var p = DETAIL_ICONS[name] || '';
+  return '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + p + '</svg>';
+}
+
+/** 提醒对象字段为 JSON 字符串（如 ["张三","李四"]），展示时转为可读文本 */
+function fmtRemind(p) {
+  if (!p) return '';
+  var s = String(p);
+  if (s.charAt(0) === '[') {
+    try { var a = JSON.parse(s); return Array.isArray(a) ? a.join('、') : s; } catch (e) { return s; }
+  }
+  return s;
 }
 
 /** datetime-local 默认值：当前本地时间 YYYY-MM-DDTHH:MM */

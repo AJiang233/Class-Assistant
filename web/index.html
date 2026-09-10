@@ -85,7 +85,8 @@
         <div class="app-content">
             <!-- 主页视图：左日历 + 右通知/活动 -->
             <div class="app-view" id="homeView">
-                <div style="max-width:1080px; margin:0 auto; padding:24px 24px 56px;">
+                <div class="main">
+                    <div class="container">
                     <div class="page-head">
                         <h1 class="page-title">班级主页</h1>
                         <p class="page-desc">查看班级的日程与通知，点击左侧日历日期可查看当天的安排。</p>
@@ -95,6 +96,7 @@
                             <div class="cal-head">
                                 <span class="cal-title" id="calTitle"></span>
                                 <div class="cal-nav">
+                                    <button type="button" class="cal-today-btn" title="回到今天" onclick="calToday()">今天</button>
                                     <button type="button" class="icon-btn" title="上个月" onclick="calPrev()">
                                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
                                     </button>
@@ -109,27 +111,28 @@
                         <div class="home-right">
                             <div class="section-block" style="margin-top:0;">
                                 <div class="section-head">
-                                    <h2 class="section-title" id="scheduleDateTitle">今日日程</h2>
-                                    <button type="button" class="btn btn-outline btn-sm" onclick="switchView('activities')">全部日程</button>
-                                </div>
-                                <div class="list" id="activityList"></div>
-                            </div>
-                            <div class="section-block">
-                                <div class="section-head">
                                     <h2 class="section-title" id="noticeDateTitle">当日通知</h2>
                                     <button type="button" class="btn btn-outline btn-sm" onclick="switchView('notices')">查看全部</button>
                                 </div>
                                 <div class="list" id="noticeList"></div>
                             </div>
+                            <div class="section-block">
+                                <div class="section-head">
+                                    <h2 class="section-title" id="scheduleDateTitle">今日活动</h2>
+                                    <button type="button" class="btn btn-outline btn-sm" onclick="switchView('activities')">全部日程</button>
+                                </div>
+                                <div class="list" id="activityList"></div>
+                            </div>
                         </div>
+                    </div>
                     </div>
                 </div>
 
-                <!-- 活动详情弹窗（点击"当日日程"行弹出） -->
+                <!-- 详情弹窗（点击"当日日程/当日通知"行弹出） -->
                 <div class="modal-overlay" id="detailModal">
                     <div class="modal">
                         <div class="modal-head">
-                            <span class="modal-title">活动详情</span>
+                            <span class="modal-title" id="detailModalTitle">活动详情</span>
                             <button type="button" class="modal-close" onclick="closeDetail()" aria-label="关闭">
                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                             </button>
@@ -394,6 +397,13 @@
     }
     function calPrev() { calMonth--; if (calMonth < 0) { calMonth = 11; calYear--; } renderCalendar(); }
     function calNext() { calMonth++; if (calMonth > 11) { calMonth = 0; calYear++; } renderCalendar(); }
+    function calToday() {
+        var t = new Date();
+        calYear = t.getFullYear();
+        calMonth = t.getMonth();
+        activeDate = todayKey();
+        refreshDay();
+    }
 
     // 今日/某日期格式化标题
     function dayTitle(k) {
@@ -429,8 +439,9 @@
             var res = await api('/api/notices' + q);
             var list = (res.data && res.data.list) || [];
             if (!list.length) { el.innerHTML = stateHTML('暂无通知'); return; }
+            list.sort(function (a, b) { return String(b.publish_time || '').localeCompare(String(a.publish_time || '')); });
             el.innerHTML = list.map(function (n) {
-                return '<button type="button" class="list-row" onclick="switchView(\'notices\')">'
+                return '<button type="button" class="list-row" onclick="showNoticeDetail(' + n.id + ')">'
                     + '<div class="list-row-main">'
                     + '<div class="list-row-title">' + esc(n.title) + '</div>'
                     + '<div class="list-row-meta">'
@@ -455,6 +466,7 @@
             var res = await api('/api/activities' + q);
             var list = (res.data && res.data.list) || [];
             if (!list.length) { el.innerHTML = stateHTML('暂无活动'); return; }
+            list.sort(function (a, b) { return String(b.start_time || '').localeCompare(String(a.start_time || '')); });
             el.innerHTML = list.map(function (a) {
                 var meta = '<span>' + esc(fmtDate(a.start_time)) + '</span>';
                 if (a.location) meta += '<span>' + esc(a.location) + '</span>';
@@ -471,7 +483,7 @@
         }
     }
 
-    // ===== 活动详情弹窗（点击"当日日程"行弹出） =====
+    // ===== 详情弹窗（点击"当日日程/当日通知"行弹出） =====
     function openDetail() {
         var ov = document.getElementById('detailModal');
         if (ov) ov.classList.add('show');
@@ -495,19 +507,45 @@
 
     async function showDetail(id) {
         var card = document.getElementById('detailCard');
+        document.getElementById('detailModalTitle').textContent = '活动详情';
         card.innerHTML = stateHTML('加载中…');
         openDetail();
         try {
             var res = await api('/api/activities/' + id);
             var a = res.data;
-            var meta = '<span>开始 ' + esc(fmtDate(a.start_time)) + '</span>';
-            if (a.end_time) meta += '<span>结束 ' + esc(fmtDate(a.end_time)) + '</span>';
-            if (a.location) meta += '<span>' + esc(a.location) + '</span>';
-            if (a.publisher) meta += '<span>' + esc(a.publisher) + '</span>';
+            var meta = '<span>' + icon('clock') + '开始 ' + esc(fmtDate(a.start_time)) + '</span>'
+                + '<span>' + icon('clock') + '结束 ' + esc(fmtDate(a.end_time)) + '</span>';
+            if (a.location) meta += '<span>' + icon('pin') + esc(a.location) + '</span>';
+            var byline = '<div class="detail-byline"><span>' + icon('user') + '发布人 ' + esc(a.publisher || '未知') + '</span></div>';
             card.innerHTML =
                 '<div class="detail-title">' + esc(a.title) + '</div>'
                 + '<div class="detail-meta">' + meta + '</div>'
-                + '<div class="detail-body">' + esc(a.content || '暂无活动说明') + '</div>';
+                + '<div class="detail-body">' + esc(a.content || '暂无活动说明') + '</div>'
+                + byline;
+        } catch (err) {
+            card.innerHTML = stateHTML(err.message, true);
+        }
+    }
+
+    async function showNoticeDetail(id) {
+        var card = document.getElementById('detailCard');
+        document.getElementById('detailModalTitle').textContent = '通知详情';
+        card.innerHTML = stateHTML('加载中…');
+        openDetail();
+        try {
+            var res = await api('/api/notices/' + id);
+            var n = res.data;
+            var meta = '<span class="badge badge-' + esc(n.source || 'manual') + '">' + esc(sourceName(n.source)) + '</span>'
+                + '<span>' + icon('clock') + '发布 ' + esc(fmtDate(n.publish_time)) + '</span>'
+                + '<span>' + icon('clock') + '截止 ' + esc(fmtDate(n.expire_time)) + '</span>';
+            var remind = fmtRemind(n.remind_people);
+            if (remind) meta += '<span>' + icon('bell') + '提醒 ' + esc(remind) + '</span>';
+            var byline = '<div class="detail-byline"><span>' + icon('user') + '通知人 ' + esc(n.publisher || '未知') + '</span></div>';
+            card.innerHTML =
+                '<div class="detail-title">' + esc(n.title) + '</div>'
+                + '<div class="detail-meta">' + meta + '</div>'
+                + '<div class="detail-body">' + esc(n.content || '暂无通知内容') + '</div>'
+                + byline;
         } catch (err) {
             card.innerHTML = stateHTML(err.message, true);
         }

@@ -251,14 +251,17 @@
                   + '<button type="button" class="btn btn-outline" style="color:#ff3b30;border-color:#ff3b30;" onclick="deleteNotice(' + n.id + ')">删除通知</button>'
                   + '</div>'
                 : '';
+            var meta = '<span class="badge badge-' + esc(n.source || 'manual') + '">' + esc(sourceName(n.source)) + '</span>'
+                + '<span>' + icon('clock') + '发布 ' + esc(fmtDate(n.publish_time)) + '</span>'
+                + '<span>' + icon('clock') + '截止 ' + esc(fmtDate(n.expire_time)) + '</span>';
+            var remind = fmtRemind(n.remind_people);
+            if (remind) meta += '<span>' + icon('bell') + '提醒 ' + esc(remind) + '</span>';
+            var byline = '<div class="detail-byline"><span>' + icon('user') + '通知人 ' + esc(n.publisher || '未知') + '</span></div>';
             card.innerHTML =
                 '<div class="detail-title">' + esc(n.title) + '</div>'
-                + '<div class="detail-meta">'
-                + '<span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>' + esc(n.publisher || '') + '</span>'
-                + '<span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>' + esc(fmtDate(n.publish_time)) + '</span>'
-                + '<span class="badge badge-' + esc(n.source || 'manual') + '">' + esc(sourceName(n.source)) + '</span>'
-                + '</div>'
+                + '<div class="detail-meta">' + meta + '</div>'
                 + '<div class="detail-body">' + esc(n.content || '') + '</div>'
+                + byline
                 + actBtns;
         } catch (err) {
             card.innerHTML = stateHTML(err.message, true);

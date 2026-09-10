@@ -239,10 +239,12 @@
         try {
             var res = await api('/api/activities/' + id);
             var a = res.data;
-            var meta = '<span>开始 ' + esc(fmtDate(a.start_time)) + '</span>';
-            if (a.end_time) meta += '<span>结束 ' + esc(fmtDate(a.end_time)) + '</span>';
-            if (a.location) meta += '<span>' + esc(a.location) + '</span>';
-            meta += '<span>' + esc(a.publisher || '') + '</span>';
+            var meta = '<span>' + icon('clock') + '开始 ' + esc(fmtDate(a.start_time)) + '</span>'
+                + '<span>' + icon('clock') + '结束 ' + esc(fmtDate(a.end_time)) + '</span>';
+            if (a.location) meta += '<span>' + icon('pin') + esc(a.location) + '</span>';
+            var remind = fmtRemind(a.remind_people);
+            if (remind) meta += '<span>' + icon('bell') + '提醒 ' + esc(remind) + '</span>';
+            var byline = '<div class="detail-byline"><span>' + icon('user') + '发布人 ' + esc(a.publisher || '未知') + '</span></div>';
             var actBtns = canContentWrite()
                 ? '<div class="modal-foot">'
                   + '<button type="button" class="btn btn-outline" onclick="startEdit(' + a.id + ')">编辑</button>'
@@ -253,6 +255,7 @@
                 '<div class="detail-title">' + esc(a.title) + '</div>'
                 + '<div class="detail-meta">' + meta + '</div>'
                 + '<div class="detail-body">' + esc(a.content || '暂无活动说明') + '</div>'
+                + byline
                 + actBtns;
         } catch (err) {
             card.innerHTML = stateHTML(err.message, true);
