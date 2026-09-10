@@ -1,0 +1,12 @@
+# Cloudflare Pages 静态资源缓存控制
+# 作用：CSS/JS 每次到源站校验（no-cache），文件变更后用户刷新即生效；
+#       未变更时服务器返回 304，浏览器使用本地缓存，不浪费流量。
+# 需要严格强缓存（进一步省流量）时，可在 HTML 引用里加 ?v=版本号 手动换名。
+/assets/*
+  Cache-Control: public, max-age=0, must-revalidate
+
+# HTML 关闭缓存，确保页面结构更新即生效
+/*.html
+  Cache-Control: public, max-age=0, must-revalidate
+/
+  Cache-Control: public, max-age=0, must-revalidate

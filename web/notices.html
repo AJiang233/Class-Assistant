@@ -77,15 +77,17 @@
                 <div class="list" id="noticeList"></div>
             </div>
 
-            <!-- 详情视图 -->
-            <div id="detailView" style="display:none;">
-                <div style="margin-bottom:20px;">
-                    <button type="button" class="btn btn-outline" onclick="backToList()">
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:2px;"><path d="M19 12H5"/><polyline points="12 19 5 12 12 5"/></svg>
-                        返回列表
-                    </button>
+            <!-- 详情弹窗 -->
+            <div class="modal-overlay" id="detailModal">
+                <div class="modal">
+                    <div class="modal-head">
+                        <span class="modal-title">通知详情</span>
+                        <button type="button" class="modal-close" onclick="closeDetail()" aria-label="关闭">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                        </button>
+                    </div>
+                    <div class="modal-body" id="detailCard"></div>
                 </div>
-                <div class="detail-card" id="detailCard"></div>
             </div>
         </div>
     </div>
@@ -96,8 +98,7 @@
     // ===== 需要登录 =====
     if (!requireAuth()) return;
 
-    var listView = document.getElementById('listView');
-    var detailView = document.getElementById('detailView');
+    var modalOverlay = document.getElementById('detailModal');
 
     // ===== 发布入口（仅 content:write 权限者可见） =====
     if (canContentWrite()) {
@@ -224,18 +225,34 @@
     }
     loadList();
 
-    // ===== 查看详情 =====
+    // ===== 详情弹窗 =====
+    function openDetail() {
+        modalOverlay.classList.add('show');
+        document.body.style.overflow = 'hidden';
+    }
+    function closeDetail() {
+        modalOverlay.classList.remove('show');
+        document.body.style.overflow = '';
+    }
+    // 点遮罩空白处关闭
+    modalOverlay.addEventListener('click', function (e) {
+        if (e.target === modalOverlay) closeDetail();
+    });
+    // ESC 关闭
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && modalOverlay.classList.contains('show')) closeDetail();
+    });
+
     async function showDetail(id) {
-        listView.style.display = 'none';
-        detailView.style.display = 'block';
         var card = document.getElementById('detailCard');
         card.innerHTML = stateHTML('加载中…');
+        openDetail();
         try {
             var res = await api('/api/notices/' + id);
             var n = res.data;
             var actBtns = canContentWrite()
-                ? '<div style="margin-top:24px;">'
-                  + '<button type="button" class="btn btn-outline" onclick="startEdit(' + n.id + ')" style="margin-right:8px;">编辑</button>'
+                ? '<div class="modal-foot">'
+                  + '<button type="button" class="btn btn-outline" onclick="startEdit(' + n.id + ')">编辑</button>'
                   + '<button type="button" class="btn btn-outline" style="color:#ff3b30;border-color:#ff3b30;" onclick="deleteNotice(' + n.id + ')">删除通知</button>'
                   + '</div>'
                 : '';
@@ -248,7 +265,6 @@
                 + '</div>'
                 + '<div class="detail-body">' + esc(n.content || '') + '</div>'
                 + actBtns;
-            window.scrollTo({ top: 0 });
         } catch (err) {
             card.innerHTML = stateHTML(err.message, true);
         }
@@ -258,7 +274,7 @@
         if (!confirm('确定删除该通知？')) return;
         try {
             await api('/api/notices/' + id, { method: 'DELETE' });
-            backToList();
+            closeDetail();
             loadList();
         } catch (err) {
             alert(err.message);
@@ -266,7 +282,7 @@
     }
 
     function startEdit(id) {
-        backToList();
+        closeDetail();
         var box = document.getElementById('publishBox');
         if (box.style.display === 'none') { resetNoticeForm(); box.style.display = 'block'; }
         api('/api/notices/' + id).then(function (res) {
@@ -282,12 +298,6 @@
             renderRemindChoices(names);
             editingNoticeId = id;
         }).catch(function (err) { alert(err.message); });
-    }
-
-    function backToList() {
-        detailView.style.display = 'none';
-        listView.style.display = 'block';
-        window.scrollTo({ top: 0 });
     }
 
     function stateHTML(text, isError) {
@@ -307,7 +317,7 @@
     window.submitNotice = submitNotice;
     window.deleteNotice = deleteNotice;
     window.startEdit = startEdit;
-    window.backToList = backToList;
+    window.closeDetail = closeDetail;
     })();
     </script>
 </body>
