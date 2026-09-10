@@ -55,6 +55,21 @@
                             </div>
                         </div>
                     </div>
+
+                    <!-- 日历订阅（所有登录用户） -->
+                    <div class="profile-card" id="calCard">
+                        <h2 style="margin:0 0 8px;">日历订阅</h2>
+                        <p class="profile-sub" style="margin:0 0 16px;">订阅后，班级活动会自动同步到手机系统日历，并提前 30 分钟提醒（iOS / 安卓 / 鸿蒙都支持，订阅后无需再打开本页）。</p>
+                        <div class="form-error" id="calError"></div>
+                        <div class="form-field">
+                            <input class="form-input" id="calUrl" type="text" readonly placeholder="正在获取订阅地址…">
+                        </div>
+                        <div style="display:flex; gap:10px;">
+                            <button class="btn btn-primary" id="calCopyBtn" type="button">复制链接</button>
+                            <a class="btn btn-outline" id="calOpenBtn" href="#" rel="noopener">打开订阅</a>
+                        </div>
+                        <p class="profile-sub" style="margin:14px 0 0;">复制链接后，在手机日历里选择「添加订阅日历 / 从网址导入」并粘贴即可。</p>
+                    </div>
                 </div>
 
                 <!-- 右列：修改密码 + 退出登录 -->
@@ -201,6 +216,43 @@
             errBox.classList.add('show');
         } finally {
             btn.disabled = false; btn.textContent = t;
+        }
+    });
+
+    // ===== 日历订阅 =====
+    var calUrlEl = document.getElementById('calUrl');
+    var calOpenBtn = document.getElementById('calOpenBtn');
+    var calCopyBtn = document.getElementById('calCopyBtn');
+
+    (async function loadCalendarToken() {
+        try {
+            var res = await api('/api/calendar/token');
+            var data = res.data || {};
+            calUrlEl.value = data.url || '';
+            calOpenBtn.href = data.url || '#';
+        } catch (err) {
+            var box = document.getElementById('calError');
+            box.textContent = err.message || '获取订阅地址失败';
+            box.classList.add('show');
+        }
+    })();
+
+    calCopyBtn.addEventListener('click', function () {
+        if (!calUrlEl.value) return;
+        function done() {
+            calCopyBtn.textContent = '已复制';
+            setTimeout(function () { calCopyBtn.textContent = '复制链接'; }, 1500);
+        }
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(calUrlEl.value).then(done, function () {
+                calUrlEl.select();
+                document.execCommand('copy');
+                done();
+            });
+        } else {
+            calUrlEl.select();
+            document.execCommand('copy');
+            done();
         }
     });
     })();

@@ -11,3 +11,7 @@ Thumbs.db
 
 # 日志
 *.log
+
+# 编辑器 / IDE
+.idea/
+.vscode/

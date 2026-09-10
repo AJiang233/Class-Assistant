@@ -1,6 +1,7 @@
 import { authRoutes } from './routes/auth.js';
 import { noticeRoutes } from './routes/notices.js';
 import { activityRoutes } from './routes/activities.js';
+import { calendarRoutes } from './routes/calendar.js';
 import { handleCors, corsResponse } from './middleware/cors.js';
 import { logger } from './middleware/logger.js';
 
@@ -30,6 +31,10 @@ export default {
 
     // 活动路由
     response = await activityRoutes(request, env, ctx);
+    if (response) return addCors(response, request);
+
+    // 日历订阅路由
+    response = await calendarRoutes(request, env, ctx);
     if (response) return addCors(response, request);
 
     // 404

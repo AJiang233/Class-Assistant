@@ -18,6 +18,37 @@ export class UserModel {
   }
 
   /**
+   * 按日历订阅密钥查找用户
+   * 系统日历拉取订阅源时无法携带 Authorization 头，只能用 URL 里的密钥鉴权
+   */
+  async findByAuthKey(authKey) {
+    const result = await this.db.prepare(
+      'SELECT id, student_id, name, positions FROM users WHERE auth_key = ?'
+    ).bind(authKey).first();
+    return result;
+  }
+
+  /**
+   * 读取用户的日历订阅密钥
+   */
+  async getAuthKey(id) {
+    const result = await this.db.prepare(
+      'SELECT auth_key FROM users WHERE id = ?'
+    ).bind(id).first();
+    return result ? result.auth_key : null;
+  }
+
+  /**
+   * 保存日历订阅密钥
+   */
+  async setAuthKey(id, authKey) {
+    const result = await this.db.prepare(
+      'UPDATE users SET auth_key = ? WHERE id = ?'
+    ).bind(authKey, id).run();
+    return result;
+  }
+
+  /**
    * 根据 ID 查找用户（不含敏感字段）
    */
   async findById(id) {
