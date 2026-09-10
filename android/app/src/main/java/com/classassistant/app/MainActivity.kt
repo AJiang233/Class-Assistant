@@ -6,6 +6,7 @@ import android.net.http.SslError
 import android.os.Bundle
 import android.view.KeyEvent
 import android.view.View
+import android.webkit.JavascriptInterface
 import android.webkit.SslErrorHandler
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
@@ -23,6 +24,18 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private val startUrl = "https://class.qxwkstudio.top"
+
+    /** 网页当前是否已滚到顶部（由页面内探针回传，供下拉刷新判断） */
+    @Volatile
+    private var scrollAtTop = true
+
+    /** 页面内探针回传滚动状态（JS 桥，运行在非 UI 线程） */
+    private inner class ScrollStateBridge {
+        @JavascriptInterface
+        fun setScrollAtTop(atTop: Boolean) {
+            scrollAtTop = atTop
+        }
+    }
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -45,6 +58,8 @@ class MainActivity : AppCompatActivity() {
             settings.useWideViewPort = true
             settings.loadWithOverviewMode = true
 
+            addJavascriptInterface(ScrollStateBridge(), "CAHost")
+
             webViewClient = object : WebViewClient() {
                 // 仅允许站内/同源链接，拦截系统协议
                 override fun shouldOverrideUrlLoading(
@@ -61,6 +76,8 @@ class MainActivity : AppCompatActivity() {
 
                 override fun onPageFinished(view: WebView, url: String?) {
                     binding.swipeRefresh.isRefreshing = false
+                    // 安装滚动状态探针（脚本内部幂等，重复注入无副作用）
+                    view.evaluateJavascript(PROBE_JS, null)
                 }
 
                 override fun onReceivedSslError(
@@ -84,6 +101,8 @@ class MainActivity : AppCompatActivity() {
             loadUrl(startUrl)
         }
 
+        // 只有页面真的在顶部时，下拉才触发刷新；否则把手势交还给页面滚动
+        binding.swipeRefresh.setOnChildScrollUpCallback { _, _ -> !scrollAtTop }
         binding.swipeRefresh.setOnRefreshListener { binding.webView.reload() }
     }
 
@@ -99,5 +118,51 @@ class MainActivity : AppCompatActivity() {
             return true
         }
         return super.onKeyDown(keyCode, event)
+    }
+
+    private companion object {
+        /**
+         * 滚动状态探针。
+         * 站点是「固定外壳 + 内层 .app-view 滚动」，子页面又跑在同源 iframe 里，
+         * 因此 webView.scrollY 恒为 0，无法直接判断是否在顶部。
+         * 这里在页面内周期性探测真实滚动位置，通过 CAHost 桥回传给原生层。
+         */
+        val PROBE_JS = """
+            (function () {
+              if (window.__caTopProbe) return;
+              window.__caTopProbe = true;
+              function atTop(doc) {
+                try {
+                  var s = doc.scrollingElement || doc.documentElement;
+                  if (s && s.scrollTop > 0) return false;
+                } catch (e) {}
+                return true;
+              }
+              function probe() {
+                var ok = atTop(document);
+                if (ok) {
+                  var views = document.querySelectorAll('.app-view');
+                  for (var v = 0; v < views.length; v++) {
+                    var el = views[v];
+                    if (!el || el.offsetParent === null) continue;
+                    if (el.scrollTop > 0) { ok = false; break; }
+                  }
+                }
+                if (ok) {
+                  var frames = document.querySelectorAll('.app-frame');
+                  for (var i = 0; i < frames.length; i++) {
+                    var f = frames[i];
+                    if (!f || f.style.display === 'none') continue;
+                    try {
+                      if (f.contentDocument && !atTop(f.contentDocument)) { ok = false; break; }
+                    } catch (e) {}
+                  }
+                }
+                try { CAHost.setScrollAtTop(ok); } catch (e) {}
+              }
+              setInterval(probe, 250);
+              probe();
+            })();
+        """.trimIndent()
     }
 }
