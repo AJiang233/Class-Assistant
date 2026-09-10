@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>个人中心 - 班级助理</title>
     <meta name="description" content="班级助理：我的资料、修改密码与班级成员管理。">
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%234f46e5'/%3E%3Cpath d='M16 24h32v18H26l-10 8z' fill='none' stroke='%23fff' stroke-width='3' stroke-linejoin='round'/%3E%3Cpath d='M24 30h16M24 34h10' stroke='%23fff' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23007aff'/%3E%3Cpath d='M16 24h32v18H26l-10 8z' fill='none' stroke='%23fff' stroke-width='3' stroke-linejoin='round'/%3E%3Cpath d='M24 30h16M24 34h10' stroke='%23fff' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
     <link rel="stylesheet" href="assets/css/style.css">
     <script>
     /* 主题切换：localStorage('theme') 优先，其次跟随系统 prefers-color-scheme；同步写入 <html> 的 data-theme 防闪烁 */
@@ -111,7 +111,7 @@
                 </form>
 
                 <h3 style="margin:24px 0 12px; font-size:1rem; opacity:.8;">成员列表</h3>
-                <div id="editMembersCard" style="display:none; margin-bottom:16px; padding:16px; border:1px solid var(--border); border-radius:12px;">
+                <div id="editMembersCard" style="display:none; margin-bottom:16px; padding:16px; border:1px solid var(--border); border-radius:14px;">
                     <h4 id="editMemberTitle" style="margin:0 0 12px; font-size:1rem;">编辑成员</h4>
                     <div class="form-error" id="editMemberError"></div>
                     <div class="form-field"><label class="form-label">姓名</label><input id="editName" class="form-input" type="text" autocomplete="off"></div>
@@ -209,7 +209,7 @@
                     + '<span class="k">' + esc(m.name) + ' <span style="opacity:.6;">学号 ' + esc(m.student_id) + '</span></span>'
                     + '<span class="v">' + esc(pos)
                     + ' <button class="btn btn-outline" style="padding:2px 8px;font-size:12px;margin-left:8px;" onclick="startEditMember(' + m.id + ')">编辑</button>'
-                    + ' <button class="btn btn-outline" style="padding:2px 8px;font-size:12px;margin-left:4px;color:#dc2626;border-color:#dc2626;" onclick="delMember(' + m.id + ')">删除</button>'
+                    + ' <button class="btn btn-outline" style="padding:2px 8px;font-size:12px;margin-left:4px;color:#ff3b30;border-color:#ff3b30;" onclick="delMember(' + m.id + ')">删除</button>'
                     + '</span>'
                     + '</div>';
             }).join('');

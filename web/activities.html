@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>活动 - 班级助理</title>
     <meta name="description" content="班级助理：班级活动列表与详情。">
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%234f46e5'/%3E%3Cpath d='M16 24h32v18H26l-10 8z' fill='none' stroke='%23fff' stroke-width='3' stroke-linejoin='round'/%3E%3Cpath d='M24 30h16M24 34h10' stroke='%23fff' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23007aff'/%3E%3Cpath d='M16 24h32v18H26l-10 8z' fill='none' stroke='%23fff' stroke-width='3' stroke-linejoin='round'/%3E%3Cpath d='M24 30h16M24 34h10' stroke='%23fff' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
     <link rel="stylesheet" href="assets/css/style.css">
     <script>
     /* 主题切换：localStorage('theme') 优先，其次跟随系统 prefers-color-scheme；同步写入 <html> 的 data-theme 防闪烁 */
@@ -234,7 +234,7 @@
             var actBtns = canContentWrite()
                 ? '<div style="margin-top:24px;">'
                   + '<button type="button" class="btn btn-outline" onclick="startEdit(' + a.id + ')" style="margin-right:8px;">编辑</button>'
-                  + '<button type="button" class="btn btn-outline" style="color:#dc2626;border-color:#dc2626;" onclick="deleteActivity(' + a.id + ')">删除活动</button>'
+                  + '<button type="button" class="btn btn-outline" style="color:#ff3b30;border-color:#ff3b30;" onclick="deleteActivity(' + a.id + ')">删除活动</button>'
                   + '</div>'
                 : '';
             card.innerHTML =
