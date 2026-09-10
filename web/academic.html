@@ -46,27 +46,52 @@
                 </div>
             </div>
 
-            <!-- 未绑定：引导 + 绑定表单 -->
+            <!-- 未绑定：两条绑定路径 -->
             <div id="bindView" style="display:none;">
                 <div class="ac-card">
                     <h2 class="section-title">绑定教务系统</h2>
-                    <p class="ac-tip">课表与学分来自教务系统，需要先绑定一次登录态。绑定后由服务器代为拉取，不会保存你的教务密码。</p>
+                    <p class="ac-tip">课表与学分都在教务系统里，需要先绑定一次登录态。绑定后由服务器代为拉取。</p>
+
+                    <div class="form-error" id="bindError"></div>
+                    <div class="ac-success" id="bindSuccess"></div>
 
                     <div id="appBindBox" style="display:none;">
                         <button type="button" class="btn btn-primary btn-block" id="appBindBtn">一键绑定教务系统</button>
-                        <p class="ac-note">会在应用内打开教务系统登录页，登录完成后自动回跳并绑定。</p>
+                        <p class="ac-note">在应用内打开教务系统登录页，登录完成后自动回跳并绑定，最省事。</p>
+                        <div class="ac-divider"><span>或者</span></div>
                     </div>
 
-                    <div class="ac-divider"><span>或手动粘贴 Cookie</span></div>
-
+                    <!-- 路径一：学号 + 密码（推荐） -->
                     <div class="form-field">
-                        <label class="form-label" for="cookieInput">教务系统 Cookie</label>
-                        <textarea class="form-input" id="cookieInput" rows="4" placeholder="粘贴教务系统的 Cookie 字符串（形如 JSESSIONID=xxx; ...）" autocomplete="off"></textarea>
-                        <p class="ac-note">拿到方式：在电脑浏览器登录教务系统 → F12 打开开发者工具 → Network → 刷新页面 → 点任意一个 api 请求 → Request Headers 里复制整行 Cookie。</p>
+                        <label class="form-label" for="acStudentId">学号</label>
+                        <input class="form-input" type="text" id="acStudentId" placeholder="你的学号（即统一身份认证账号）" autocomplete="username">
                     </div>
-                    <div class="form-error" id="bindError"></div>
-                    <div class="ac-success" id="bindSuccess"></div>
-                    <button type="button" class="btn btn-primary" id="bindBtn">绑定</button>
+                    <div class="form-field">
+                        <label class="form-label" for="acPassword">统一身份认证密码</label>
+                        <input class="form-input" type="password" id="acPassword" placeholder="密码" autocomplete="current-password">
+                        <p class="ac-note">密码只用于这一次登录：服务端登录成功后只保留会话凭据，<b>不保存也不记录你的密码</b>。</p>
+                    </div>
+                    <button type="button" class="btn btn-primary btn-block" id="pwdLoginBtn">登录并绑定</button>
+
+                    <!-- 路径二：手动粘贴 Cookie -->
+                    <details class="ac-details">
+                        <summary>不想把密码交给服务端？改成手动粘贴 Cookie</summary>
+                        <p class="ac-note" style="margin-top:10px;">需要用<b>电脑浏览器</b>（手机浏览器做不到），大概花一分钟。</p>
+                        <ol class="ac-steps">
+                            <li>登录教务系统：在电脑浏览器打开 <a href="https://szjw.njau.edu.cn" target="_blank" rel="noopener">szjw.njau.edu.cn</a>，用统一身份认证登进去</li>
+                            <li>按 <kbd>F12</kbd> 打开开发者工具，切到 <b>网络 / Network</b> 标签页</li>
+                            <li>按 <kbd>F5</kbd> 刷新页面，等下方请求列表刷出来</li>
+                            <li>在列表里找一个路径含 <code>/api/</code> 的请求（名字如 <code>sessionUserInfo</code>），<b>点它</b></li>
+                            <li>右侧切到 <b>标头 / Headers</b>，向下滚到 <b>请求标头 / Request Headers</b></li>
+                            <li>找到 <code>Cookie:</code> 那一行，复制<b>冒号后面的一整串</b>（很长，全选复制）</li>
+                            <li>粘贴到下面，点「绑定」</li>
+                        </ol>
+                        <div class="form-field" style="margin-top:14px;">
+                            <label class="form-label" for="cookieInput">教务系统 Cookie</label>
+                            <textarea class="form-input" id="cookieInput" rows="4" placeholder="Cookie: xxx=yyy; aaa=bbb; ...（直接粘贴整段 cURL 也能自动识别）" autocomplete="off"></textarea>
+                        </div>
+                        <button type="button" class="btn btn-outline" id="bindBtn">绑定</button>
+                    </details>
                 </div>
             </div>
 
@@ -136,6 +161,7 @@
             });
         }
         document.getElementById('bindBtn').addEventListener('click', doBind);
+        document.getElementById('pwdLoginBtn').addEventListener('click', doPasswordLogin);
         document.getElementById('unbindBtn').addEventListener('click', doUnbind);
         document.getElementById('refreshBtn').addEventListener('click', function () {
             loadTimetable(activeTerm, true);
@@ -173,9 +199,47 @@
         });
     }
 
+    /**
+     * 从粘贴内容里提取 Cookie：支持裸 Cookie 串、`Cookie: ...` 整行、整段 cURL
+     */
+    function extractCookie(text) {
+        var raw = String(text || '').replace(/\r/g, '').trim();
+        if (!raw) return '';
+        var m = raw.match(/(?:-H|--header)\s+['"]Cookie:\s*([^'"]+)['"]/i)
+            || raw.match(/(?:-b|--cookie)\s+['"]([^'"]+)['"]/i);
+        if (m) return m[1].trim();
+        m = raw.match(/^\s*cookie:\s*(.+)$/im);
+        if (m) return m[1].trim();
+        return raw;
+    }
+
+    /** 路径一：学号 + 密码，后端代登录统一身份认证后直接绑定 */
+    async function doPasswordLogin() {
+        var studentId = document.getElementById('acStudentId').value.trim();
+        var password = document.getElementById('acPassword').value;
+        if (!studentId || !password) { showFormError('bindError', '请填写学号和密码'); return; }
+
+        var btn = document.getElementById('pwdLoginBtn');
+        btn.disabled = true; btn.textContent = '登录中…';
+        document.getElementById('bindError').classList.remove('show');
+        try {
+            await api('/api/academic/login', {
+                method: 'POST',
+                body: JSON.stringify({ student_id: studentId, password: password })
+            });
+            document.getElementById('acPassword').value = '';
+            showFormSuccess('bindSuccess', '绑定成功，正在加载数据…');
+            await loadStatus();
+        } catch (err) {
+            showFormError('bindError', err.message);
+        } finally {
+            btn.disabled = false; btn.textContent = '登录并绑定';
+        }
+    }
+
     async function doBind() {
         var input = document.getElementById('cookieInput');
-        var cookies = input.value.trim();
+        var cookies = extractCookie(input.value);
         if (!cookies) { showFormError('bindError', '请先粘贴教务系统的 Cookie'); return; }
         var btn = document.getElementById('bindBtn');
         btn.disabled = true; btn.textContent = '绑定中…';

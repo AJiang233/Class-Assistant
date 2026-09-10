@@ -1,5 +1,6 @@
 import { AcademicModel } from '../models/academicModel.js';
 import { SchoolClient, SchoolSessionExpired } from '../utils/schoolApi.js';
+import { CasError, loginWithPassword } from '../utils/casLogin.js';
 import { success, error, jsonResponse } from '../utils/response.js';
 
 /** 课表节次方案 id（教务默认方案） */
@@ -209,26 +210,23 @@ function normalizeCredits(data) {
 
 // ===== 绑定 =====
 
-/** 绑定教务系统：用上报的 Cookie 调一次 sessionUserInfo 做校验，通过才落库 */
-export async function handleAcademicBind(request, env, user) {
-  const body = await request.json().catch(() => ({}));
-  const cookies = String(body.cookies || '').trim();
-  if (!cookies) {
-    return jsonResponse(error('缺少教务系统会话 Cookie', 'MISSING_COOKIES'), 400);
-  }
-
+/**
+ * 校验会话并把绑定写进 D1（绑定 Cookie / 代登录两条路径共用）
+ * @returns {Promise<{data?: object, response?: Response}>}
+ */
+async function bindWithCookies(env, user, cookies) {
   const client = new SchoolClient(cookies);
   let info;
   try {
     info = await client.sessionUserInfo();
   } catch (e) {
     if (e instanceof SchoolSessionExpired) {
-      return jsonResponse(error('教务登录态无效，请先登录教务系统再回来绑定', 'ACADEMIC_INVALID'), 400);
+      return { response: jsonResponse(error('教务登录态无效，请重新登录教务系统', 'ACADEMIC_INVALID'), 400) };
     }
-    return jsonResponse(error(`无法连接教务系统：${e.message}`, 'ACADEMIC_UNREACHABLE'), 502);
+    return { response: jsonResponse(error(`无法连接教务系统：${e.message}`, 'ACADEMIC_UNREACHABLE'), 502) };
   }
   if (!info || !info.id) {
-    return jsonResponse(error('教务返回的用户信息异常，请重新登录教务系统', 'ACADEMIC_INVALID'), 400);
+    return { response: jsonResponse(error('教务返回的用户信息异常，请重新登录教务系统', 'ACADEMIC_INVALID'), 400) };
   }
 
   const model = new AcademicModel(env.DB);
@@ -239,11 +237,53 @@ export async function handleAcademicBind(request, env, user) {
     cookies
   });
 
-  return jsonResponse(success({
-    bound: true,
-    studentNo: info.userAccount || '',
-    realName: info.userNameZh || ''
-  }));
+  return {
+    data: {
+      bound: true,
+      studentNo: info.userAccount || '',
+      realName: info.userNameZh || ''
+    }
+  };
+}
+
+/** 绑定教务系统：用上报的 Cookie 调一次 sessionUserInfo 做校验，通过才落库 */
+export async function handleAcademicBind(request, env, user) {
+  const body = await request.json().catch(() => ({}));
+  const cookies = String(body.cookies || '').trim();
+  if (!cookies) {
+    return jsonResponse(error('缺少教务系统会话 Cookie', 'MISSING_COOKIES'), 400);
+  }
+
+  const result = await bindWithCookies(env, user, cookies);
+  return result.response || jsonResponse(success(result.data));
+}
+
+/**
+ * 用学号 + 密码走统一身份认证代登录，成功后直接绑定
+ * 密码只在本次请求的内存里用一次，不落库、不打日志
+ */
+export async function handleAcademicPasswordLogin(request, env, user) {
+  const body = await request.json().catch(() => ({}));
+  const studentId = String(body.student_id || '').trim();
+  const password = String(body.password || '');
+  if (!studentId || !password) {
+    return jsonResponse(error('请填写学号与密码', 'MISSING_CREDENTIALS'), 400);
+  }
+
+  let session;
+  try {
+    session = await loginWithPassword(studentId, password);
+  } catch (e) {
+    if (e instanceof CasError) {
+      // 需要验证码时用 409，前端据此提示改走手动绑定（401 会触发退出登录，不能用）
+      const status = e.code === 'CAS_NEED_CAPTCHA' ? 409 : 400;
+      return jsonResponse(error(e.message, e.code), status);
+    }
+    return jsonResponse(error(`统一身份认证登录失败：${e.message}`, 'CAS_ERROR'), 502);
+  }
+
+  const result = await bindWithCookies(env, user, session.cookies);
+  return result.response || jsonResponse(success({ ...result.data, via: 'password' }));
 }
 
 /** 解绑并清空教务缓存 */

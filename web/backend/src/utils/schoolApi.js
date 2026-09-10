@@ -7,10 +7,10 @@
  * 注意：教务系统对移动端 UA 有兼容问题（页面错乱），因此所有请求固定使用桌面 UA。
  */
 
-const SCHOOL_ORIGIN = 'https://szjw.njau.edu.cn';
+export const SCHOOL_ORIGIN = 'https://szjw.njau.edu.cn';
 
 /** 桌面 UA：教务系统用手机 UA 访问会出现渲染异常，这里固定伪装成 Edge 桌面端 */
-const DESKTOP_UA =
+export const DESKTOP_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) ' +
   'Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0';
 

@@ -1169,6 +1169,22 @@ body.app-mode { overflow: hidden; }
 
 .ac-tip { font-size: 0.9rem; color: var(--text-secondary); margin: 8px 0 18px; }
 .ac-note { font-size: 0.83rem; color: var(--text-tertiary); margin-top: 6px; line-height: 1.6; }
+
+/* 手动绑定：折叠说明 + 操作步骤 */
+.ac-details { margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--separator); }
+.ac-details summary { cursor: pointer; font-size: 0.88rem; font-weight: 600; color: var(--accent); list-style: none; }
+.ac-details summary::-webkit-details-marker { display: none; }
+.ac-details summary::before { content: '▸ '; }
+.ac-details[open] summary::before { content: '▾ '; }
+.ac-steps { margin: 4px 0 0 18px; font-size: 0.85rem; color: var(--text-secondary); line-height: 1.85; }
+.ac-steps li { margin-bottom: 3px; }
+.ac-steps a { color: var(--accent); text-decoration: none; }
+.ac-steps a:hover { text-decoration: underline; }
+.ac-steps kbd, .ac-steps code {
+  font-family: var(--font-mono); font-size: 0.86em;
+  padding: 1px 5px; border-radius: 5px;
+  background: var(--material-muted); border: 1px solid var(--border); color: var(--text);
+}
 .ac-divider {
   display: flex; align-items: center; gap: 12px;
   margin: 22px 0 18px; color: var(--text-tertiary); font-size: 0.8rem;

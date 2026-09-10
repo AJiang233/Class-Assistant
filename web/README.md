@@ -31,7 +31,7 @@ web/                            # Cloudflare Pages 项目根目录（直接部�
 │       ├── handlers/           # 业务逻辑：认证 / 通知 / 活动 / 日历订阅 / 教务数据
 │       ├── models/             # D1 数据访问（users / notices / activities / roles / academic）
 │       ├── middleware/         # CORS / JWT 认证 / 权限 / 日志
-│       └── utils/              # 统一响应 / PBKDF2 / JWT / 权限映射 / 时间处理 / iCalendar 生成 / 教务接口客户端
+│       └── utils/              # 统一响应 / PBKDF2 / JWT / 权限映射 / 时间处理 / iCalendar 生成 / 教务接口客户端 / CAS 代登录
 ├── schema.sql                  # D1 表结构
 ├── wrangler.toml               # 本地开发绑定（DB / JWT_SECRET，生产绑定在 Pages 面板配置）
 ├── package.json                # wrangler devDependency + 脚本（dev / deploy / db）
@@ -183,13 +183,17 @@ web/                            # Cloudflare Pages 项目根目录（直接部�
 课表与学分来自教务系统（数智教学微服务平台）。前端与教务系统跨域，且会话 Cookie 为 HttpOnly，
 浏览器里拿不到也调不通，因此统一由后端带着上报的 Cookie 代拉，并缓存进 D1。
 
-绑定方式：App 内「一键绑定」由安卓端用 `CookieManager` 读出教务域 Cookie 上报给后端
-（教务系统对手机 UA 有兼容问题，登录全程固定桌面 UA）；Web 端可手动粘贴 Cookie 兜底。
+绑定有三条路径，按体验排序：
+
+1. **App 内一键绑定**：安卓端用 `CookieManager` 读出教务域 Cookie 上报给后端（教务对手机 UA 有兼容问题，登录全程固定桌面 UA）
+2. **学号 + 密码代登录**：后端复刻统一身份认证（金智 CAS）登录链路，密码用完即弃（不落库、不打日志、不返回前端）
+3. **手动粘贴 Cookie**：用户在电脑浏览器登录教务后自行复制，适合不愿交出密码的同学（页面内有分步指引）
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | GET | `/api/academic/status` | 绑定状态 + 已缓存学期 |
-| POST | `/api/academic/bind` | 绑定，body `{ "cookies": "..." }`（先调 sessionUserInfo 校验） |
+| POST | `/api/academic/login` | 学号+密码代登录后绑定，body `{ "student_id", "password" }`；需要验证码时返回 409 |
+| POST | `/api/academic/bind` | 用会话 Cookie 绑定，body `{ "cookies": "..." }`（先调 sessionUserInfo 校验） |
 | DELETE | `/api/academic/bind` | 解绑并清空该用户的教务缓存 |
 | GET | `/api/academic/timetable` | 课表，`?xnxq=2026-2027-1` 指定学期，`?refresh=1` 强制重抓 |
 | GET | `/api/academic/credits` | 学业达成 / 学分，`?refresh=1` 强制重抓 |
@@ -225,6 +229,11 @@ web/                            # Cloudflare Pages 项目根目录（直接部�
 - **登录态失效**：教务对未登录请求返回 401，据此把绑定标记为 `expired`，页面提示重新绑定
 - **两处教务接口的坑**：`sessionUserInfo` 用 GET 且返回裸对象（无 `data` 包装）；
   「学业达成」返回的树末尾另有一条名为「总计」的叶子，按叶子累加会翻倍，须以它为准
+- **代登录细节**：CAS 密码加密复刻自 authserver 的 `encrypt.js`（明文 = 随机 64 位串 + 密码，
+  key = 登录页里的 `pwdEncryptSalt`，iv = 随机 16 位串，AES-CBC/Pkcs7 → Base64），
+  并按页面行为一并提交明文 `passwordText` 兜底；登录链路的三级跳转按域分别记 Cookie
+- **验证码**：由服务端按账号风控决定（`checkNeedCaptcha.htl`），实测正常登录不触发，
+  同一账号连续失败数次后才要求验证码；触发时代登录无法继续，接口返回 409 引导用户改用手动绑定
 - 学分接口需要「当前执行计划 id」，由 `detailBhzxjh` 返回的 `zxjhid` 提供，链路见 `handlers/academicHandler.js`
 - 教务接口清单、请求体与固定桌面 UA 见 `backend/src/utils/schoolApi.js`
 
@@ -318,7 +327,7 @@ CREATE TABLE academic_credits (             -- 学业达成（学分）缓存
 - **发布/编辑表单**：统一弹窗形式；可选「提醒对象」（成员以标签多选）、通知可设「存活至」（到期自动隐藏）
 - **列表与详情**：列表行「标题 + 徽章」、元信息带图标（发布人 / 时间 / 地点），点击条目标题弹出详情弹窗
 - **个人中心**：资料（联系方式可自助修改）、主题外观、日历订阅（可自定义提醒提前量/时间范围/是否含通知，并可重置密钥）、修改密码、强制刷新（清除本地缓存并重载，用于修复样式错乱）、退出登录（红色警示卡）
-- **课表与学业**：`academic.html` —— 课表按节次网格渲染（当前周高亮、非本周淡出）、未安排课程列表、学业达成学分看板（要求/已获/在修/还需 + 逐课程体系明细）；未绑定时给出绑定引导，App 内可一键绑定
+- **课表与学业**：`academic.html` —— 课表按节次网格渲染（当前周高亮、非本周淡出）、未安排课程列表、学业达成学分看板（要求/已获/在修/还需 + 逐课程体系明细）；未绑定时提供三条绑定路径（App 一键 / 学号密码代登录 / 手动粘贴 Cookie 并附分步指引）
 - **API 封装**：`assets/js/app.js` 提供 `api(path, options)`，自动附带 `Bearer` token、401 自动回登录页
 - **主题**：`data-theme` 深浅色（液态玻璃风格），localStorage 记忆
 - `API_BASE` 保持 `''`（前后端同域，走 Pages Functions）
