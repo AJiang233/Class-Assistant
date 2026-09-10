@@ -111,7 +111,7 @@
                         <div class="home-right">
                             <div class="section-block" style="margin-top:0;">
                                 <div class="section-head">
-                                    <h2 class="section-title" id="noticeDateTitle">当日通知</h2>
+                                    <h2 class="section-title" id="noticeDateTitle">当前通知</h2>
                                     <button type="button" class="btn btn-outline btn-sm" onclick="switchView('notices')">查看全部</button>
                                 </div>
                                 <div class="list" id="noticeList"></div>
@@ -217,8 +217,8 @@
         try { if (localStorage.getItem('sidebarCollapsed') === '1') sb.classList.add('collapsed'); } catch (e) {}
         bindAppThemeToggle();
         fillAuthArea(authed, user);
-        // 仅管理员可见"管理员"入口（侧边栏 + 移动端底部导航）
-        if (canManageUsers()) {
+        // 有发布权限或成员管理权限者可见"管理员"入口（侧边栏 + 移动端底部导航）
+        if (canManageUsers() || canContentWrite()) {
             document.getElementById('navAdmin').style.display = '';
             var mAdmin = document.querySelector('.bottom-nav-item[data-nav="admin"]');
             if (mAdmin) mAdmin.style.display = '';
@@ -414,11 +414,7 @@
         return parseInt(p[1]) + ' 月 ' + parseInt(p[2]) + ' 日 · 日程';
     }
     function dayNoticeTitle(k) {
-        if (!k) return '当日通知';
-        var t = todayKey();
-        if (k === t) return '当日通知';
-        var p = k.split('-');
-        return parseInt(p[1]) + ' 月 ' + parseInt(p[2]) + ' 日 · 通知';
+        return '当前通知';
     }
 
     // ===== 加载指定日期日程/通知（默认今天） =====
@@ -428,15 +424,14 @@
         document.getElementById('noticeDateTitle').textContent = dayNoticeTitle(activeDate);
         renderCalendar();
         loadActivities(activeDate);
-        loadNotices(activeDate);
+        loadNotices();
     }
 
-    async function loadNotices(date) {
+    async function loadNotices() {
         var el = document.getElementById('noticeList');
         el.innerHTML = skeletonHTML(3);
-        var q = date ? ('?date=' + encodeURIComponent(date) + '&limit=3') : '?limit=3';
         try {
-            var res = await api('/api/notices' + q);
+            var res = await api('/api/notices?limit=3');
             var list = (res.data && res.data.list) || [];
             if (!list.length) { el.innerHTML = stateHTML('暂无通知'); return; }
             list.sort(function (a, b) { return String(b.publish_time || '').localeCompare(String(a.publish_time || '')); });
@@ -517,11 +512,14 @@
                 + '<span>' + icon('clock') + '结束 ' + esc(fmtDate(a.end_time)) + '</span>';
             if (a.location) meta += '<span>' + icon('pin') + esc(a.location) + '</span>';
             var byline = '<div class="detail-byline"><span>' + icon('user') + '发布人 ' + esc(a.publisher || '未知') + '</span></div>';
+            var remind = fmtRemind(a.remind_people);
+            var remindLine = remind ? '<div class="detail-remind"><span>' + icon('bell') + '被通知人 ' + esc(remind) + '</span></div>' : '';
             card.innerHTML =
-                '<div class="detail-title">' + esc(a.title) + '</div>'
+                '<div class="detail-head"><div class="detail-title">' + esc(a.title) + '</div></div>'
                 + '<div class="detail-meta">' + meta + '</div>'
                 + '<div class="detail-body">' + esc(a.content || '暂无活动说明') + '</div>'
-                + byline;
+                + byline
+                + remindLine;
         } catch (err) {
             card.innerHTML = stateHTML(err.message, true);
         }
@@ -535,17 +533,18 @@
         try {
             var res = await api('/api/notices/' + id);
             var n = res.data;
-            var meta = '<span class="badge badge-' + esc(n.source || 'manual') + '">' + esc(sourceName(n.source)) + '</span>'
-                + '<span>' + icon('clock') + '发布 ' + esc(fmtDate(n.publish_time)) + '</span>'
-                + '<span>' + icon('clock') + '截止 ' + esc(fmtDate(n.expire_time)) + '</span>';
-            var remind = fmtRemind(n.remind_people);
-            if (remind) meta += '<span>' + icon('bell') + '提醒 ' + esc(remind) + '</span>';
+            var badge = '<span class="badge badge-' + esc(n.source || 'manual') + '">' + esc(sourceName(n.source)) + '</span>';
+            var meta = '<span>' + icon('clock') + '发布 ' + esc(fmtDate(n.publish_time)) + '</span>';
+            if (n.expire_time) meta += '<span>' + icon('clock') + '截止 ' + esc(fmtDate(n.expire_time)) + '</span>';
             var byline = '<div class="detail-byline"><span>' + icon('user') + '通知人 ' + esc(n.publisher || '未知') + '</span></div>';
+            var remind = fmtRemind(n.remind_people);
+            var remindLine = remind ? '<div class="detail-remind"><span>' + icon('bell') + '被通知人 ' + esc(remind) + '</span></div>' : '';
             card.innerHTML =
-                '<div class="detail-title">' + esc(n.title) + '</div>'
+                '<div class="detail-head"><div class="detail-title">' + esc(n.title) + '</div>' + badge + '</div>'
                 + '<div class="detail-meta">' + meta + '</div>'
                 + '<div class="detail-body">' + esc(n.content || '暂无通知内容') + '</div>'
-                + byline;
+                + byline
+                + remindLine;
         } catch (err) {
             card.innerHTML = stateHTML(err.message, true);
         }

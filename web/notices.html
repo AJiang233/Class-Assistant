@@ -33,48 +33,41 @@
 <body>
     <div class="main">
         <div class="container">
-            <!-- 列表视图 -->
             <div id="listView">
                 <div class="page-head">
                     <h1 class="page-title">班级通知</h1>
-                    <p class="page-desc">班委发布的班级通知，按发布时间倒序排列。</p>
-                    <div id="publishToggle" style="display:none; margin-top:12px;">
-                        <button type="button" class="btn btn-primary" onclick="togglePublish()" id="publishBtn">发布通知</button>
-                    </div>
-                    <div id="archiveToggle" style="display:none; margin-top:12px;">
-                        <button type="button" class="btn btn-outline" onclick="toggleArchive()" id="archiveBtn">查看过期</button>
-                    </div>
+                    <p class="page-desc">班级通知的发布时间与有效期限，按「正在进行 / 将要开始 / 已经结束」分类展示。</p>
                 </div>
 
-                <!-- 发布表单（仅 content:write 权限者可见） -->
-                <div class="profile-card" id="publishBox" style="display:none; margin-bottom:20px;">
-                    <h3 id="pubBoxTitle" style="margin:0 0 12px; font-size:1.1rem;">发布通知</h3>
-                    <div class="form-error" id="pubError"></div>
+                <!-- 编辑表单（仅 content:write 权限者，通过弹窗"修改"按钮打开） -->
+                <div class="profile-card" id="editBox" style="display:none; margin-bottom:20px;">
+                    <h3 id="editBoxTitle" style="margin:0 0 12px; font-size:1.1rem;">编辑通知</h3>
+                    <div class="form-error" id="editError"></div>
                     <div class="form-field">
                         <label class="form-label">标题</label>
-                        <input id="pubTitle" class="form-input" type="text" placeholder="请输入通知标题" autocomplete="off">
+                        <input id="editTitle" class="form-input" type="text" placeholder="请输入通知标题" autocomplete="off">
                     </div>
                     <div class="form-field">
                         <label class="form-label">内容</label>
-                        <textarea id="pubContent" class="form-input" rows="4" placeholder="请输入通知内容"></textarea>
+                        <textarea id="editContent" class="form-input" rows="4" placeholder="请输入通知内容"></textarea>
                     </div>
                     <div class="form-field">
                         <label class="form-label">发布时间</label>
-                        <input id="pubTime" class="form-input" type="datetime-local" autocomplete="off">
+                        <input id="editPublish" class="form-input" type="datetime-local" autocomplete="off">
                     </div>
                     <div class="form-field">
                         <label class="form-label">存活至（选填，到期自动隐藏）</label>
-                        <input id="pubExpire" class="form-input" type="datetime-local" autocomplete="off">
+                        <input id="editExpire" class="form-input" type="datetime-local" autocomplete="off">
                     </div>
                     <div class="form-field">
                         <label class="form-label">提醒对象（选填）</label>
-                        <div id="pubRemind" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
+                        <div id="editRemind" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
                     </div>
-                    <button type="button" class="btn btn-primary" id="pubSubmitBtn" onclick="submitNotice()">发布</button>
-                    <button type="button" class="btn btn-outline" onclick="togglePublish()" style="margin-left:8px;">取消</button>
+                    <button type="button" class="btn btn-primary" id="editSubmitBtn" onclick="submitEdit()">保存</button>
+                    <button type="button" class="btn btn-outline" onclick="cancelEdit()" style="margin-left:8px;">取消</button>
                 </div>
 
-                <div class="list" id="noticeList"></div>
+                <div id="noticeListView"></div>
             </div>
 
             <!-- 详情弹窗 -->
@@ -100,16 +93,11 @@
 
     var modalOverlay = document.getElementById('detailModal');
 
-    // ===== 发布入口（仅 content:write 权限者可见） =====
-    if (canContentWrite()) {
-        document.getElementById('publishToggle').style.display = 'block';
-        document.getElementById('archiveToggle').style.display = 'block';
-        loadRemindChoices();
-    }
+    // ===== 编辑入口：仅 content:write 权限者可用 =====
+    if (canContentWrite()) loadRemindChoices();
 
     // ===== 提醒对象选择 =====
     var remindChoices = [];
-    var isArchive = false;
 
     async function loadRemindChoices() {
         try {
@@ -119,7 +107,8 @@
     }
 
     function renderRemindChoices(checkedNames) {
-        var box = document.getElementById('pubRemind');
+        var box = document.getElementById('editRemind');
+        if (!box) return;
         if (!remindChoices.length) { box.innerHTML = '<span style="opacity:.6;font-size:.85rem;">暂无成员可提醒</span>'; return; }
         box.innerHTML = remindChoices.map(function (m) {
             var chk = (checkedNames && checkedNames.indexOf(m.name) >= 0) ? ' checked' : '';
@@ -129,91 +118,69 @@
 
     function collectRemind() {
         var names = [];
-        document.querySelectorAll('#pubRemind .remind-cb:checked').forEach(function (el) { names.push(el.value); });
+        document.querySelectorAll('#editRemind .remind-cb:checked').forEach(function (el) { names.push(el.value); });
         return names;
-    }
-
-    function toggleArchive() {
-        isArchive = !isArchive;
-        document.getElementById('archiveBtn').textContent = isArchive ? '返回正常' : '查看过期';
-        loadList();
     }
 
     var editingNoticeId = null;
 
-    function resetNoticeForm() {
-        editingNoticeId = null;
-        document.getElementById('pubBoxTitle').textContent = '发布通知';
-        document.getElementById('pubSubmitBtn').textContent = '发布';
-        document.getElementById('pubTitle').value = '';
-        document.getElementById('pubContent').value = '';
-        document.getElementById('pubExpire').value = '';
-        renderRemindChoices([]);
+    // ===== 时间比较：与数据库一致的 "YYYY-MM-DD HH:MM:SS" 本地时间 =====
+    function nowKey() {
+        var d = new Date(); var pad = function (n) { return n < 10 ? '0' + n : '' + n; };
+        return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':00';
     }
 
-    function togglePublish() {
-        var box = document.getElementById('publishBox');
-        if (box.style.display === 'none') {
-            resetNoticeForm();
-            box.style.display = 'block';
-            document.getElementById('pubTime').value = nowLocal();
-        } else {
-            box.style.display = 'none';
-            resetNoticeForm();
-        }
+    function statusOf(n) {
+        var p = String(n.publish_time || '');
+        var e = String(n.expire_time || '');
+        var now = nowKey();
+        if (p && p > now) return 'upcoming';
+        if (e && e <= now) return 'ended';
+        return 'ongoing';
     }
 
-    async function submitNotice() {
-        var errBox = document.getElementById('pubError');
-        errBox.classList.remove('show');
-        var title = document.getElementById('pubTitle').value.trim();
-        var content = document.getElementById('pubContent').value.trim();
-        var publish_time = document.getElementById('pubTime').value;
-        var expire_time = document.getElementById('pubExpire').value || null;
-        if (!title || !content || !publish_time) {
-            errBox.textContent = '标题、内容、发布时间为必填';
-            errBox.classList.add('show'); return;
-        }
-        var btn = document.getElementById('pubSubmitBtn');
-        btn.disabled = true; var t = btn.textContent; btn.textContent = '提交中…';
-        try {
-            var body = { title: title, content: content, publish_time: publish_time, expire_time: expire_time, remind_people: collectRemind() };
-            if (editingNoticeId) {
-                await api('/api/notices/' + editingNoticeId, { method: 'PUT', body: JSON.stringify(body) });
-            } else {
-                await api('/api/notices', { method: 'POST', body: JSON.stringify(body) });
-            }
-            togglePublish();
-            loadList();
-        } catch (err) {
-            errBox.textContent = err.message;
-            errBox.classList.add('show');
-        } finally {
-            btn.disabled = false; btn.textContent = t;
-        }
+    function byPublishAsc(a, b) { return String(a.publish_time || '').localeCompare(String(b.publish_time || '')); }
+    function byPublishDesc(a, b) { return String(b.publish_time || '').localeCompare(String(a.publish_time || '')); }
+
+    function rowHTML(n) {
+        return '<button type="button" class="list-row" onclick="showDetail(' + n.id + ')">'
+            + '<div class="list-row-main">'
+            + '<div class="list-row-title">' + esc(n.title) + '</div>'
+            + '<div class="list-row-meta">'
+            + '<span class="badge badge-' + esc(n.source || 'manual') + '">' + esc(sourceName(n.source)) + '</span>'
+            + '<span>' + esc(n.publisher || '') + '</span>'
+            + '<span>' + esc(fmtDate(n.publish_time)) + '</span>'
+            + '</div>'
+            + '</div>'
+            + '<svg class="list-row-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>'
+            + '</button>';
     }
 
-    // ===== 加载列表 =====
+    function groupHTML(title, rows) {
+        return '<div class="section-block">'
+            + '<div class="section-head"><h2 class="section-title">' + title + '</h2><span class="section-count">共 ' + rows.length + ' 条</span></div>'
+            + '<div class="list">' + rows.map(rowHTML).join('') + '</div>'
+            + '</div>';
+    }
+
+    // ===== 加载列表（按 正在进行 / 将要开始 / 已经结束 分组） =====
     async function loadList() {
-        var el = document.getElementById('noticeList');
+        var el = document.getElementById('noticeListView');
         el.innerHTML = skeletonHTML(5);
         try {
-            var res = await api(isArchive ? '/api/notices/archive' : '/api/notices');
+            var res = await api('/api/notices?scope=all');
             var list = (res.data && res.data.list) || [];
             if (!list.length) { el.innerHTML = stateHTML('暂无通知'); return; }
-            el.innerHTML = list.map(function (n) {
-                return '<button type="button" class="list-row" onclick="showDetail(' + n.id + ')">'
-                    + '<div class="list-row-main">'
-                    + '<div class="list-row-title">' + esc(n.title) + '</div>'
-                    + '<div class="list-row-meta">'
-                    + '<span class="badge badge-' + esc(n.source || 'manual') + '">' + esc(sourceName(n.source)) + '</span>'
-                    + '<span>' + esc(n.publisher || '') + '</span>'
-                    + '<span>' + esc(fmtDate(n.publish_time)) + '</span>'
-                    + '</div>'
-                    + '</div>'
-                    + '<svg class="list-row-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>'
-                    + '</button>';
-            }).join('');
+            var groups = { ongoing: [], upcoming: [], ended: [] };
+            list.forEach(function (n) { groups[statusOf(n)].push(n); });
+            groups.ongoing.sort(byPublishAsc);
+            groups.upcoming.sort(byPublishAsc);
+            groups.ended.sort(byPublishDesc);
+            var html = '';
+            if (groups.ongoing.length) html += groupHTML('正在进行', groups.ongoing);
+            if (groups.upcoming.length) html += groupHTML('将要开始', groups.upcoming);
+            if (groups.ended.length) html += groupHTML('已经结束', groups.ended);
+            el.innerHTML = html;
         } catch (err) {
             el.innerHTML = stateHTML(err.message, true);
         }
@@ -245,23 +212,24 @@
         try {
             var res = await api('/api/notices/' + id);
             var n = res.data;
+            var badge = '<span class="badge badge-' + esc(n.source || 'manual') + '">' + esc(sourceName(n.source)) + '</span>';
+            var meta = '<span>' + icon('clock') + '发布 ' + esc(fmtDate(n.publish_time)) + '</span>';
+            if (n.expire_time) meta += '<span>' + icon('clock') + '截止 ' + esc(fmtDate(n.expire_time)) + '</span>';
+            var byline = '<div class="detail-byline"><span>' + icon('user') + '通知人 ' + esc(n.publisher || '未知') + '</span></div>';
+            var remind = fmtRemind(n.remind_people);
+            var remindLine = remind ? '<div class="detail-remind"><span>' + icon('bell') + '被通知人 ' + esc(remind) + '</span></div>' : '';
             var actBtns = canContentWrite()
                 ? '<div class="modal-foot">'
-                  + '<button type="button" class="btn btn-outline" onclick="startEdit(' + n.id + ')">编辑</button>'
-                  + '<button type="button" class="btn btn-outline" style="color:#ff3b30;border-color:#ff3b30;" onclick="deleteNotice(' + n.id + ')">删除通知</button>'
+                  + '<button type="button" class="btn btn-outline" onclick="startEdit(' + n.id + ')">修改</button>'
+                  + '<button type="button" class="btn btn-outline" style="color:#ff3b30;border-color:#ff3b30;" onclick="deleteNotice(' + n.id + ')">删除</button>'
                   + '</div>'
                 : '';
-            var meta = '<span class="badge badge-' + esc(n.source || 'manual') + '">' + esc(sourceName(n.source)) + '</span>'
-                + '<span>' + icon('clock') + '发布 ' + esc(fmtDate(n.publish_time)) + '</span>'
-                + '<span>' + icon('clock') + '截止 ' + esc(fmtDate(n.expire_time)) + '</span>';
-            var remind = fmtRemind(n.remind_people);
-            if (remind) meta += '<span>' + icon('bell') + '提醒 ' + esc(remind) + '</span>';
-            var byline = '<div class="detail-byline"><span>' + icon('user') + '通知人 ' + esc(n.publisher || '未知') + '</span></div>';
             card.innerHTML =
-                '<div class="detail-title">' + esc(n.title) + '</div>'
+                '<div class="detail-head"><div class="detail-title">' + esc(n.title) + '</div>' + badge + '</div>'
                 + '<div class="detail-meta">' + meta + '</div>'
-                + '<div class="detail-body">' + esc(n.content || '') + '</div>'
+                + '<div class="detail-body">' + esc(n.content || '暂无通知内容') + '</div>'
                 + byline
+                + remindLine
                 + actBtns;
         } catch (err) {
             card.innerHTML = stateHTML(err.message, true);
@@ -281,30 +249,60 @@
 
     function startEdit(id) {
         closeDetail();
-        var box = document.getElementById('publishBox');
-        if (box.style.display === 'none') { resetNoticeForm(); box.style.display = 'block'; }
         api('/api/notices/' + id).then(function (res) {
             var n = res.data;
-            document.getElementById('pubBoxTitle').textContent = '编辑通知';
-            document.getElementById('pubSubmitBtn').textContent = '保存';
-            document.getElementById('pubTitle').value = n.title || '';
-            document.getElementById('pubContent').value = n.content || '';
-            document.getElementById('pubTime').value = (n.publish_time || '').replace(' ', 'T').slice(0, 16);
-            document.getElementById('pubExpire').value = (n.expire_time || '').replace(' ', 'T').slice(0, 16);
-            var names = [];
-            if (n.remind_people) { try { var a = JSON.parse(n.remind_people); if (Array.isArray(a)) names = a; } catch (e) {} }
-            renderRemindChoices(names);
             editingNoticeId = id;
+            document.getElementById('editBox').style.display = 'block';
+            document.getElementById('editBoxTitle').textContent = '编辑通知';
+            document.getElementById('editError').classList.remove('show');
+            document.getElementById('editTitle').value = n.title || '';
+            document.getElementById('editContent').value = n.content || '';
+            document.getElementById('editPublish').value = (n.publish_time || '').replace(' ', 'T').slice(0, 16);
+            document.getElementById('editExpire').value = (n.expire_time || '').replace(' ', 'T').slice(0, 16);
+            var names = [];
+            if (n.remind_people) { try { var arr = JSON.parse(n.remind_people); if (Array.isArray(arr)) names = arr; } catch (e) {} }
+            renderRemindChoices(names);
+            document.getElementById('editBox').scrollIntoView({ behavior: 'smooth', block: 'start' });
         }).catch(function (err) { alert(err.message); });
+    }
+
+    function cancelEdit() {
+        document.getElementById('editBox').style.display = 'none';
+        editingNoticeId = null;
+    }
+
+    async function submitEdit() {
+        var errBox = document.getElementById('editError');
+        errBox.classList.remove('show');
+        var title = document.getElementById('editTitle').value.trim();
+        var content = document.getElementById('editContent').value.trim();
+        var publish_time = document.getElementById('editPublish').value;
+        var expire_time = document.getElementById('editExpire').value || null;
+        if (!title || !publish_time) {
+            errBox.textContent = '标题、发布时间为必填';
+            errBox.classList.add('show'); return;
+        }
+        var btn = document.getElementById('editSubmitBtn');
+        btn.disabled = true; var t = btn.textContent; btn.textContent = '保存中…';
+        try {
+            var body = { title: title, content: content, publish_time: publish_time, expire_time: expire_time, remind_people: collectRemind() };
+            await api('/api/notices/' + editingNoticeId, { method: 'PUT', body: JSON.stringify(body) });
+            cancelEdit();
+            loadList();
+        } catch (err) {
+            errBox.textContent = err.message;
+            errBox.classList.add('show');
+        } finally {
+            btn.disabled = false; btn.textContent = t;
+        }
     }
 
     // 供内联 onclick 调用
     window.showDetail = showDetail;
-    window.togglePublish = togglePublish;
-    window.toggleArchive = toggleArchive;
-    window.submitNotice = submitNotice;
     window.deleteNotice = deleteNotice;
     window.startEdit = startEdit;
+    window.cancelEdit = cancelEdit;
+    window.submitEdit = submitEdit;
     window.closeDetail = closeDetail;
     })();
     </script>

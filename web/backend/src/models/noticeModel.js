@@ -20,26 +20,21 @@ export class NoticeModel {
   }
 
   /**
-   * 获取通知列表（按发布时间倒序，过滤已过期的通知）
+   * 获取「当前生效」的通知列表（按发布时间倒序）
+   * 生效窗口：[publish_time, expire_time)；publish_time 为空则视为立即生效，expire_time 为空则视为永不失效
+   * 即：已到发布时间 且 尚未过期 —— 只要处于该窗口内，每天都会出现在主页
    * @param {number} limit
    * @param {number} offset
-   * @param {string} [date] 可选，按发布日期过滤（格式 YYYY-MM-DD）
    */
-  async list(limit = 50, offset = 0, date = null) {
-    const hasDate = date ? date.length > 0 : false;
-    const sql = hasDate
-      ? `SELECT id, title, content, publish_time, publisher, remind_people, source, expire_time, created_at
-         FROM notices
-         WHERE (expire_time IS NULL OR expire_time > datetime('now', '+8 hours'))
-           AND substr(publish_time, 1, 10) = ?
-         ORDER BY publish_time DESC
-         LIMIT ? OFFSET ?`
-      : `SELECT id, title, content, publish_time, publisher, remind_people, source, expire_time, created_at
-         FROM notices
-         WHERE expire_time IS NULL OR expire_time > datetime('now', '+8 hours')
-         ORDER BY publish_time DESC
-         LIMIT ? OFFSET ?`;
-    const result = await this.db.prepare(sql).bind(...(hasDate ? [date, limit, offset] : [limit, offset])).all();
+  async list(limit = 50, offset = 0) {
+    const result = await this.db.prepare(
+      `SELECT id, title, content, publish_time, publisher, remind_people, source, expire_time, created_at
+       FROM notices
+       WHERE (publish_time IS NULL OR publish_time <= datetime('now', '+8 hours'))
+         AND (expire_time IS NULL OR expire_time = '' OR expire_time > datetime('now', '+8 hours'))
+       ORDER BY publish_time DESC
+       LIMIT ? OFFSET ?`
+    ).bind(limit, offset).all();
     return result.results;
   }
 

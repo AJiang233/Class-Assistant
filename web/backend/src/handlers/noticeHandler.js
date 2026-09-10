@@ -40,10 +40,13 @@ export async function handleListNotices(request, env, user) {
     const url = new URL(request.url);
     const limit = parseInt(url.searchParams.get('limit')) || 50;
     const offset = parseInt(url.searchParams.get('offset')) || 0;
-    const date = url.searchParams.get('date') || null;
+    // scope=all 返回全部通知（含已过期/未到发布时间的），用于按「进行中/即将开始/已结束」分类
+    const scope = url.searchParams.get('scope') || 'active';
 
     const noticeModel = new NoticeModel(env.DB);
-    const list = await noticeModel.list(limit, offset, date);
+    const list = scope === 'all'
+      ? await noticeModel.listAll(limit, offset)
+      : await noticeModel.list(limit, offset);
 
     return jsonResponse(success({ list, total: list.length }));
   } catch (e) {

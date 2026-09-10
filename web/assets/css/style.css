@@ -303,6 +303,20 @@ body {
   font-size: 0.87rem; color: var(--text-secondary);
 }
 .detail-byline span { display: inline-flex; align-items: center; gap: 6px; }
+/* 被通知人：位于弹窗最底部 */
+.detail-remind {
+  display: flex; flex-wrap: wrap; gap: 8px 22px;
+  margin-top: 14px;
+  font-size: 0.87rem; color: var(--text-secondary);
+}
+.detail-remind span { display: inline-flex; align-items: center; gap: 6px; }
+.detail-remind svg { flex-shrink: 0; }
+/* 标题行：标题 + 发布来源徽章 */
+.detail-head {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.detail-head .detail-title { margin-bottom: 0; }
 
 /* ===== 弹窗（详情展示） ===== */
 .modal-overlay {
@@ -335,6 +349,8 @@ body {
 .modal-close:hover { background: var(--g-hover); color: var(--text); }
 .modal-body { padding: 22px; overflow-y: auto; }
 .modal-body .detail-title { font-size: 1.4rem; margin-bottom: 10px; }
+.modal-body .detail-head { margin-bottom: 12px; }
+.modal-body .detail-head .detail-title { margin-bottom: 0; }
 .modal-foot {
   display: flex; gap: 8px; justify-content: flex-end; padding: 14px 22px;
   border-top: 1px solid var(--border);
@@ -449,6 +465,42 @@ body {
 .profile-actions { display: flex; gap: 12px; margin-top: 24px; }
 .profile-actions .btn { flex: 1; }
 
+/* 通用双列卡片布局（个人中心 / 管理员） */
+.split-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+.split-col { display: flex; flex-direction: column; gap: 16px; }
+.split-grid .profile-card { max-width: none; padding: 28px 30px; }
+.split-grid .profile-card h2 { font-size: 1.15rem; }
+.pref-seg { margin-bottom: 0; }
+@media (max-width: 720px) {
+  .split-grid { grid-template-columns: 1fr; }
+}
+
+/* 可折叠卡片：默认收起，点击标题行展开 */
+.collapse-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  width: 100%; padding: 0; background: none; border: none;
+  font-family: inherit; text-align: left; cursor: pointer; color: var(--text);
+}
+.collapse-head h2 { margin: 0; }
+.collapse-arrow { color: var(--text-secondary); flex-shrink: 0; transition: transform var(--transition); }
+.collapse.open .collapse-arrow { transform: rotate(180deg); }
+.collapse-body { display: none; margin-top: 16px; }
+.collapse.open .collapse-body { display: block; }
+
+/* 管理列表行（管理员页：管理通知 / 管理活动 / 管理成员） */
+.manage-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 12px 2px; border-bottom: 1px solid var(--border);
+}
+.manage-row:last-child { border-bottom: none; }
+.manage-row-main { min-width: 0; }
+.manage-row-title { font-size: 0.95rem; font-weight: 600; color: var(--text); word-break: break-word; }
+.manage-row-meta { font-size: 0.82rem; color: var(--text-secondary); margin-top: 3px; }
+.manage-row-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.manage-row-actions .btn { padding: 3px 10px; font-size: 0.8rem; }
+.btn-danger { color: #ff3b30; border-color: rgba(255, 59, 48, 0.5); }
+.btn-danger:hover { background: rgba(255, 59, 48, 0.08); color: #ff3b30; }
+
 /* ===== 登录/注册品牌区 ===== */
 .auth-brand { text-align: center; margin-bottom: 26px; }
 .auth-mark {
@@ -515,6 +567,7 @@ body {
 .section-block { margin-top: 40px; }
 .section-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 14px; }
 .section-title { font-size: 1.06rem; font-weight: 700; color: var(--text); letter-spacing: -0.012em; }
+.section-count { font-size: 0.84rem; color: var(--text-secondary); font-weight: 600; white-space: nowrap; }
 .link-more { font-size: 0.86rem; color: var(--accent); text-decoration: none; font-weight: 650; white-space: nowrap; }
 .link-more:hover { text-decoration: underline; }
 
