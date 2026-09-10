@@ -93,9 +93,12 @@ export async function handleCalendarFeed(request, env) {
     if (!user) return new Response('invalid key', { status: 404, headers: textHeaders });
 
     const options = parseOptions(url);
-    const now = Date.now();
-    const from = now - options.past * 24 * 60 * 60 * 1000;
-    const to = now + options.future * 24 * 60 * 60 * 1000;
+    // 边界按「天」对齐：past=0 表示从今天 0 点起（今天的内容仍然保留，全天事件也才不会被误判为过去）
+    const DAY_MS = 24 * 60 * 60 * 1000;
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const from = todayStart - options.past * DAY_MS;
+    const to = todayStart + (options.future + 1) * DAY_MS - 1;
 
     const events = [];
 
