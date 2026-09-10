@@ -12,7 +12,7 @@ android {
         minSdk = 24
         targetSdk = 34
         versionCode = 1
-        versionName = "1.0.0"
+        versionName = "0.1.0"
     }
 
     buildTypes {
@@ -22,6 +22,9 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            // 内测分发：先用调试签名，装过 debug 包的机器可直接覆盖升级；
+            // 将来正式发布时换成正式 keystore（换签名后需要重装一次）
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
     compileOptions {
