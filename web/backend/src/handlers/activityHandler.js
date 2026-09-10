@@ -39,9 +39,10 @@ export async function handleListActivities(request, env, user) {
     const url = new URL(request.url);
     const limit = parseInt(url.searchParams.get('limit')) || 50;
     const offset = parseInt(url.searchParams.get('offset')) || 0;
+    const date = url.searchParams.get('date') || null;
 
     const activityModel = new ActivityModel(env.DB);
-    const list = await activityModel.list(limit, offset);
+    const list = await activityModel.list(limit, offset, date);
 
     return jsonResponse(success({ list, total: list.length }));
   } catch (e) {

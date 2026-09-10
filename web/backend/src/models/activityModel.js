@@ -21,14 +21,23 @@ export class ActivityModel {
 
   /**
    * 获取活动列表（按开始时间倒序）
+   * @param {number} limit
+   * @param {number} offset
+   * @param {string} [date] 可选，按开始日期过滤（格式 YYYY-MM-DD）
    */
-  async list(limit = 50, offset = 0) {
-    const result = await this.db.prepare(
-      `SELECT id, title, content, location, start_time, end_time, publisher, remind_people, created_at
-       FROM activities
-       ORDER BY start_time DESC
-       LIMIT ? OFFSET ?`
-    ).bind(limit, offset).all();
+  async list(limit = 50, offset = 0, date = null) {
+    const hasDate = date ? date.length > 0 : false;
+    const sql = hasDate
+      ? `SELECT id, title, content, location, start_time, end_time, publisher, remind_people, created_at
+         FROM activities
+         WHERE substr(start_time, 1, 10) = ?
+         ORDER BY start_time DESC
+         LIMIT ? OFFSET ?`
+      : `SELECT id, title, content, location, start_time, end_time, publisher, remind_people, created_at
+         FROM activities
+         ORDER BY start_time DESC
+         LIMIT ? OFFSET ?`;
+    const result = await this.db.prepare(sql).bind(...(hasDate ? [date, limit, offset] : [limit, offset])).all();
     return result.results;
   }
 

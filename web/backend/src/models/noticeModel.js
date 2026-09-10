@@ -21,15 +21,25 @@ export class NoticeModel {
 
   /**
    * 获取通知列表（按发布时间倒序，过滤已过期的通知）
+   * @param {number} limit
+   * @param {number} offset
+   * @param {string} [date] 可选，按发布日期过滤（格式 YYYY-MM-DD）
    */
-  async list(limit = 50, offset = 0) {
-    const result = await this.db.prepare(
-      `SELECT id, title, content, publish_time, publisher, remind_people, source, expire_time, created_at
-       FROM notices
-       WHERE expire_time IS NULL OR expire_time > datetime('now')
-       ORDER BY publish_time DESC
-       LIMIT ? OFFSET ?`
-    ).bind(limit, offset).all();
+  async list(limit = 50, offset = 0, date = null) {
+    const hasDate = date ? date.length > 0 : false;
+    const sql = hasDate
+      ? `SELECT id, title, content, publish_time, publisher, remind_people, source, expire_time, created_at
+         FROM notices
+         WHERE (expire_time IS NULL OR expire_time > datetime('now'))
+           AND substr(publish_time, 1, 10) = ?
+         ORDER BY publish_time DESC
+         LIMIT ? OFFSET ?`
+      : `SELECT id, title, content, publish_time, publisher, remind_people, source, expire_time, created_at
+         FROM notices
+         WHERE expire_time IS NULL OR expire_time > datetime('now')
+         ORDER BY publish_time DESC
+         LIMIT ? OFFSET ?`;
+    const result = await this.db.prepare(sql).bind(...(hasDate ? [date, limit, offset] : [limit, offset])).all();
     return result.results;
   }
 
