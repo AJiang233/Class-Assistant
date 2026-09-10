@@ -127,7 +127,7 @@
         if (!remindChoices.length) { box.innerHTML = '<span style="opacity:.6;font-size:.85rem;">暂无成员可提醒</span>'; return; }
         box.innerHTML = remindChoices.map(function (m) {
             var chk = (checkedNames && checkedNames.indexOf(m.name) >= 0) ? ' checked' : '';
-            return '<label style="display:inline-flex;align-items:center;margin-right:12px;margin-bottom:6px;font-size:.9rem;"><input type="checkbox" class="remind-cb" value="' + esc(m.name) + '"' + chk + ' style="margin-right:4px;">' + esc(m.name) + '</label>';
+            return '<label class="chip"><input type="checkbox" class="remind-cb" value="' + esc(m.name) + '"' + chk + '>' + esc(m.name) + '</label>';
         }).join('');
     }
 

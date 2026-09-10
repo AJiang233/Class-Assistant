@@ -245,18 +245,6 @@
         switchView('home');
     })();
 
-    // 用户职务显示（positions 为 JSON 字符串）
-    function userSub(u) {
-        if (u && u.positions) {
-            var s = String(u.positions);
-            if (s.charAt(0) === '[') {
-                try { var arr = JSON.parse(s); if (arr.length) return arr.join('、'); } catch (e) { return s; }
-            }
-            return s;
-        }
-        return '学生';
-    }
-
     // 侧边栏底部用户区：未登录=登录按钮，已登录=头像+名字+学号（仅展示，不可点击）
     function fillAuthArea(authed, user) {
         var area = document.getElementById('authArea');
@@ -563,12 +551,6 @@
     }
 
     // ===== 登录（应用壳内） =====
-    function showLogin() {
-        switchView('login');
-        var input = document.getElementById('loginStudentId');
-        if (input) input.focus();
-    }
-
     var loginForm = document.getElementById('loginForm');
     if (loginForm) {
         loginForm.addEventListener('submit', async function (e) {

@@ -103,7 +103,7 @@
                             <label class="form-label" for="calUrl">订阅链接</label>
                             <input class="form-input" id="calUrl" type="text" readonly placeholder="正在获取订阅地址…">
                         </div>
-                        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                        <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:10px;">
                             <button class="btn btn-primary" id="calCopyBtn" type="button">复制链接</button>
                             <a class="btn btn-outline" id="calOpenBtn" href="#" rel="noopener">打开订阅</a>
                             <button class="btn btn-danger" id="calResetBtn" type="button">重置密钥</button>
@@ -112,8 +112,14 @@
                     </div>
                 </div>
 
-                <!-- 右列：修改密码 + 退出登录 -->
+                <!-- 右列：强制刷新 + 修改密码 + 退出登录 -->
                 <div class="split-col">
+                    <div class="profile-card">
+                        <h2 style="margin:0 0 8px;">强制刷新</h2>
+                        <p class="profile-sub" style="margin:0 0 16px;">页面样式错乱或显示异常时，清除本地缓存并重新加载整个应用。</p>
+                        <button class="btn btn-outline btn-block" id="reloadBtn" type="button" onclick="forceRefresh()">清除缓存并刷新</button>
+                    </div>
+
                     <div class="profile-card collapse" id="pwdCard">
                         <button type="button" class="collapse-head" onclick="toggleCollapse('pwdCard')" aria-expanded="false">
                             <h2>修改密码</h2>
@@ -139,10 +145,10 @@
                         </div>
                     </div>
 
-                    <div class="profile-card">
+                    <div class="profile-card card-danger">
                         <h2 style="margin:0 0 8px;">退出登录</h2>
                         <p class="profile-sub" style="margin:0 0 16px;">退出后需重新输入学号与密码登录。</p>
-                        <button class="btn btn-outline btn-block" onclick="window.parent.logout()">退出登录</button>
+                        <button class="btn btn-danger btn-block" onclick="window.parent.logout()">退出登录</button>
                     </div>
                 </div>
             </div>
@@ -164,6 +170,35 @@
         if (head) head.setAttribute('aria-expanded', open ? 'true' : 'false');
     }
     window.toggleCollapse = toggleCollapse;
+
+    // ===== 强制刷新：清除缓存后重载整个应用（用于修复布局/样式异常） =====
+    async function forceRefresh() {
+        var btn = document.getElementById('reloadBtn');
+        if (btn) { btn.disabled = true; btn.textContent = '正在刷新…'; }
+        // 清 Cache Storage（PWA / Service Worker 缓存）
+        try {
+            if (window.caches && caches.keys) {
+                var keys = await caches.keys();
+                await Promise.all(keys.map(function (k) { return caches.delete(k); }));
+            }
+        } catch (e) {}
+        // 清会话缓存（保留 localStorage：登录态与主题设置）
+        try { sessionStorage.clear(); } catch (e) {}
+        // 重载顶层窗口，并加时间戳绕过 HTTP 缓存
+        var target = window;
+        try { if (window.top && window.top !== window) target = window.top; } catch (e) {}
+        var next;
+        try {
+            var u = new URL(target.location.href);
+            u.searchParams.set('_r', Date.now());
+            next = u.toString();
+        } catch (e) {
+            var href = target.location.href.split('#')[0];
+            next = href + (href.indexOf('?') >= 0 ? '&' : '?') + '_r=' + Date.now();
+        }
+        target.location.replace(next);
+    }
+    window.forceRefresh = forceRefresh;
 
     // ===== 加载我的资料 =====
     (async function loadProfile() {
