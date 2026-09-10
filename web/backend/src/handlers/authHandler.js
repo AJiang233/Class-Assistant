@@ -142,6 +142,37 @@ export async function handleMe(request, env, userPayload) {
 }
 
 /**
+ * 更新当前用户自己的资料（联系方式，任何登录用户可改自己的）
+ */
+export async function handleUpdateProfile(request, env, user) {
+  try {
+    const body = await request.json();
+    const { contact } = body;
+    if (contact === undefined) {
+      return jsonResponse(error('没有可更新的字段', 'MISSING_FIELDS'), 400);
+    }
+
+    const value = String(contact).trim();
+    if (value.length > 60) {
+      return jsonResponse(error('联系方式最多 60 个字符', 'CONTACT_TOO_LONG'), 400);
+    }
+
+    const userModel = new UserModel(env.DB);
+    await userModel.update(user.id, { contact: value });
+
+    const fresh = await userModel.findById(user.id);
+    return jsonResponse(success({
+      message: '更新成功',
+      contact: fresh ? fresh.contact : value,
+      update_time: fresh ? fresh.update_time : null
+    }));
+  } catch (e) {
+    console.error('更新个人资料失败:', e);
+    return jsonResponse(error('更新个人资料失败，请稍后重试', 'UPDATE_PROFILE_FAILED'), 500);
+  }
+}
+
+/**
  * 修改当前用户密码（任何登录用户可修改自己的）
  */
 export async function handleChangePassword(request, env, user) {

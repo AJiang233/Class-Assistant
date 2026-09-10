@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- 深色模式：系统栏配色跟随网页深色底，图标用浅色。
+         仅覆盖 Theme.ClassAssistant；WidgetRow 等其它样式自动回退到 values/。 -->
+    <style name="Theme.ClassAssistant" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="android:statusBarColor">@color/window_bg_dark</item>
+        <item name="android:navigationBarColor">@color/window_bg_dark</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar" tools:targetApi="27">false</item>
+    </style>
+</resources>

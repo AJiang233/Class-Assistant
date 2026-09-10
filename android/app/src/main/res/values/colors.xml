@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="accent">#4F46E5</color>
+    <!-- 网页底色（与 style.css 的底色变量一致），用于系统状态栏 / 导航栏配色 -->
+    <color name="window_bg_light">#F2F2F7</color>
+    <color name="window_bg_dark">#07070C</color>
 </resources>

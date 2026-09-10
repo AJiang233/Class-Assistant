@@ -2,6 +2,7 @@ import {
   handleRegister,
   handleLogin,
   handleMe,
+  handleUpdateProfile,
   handleChangePassword,
   handleListUsers,
   handleDeleteUser,
@@ -31,6 +32,11 @@ export async function authRoutes(request, env, ctx) {
   // 获取当前用户信息（需要认证）
   if (path === '/api/auth/me' && method === 'GET') {
     return withAuth(handleMe)(request, env, ctx);
+  }
+
+  // 更新当前用户自己的资料（联系方式，需要认证）
+  if (path === '/api/auth/profile' && method === 'PUT') {
+    return withAuth(handleUpdateProfile)(request, env, ctx);
   }
 
   // 修改当前用户密码（需要认证）
