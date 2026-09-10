@@ -25,16 +25,25 @@ export class NoticeModel {
    * 即：已到发布时间 且 尚未过期 —— 只要处于该窗口内，每天都会出现在主页
    * @param {number} limit
    * @param {number} offset
+   * @param {string} [date] 可选，按日期过滤（格式 YYYY-MM-DD）：返回生效窗口覆盖该日的通知
    */
-  async list(limit = 50, offset = 0) {
-    const result = await this.db.prepare(
-      `SELECT id, title, content, publish_time, publisher, remind_people, source, expire_time, created_at
-       FROM notices
-       WHERE (publish_time IS NULL OR publish_time <= datetime('now', '+8 hours'))
-         AND (expire_time IS NULL OR expire_time = '' OR expire_time > datetime('now', '+8 hours'))
-       ORDER BY publish_time DESC
-       LIMIT ? OFFSET ?`
-    ).bind(limit, offset).all();
+  async list(limit = 50, offset = 0, date = null) {
+    const hasDate = date ? date.length > 0 : false;
+    const sql = hasDate
+      ? `SELECT id, title, content, publish_time, publisher, remind_people, source, expire_time, created_at
+         FROM notices
+         WHERE (publish_time IS NULL OR publish_time = '' OR publish_time <= ?)
+           AND (expire_time IS NULL OR expire_time = '' OR expire_time > ?)
+         ORDER BY publish_time DESC
+         LIMIT ? OFFSET ?`
+      : `SELECT id, title, content, publish_time, publisher, remind_people, source, expire_time, created_at
+         FROM notices
+         WHERE (publish_time IS NULL OR publish_time <= datetime('now', '+8 hours'))
+           AND (expire_time IS NULL OR expire_time = '' OR expire_time > datetime('now', '+8 hours'))
+         ORDER BY publish_time DESC
+         LIMIT ? OFFSET ?`;
+    const args = hasDate ? [date + ' 23:59:59', date + ' 00:00:00', limit, offset] : [limit, offset];
+    const result = await this.db.prepare(sql).bind(...args).all();
     return result.results;
   }
 

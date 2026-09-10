@@ -182,3 +182,9 @@ function nowLocal() {
   var d = new Date(); var pad = function (n) { return n < 10 ? '0' + n : '' + n; };
   return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
 }
+
+/** datetime-local 默认结束值：当日 23:59（YYYY-MM-DDTHH:MM） */
+function todayEnd() {
+  var d = new Date(); var pad = function (n) { return n < 10 ? '0' + n : '' + n; };
+  return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + 'T23:59';
+}

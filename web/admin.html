@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>管理员 - 班级助理</title>
-    <meta name="description" content="班级助理：管理员功能，管理/添加活动、通知与班级成员。">
+    <meta name="description" content="班级助理：管理员功能，发布活动、通知与管理班级成员。">
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23007aff'/%3E%3Cpath d='M16 24h32v18H26l-10 8z' fill='none' stroke='%23fff' stroke-width='3' stroke-linejoin='round'/%3E%3Cpath d='M24 30h16M24 34h10' stroke='%23fff' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
     <link rel="stylesheet" href="assets/css/style.css">
     <script>
@@ -35,100 +35,22 @@
         <div class="container">
             <div class="page-head">
                 <h1 class="page-title">管理员</h1>
-                <p class="page-desc">管理系统内的通知、活动与班级成员。</p>
+                <p class="page-desc">发布班级通知、活动，并管理班级成员。</p>
             </div>
 
             <div class="split-grid">
                 <!-- ============ 左列：管理 ============ -->
                 <div class="split-col">
 
-                    <!-- 管理通知 -->
-                    <div class="profile-card" id="manageNoticeCard" style="display:none;">
-                        <h2 style="margin:0 0 16px;">管理通知</h2>
-
-                        <div id="nePanel" style="display:none; margin-bottom:16px; padding:16px; border:1px solid var(--border); border-radius:14px;">
-                            <h3 id="neHeading" style="margin:0 0 12px; font-size:1rem;">编辑通知</h3>
-                            <div class="form-error" id="neError"></div>
-                            <div class="form-field">
-                                <label class="form-label">标题</label>
-                                <input id="neTitle" class="form-input" type="text" autocomplete="off">
-                            </div>
-                            <div class="form-field">
-                                <label class="form-label">内容</label>
-                                <textarea id="neContent" class="form-input" rows="3"></textarea>
-                            </div>
-                            <div class="form-field">
-                                <label class="form-label">发布时间</label>
-                                <input id="nePublish" class="form-input" type="datetime-local" autocomplete="off">
-                            </div>
-                            <div class="form-field">
-                                <label class="form-label">存活至（选填）</label>
-                                <input id="neExpire" class="form-input" type="datetime-local" autocomplete="off">
-                            </div>
-                            <div class="form-field">
-                                <label class="form-label">提醒对象（选填）</label>
-                                <div id="neRemind" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
-                            </div>
-                            <button type="button" class="btn btn-primary" id="neSaveBtn" onclick="saveNoticeEdit()">保存</button>
-                            <button type="button" class="btn btn-outline" onclick="cancelNoticeEdit()" style="margin-left:8px;">取消</button>
-                        </div>
-
-                        <div id="noticeManageList"></div>
-                    </div>
-
-                    <!-- 管理活动 -->
-                    <div class="profile-card" id="manageActivityCard" style="display:none;">
-                        <h2 style="margin:0 0 16px;">管理活动</h2>
-
-                        <div id="aePanel" style="display:none; margin-bottom:16px; padding:16px; border:1px solid var(--border); border-radius:14px;">
-                            <h3 id="aeHeading" style="margin:0 0 12px; font-size:1rem;">编辑活动</h3>
-                            <div class="form-error" id="aeError"></div>
-                            <div class="form-field">
-                                <label class="form-label">标题</label>
-                                <input id="aeTitle" class="form-input" type="text" autocomplete="off">
-                            </div>
-                            <div class="form-field">
-                                <label class="form-label">内容说明</label>
-                                <textarea id="aeContent" class="form-input" rows="3"></textarea>
-                            </div>
-                            <div class="form-field">
-                                <label class="form-label">地点</label>
-                                <input id="aeLocation" class="form-input" type="text" autocomplete="off">
-                            </div>
-                            <div class="form-field">
-                                <label class="form-label">开始时间</label>
-                                <input id="aeStart" class="form-input" type="datetime-local" autocomplete="off">
-                            </div>
-                            <div class="form-field">
-                                <label class="form-label">结束时间</label>
-                                <input id="aeEnd" class="form-input" type="datetime-local" autocomplete="off">
-                            </div>
-                            <div class="form-field">
-                                <label class="form-label">提醒对象（选填）</label>
-                                <div id="aeRemind" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
-                            </div>
-                            <button type="button" class="btn btn-primary" id="aeSaveBtn" onclick="saveActivityEdit()">保存</button>
-                            <button type="button" class="btn btn-outline" onclick="cancelActivityEdit()" style="margin-left:8px;">取消</button>
-                        </div>
-
-                        <div id="activityManageList"></div>
-                    </div>
-
                     <!-- 管理成员 -->
-                    <div class="profile-card" id="membersCard" style="display:none;">
-                        <h2 style="margin:0 0 16px;">管理成员</h2>
-
-                        <div id="memberEditPanel" style="display:none; margin-bottom:16px; padding:16px; border:1px solid var(--border); border-radius:14px;">
-                            <h4 id="editMemberTitle" style="margin:0 0 12px; font-size:1rem;">编辑成员</h4>
-                            <div class="form-error" id="editMemberError"></div>
-                            <div class="form-field"><label class="form-label">姓名</label><input id="editName" class="form-input" type="text" autocomplete="off"></div>
-                            <div class="form-field"><label class="form-label">职务（多个用逗号分隔）</label><input id="editPositions" class="form-input" type="text" placeholder="如 班长,学习委员" autocomplete="off"></div>
-                            <div class="form-field"><label class="form-label">联系方式</label><input id="editContact" class="form-input" type="text" autocomplete="off"></div>
-                            <button class="btn btn-primary" id="editMemberBtn" onclick="saveMember()">保存</button>
-                            <button class="btn btn-outline" onclick="cancelEditMember()" style="margin-left:8px;">取消</button>
+                    <div class="profile-card collapse" id="membersCard" style="display:none;">
+                        <button type="button" class="collapse-head" onclick="toggleCollapse('membersCard')" aria-expanded="false">
+                            <h2>管理成员</h2>
+                            <svg class="collapse-arrow" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                        </button>
+                        <div class="collapse-body">
+                            <div class="info-list" id="memberList"></div>
                         </div>
-
-                        <div class="info-list" id="memberList"></div>
                     </div>
                 </div>
 
@@ -136,109 +58,156 @@
                 <div class="split-col">
 
                     <!-- 添加通知 -->
-                    <div class="profile-card" id="addNoticeCard" style="display:none;">
-                        <h2 style="margin:0 0 16px;">添加通知</h2>
-                        <div class="form-error" id="ntcError"></div>
-                        <div class="form-field">
-                            <label class="form-label">标题</label>
-                            <input id="ntcTitle" class="form-input" type="text" placeholder="请输入通知标题" autocomplete="off">
+                    <div class="profile-card collapse" id="addNoticeCard" style="display:none;">
+                        <button type="button" class="collapse-head" onclick="toggleCollapse('addNoticeCard')" aria-expanded="false">
+                            <h2>添加通知</h2>
+                            <svg class="collapse-arrow" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                        </button>
+                        <div class="collapse-body">
+                            <div class="form-error" id="ntcError"></div>
+                            <div class="form-field">
+                                <label class="form-label">标题</label>
+                                <input id="ntcTitle" class="form-input" type="text" placeholder="请输入通知标题" autocomplete="off">
+                            </div>
+                            <div class="form-field">
+                                <label class="form-label">内容</label>
+                                <textarea id="ntcContent" class="form-input" rows="4" placeholder="请输入通知内容"></textarea>
+                            </div>
+                            <div class="form-field">
+                                <label class="form-label">发布时间</label>
+                                <input id="ntcPublish" class="form-input" type="datetime-local" autocomplete="off">
+                            </div>
+                            <div class="form-field">
+                                <label class="form-label">存活至（选填，到期自动隐藏）</label>
+                                <input id="ntcExpire" class="form-input" type="datetime-local" autocomplete="off">
+                            </div>
+                            <div class="form-field">
+                                <label class="form-label">提醒对象（选填）</label>
+                                <div id="ntcRemind" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
+                            </div>
+                            <button type="button" class="btn btn-primary btn-block" id="ntcSubmitBtn" onclick="submitNotice()">发布通知</button>
                         </div>
-                        <div class="form-field">
-                            <label class="form-label">内容</label>
-                            <textarea id="ntcContent" class="form-input" rows="4" placeholder="请输入通知内容"></textarea>
-                        </div>
-                        <div class="form-field">
-                            <label class="form-label">发布时间</label>
-                            <input id="ntcPublish" class="form-input" type="datetime-local" autocomplete="off">
-                        </div>
-                        <div class="form-field">
-                            <label class="form-label">存活至（选填，到期自动隐藏）</label>
-                            <input id="ntcExpire" class="form-input" type="datetime-local" autocomplete="off">
-                        </div>
-                        <div class="form-field">
-                            <label class="form-label">提醒对象（选填）</label>
-                            <div id="ntcRemind" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
-                        </div>
-                        <button type="button" class="btn btn-primary btn-block" id="ntcSubmitBtn" onclick="submitNotice()">发布通知</button>
                     </div>
 
                     <!-- 添加活动 -->
-                    <div class="profile-card" id="addActivityCard" style="display:none;">
-                        <h2 style="margin:0 0 16px;">添加活动</h2>
-                        <div class="form-error" id="actError"></div>
-                        <div class="form-field">
-                            <label class="form-label">标题</label>
-                            <input id="actTitle" class="form-input" type="text" placeholder="请输入活动标题" autocomplete="off">
+                    <div class="profile-card collapse" id="addActivityCard" style="display:none;">
+                        <button type="button" class="collapse-head" onclick="toggleCollapse('addActivityCard')" aria-expanded="false">
+                            <h2>添加活动</h2>
+                            <svg class="collapse-arrow" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                        </button>
+                        <div class="collapse-body">
+                            <div class="form-error" id="actError"></div>
+                            <div class="form-field">
+                                <label class="form-label">标题</label>
+                                <input id="actTitle" class="form-input" type="text" placeholder="请输入活动标题" autocomplete="off">
+                            </div>
+                            <div class="form-field">
+                                <label class="form-label">活动说明</label>
+                                <textarea id="actContent" class="form-input" rows="3" placeholder="选填，可填写时间安排、参与方式等"></textarea>
+                            </div>
+                            <div class="form-field">
+                                <label class="form-label">地点</label>
+                                <input id="actLocation" class="form-input" type="text" placeholder="选填" autocomplete="off">
+                            </div>
+                            <div class="form-field">
+                                <label class="form-label">开始时间</label>
+                                <input id="actStart" class="form-input" type="datetime-local" autocomplete="off">
+                            </div>
+                            <div class="form-field">
+                                <label class="form-label">结束时间</label>
+                                <input id="actEnd" class="form-input" type="datetime-local" autocomplete="off">
+                            </div>
+                            <div class="form-field">
+                                <label class="form-label">提醒对象（选填）</label>
+                                <div id="actRemind" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
+                            </div>
+                            <button type="button" class="btn btn-primary btn-block" id="actSubmitBtn" onclick="submitActivity()">发布活动</button>
                         </div>
-                        <div class="form-field">
-                            <label class="form-label">内容说明</label>
-                            <textarea id="actContent" class="form-input" rows="3" placeholder="选填"></textarea>
-                        </div>
-                        <div class="form-field">
-                            <label class="form-label">地点</label>
-                            <input id="actLocation" class="form-input" type="text" placeholder="选填" autocomplete="off">
-                        </div>
-                        <div class="form-field">
-                            <label class="form-label">开始时间</label>
-                            <input id="actStart" class="form-input" type="datetime-local" autocomplete="off">
-                        </div>
-                        <div class="form-field">
-                            <label class="form-label">结束时间</label>
-                            <input id="actEnd" class="form-input" type="datetime-local" autocomplete="off">
-                        </div>
-                        <div class="form-field">
-                            <label class="form-label">提醒对象（选填）</label>
-                            <div id="actRemind" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
-                        </div>
-                        <button type="button" class="btn btn-primary btn-block" id="actSubmitBtn" onclick="submitActivity()">发布活动</button>
                     </div>
 
                     <!-- 添加成员 -->
-                    <div class="profile-card" id="addMemberCard" style="display:none;">
-                        <h2 style="margin:0 0 16px;">添加成员</h2>
-                        <div class="form-error" id="regError"></div>
-                        <form id="regForm" novalidate>
-                            <div class="form-field">
-                                <label class="form-label" for="regStudentId">学号</label>
-                                <input class="form-input" type="text" id="regStudentId" placeholder="请输入学号" autocomplete="off">
-                            </div>
-                            <div class="form-field">
-                                <label class="form-label" for="regName">姓名</label>
-                                <input class="form-input" type="text" id="regName" placeholder="请输入姓名" autocomplete="off">
-                            </div>
-                            <div class="form-field">
-                                <label class="form-label" for="regPassword">初始密码</label>
-                                <input class="form-input" type="password" id="regPassword" placeholder="至少 6 位" autocomplete="new-password">
-                            </div>
-                            <div class="form-field">
-                                <label class="form-label" for="regContact">联系方式</label>
-                                <input class="form-input" type="text" id="regContact" placeholder="选填" autocomplete="off">
-                            </div>
-                            <div class="form-field">
-                                <label class="form-label" for="regPositions">职务</label>
-                                <select class="form-input" id="regPositions">
-                                    <option value="学生">学生</option>
-                                    <option value="班长">班长</option>
-                                    <option value="团支书">团支书</option>
-                                    <option value="学习委员">学习委员</option>
-                                    <option value="__custom__">自定义职位…</option>
-                                </select>
-                            </div>
+                    <div class="profile-card collapse" id="addMemberCard" style="display:none;">
+                        <button type="button" class="collapse-head" onclick="toggleCollapse('addMemberCard')" aria-expanded="false">
+                            <h2>添加成员</h2>
+                            <svg class="collapse-arrow" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                        </button>
+                        <div class="collapse-body">
+                            <div class="form-error" id="regError"></div>
+                            <form id="regForm" novalidate>
+                                <div class="form-field">
+                                    <label class="form-label" for="regStudentId">学号</label>
+                                    <input class="form-input" type="text" id="regStudentId" placeholder="请输入学号" autocomplete="off">
+                                </div>
+                                <div class="form-field">
+                                    <label class="form-label" for="regName">姓名</label>
+                                    <input class="form-input" type="text" id="regName" placeholder="请输入姓名" autocomplete="off">
+                                </div>
+                                <div class="form-field">
+                                    <label class="form-label" for="regPassword">初始密码</label>
+                                    <input class="form-input" type="password" id="regPassword" placeholder="至少 6 位" autocomplete="new-password">
+                                </div>
+                                <div class="form-field">
+                                    <label class="form-label" for="regContact">联系方式</label>
+                                    <input class="form-input" type="text" id="regContact" placeholder="选填" autocomplete="off">
+                                </div>
+                                <div class="form-field">
+                                    <label class="form-label" for="regPositions">职务</label>
+                                    <select class="form-input" id="regPositions">
+                                        <option value="学生">学生</option>
+                                        <option value="班长">班长</option>
+                                        <option value="团支书">团支书</option>
+                                        <option value="学习委员">学习委员</option>
+                                        <option value="__custom__">自定义职位…</option>
+                                    </select>
+                                </div>
 
-                            <div id="regCustomFields" style="display:none;">
-                                <div class="form-field">
-                                    <label class="form-label" for="regCustomPosition">职位名称</label>
-                                    <input class="form-input" type="text" id="regCustomPosition" placeholder="如：文艺委员" autocomplete="off">
+                                <div id="regCustomFields" style="display:none;">
+                                    <div class="form-field">
+                                        <label class="form-label" for="regCustomPosition">职位名称</label>
+                                        <input class="form-input" type="text" id="regCustomPosition" placeholder="如：文艺委员" autocomplete="off">
+                                    </div>
+                                    <div class="form-field">
+                                        <label class="form-label">权限</label>
+                                        <label style="display:block; margin:6px 0;"><input type="checkbox" id="regPermWrite" value="content:write"> 可发布 / 修改 / 删除 活动、通知</label>
+                                        <label style="display:block; margin:6px 0;"><input type="checkbox" id="regPermManage" value="user:manage"> 可注册账号、管理班级成员</label>
+                                    </div>
                                 </div>
-                                <div class="form-field">
-                                    <label class="form-label">权限</label>
-                                    <label style="display:block; margin:6px 0;"><input type="checkbox" id="regPermWrite" value="content:write"> 可发布 / 修改 / 删除 活动、通知</label>
-                                    <label style="display:block; margin:6px 0;"><input type="checkbox" id="regPermManage" value="user:manage"> 可注册账号、管理班级成员</label>
-                                </div>
-                            </div>
-                            <button class="btn btn-primary btn-block" id="regBtn" type="submit">注册成员</button>
-                        </form>
+                                <button class="btn btn-primary btn-block" id="regBtn" type="submit">注册成员</button>
+                            </form>
+                        </div>
                     </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============ 编辑弹窗 ============ -->
+        <!-- 编辑成员 -->
+        <div class="modal-overlay" id="editMemberModal">
+            <div class="modal">
+                <div class="modal-head">
+                    <span class="modal-title" id="editMemberTitle">编辑成员</span>
+                    <button type="button" class="modal-close" onclick="cancelEditMember()" aria-label="关闭">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-error" id="editMemberError"></div>
+                    <div class="form-field">
+                        <label class="form-label">姓名</label>
+                        <input id="editName" class="form-input" type="text" placeholder="请输入姓名" autocomplete="off">
+                    </div>
+                    <div class="form-field">
+                        <label class="form-label">职务</label>
+                        <input id="editPositions" class="form-input" type="text" placeholder="多个职务用、分隔" autocomplete="off">
+                    </div>
+                    <div class="form-field">
+                        <label class="form-label">联系方式</label>
+                        <input id="editContact" class="form-input" type="text" placeholder="选填" autocomplete="off">
+                    </div>
+                </div>
+                <div class="modal-foot">
+                    <button type="button" class="btn btn-outline" onclick="cancelEditMember()">取消</button>
+                    <button type="button" class="btn btn-primary" id="editMemberBtn" onclick="saveMember()">保存</button>
                 </div>
             </div>
         </div>
@@ -256,7 +225,7 @@
         return;
     }
 
-    // ===== 提醒对象选择（发布/编辑 通知、活动共用） =====
+    // ===== 提醒对象选择（发布 通知、活动共用） =====
     var remindChoices = [];
 
     async function loadRemindChoices() {
@@ -266,8 +235,6 @@
         } catch (e) {}
         renderRemindChoices('actRemind', []);
         renderRemindChoices('ntcRemind', []);
-        renderRemindChoices('aeRemind', []);
-        renderRemindChoices('neRemind', []);
     }
 
     function renderRemindChoices(boxId, checkedNames) {
@@ -286,10 +253,41 @@
         return names;
     }
 
-    function parseRemind(v) {
-        if (!v) return [];
-        try { var a = JSON.parse(v); return Array.isArray(a) ? a : []; } catch (e) { return String(v).split(/[,，、\s]+/).filter(Boolean); }
+    // ===== 卡片折叠（默认收起，点击标题行展开/收起） =====
+    function toggleCollapse(id) {
+        var card = document.getElementById(id);
+        if (!card) return;
+        var open = card.classList.toggle('open');
+        var head = card.querySelector('.collapse-head');
+        if (head) head.setAttribute('aria-expanded', open ? 'true' : 'false');
     }
+
+    // ===== 编辑弹窗：打开 / 关闭（成员） =====
+    var MODAL_IDS = ['editMemberModal'];
+    function openModal(id) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        el.classList.add('show');
+        document.body.style.overflow = 'hidden';
+    }
+    function closeModal(id) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        el.classList.remove('show');
+        document.body.style.overflow = '';
+    }
+    MODAL_IDS.forEach(function (id) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        el.addEventListener('click', function (e) { if (e.target === el) closeModal(id); });
+    });
+    document.addEventListener('keydown', function (e) {
+        if (e.key !== 'Escape') return;
+        MODAL_IDS.forEach(function (id) {
+            var el = document.getElementById(id);
+            if (el && el.classList.contains('show')) closeModal(id);
+        });
+    });
 
     // ===== 添加通知 =====
     async function submitNotice() {
@@ -315,7 +313,6 @@
             renderRemindChoices('ntcRemind', []);
             errBox.textContent = '发布成功';
             errBox.classList.add('show');
-            if (canWrite) loadNoticeManage();
         } catch (err) {
             errBox.textContent = err.message;
             errBox.classList.add('show');
@@ -346,11 +343,10 @@
             document.getElementById('actContent').value = '';
             document.getElementById('actLocation').value = '';
             document.getElementById('actStart').value = nowLocal();
-            document.getElementById('actEnd').value = '';
+            document.getElementById('actEnd').value = todayEnd();
             renderRemindChoices('actRemind', []);
             errBox.textContent = '发布成功';
             errBox.classList.add('show');
-            if (canWrite) loadActivityManage();
         } catch (err) {
             errBox.textContent = err.message;
             errBox.classList.add('show');
@@ -359,181 +355,7 @@
         }
     }
 
-    // ===== 管理通知（列表 + 就地编辑/删除） =====
-    var noticesCache = [];
-    var editingNoticeId = null;
-
-    async function loadNoticeManage() {
-        var el = document.getElementById('noticeManageList');
-        el.innerHTML = stateHTML('加载中…');
-        try {
-            var res = await api('/api/notices?scope=all');
-            noticesCache = (res.data && res.data.list) || [];
-            if (!noticesCache.length) { el.innerHTML = stateHTML('暂无通知'); return; }
-            el.innerHTML = noticesCache.map(noticeRow).join('');
-        } catch (err) {
-            el.innerHTML = stateHTML(err.message, true);
-        }
-    }
-
-    function noticeRow(n) {
-        var meta = esc(sourceName(n.source)) + ' · 发布 ' + esc(fmtDate(n.publish_time));
-        if (n.expire_time) meta += ' · 截止 ' + esc(fmtDate(n.expire_time));
-        return '<div class="manage-row">'
-            + '<div class="manage-row-main">'
-            + '<div class="manage-row-title">' + esc(n.title) + '</div>'
-            + '<div class="manage-row-meta">' + meta + '</div>'
-            + '</div>'
-            + '<div class="manage-row-actions">'
-            + '<button type="button" class="btn btn-outline" onclick="startNoticeEdit(' + n.id + ')">编辑</button>'
-            + '<button type="button" class="btn btn-outline btn-danger" onclick="delNotice(' + n.id + ')">删除</button>'
-            + '</div></div>';
-    }
-
-    function startNoticeEdit(id) {
-        var n = noticesCache.filter(function (x) { return x.id === id; })[0];
-        if (!n) { alert('未找到该通知'); return; }
-        editingNoticeId = id;
-        var panel = document.getElementById('nePanel');
-        panel.style.display = 'block';
-        document.getElementById('neHeading').textContent = '编辑通知 — ' + (n.title || '');
-        document.getElementById('neError').classList.remove('show');
-        document.getElementById('neTitle').value = n.title || '';
-        document.getElementById('neContent').value = n.content || '';
-        document.getElementById('nePublish').value = String(n.publish_time || '').replace(' ', 'T').slice(0, 16);
-        document.getElementById('neExpire').value = String(n.expire_time || '').replace(' ', 'T').slice(0, 16);
-        renderRemindChoices('neRemind', parseRemind(n.remind_people));
-        panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
-
-    function cancelNoticeEdit() {
-        document.getElementById('nePanel').style.display = 'none';
-        editingNoticeId = null;
-    }
-
-    async function saveNoticeEdit() {
-        var errBox = document.getElementById('neError');
-        errBox.classList.remove('show');
-        var title = document.getElementById('neTitle').value.trim();
-        var content = document.getElementById('neContent').value.trim();
-        var publish_time = document.getElementById('nePublish').value;
-        var expire_time = document.getElementById('neExpire').value || null;
-        if (!title || !publish_time) { errBox.textContent = '标题、发布时间为必填'; errBox.classList.add('show'); return; }
-        var btn = document.getElementById('neSaveBtn');
-        btn.disabled = true; var t = btn.textContent; btn.textContent = '保存中…';
-        try {
-            var body = { title: title, content: content, publish_time: publish_time, expire_time: expire_time, remind_people: collectRemind('neRemind') };
-            await api('/api/notices/' + editingNoticeId, { method: 'PUT', body: JSON.stringify(body) });
-            cancelNoticeEdit();
-            loadNoticeManage();
-        } catch (err) {
-            errBox.textContent = err.message;
-            errBox.classList.add('show');
-        } finally {
-            btn.disabled = false; btn.textContent = t;
-        }
-    }
-
-    async function delNotice(id) {
-        if (!confirm('确定删除该通知？')) return;
-        try {
-            await api('/api/notices/' + id, { method: 'DELETE' });
-            loadNoticeManage();
-        } catch (err) {
-            alert(err.message);
-        }
-    }
-
-    // ===== 管理活动（列表 + 就地编辑/删除） =====
-    var activitiesCache = [];
-    var editingActivityId = null;
-
-    async function loadActivityManage() {
-        var el = document.getElementById('activityManageList');
-        el.innerHTML = stateHTML('加载中…');
-        try {
-            var res = await api('/api/activities');
-            activitiesCache = (res.data && res.data.list) || [];
-            if (!activitiesCache.length) { el.innerHTML = stateHTML('暂无活动'); return; }
-            el.innerHTML = activitiesCache.map(activityRow).join('');
-        } catch (err) {
-            el.innerHTML = stateHTML(err.message, true);
-        }
-    }
-
-    function activityRow(a) {
-        var meta = '';
-        if (a.location) meta += esc(a.location) + ' · ';
-        meta += '开始 ' + esc(fmtDate(a.start_time));
-        if (a.end_time) meta += ' · 结束 ' + esc(fmtDate(a.end_time));
-        return '<div class="manage-row">'
-            + '<div class="manage-row-main">'
-            + '<div class="manage-row-title">' + esc(a.title) + '</div>'
-            + '<div class="manage-row-meta">' + meta + '</div>'
-            + '</div>'
-            + '<div class="manage-row-actions">'
-            + '<button type="button" class="btn btn-outline" onclick="startActivityEdit(' + a.id + ')">编辑</button>'
-            + '<button type="button" class="btn btn-outline btn-danger" onclick="delActivity(' + a.id + ')">删除</button>'
-            + '</div></div>';
-    }
-
-    function startActivityEdit(id) {
-        var a = activitiesCache.filter(function (x) { return x.id === id; })[0];
-        if (!a) { alert('未找到该活动'); return; }
-        editingActivityId = id;
-        var panel = document.getElementById('aePanel');
-        panel.style.display = 'block';
-        document.getElementById('aeHeading').textContent = '编辑活动 — ' + (a.title || '');
-        document.getElementById('aeError').classList.remove('show');
-        document.getElementById('aeTitle').value = a.title || '';
-        document.getElementById('aeContent').value = a.content || '';
-        document.getElementById('aeLocation').value = a.location || '';
-        document.getElementById('aeStart').value = String(a.start_time || '').replace(' ', 'T').slice(0, 16);
-        document.getElementById('aeEnd').value = String(a.end_time || '').replace(' ', 'T').slice(0, 16);
-        renderRemindChoices('aeRemind', parseRemind(a.remind_people));
-        panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
-
-    function cancelActivityEdit() {
-        document.getElementById('aePanel').style.display = 'none';
-        editingActivityId = null;
-    }
-
-    async function saveActivityEdit() {
-        var errBox = document.getElementById('aeError');
-        errBox.classList.remove('show');
-        var title = document.getElementById('aeTitle').value.trim();
-        var content = document.getElementById('aeContent').value.trim();
-        var location = document.getElementById('aeLocation').value.trim();
-        var start_time = document.getElementById('aeStart').value;
-        var end_time = document.getElementById('aeEnd').value;
-        if (!title || !start_time) { errBox.textContent = '标题、开始时间为必填'; errBox.classList.add('show'); return; }
-        var btn = document.getElementById('aeSaveBtn');
-        btn.disabled = true; var t = btn.textContent; btn.textContent = '保存中…';
-        try {
-            var body = { title: title, content: content, location: location, start_time: start_time, end_time: end_time, remind_people: collectRemind('aeRemind') };
-            await api('/api/activities/' + editingActivityId, { method: 'PUT', body: JSON.stringify(body) });
-            cancelActivityEdit();
-            loadActivityManage();
-        } catch (err) {
-            errBox.textContent = err.message;
-            errBox.classList.add('show');
-        } finally {
-            btn.disabled = false; btn.textContent = t;
-        }
-    }
-
-    async function delActivity(id) {
-        if (!confirm('确定删除该活动？')) return;
-        try {
-            await api('/api/activities/' + id, { method: 'DELETE' });
-            loadActivityManage();
-        } catch (err) {
-            alert(err.message);
-        }
-    }
-
-    // ===== 管理成员（列表 + 就地编辑/删除） =====
+    // ===== 管理成员（列表 + 编辑/删除） =====
     var membersCache = [];
     var editingMemberId = null;
 
@@ -547,12 +369,18 @@
             if (!list.length) { el.innerHTML = stateHTML('暂无成员'); return; }
             el.innerHTML = list.map(function (m) {
                 var pos = (Array.isArray(m.positions) && m.positions.length) ? m.positions.join('、') : (m.positions || '学生');
-                return '<div class="info-row">'
-                    + '<span class="k">' + esc(m.name) + ' <span style="opacity:.6;">学号 ' + esc(m.student_id) + '</span></span>'
-                    + '<span class="v">' + esc(pos)
-                    + ' <button class="btn btn-outline" style="padding:2px 8px;font-size:12px;margin-left:8px;" onclick="startEditMember(' + m.id + ')">编辑</button>'
-                    + ' <button class="btn btn-outline btn-danger" style="padding:2px 8px;font-size:12px;margin-left:4px;" onclick="delMember(' + m.id + ')">删除</button>'
-                    + '</span>'
+                return '<div class="info-row member-row">'
+                    + '<div class="member-main">'
+                    + '<div class="member-line">'
+                    + '<span class="member-name">' + esc(m.name) + '</span>'
+                    + '<span class="member-pos">' + esc(pos) + '</span>'
+                    + '</div>'
+                    + '<div class="member-sub">学号 ' + esc(m.student_id) + '</div>'
+                    + '</div>'
+                    + '<div class="member-actions">'
+                    + '<button type="button" class="btn btn-outline" onclick="startEditMember(' + m.id + ')">编辑</button>'
+                    + '<button type="button" class="btn btn-outline btn-danger" onclick="delMember(' + m.id + ')">删除</button>'
+                    + '</div>'
                     + '</div>';
             }).join('');
         } catch (err) {
@@ -564,19 +392,17 @@
         var m = (membersCache || []).filter(function (x) { return x.id === id; })[0];
         if (!m) { alert('未找到该成员'); return; }
         var posText = (Array.isArray(m.positions) && m.positions.length) ? m.positions.join(',') : (m.positions || '');
-        var panel = document.getElementById('memberEditPanel');
-        panel.style.display = 'block';
-        document.getElementById('editMemberTitle').textContent = '编辑成员 — ' + m.name;
+        document.getElementById('editMemberTitle').textContent = '编辑成员';
         document.getElementById('editName').value = m.name || '';
         document.getElementById('editPositions').value = posText;
         document.getElementById('editContact').value = m.contact || '';
         document.getElementById('editMemberError').classList.remove('show');
         editingMemberId = id;
-        panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        openModal('editMemberModal');
     }
 
     function cancelEditMember() {
-        document.getElementById('memberEditPanel').style.display = 'none';
+        closeModal('editMemberModal');
         editingMemberId = null;
     }
 
@@ -662,14 +488,13 @@
 
     // ===== 初始化：按权限显示对应区块 =====
     if (canWrite) {
-        ['manageNoticeCard', 'manageActivityCard', 'addNoticeCard', 'addActivityCard'].forEach(function (id) {
+        ['addNoticeCard', 'addActivityCard'].forEach(function (id) {
             document.getElementById(id).style.display = 'block';
         });
         document.getElementById('actStart').value = nowLocal();
+        document.getElementById('actEnd').value = todayEnd();
         document.getElementById('ntcPublish').value = nowLocal();
         loadRemindChoices();
-        loadNoticeManage();
-        loadActivityManage();
     }
     if (canManage) {
         ['membersCard', 'addMemberCard'].forEach(function (id) {
@@ -680,16 +505,9 @@
     }
 
     // 供内联 onclick 调用
+    window.toggleCollapse = toggleCollapse;
     window.submitNotice = submitNotice;
     window.submitActivity = submitActivity;
-    window.startNoticeEdit = startNoticeEdit;
-    window.cancelNoticeEdit = cancelNoticeEdit;
-    window.saveNoticeEdit = saveNoticeEdit;
-    window.delNotice = delNotice;
-    window.startActivityEdit = startActivityEdit;
-    window.cancelActivityEdit = cancelActivityEdit;
-    window.saveActivityEdit = saveActivityEdit;
-    window.delActivity = delActivity;
     window.startEditMember = startEditMember;
     window.cancelEditMember = cancelEditMember;
     window.saveMember = saveMember;

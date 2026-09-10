@@ -48,7 +48,7 @@
   /* 排版 */
   --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
     "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
-  --container: 900px;
+  --container: 1160px;
   --nav-height: 60px;
   --transition: 0.2s cubic-bezier(0.32, 0.72, 0, 1);
 }
@@ -353,7 +353,6 @@ body {
 .modal-body .detail-head .detail-title { margin-bottom: 0; }
 .modal-foot {
   display: flex; gap: 8px; justify-content: flex-end; padding: 14px 22px;
-  border-top: 1px solid var(--border);
 }
 @media (max-width: 640px) {
   .modal-overlay { padding: 12px; align-items: flex-end; }
@@ -462,6 +461,15 @@ body {
 .info-row:last-child { border-bottom: none; }
 .info-row .k { color: var(--text-secondary); flex-shrink: 0; font-weight: 600; }
 .info-row .v { color: var(--text); text-align: right; word-break: break-all; }
+/* 管理成员行：名字与职位同行，学号在下一行 */
+.member-row { align-items: flex-start; }
+.member-main { min-width: 0; }
+.member-line { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.member-name { font-weight: 600; color: var(--text); }
+.member-pos { font-size: 0.85rem; color: var(--text-secondary); }
+.member-sub { font-size: 0.82rem; color: var(--text-tertiary); margin-top: 3px; }
+.member-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.member-actions .btn { padding: 3px 10px; font-size: 0.8rem; }
 .profile-actions { display: flex; gap: 12px; margin-top: 24px; }
 .profile-actions .btn { flex: 1; }
 
@@ -494,8 +502,13 @@ body {
 }
 .manage-row:last-child { border-bottom: none; }
 .manage-row-main { min-width: 0; }
-.manage-row-title { font-size: 0.95rem; font-weight: 600; color: var(--text); word-break: break-word; }
+.manage-row-title {
+  font-size: 0.95rem; font-weight: 600; color: var(--text); word-break: break-word;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
 .manage-row-meta { font-size: 0.82rem; color: var(--text-secondary); margin-top: 3px; }
+/* 每条元信息独占一行（管理列表：时间等元素之间换行） */
+.manage-row-meta.stack { display: flex; flex-direction: column; gap: 2px; margin-top: 5px; }
 .manage-row-actions { display: flex; gap: 6px; flex-shrink: 0; }
 .manage-row-actions .btn { padding: 3px 10px; font-size: 0.8rem; }
 .btn-danger { color: #ff3b30; border-color: rgba(255, 59, 48, 0.5); }

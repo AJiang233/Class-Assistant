@@ -39,34 +39,6 @@
                     <p class="page-desc">班级通知的发布时间与有效期限，按「正在进行 / 将要开始 / 已经结束」分类展示。</p>
                 </div>
 
-                <!-- 编辑表单（仅 content:write 权限者，通过弹窗"修改"按钮打开） -->
-                <div class="profile-card" id="editBox" style="display:none; margin-bottom:20px;">
-                    <h3 id="editBoxTitle" style="margin:0 0 12px; font-size:1.1rem;">编辑通知</h3>
-                    <div class="form-error" id="editError"></div>
-                    <div class="form-field">
-                        <label class="form-label">标题</label>
-                        <input id="editTitle" class="form-input" type="text" placeholder="请输入通知标题" autocomplete="off">
-                    </div>
-                    <div class="form-field">
-                        <label class="form-label">内容</label>
-                        <textarea id="editContent" class="form-input" rows="4" placeholder="请输入通知内容"></textarea>
-                    </div>
-                    <div class="form-field">
-                        <label class="form-label">发布时间</label>
-                        <input id="editPublish" class="form-input" type="datetime-local" autocomplete="off">
-                    </div>
-                    <div class="form-field">
-                        <label class="form-label">存活至（选填，到期自动隐藏）</label>
-                        <input id="editExpire" class="form-input" type="datetime-local" autocomplete="off">
-                    </div>
-                    <div class="form-field">
-                        <label class="form-label">提醒对象（选填）</label>
-                        <div id="editRemind" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
-                    </div>
-                    <button type="button" class="btn btn-primary" id="editSubmitBtn" onclick="submitEdit()">保存</button>
-                    <button type="button" class="btn btn-outline" onclick="cancelEdit()" style="margin-left:8px;">取消</button>
-                </div>
-
                 <div id="noticeListView"></div>
             </div>
 
@@ -80,6 +52,45 @@
                         </button>
                     </div>
                     <div class="modal-body" id="detailCard"></div>
+                </div>
+            </div>
+
+            <!-- 编辑弹窗 -->
+            <div class="modal-overlay" id="editModal">
+                <div class="modal">
+                    <div class="modal-head">
+                        <span class="modal-title">编辑通知</span>
+                        <button type="button" class="modal-close" onclick="cancelEdit()" aria-label="关闭">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                        </button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="form-error" id="editError"></div>
+                        <div class="form-field">
+                            <label class="form-label">标题</label>
+                            <input id="editTitle" class="form-input" type="text" placeholder="请输入通知标题" autocomplete="off">
+                        </div>
+                        <div class="form-field">
+                            <label class="form-label">内容</label>
+                            <textarea id="editContent" class="form-input" rows="4" placeholder="请输入通知内容"></textarea>
+                        </div>
+                        <div class="form-field">
+                            <label class="form-label">发布时间</label>
+                            <input id="editPublish" class="form-input" type="datetime-local" autocomplete="off">
+                        </div>
+                        <div class="form-field">
+                            <label class="form-label">存活至（选填，到期自动隐藏）</label>
+                            <input id="editExpire" class="form-input" type="datetime-local" autocomplete="off">
+                        </div>
+                        <div class="form-field">
+                            <label class="form-label">提醒对象（选填）</label>
+                            <div id="editRemind" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
+                        </div>
+                    </div>
+                    <div class="modal-foot">
+                        <button type="button" class="btn btn-outline" onclick="cancelEdit()">取消</button>
+                        <button type="button" class="btn btn-primary" id="editSubmitBtn" onclick="submitEdit()">保存</button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -205,6 +216,23 @@
         if (e.key === 'Escape' && modalOverlay.classList.contains('show')) closeDetail();
     });
 
+    // ===== 编辑弹窗 =====
+    var editOverlay = document.getElementById('editModal');
+    function openEdit() {
+        editOverlay.classList.add('show');
+        document.body.style.overflow = 'hidden';
+    }
+    function closeEdit() {
+        editOverlay.classList.remove('show');
+        document.body.style.overflow = '';
+    }
+    editOverlay.addEventListener('click', function (e) {
+        if (e.target === editOverlay) cancelEdit();
+    });
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && editOverlay.classList.contains('show')) cancelEdit();
+    });
+
     async function showDetail(id) {
         var card = document.getElementById('detailCard');
         card.innerHTML = stateHTML('加载中…');
@@ -252,8 +280,6 @@
         api('/api/notices/' + id).then(function (res) {
             var n = res.data;
             editingNoticeId = id;
-            document.getElementById('editBox').style.display = 'block';
-            document.getElementById('editBoxTitle').textContent = '编辑通知';
             document.getElementById('editError').classList.remove('show');
             document.getElementById('editTitle').value = n.title || '';
             document.getElementById('editContent').value = n.content || '';
@@ -262,12 +288,12 @@
             var names = [];
             if (n.remind_people) { try { var arr = JSON.parse(n.remind_people); if (Array.isArray(arr)) names = arr; } catch (e) {} }
             renderRemindChoices(names);
-            document.getElementById('editBox').scrollIntoView({ behavior: 'smooth', block: 'start' });
+            openEdit();
         }).catch(function (err) { alert(err.message); });
     }
 
     function cancelEdit() {
-        document.getElementById('editBox').style.display = 'none';
+        closeEdit();
         editingNoticeId = null;
     }
 

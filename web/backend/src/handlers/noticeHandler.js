@@ -42,11 +42,13 @@ export async function handleListNotices(request, env, user) {
     const offset = parseInt(url.searchParams.get('offset')) || 0;
     // scope=all 返回全部通知（含已过期/未到发布时间的），用于按「进行中/即将开始/已结束」分类
     const scope = url.searchParams.get('scope') || 'active';
+    // date（YYYY-MM-DD）可选：只返回生效窗口覆盖该日的通知，用于主页按日历选中日期展示
+    const date = url.searchParams.get('date') || null;
 
     const noticeModel = new NoticeModel(env.DB);
     const list = scope === 'all'
       ? await noticeModel.listAll(limit, offset)
-      : await noticeModel.list(limit, offset);
+      : await noticeModel.list(limit, offset, date);
 
     return jsonResponse(success({ list, total: list.length }));
   } catch (e) {
