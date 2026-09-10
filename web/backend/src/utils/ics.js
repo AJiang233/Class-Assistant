@@ -42,6 +42,13 @@ export function toIcsStamp(localDateTime) {
   return `${m[1]}${m[2]}${m[3]}T${m[4]}${m[5]}${m[6] || '00'}`;
 }
 
+/** "2026-09-10 21:09:00" / "2026-09-10" -> "20260910"（全天事件用） */
+export function toIcsDate(localDateTime) {
+  const m = String(localDateTime || '').replace('T', ' ').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return null;
+  return `${m[1]}${m[2]}${m[3]}`;
+}
+
 /** 当前 UTC 时间戳，如 20260910T131000Z */
 export function utcStamp(date = new Date()) {
   return date.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
@@ -49,9 +56,9 @@ export function utcStamp(date = new Date()) {
 
 /**
  * 生成整份日历。
- * @param {Array<{uid:string,title:string,description?:string,location?:string,start:string,end?:string}>} events
+ * @param {Array<{uid:string,title:string,description?:string,location?:string,start:string,end?:string,allDay?:boolean}>} events
  * @param {string} calendarName
- * @param {number} reminderMinutes 提前提醒分钟数，<= 0 表示不加提醒
+ * @param {number} reminderMinutes 提前提醒分钟数；0 表示不加提醒。全天事件的提醒放在当天 09:00
  * @returns {string}
  */
 export function buildCalendar(events, calendarName, reminderMinutes = 30) {
@@ -65,15 +72,18 @@ export function buildCalendar(events, calendarName, reminderMinutes = 30) {
   ];
 
   for (const event of events) {
-    const start = toIcsStamp(event.start);
+    const allDay = !!event.allDay;
+    const start = allDay ? toIcsDate(event.start) : toIcsStamp(event.start);
     if (!start) continue;
-    const end = toIcsStamp(event.end) || start;
+    const end = allDay
+      ? (toIcsDate(event.end) || start)
+      : (toIcsStamp(event.end) || start);
 
     lines.push('BEGIN:VEVENT');
     lines.push(`UID:${event.uid}`);
     lines.push(`DTSTAMP:${utcStamp()}`);
-    lines.push(`DTSTART:${start}`);
-    lines.push(`DTEND:${end}`);
+    lines.push(allDay ? `DTSTART;VALUE=DATE:${start}` : `DTSTART:${start}`);
+    lines.push(allDay ? `DTEND;VALUE=DATE:${end}` : `DTEND:${end}`);
     lines.push(`SUMMARY:${escapeText(event.title || '班级活动')}`);
     if (event.description) lines.push(`DESCRIPTION:${escapeText(event.description)}`);
     if (event.location) lines.push(`LOCATION:${escapeText(event.location)}`);
@@ -81,7 +91,11 @@ export function buildCalendar(events, calendarName, reminderMinutes = 30) {
       lines.push('BEGIN:VALARM');
       lines.push('ACTION:DISPLAY');
       lines.push(`DESCRIPTION:${escapeText(event.title || '班级活动')}`);
-      lines.push(`TRIGGER:-PT${Math.max(1, Math.round(reminderMinutes))}M`);
+      lines.push(
+        allDay
+          ? 'TRIGGER:PT9H'                                        // 全天事件：当天 09:00 提醒
+          : `TRIGGER:-PT${Math.max(1, Math.round(reminderMinutes))}M`
+      );
       lines.push('END:VALARM');
     }
     lines.push('END:VEVENT');

@@ -59,16 +59,56 @@
                     <!-- 日历订阅（所有登录用户） -->
                     <div class="profile-card" id="calCard">
                         <h2 style="margin:0 0 8px;">日历订阅</h2>
-                        <p class="profile-sub" style="margin:0 0 16px;">订阅后，班级活动会自动同步到手机系统日历，并提前 30 分钟提醒（iOS / 安卓 / 鸿蒙都支持，订阅后无需再打开本页）。</p>
+                        <p class="profile-sub" style="margin:0 0 16px;">订阅后，班级日程会自动同步到手机系统日历（iOS / 安卓 / 鸿蒙通用，订阅后无需再打开本页）。下面的选项会写进订阅链接，改完重新复制即可。</p>
                         <div class="form-error" id="calError"></div>
+
+                        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:12px;">
+                            <div class="form-field" style="margin-bottom:0;">
+                                <label class="form-label" for="calRemind">提前提醒</label>
+                                <select class="form-input" id="calRemind">
+                                    <option value="0">不提醒</option>
+                                    <option value="5">5 分钟</option>
+                                    <option value="15">15 分钟</option>
+                                    <option value="30" selected>30 分钟</option>
+                                    <option value="60">1 小时</option>
+                                    <option value="1440">1 天</option>
+                                </select>
+                            </div>
+                            <div class="form-field" style="margin-bottom:0;">
+                                <label class="form-label" for="calPast">包含过去</label>
+                                <select class="form-input" id="calPast">
+                                    <option value="0">不包含</option>
+                                    <option value="7">最近 7 天</option>
+                                    <option value="30" selected>最近 30 天</option>
+                                    <option value="90">最近 90 天</option>
+                                </select>
+                            </div>
+                            <div class="form-field" style="margin-bottom:0;">
+                                <label class="form-label" for="calFuture">包含未来</label>
+                                <select class="form-input" id="calFuture">
+                                    <option value="30">1 个月</option>
+                                    <option value="90">3 个月</option>
+                                    <option value="180">6 个月</option>
+                                    <option value="365" selected>1 年</option>
+                                    <option value="730">2 年</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <label style="display:flex; align-items:center; gap:8px; margin:12px 0 14px; font-size:0.9rem; color:var(--text-secondary); cursor:pointer;">
+                            <input type="checkbox" id="calNotices"> 把班级通知也加进日历（按发布当天全天显示）
+                        </label>
+
                         <div class="form-field">
+                            <label class="form-label" for="calUrl">订阅链接</label>
                             <input class="form-input" id="calUrl" type="text" readonly placeholder="正在获取订阅地址…">
                         </div>
-                        <div style="display:flex; gap:10px;">
+                        <div style="display:flex; gap:10px; flex-wrap:wrap;">
                             <button class="btn btn-primary" id="calCopyBtn" type="button">复制链接</button>
                             <a class="btn btn-outline" id="calOpenBtn" href="#" rel="noopener">打开订阅</a>
+                            <button class="btn btn-danger" id="calResetBtn" type="button">重置密钥</button>
                         </div>
-                        <p class="profile-sub" style="margin:14px 0 0;">复制链接后，在手机日历里选择「添加订阅日历 / 从网址导入」并粘贴即可。</p>
+                        <p class="profile-sub" style="margin:14px 0 0;">复制链接后，在手机日历里选择「添加订阅日历 / 从网址导入」粘贴即可；重置密钥会让旧链接立即失效（已订阅的设备需重新订阅）。</p>
                     </div>
                 </div>
 
@@ -223,19 +263,62 @@
     var calUrlEl = document.getElementById('calUrl');
     var calOpenBtn = document.getElementById('calOpenBtn');
     var calCopyBtn = document.getElementById('calCopyBtn');
+    var calResetBtn = document.getElementById('calResetBtn');
+    var calBaseUrl = '';
+
+    function calRefresh() {
+        var url = '';
+        if (calBaseUrl) {
+            var u = new URL(calBaseUrl);
+            var remind = document.getElementById('calRemind').value;
+            var past = document.getElementById('calPast').value;
+            var future = document.getElementById('calFuture').value;
+            // 与服务端默认值相同的就不写进链接，保持简洁
+            if (remind !== '30') u.searchParams.set('remind', remind);
+            if (past !== '30') u.searchParams.set('past', past);
+            if (future !== '365') u.searchParams.set('future', future);
+            if (document.getElementById('calNotices').checked) u.searchParams.set('notices', '1');
+            url = u.toString();
+        }
+        calUrlEl.value = url;
+        calOpenBtn.href = url || '#';
+    }
+
+    ['calRemind', 'calPast', 'calFuture', 'calNotices'].forEach(function (id) {
+        document.getElementById(id).addEventListener('change', calRefresh);
+    });
 
     (async function loadCalendarToken() {
         try {
             var res = await api('/api/calendar/token');
-            var data = res.data || {};
-            calUrlEl.value = data.url || '';
-            calOpenBtn.href = data.url || '#';
+            calBaseUrl = (res.data && res.data.url) || '';
+            calRefresh();
         } catch (err) {
             var box = document.getElementById('calError');
             box.textContent = err.message || '获取订阅地址失败';
             box.classList.add('show');
         }
     })();
+
+    calResetBtn.addEventListener('click', async function () {
+        if (!window.confirm('重置后旧订阅链接立即失效，已订阅的日历需要重新订阅。确定重置？')) return;
+        var errBox = document.getElementById('calError');
+        errBox.classList.remove('show');
+        var label = calResetBtn.textContent;
+        calResetBtn.disabled = true;
+        calResetBtn.textContent = '重置中…';
+        try {
+            var res = await api('/api/calendar/reset', { method: 'POST' });
+            calBaseUrl = (res.data && res.data.url) || '';
+            calRefresh();
+        } catch (err) {
+            errBox.textContent = err.message || '重置失败';
+            errBox.classList.add('show');
+        } finally {
+            calResetBtn.disabled = false;
+            calResetBtn.textContent = label;
+        }
+    });
 
     calCopyBtn.addEventListener('click', function () {
         if (!calUrlEl.value) return;
