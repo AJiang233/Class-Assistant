@@ -63,6 +63,16 @@ function userPositions() {
   return [s];
 }
 
+/** 职务字段为 JSON 字符串（如 ["班长","学习委员"]），展示时转为可读文本 */
+function fmtPositions(p) {
+  if (!p) return '学生';
+  const s = String(p);
+  if (s.charAt(0) === '[') {
+    try { return JSON.parse(s).join('、') || '学生'; } catch { return s; }
+  }
+  return s;
+}
+
 /** 能否发布/取消 通知、活动（权限由后端按职位+自定义职位计算） */
 function canContentWrite() {
   const u = getSession();
@@ -132,23 +142,21 @@ function skeletonHTML(rows) {
   return '<div class="list">' + out + '</div>';
 }
 
-/** 空态占位 */
-function emptyHTML(text) {
-  return '<div class="state empty-state">'
-    + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>'
-    + '<p>' + esc(text || '暂无数据') + '</p></div>';
+/** 列表状态提示（空数据/错误）：各页面统一渲染 */
+function stateHTML(text, isError) {
+  var cls = isError ? 'state error' : 'state';
+  return '<div class="' + cls + '"><p>' + esc(text || '暂无数据') + '</p></div>';
 }
 
-/** 错误占位 */
-function errorHTML(msg) {
-  return '<div class="state error-msg"><p>' + esc(msg || '加载失败') + '</p></div>';
+/** 通知来源显示名 */
+function sourceName(s) {
+  if (s === 'crawler') return '抓取';
+  if (s === 'webhook') return '推送';
+  return '发布';
 }
 
-// ===== 导航栏滚动效果（滚动超过 40px 加深底色） =====
-(function () {
-  var nav = document.getElementById('navbar');
-  if (!nav) return;
-  function onScroll() { nav.classList.toggle('scrolled', window.scrollY > 40); }
-  onScroll();
-  window.addEventListener('scroll', onScroll, { passive: true });
-})();
+/** datetime-local 默认值：当前本地时间 YYYY-MM-DDTHH:MM */
+function nowLocal() {
+  var d = new Date(); var pad = function (n) { return n < 10 ? '0' + n : '' + n; };
+  return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+}

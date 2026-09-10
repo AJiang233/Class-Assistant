@@ -53,6 +53,10 @@
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
                     <span class="side-text">班级通知</span>
                 </button>
+                <button type="button" class="side-link" id="navAdmin" style="display:none;" onclick="switchView('admin')">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
+                    <span class="side-text">管理员</span>
+                </button>
                 <button type="button" class="side-link" id="navAccount" onclick="switchView('account')">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
                     <span class="side-text">个人中心</span>
@@ -120,6 +124,19 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- 活动详情弹窗（点击"当日日程"行弹出） -->
+                <div class="modal-overlay" id="detailModal">
+                    <div class="modal">
+                        <div class="modal-head">
+                            <span class="modal-title">活动详情</span>
+                            <button type="button" class="modal-close" onclick="closeDetail()" aria-label="关闭">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                            </button>
+                        </div>
+                        <div class="modal-body" id="detailCard"></div>
+                    </div>
+                </div>
             </div>
 
             <!-- 登录视图 -->
@@ -152,6 +169,7 @@
             <iframe id="frameActivities" class="app-frame" data-loaded="0" style="display:none;" title="活动"></iframe>
             <iframe id="frameNotices" class="app-frame" data-loaded="0" style="display:none;" title="通知"></iframe>
             <iframe id="frameAccount" class="app-frame" data-loaded="0" style="display:none;" title="个人中心"></iframe>
+            <iframe id="frameAdmin" class="app-frame" data-loaded="0" style="display:none;" title="管理员"></iframe>
         </div>
 
         <!-- 移动端底部导航（小屏显示，替代侧边栏） -->
@@ -168,6 +186,10 @@
             <button type="button" class="bottom-nav-item" data-nav="notices" onclick="switchView('notices')">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
                 <span>班级通知</span>
+            </button>
+            <button type="button" class="bottom-nav-item" data-nav="admin" style="display:none;" onclick="switchView('admin')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
+                <span>管理员</span>
             </button>
             <button type="button" class="bottom-nav-item" data-nav="account" onclick="switchView('account')">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
@@ -192,6 +214,12 @@
         try { if (localStorage.getItem('sidebarCollapsed') === '1') sb.classList.add('collapsed'); } catch (e) {}
         bindAppThemeToggle();
         fillAuthArea(authed, user);
+        // 仅管理员可见"管理员"入口（侧边栏 + 移动端底部导航）
+        if (canManageUsers()) {
+            document.getElementById('navAdmin').style.display = '';
+            var mAdmin = document.querySelector('.bottom-nav-item[data-nav="admin"]');
+            if (mAdmin) mAdmin.style.display = '';
+        }
         if (authed) {
             loadCalendar().then(function () {
                 // 默认选中今天，加载今日日程与通知
@@ -260,18 +288,19 @@
     }
 
     // ===== 视图切换 =====
-    var FRAME_KEYS = { activities: 'frameActivities', notices: 'frameNotices', account: 'frameAccount' };
+    var FRAME_KEYS = { activities: 'frameActivities', notices: 'frameNotices', account: 'frameAccount', admin: 'frameAdmin' };
     function switchView(key) {
         var authed = !!localStorage.getItem(LS_TOKEN);
         // 未登录访问受保护视图 → 显示登录视图
         if (!authed && key !== 'home' && key !== 'login') key = 'login';
-        // 侧边栏 active 状态
-        ['home', 'activities', 'notices', 'account'].forEach(function (k) {
-            var el = document.getElementById('nav' + k.charAt(0).toUpperCase() + k.slice(1));
-            if (el) el.classList.toggle('active', k === key);
-        });
-        // 移动端底部导航 active 状态（未登录显示登录视图时，"我的"保持高亮）
+        // 当前应高亮的导航项：未登录显示登录视图时，"个人中心"保持高亮
         var navKey = key === 'login' ? 'account' : key;
+        // 侧边栏 active 状态
+        ['home', 'activities', 'notices', 'account', 'admin'].forEach(function (k) {
+            var el = document.getElementById('nav' + k.charAt(0).toUpperCase() + k.slice(1));
+            if (el) el.classList.toggle('active', k === navKey);
+        });
+        // 移动端底部导航 active 状态
         var mItems = document.querySelectorAll('.bottom-nav-item');
         for (var mi = 0; mi < mItems.length; mi++) {
             mItems[mi].classList.toggle('active', mItems[mi].getAttribute('data-nav') === navKey);
@@ -392,10 +421,6 @@
         loadNotices(activeDate);
     }
 
-    function loadSummary() {
-        refreshDay();
-    }
-
     async function loadNotices(date) {
         var el = document.getElementById('noticeList');
         el.innerHTML = skeletonHTML(3);
@@ -433,7 +458,7 @@
             el.innerHTML = list.map(function (a) {
                 var meta = '<span>' + esc(fmtDate(a.start_time)) + '</span>';
                 if (a.location) meta += '<span>' + esc(a.location) + '</span>';
-                return '<button type="button" class="list-row" onclick="switchView(\'activities\')">'
+                return '<button type="button" class="list-row" onclick="showDetail(' + a.id + ')">'
                     + '<div class="list-row-main">'
                     + '<div class="list-row-title">' + esc(a.title) + '</div>'
                     + '<div class="list-row-meta">' + meta + '</div>'
@@ -443,6 +468,48 @@
             }).join('');
         } catch (err) {
             el.innerHTML = stateHTML(err.message, true);
+        }
+    }
+
+    // ===== 活动详情弹窗（点击"当日日程"行弹出） =====
+    function openDetail() {
+        var ov = document.getElementById('detailModal');
+        if (ov) ov.classList.add('show');
+        document.body.style.overflow = 'hidden';
+    }
+    function closeDetail() {
+        var ov = document.getElementById('detailModal');
+        if (ov) ov.classList.remove('show');
+        document.body.style.overflow = '';
+    }
+    (function () {
+        var ov = document.getElementById('detailModal');
+        if (!ov) return;
+        // 点遮罩空白处关闭
+        ov.addEventListener('click', function (e) { if (e.target === ov) closeDetail(); });
+        // ESC 关闭
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape' && ov.classList.contains('show')) closeDetail();
+        });
+    })();
+
+    async function showDetail(id) {
+        var card = document.getElementById('detailCard');
+        card.innerHTML = stateHTML('加载中…');
+        openDetail();
+        try {
+            var res = await api('/api/activities/' + id);
+            var a = res.data;
+            var meta = '<span>开始 ' + esc(fmtDate(a.start_time)) + '</span>';
+            if (a.end_time) meta += '<span>结束 ' + esc(fmtDate(a.end_time)) + '</span>';
+            if (a.location) meta += '<span>' + esc(a.location) + '</span>';
+            if (a.publisher) meta += '<span>' + esc(a.publisher) + '</span>';
+            card.innerHTML =
+                '<div class="detail-title">' + esc(a.title) + '</div>'
+                + '<div class="detail-meta">' + meta + '</div>'
+                + '<div class="detail-body">' + esc(a.content || '暂无活动说明') + '</div>';
+        } catch (err) {
+            card.innerHTML = stateHTML(err.message, true);
         }
     }
 
@@ -479,17 +546,6 @@
                 btn.disabled = false; btn.textContent = '登录';
             }
         });
-    }
-
-    function stateHTML(text, isError) {
-        var cls = isError ? 'state error' : 'state';
-        return '<div class="' + cls + '"><p>' + esc(text || '暂无数据') + '</p></div>';
-    }
-
-    function sourceName(s) {
-        if (s === 'crawler') return '抓取';
-        if (s === 'webhook') return '推送';
-        return '发布';
     }
     </script>
 </body>

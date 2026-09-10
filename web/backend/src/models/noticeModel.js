@@ -30,13 +30,13 @@ export class NoticeModel {
     const sql = hasDate
       ? `SELECT id, title, content, publish_time, publisher, remind_people, source, expire_time, created_at
          FROM notices
-         WHERE (expire_time IS NULL OR expire_time > datetime('now'))
+         WHERE (expire_time IS NULL OR expire_time > datetime('now', '+8 hours'))
            AND substr(publish_time, 1, 10) = ?
          ORDER BY publish_time DESC
          LIMIT ? OFFSET ?`
       : `SELECT id, title, content, publish_time, publisher, remind_people, source, expire_time, created_at
          FROM notices
-         WHERE expire_time IS NULL OR expire_time > datetime('now')
+         WHERE expire_time IS NULL OR expire_time > datetime('now', '+8 hours')
          ORDER BY publish_time DESC
          LIMIT ? OFFSET ?`;
     const result = await this.db.prepare(sql).bind(...(hasDate ? [date, limit, offset] : [limit, offset])).all();

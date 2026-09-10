@@ -163,11 +163,6 @@
         }
     }
 
-    function nowLocal() {
-        var d = new Date(); var pad = function (n) { return n < 10 ? '0' + n : '' + n; };
-        return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
-    }
-
     async function submitNotice() {
         var errBox = document.getElementById('pubError');
         errBox.classList.remove('show');
@@ -291,7 +286,7 @@
             document.getElementById('pubSubmitBtn').textContent = '保存';
             document.getElementById('pubTitle').value = n.title || '';
             document.getElementById('pubContent').value = n.content || '';
-            document.getElementById('pubTime').value = (n.publish_time || '').slice(0, 16);
+            document.getElementById('pubTime').value = (n.publish_time || '').replace(' ', 'T').slice(0, 16);
             document.getElementById('pubExpire').value = (n.expire_time || '').replace(' ', 'T').slice(0, 16);
             var names = [];
             if (n.remind_people) { try { var a = JSON.parse(n.remind_people); if (Array.isArray(a)) names = a; } catch (e) {} }
@@ -300,16 +295,6 @@
         }).catch(function (err) { alert(err.message); });
     }
 
-    function stateHTML(text, isError) {
-        var cls = isError ? 'state error' : 'state';
-        return '<div class="' + cls + '"><p>' + esc(text || '暂无数据') + '</p></div>';
-    }
-
-    function sourceName(s) {
-        if (s === 'crawler') return '抓取';
-        if (s === 'webhook') return '推送';
-        return '发布';
-    }
     // 供内联 onclick 调用
     window.showDetail = showDetail;
     window.togglePublish = togglePublish;

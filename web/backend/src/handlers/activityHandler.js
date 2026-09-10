@@ -1,5 +1,6 @@
 import { ActivityModel } from '../models/activityModel.js';
 import { success, error, jsonResponse } from '../utils/response.js';
+import { toLocalDateTime } from '../utils/datetime.js';
 
 /**
  * 发布活动（需登录）
@@ -18,8 +19,8 @@ export async function handleCreateActivity(request, env, user) {
       title,
       content,
       location,
-      start_time,
-      end_time,
+      start_time: toLocalDateTime(start_time),
+      end_time: toLocalDateTime(end_time),
       publisher: user.name,
       remind_people: remind_people ? JSON.stringify(remind_people) : null
     });
@@ -94,7 +95,10 @@ export async function handleUpdateActivity(request, env, user, params) {
     }
 
     // 提醒对象数组统一序列化为 JSON 字符串存储
-    const payload = { ...body };
+    const { start_time, end_time, ...rest } = body;
+    const payload = { ...rest };
+    if (start_time !== undefined) payload.start_time = toLocalDateTime(start_time);
+    if (end_time !== undefined) payload.end_time = toLocalDateTime(end_time);
     if (payload.remind_people !== undefined && payload.remind_people !== null) {
       payload.remind_people = Array.isArray(payload.remind_people) ? JSON.stringify(payload.remind_people) : payload.remind_people;
     }

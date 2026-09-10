@@ -455,11 +455,33 @@ body {
 
 /* ===== 登录面板（液态玻璃） ===== */
 .login-panel {
-  background: var(--g-surface-strong); border: 1px solid var(--g-border);
+  position: relative; overflow: hidden;
+  background:
+    radial-gradient(420px 300px at 88% -4%, rgba(10, 132, 255, 0.16), transparent 62%),
+    radial-gradient(380px 300px at 2% 104%, rgba(88, 86, 214, 0.14), transparent 62%),
+    radial-gradient(300px 220px at 50% 118%, rgba(90, 200, 250, 0.10), transparent 60%),
+    var(--g-surface-strong);
+  border: 1px solid var(--g-border);
   border-radius: var(--radius-lg); padding: 36px 40px;
   -webkit-backdrop-filter: blur(var(--g-blur)) saturate(var(--g-saturate));
   backdrop-filter: blur(var(--g-blur)) saturate(var(--g-saturate));
   box-shadow: var(--g-shadow), var(--g-highlight);
+}
+/* 玻璃上层受光与内反光 */
+.login-panel::before {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0) 40%),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0));
+}
+.login-panel > * { position: relative; z-index: 1; }
+/* 夜间模式：登录面板彩色光斑更克制、贴合黑底 */
+:root[data-theme="dark"] .login-panel {
+  background:
+    radial-gradient(420px 300px at 88% -4%, rgba(10, 132, 255, 0.14), transparent 62%),
+    radial-gradient(380px 300px at 2% 104%, rgba(88, 86, 214, 0.12), transparent 62%),
+    radial-gradient(300px 220px at 50% 118%, rgba(90, 200, 250, 0.08), transparent 60%),
+    var(--g-surface-strong);
 }
 
 /* ===== 首页 ===== */
@@ -571,7 +593,7 @@ body.app-mode { overflow: hidden; }
   font-size: 0.92rem; font-weight: 700;
   box-shadow: var(--g-highlight);
 }
-.user-info { min-width: 0; overflow: hidden; }
+.user-info { display: flex; flex-direction: column; gap: 1px; min-width: 0; overflow: hidden; line-height: 1.25; }
 .user-name { font-size: 0.88rem; font-weight: 650; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .user-sub { font-size: 0.78rem; color: var(--text-tertiary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sidebar.collapsed .sidebar-user { justify-content: center; padding: 9px 0; }
@@ -586,21 +608,21 @@ body.app-mode { overflow: hidden; }
 .bottom-nav { display: none; }
 .bottom-nav-item {
   flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 3px; padding: 7px 8px;
+  gap: 2px; padding: 6px 6px;
   background: none; border: none; cursor: pointer; font-family: inherit;
-  font-size: 0.72rem; font-weight: 600; color: var(--text-tertiary);
-  border-radius: 16px;
+  font-size: 0.70rem; font-weight: 600; color: var(--text-tertiary);
+  border-radius: 14px;
   transition: color var(--transition), background var(--transition), transform var(--transition);
 }
 .bottom-nav-item:hover { color: var(--text); background: var(--g-hover); }
 .bottom-nav-item:active { transform: scale(0.95); }
-.bottom-nav-item svg { width: 21px; height: 21px; position: relative; z-index: 1; }
+.bottom-nav-item svg { width: 20px; height: 20px; position: relative; z-index: 1; }
 .bottom-nav-item span { position: relative; z-index: 1; }
 .bottom-nav-item.active { color: var(--accent); font-weight: 700; }
 /* 胶囊滑块：绝对定位，随激活项平滑移动 */
 .bottom-nav-pill {
-  position: absolute; top: 6px; bottom: 6px; left: 0; width: 0;
-  border-radius: 16px;
+  position: absolute; top: 5px; bottom: 5px; left: 0; width: 0;
+  border-radius: 14px;
   background: var(--g-surface-strong);
   box-shadow: var(--g-highlight), 0 2px 8px rgba(0, 0, 0, 0.06);
   opacity: 0;
@@ -659,43 +681,50 @@ body.app-mode { overflow: hidden; }
 
 /* ===== 响应式 ===== */
 @media (max-width: 768px) {
-  /* 小屏：隐藏侧边栏，改用苹果式悬浮玻璃胶囊导航 */
+  /* 小屏：隐藏侧边栏，改用传统全宽液态玻璃底栏 */
   body { background-attachment: scroll; } /* 移动端 fixed 背景不可靠，退化为纯色使渐变消失，改为 scroll 保持通透 */
   .sidebar { display: none; }
   .bottom-nav {
-    /* 悬浮玻璃胶囊：半透明 + backdrop 模糊的液态玻璃材质 */
-    display: flex; position: fixed; left: 50%; transform: translateX(-50%);
-    bottom: calc(20px + env(safe-area-inset-bottom));
-    width: min(360px, calc(100% - 60px)); z-index: 200;
-    height: 58px; padding: 6px; border-radius: var(--radius-pill);
-    border: 1px solid var(--g-border);
-    background: var(--g-surface-strong);
+    /* 传统全宽液态玻璃底栏：占满整宽、贴边、上下受光 */
+    display: flex; position: fixed; left: 0; right: 0; bottom: 0;
+    height: calc(60px + env(safe-area-inset-bottom));
+    padding: 5px 4px calc(5px + env(safe-area-inset-bottom));
+    padding-left: max(4px, env(safe-area-inset-left));
+    padding-right: max(4px, env(safe-area-inset-right));
+    border-radius: 0;
+    border: none;
+    border-top: 1px solid var(--g-border);
+    background: linear-gradient(180deg,
+      color-mix(in srgb, var(--g-surface) 82%, transparent),
+      color-mix(in srgb, var(--g-surface) 70%, transparent));
     -webkit-backdrop-filter: blur(30px) saturate(180%);
     backdrop-filter: blur(30px) saturate(180%);
-    box-shadow:
-      0 24px 60px -20px rgba(0, 0, 0, 0.25),
-      0 10px 26px -12px rgba(0, 0, 0, 0.16),
-      var(--g-highlight);
+    box-shadow: 0 -12px 30px -14px rgba(0, 0, 0, 0.16);
     overflow: hidden;
+    z-index: 200;
   }
-  /* 胶囊顶部受光：模拟玻璃受光 */
+  /* 顶部受光：液态玻璃的上缘高光 */
   .bottom-nav::before {
-    content: ""; position: absolute; top: 1px; left: 12px; right: 12px; height: 42%;
-    border-radius: 999px 999px 26px 26px / 999px 999px 14px 14px;
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0));
+    content: ""; position: absolute; top: 0; left: 0; right: 0; height: 1px;
+    background: linear-gradient(90deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.6), rgba(255, 255, 255, 0));
     pointer-events: none;
   }
-  /* 夜间模式：安静贴合黑背景，避免刺眼灰光晕；顶部反光更克制 */
-  :root[data-theme="dark"] .bottom-nav {
-    background: rgba(255, 255, 255, 0.08);
-    border-color: rgba(255, 255, 255, 0.12);
-    box-shadow:
-      0 16px 40px -18px rgba(0, 0, 0, 0.55),
-      0 8px 18px -10px rgba(0, 0, 0, 0.35);
+  /* 内部柔光：玻璃的通透内反光 */
+  .bottom-nav::after {
+    content: ""; position: absolute; top: 0; left: 0; right: 0; height: 46%;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0));
+    pointer-events: none;
   }
-  :root[data-theme="dark"] .bottom-nav::before { background: linear-gradient(180deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0)); }
-  /* 内容区底部预留悬浮胶囊的空间 */
-  .app-content { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
+  /* 夜间模式：更克制地贴合黑背景 */
+  :root[data-theme="dark"] .bottom-nav {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.04));
+    border-top-color: rgba(255, 255, 255, 0.10);
+    box-shadow: 0 -10px 24px -12px rgba(0, 0, 0, 0.45);
+  }
+  :root[data-theme="dark"] .bottom-nav::before { background: linear-gradient(90deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0)); }
+  :root[data-theme="dark"] .bottom-nav::after { background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0)); }
+  /* 内容区底部预留底栏空间 */
+  .app-content { padding-bottom: calc(76px + env(safe-area-inset-bottom)); }
 }
 @media (max-width: 640px) {
   .navbar-inner { padding: 0 16px; }

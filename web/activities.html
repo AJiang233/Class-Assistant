@@ -157,11 +157,6 @@
         }
     }
 
-    function nowLocal() {
-        var d = new Date(); var pad = function (n) { return n < 10 ? '0' + n : '' + n; };
-        return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
-    }
-
     async function submitActivity() {
         var errBox = document.getElementById('pubError');
         errBox.classList.remove('show');
@@ -286,8 +281,8 @@
             document.getElementById('pubTitle').value = a.title || '';
             document.getElementById('pubContent').value = a.content || '';
             document.getElementById('pubLocation').value = a.location || '';
-            document.getElementById('pubStart').value = (a.start_time || '').slice(0, 16);
-            document.getElementById('pubEnd').value = (a.end_time || '').slice(0, 16);
+            document.getElementById('pubStart').value = (a.start_time || '').replace(' ', 'T').slice(0, 16);
+            document.getElementById('pubEnd').value = (a.end_time || '').replace(' ', 'T').slice(0, 16);
             var names = [];
             if (a.remind_people) { try { var arr = JSON.parse(a.remind_people); if (Array.isArray(arr)) names = arr; } catch (e) {} }
             renderRemindChoices(names);
@@ -295,10 +290,6 @@
         }).catch(function (err) { alert(err.message); });
     }
 
-    function stateHTML(text, isError) {
-        var cls = isError ? 'state error' : 'state';
-        return '<div class="' + cls + '"><p>' + esc(text || '暂无数据') + '</p></div>';
-    }
     // 供内联 onclick 调用
     window.showDetail = showDetail;
     window.togglePublish = togglePublish;

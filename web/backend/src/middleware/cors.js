@@ -11,14 +11,15 @@ const allowedOrigins = [
 
 export function handleCors(request) {
   const origin = request.headers.get('Origin');
-  const isAllowed = allowedOrigins.includes(origin);
-
-  return {
-    'Access-Control-Allow-Origin': isAllowed ? origin : allowedOrigins[0],
+  const headers = {
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Access-Control-Max-Age': '86400'
   };
+  if (origin && allowedOrigins.includes(origin)) {
+    headers['Access-Control-Allow-Origin'] = origin;
+  }
+  return headers;
 }
 
 export function corsResponse(request) {
