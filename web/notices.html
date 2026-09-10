@@ -154,13 +154,16 @@
     function byPublishDesc(a, b) { return String(b.publish_time || '').localeCompare(String(a.publish_time || '')); }
 
     function rowHTML(n) {
+        var pub = n.publisher ? '<span>' + icon('user') + esc(n.publisher) + '</span>' : '';
         return '<button type="button" class="list-row" onclick="showDetail(' + n.id + ')">'
             + '<div class="list-row-main">'
-            + '<div class="list-row-title">' + esc(n.title) + '</div>'
-            + '<div class="list-row-meta">'
+            + '<div class="list-row-title">'
+            + '<span class="list-row-name">' + esc(n.title) + '</span>'
             + '<span class="badge badge-' + esc(n.source || 'manual') + '">' + esc(sourceName(n.source)) + '</span>'
-            + '<span>' + esc(n.publisher || '') + '</span>'
-            + '<span>' + esc(fmtDate(n.publish_time)) + '</span>'
+            + '</div>'
+            + '<div class="list-row-meta">'
+            + pub
+            + '<span>' + icon('clock') + esc(fmtDate(n.publish_time)) + '</span>'
             + '</div>'
             + '</div>'
             + '<svg class="list-row-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>'

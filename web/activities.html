@@ -158,11 +158,11 @@
     function byStartDesc(a, b) { return String(b.start_time || '').localeCompare(String(a.start_time || '')); }
 
     function rowHTML(a) {
-        var meta = '<span>' + esc(fmtDate(a.start_time)) + '</span>';
-        if (a.location) meta += '<span>' + esc(a.location) + '</span>';
+        var meta = '<span>' + icon('clock') + esc(fmtDate(a.start_time)) + '</span>';
+        if (a.location) meta += '<span>' + icon('pin') + esc(a.location) + '</span>';
         return '<button type="button" class="list-row" onclick="showDetail(' + a.id + ')">'
             + '<div class="list-row-main">'
-            + '<div class="list-row-title">' + esc(a.title) + '</div>'
+            + '<div class="list-row-title"><span class="list-row-name">' + esc(a.title) + '</span></div>'
             + '<div class="list-row-meta">' + meta + '</div>'
             + '</div>'
             + '<svg class="list-row-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>'

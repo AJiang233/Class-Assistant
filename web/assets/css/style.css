@@ -247,12 +247,19 @@ body {
 .list-row-title {
   font-size: 1rem; font-weight: 650; letter-spacing: -0.005em;
   color: var(--text); margin-bottom: 4px;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  display: flex; align-items: center; gap: 8px; min-width: 0;
+}
+/* 标题文本单独承载省略号，徽章紧随其后不被裁切 */
+.list-row-title .list-row-name {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
 }
 .list-row-meta {
   font-size: 0.84rem; color: var(--text-tertiary);
   display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
 }
+/* 简略信息：图标 + 文字对齐 */
+.list-row-meta span { display: inline-flex; align-items: center; gap: 5px; }
+.list-row-meta svg { flex-shrink: 0; }
 .list-row-arrow {
   color: var(--text-tertiary); flex-shrink: 0;
   transition: transform var(--transition), color var(--transition);
@@ -730,15 +737,16 @@ body.app-mode { overflow: hidden; }
 .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
 .cal-day {
   position: relative; aspect-ratio: 1; border-radius: var(--radius-sm);
-  display: flex; align-items: center; justify-content: center;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
   font-size: 0.87rem; color: var(--text-secondary); cursor: pointer;
   transition: background var(--transition), color var(--transition);
 }
 .cal-day:hover { background: var(--g-hover); }
 .cal-day.other { color: var(--text-tertiary); }
 .cal-day.has-event { color: var(--accent); font-weight: 650; }
+/* 当日有日程：在日期数字正下方显示一个圆点 */
 .cal-day.has-event::after {
-  content: ""; position: absolute; bottom: 5px; left: 50%; transform: translateX(-50%);
+  content: ""; margin-top: 3px;
   width: 4px; height: 4px; border-radius: 50%; background: var(--accent);
 }
 .cal-day.today {

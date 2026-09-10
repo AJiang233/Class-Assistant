@@ -55,7 +55,7 @@
                 </button>
                 <button type="button" class="side-link" id="navAdmin" style="display:none;" onclick="switchView('admin')">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
-                    <span class="side-text">管理员</span>
+                    <span class="side-text">管理员面板</span>
                 </button>
                 <button type="button" class="side-link" id="navAccount" onclick="switchView('account')">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
@@ -176,7 +176,7 @@
             <iframe id="frameActivities" class="app-frame" data-loaded="0" style="display:none;" title="活动"></iframe>
             <iframe id="frameNotices" class="app-frame" data-loaded="0" style="display:none;" title="通知"></iframe>
             <iframe id="frameAccount" class="app-frame" data-loaded="0" style="display:none;" title="个人中心"></iframe>
-            <iframe id="frameAdmin" class="app-frame" data-loaded="0" style="display:none;" title="管理员"></iframe>
+            <iframe id="frameAdmin" class="app-frame" data-loaded="0" style="display:none;" title="管理员面板"></iframe>
         </div>
 
         <!-- 移动端底部导航（小屏显示，替代侧边栏） -->
@@ -196,7 +196,7 @@
             </button>
             <button type="button" class="bottom-nav-item" data-nav="admin" style="display:none;" onclick="switchView('admin')">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
-                <span>管理员</span>
+                <span>管理员面板</span>
             </button>
             <button type="button" class="bottom-nav-item" data-nav="account" onclick="switchView('account')">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
@@ -445,13 +445,16 @@
             if (!list.length) { el.innerHTML = stateHTML('暂无通知'); return; }
             list.sort(function (a, b) { return String(b.publish_time || '').localeCompare(String(a.publish_time || '')); });
             el.innerHTML = list.map(function (n) {
+                var pub = n.publisher ? '<span>' + icon('user') + esc(n.publisher) + '</span>' : '';
                 return '<button type="button" class="list-row" onclick="showNoticeDetail(' + n.id + ')">'
                     + '<div class="list-row-main">'
-                    + '<div class="list-row-title">' + esc(n.title) + '</div>'
-                    + '<div class="list-row-meta">'
+                    + '<div class="list-row-title">'
+                    + '<span class="list-row-name">' + esc(n.title) + '</span>'
                     + '<span class="badge badge-' + esc(n.source || 'manual') + '">' + esc(sourceName(n.source)) + '</span>'
-                    + '<span>' + esc(n.publisher || '') + '</span>'
-                    + '<span>' + esc(fmtDate(n.publish_time)) + '</span>'
+                    + '</div>'
+                    + '<div class="list-row-meta">'
+                    + pub
+                    + '<span>' + icon('clock') + esc(fmtDate(n.publish_time)) + '</span>'
                     + '</div>'
                     + '</div>'
                     + '<svg class="list-row-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>'
@@ -472,11 +475,11 @@
             if (!list.length) { el.innerHTML = stateHTML('暂无活动'); return; }
             list.sort(function (a, b) { return String(b.start_time || '').localeCompare(String(a.start_time || '')); });
             el.innerHTML = list.map(function (a) {
-                var meta = '<span>' + esc(fmtDate(a.start_time)) + '</span>';
-                if (a.location) meta += '<span>' + esc(a.location) + '</span>';
+                var meta = '<span>' + icon('clock') + esc(fmtDate(a.start_time)) + '</span>';
+                if (a.location) meta += '<span>' + icon('pin') + esc(a.location) + '</span>';
                 return '<button type="button" class="list-row" onclick="showDetail(' + a.id + ')">'
                     + '<div class="list-row-main">'
-                    + '<div class="list-row-title">' + esc(a.title) + '</div>'
+                    + '<div class="list-row-title"><span class="list-row-name">' + esc(a.title) + '</span></div>'
                     + '<div class="list-row-meta">' + meta + '</div>'
                     + '</div>'
                     + '<svg class="list-row-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>'
