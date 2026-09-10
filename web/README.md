@@ -192,11 +192,23 @@ web/                            # Cloudflare Pages 项目根目录（直接部�
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | GET | `/api/academic/status` | 绑定状态 + 已缓存学期 |
-| POST | `/api/academic/login` | 学号+密码代登录后绑定，body `{ "student_id", "password" }`；需要验证码时返回 409 |
+| POST | `/api/academic/login` | 学号+密码代登录后绑定，body `{ "student_id", "password" }`；需要验证码时返回 409，账号开了多因子认证时返回 `{ mfaRequired, token, contact, method }` |
+| POST | `/api/academic/mfa/send` | 下发二次验证码（短信/邮箱），body `{ "token" }` |
+| POST | `/api/academic/mfa/verify` | 提交验证码完成绑定，body `{ "token", "code" }` |
 | POST | `/api/academic/bind` | 用会话 Cookie 绑定，body `{ "cookies": "..." }`（先调 sessionUserInfo 校验） |
 | DELETE | `/api/academic/bind` | 解绑并清空该用户的教务缓存 |
 | GET | `/api/academic/timetable` | 课表，`?xnxq=2026-2027-1` 指定学期，`?refresh=1` 强制重抓 |
 | GET | `/api/academic/credits` | 学业达成 / 学分，`?refresh=1` 强制重抓 |
+
+代登录走「统一身份认证（CAS）」，链路与两个关键约束见 `utils/casLogin.js`：
+
+- **入口必须是教务侧的 SSO 地址**（`SsoUrl`，取自教务公开配置接口 `POST /api/qsmart/common/sysConfig/white`），
+  由教务生成 CAS 的 `service`；若直接以登录页为 `service`，ticket 会落到一个不处理 ticket 的静态页，永远换不到会话。
+  完整链路：`szjw/api/login/sso/cas/login` → `workflow/cas/login` → `authserver`（密码 + 多因子）→
+  `workflow/sso/login` → `szjw/api/login/sso/cas/DEF_CAS/callback`（**换会话**）→ `szjw/`
+- **多因子认证只支持短信/邮箱验证码**，且提交时固定 `skipTmpReAuth=false`（页面上的「仅本次登录」）。
+  选「信任此设备」时 CAS 要登记设备指纹，服务端代登录场景会静默失败，表现为提交回「认证成功」
+  但随后 `/login` 又被要求二次验证、流程永远走不完
 
 ```jsonc
 // GET /api/academic/timetable → 200
@@ -310,10 +322,17 @@ CREATE TABLE academic_credits (             -- 学业达成（学分）缓存
   payload       TEXT NOT NULL,
   fetched_at    DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE academic_mfa_sessions (        -- 多因子认证中间态（代登录被要求二次验证时暂存 CAS 会话）
+  token         TEXT PRIMARY KEY,
+  user_id       INTEGER NOT NULL,
+  state         TEXT NOT NULL,              -- CAS Cookie 罐 + reAuthParams（不含密码）
+  created_at    DATETIME DEFAULT CURRENT_TIMESTAMP
+);
 ```
 
 > 新库直接用 `schema.sql` 建表；已有库需执行迁移：`ALTER TABLE notices ADD COLUMN expire_time DATETIME;`、
-> 创建 `roles` 表，以及创建上表 `academic_bindings` / `academic_timetable` / `academic_credits`。
+> 创建 `roles` 表，以及创建上表 `academic_bindings` / `academic_timetable` / `academic_credits` / `academic_mfa_sessions`。
 
 ---
 
@@ -327,7 +346,7 @@ CREATE TABLE academic_credits (             -- 学业达成（学分）缓存
 - **发布/编辑表单**：统一弹窗形式；可选「提醒对象」（成员以标签多选）、通知可设「存活至」（到期自动隐藏）
 - **列表与详情**：列表行「标题 + 徽章」、元信息带图标（发布人 / 时间 / 地点），点击条目标题弹出详情弹窗
 - **个人中心**：资料（联系方式可自助修改）、主题外观、日历订阅（可自定义提醒提前量/时间范围/是否含通知，并可重置密钥）、修改密码、强制刷新（清除本地缓存并重载，用于修复样式错乱）、退出登录（红色警示卡）
-- **课表与学业**：`academic.html` —— 课表按节次网格渲染（当前周高亮、非本周淡出）、未安排课程列表、学业达成学分看板（要求/已获/在修/还需 + 逐课程体系明细）；未绑定时提供三条绑定路径（App 一键 / 学号密码代登录 / 手动粘贴 Cookie 并附分步指引）
+- **课表与学业**：`academic.html` —— 课表按节次网格渲染（当前周高亮、非本周淡出）、未安排课程列表、学业达成学分看板（要求/已获/在修/还需 + 逐课程体系明细）；未绑定时提供三条绑定路径（App 一键 / 学号密码代登录 / 手动粘贴 Cookie 并附分步指引）；账号开了多因子认证时，学号密码代登录会自动进入第二步（下发验证码 → 回填 → 完成绑定，带 60 秒重发倒计时）
 - **API 封装**：`assets/js/app.js` 提供 `api(path, options)`，自动附带 `Bearer` token、401 自动回登录页
 - **主题**：`data-theme` 深浅色（液态玻璃风格），localStorage 记忆
 - `API_BASE` 保持 `''`（前后端同域，走 Pages Functions）
@@ -352,5 +371,7 @@ CREATE TABLE academic_credits (             -- 学业达成（学分）缓存
 
 - 密码使用 Web Crypto PBKDF2（10 万次迭代 + 随机盐），不存明文
 - JWT 密钥存放于 Pages 环境变量 `JWT_SECRET`，生产请使用强随机值
+- **教务代登录**：学号密码只在单次请求内存里用于换取会话，**不落库、不打日志、不返回前端**；
+  服务端只保留教务域的会话 Cookie；多因子验证码同样不落库（中间态只存 CAS 会话与流程参数，10 分钟过期）
 - 内容写操作（发布/编辑/删除）与成员管理均按职位鉴权
 - 前端所有用户输入经 `esc()` 转义，防止 XSS

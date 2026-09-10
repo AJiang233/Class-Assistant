@@ -71,3 +71,11 @@ CREATE TABLE IF NOT EXISTS academic_credits (
   payload       TEXT NOT NULL,             -- 归一化学分 JSON
   fetched_at    DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+-- 多因子认证中间态：代登录被要求二次验证时，暂存 CAS 会话，等用户回填验证码
+CREATE TABLE IF NOT EXISTS academic_mfa_sessions (
+  token         TEXT PRIMARY KEY,          -- 一次性令牌，前端持有并回传
+  user_id       INTEGER NOT NULL,
+  state         TEXT NOT NULL,             -- CAS Cookie 罐 + reAuthParams（不含密码）
+  created_at    DATETIME DEFAULT CURRENT_TIMESTAMP
+);

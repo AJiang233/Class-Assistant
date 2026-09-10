@@ -1,6 +1,13 @@
 import { AcademicModel } from '../models/academicModel.js';
 import { SchoolClient, SchoolSessionExpired } from '../utils/schoolApi.js';
-import { CasError, loginWithPassword } from '../utils/casLogin.js';
+import {
+  CasError,
+  loginWithPassword,
+  sendMfaCode,
+  verifyMfaCode,
+  isMfaCodeSupported,
+  mfaMethodLabel
+} from '../utils/casLogin.js';
 import { success, error, jsonResponse } from '../utils/response.js';
 
 /** 课表节次方案 id（教务默认方案） */
@@ -8,6 +15,16 @@ const DEFAULT_KBJCMS_ID = 1;
 
 /** 缓存新鲜期：超过则下次访问自动重新抓取（毫秒） */
 const CACHE_TTL = 6 * 60 * 60 * 1000;
+
+/** 多因子认证中间态有效期（毫秒） */
+const MFA_TTL = 10 * 60 * 1000;
+
+/** 一次性令牌（中间态在前后端之间传递的凭据） */
+function randomToken() {
+  const bytes = new Uint8Array(24);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
 
 // ===== 通用工具 =====
 
@@ -212,7 +229,7 @@ function normalizeCredits(data) {
 
 /**
  * 校验会话并把绑定写进 D1（绑定 Cookie / 代登录两条路径共用）
- * @returns {Promise<{data?: object, response?: Response}>}
+ * @returns {Promise<{data?: object, failure?: {message: string, code: string, status: number}}>}
  */
 async function bindWithCookies(env, user, cookies) {
   const client = new SchoolClient(cookies);
@@ -221,12 +238,12 @@ async function bindWithCookies(env, user, cookies) {
     info = await client.sessionUserInfo();
   } catch (e) {
     if (e instanceof SchoolSessionExpired) {
-      return { response: jsonResponse(error('教务登录态无效，请重新登录教务系统', 'ACADEMIC_INVALID'), 400) };
+      return { failure: { message: '教务登录态无效，请重新登录教务系统', code: 'ACADEMIC_INVALID', status: 400 } };
     }
-    return { response: jsonResponse(error(`无法连接教务系统：${e.message}`, 'ACADEMIC_UNREACHABLE'), 502) };
+    return { failure: { message: `无法连接教务系统：${e.message}`, code: 'ACADEMIC_UNREACHABLE', status: 502 } };
   }
   if (!info || !info.id) {
-    return { response: jsonResponse(error('教务返回的用户信息异常，请重新登录教务系统', 'ACADEMIC_INVALID'), 400) };
+    return { failure: { message: '教务返回的用户信息异常，请重新登录教务系统', code: 'ACADEMIC_INVALID', status: 400 } };
   }
 
   const model = new AcademicModel(env.DB);
@@ -255,12 +272,16 @@ export async function handleAcademicBind(request, env, user) {
   }
 
   const result = await bindWithCookies(env, user, cookies);
-  return result.response || jsonResponse(success(result.data));
+  if (result.failure) {
+    return jsonResponse(error(result.failure.message, result.failure.code), result.failure.status);
+  }
+  return jsonResponse(success(result.data));
 }
 
 /**
  * 用学号 + 密码走统一身份认证代登录，成功后直接绑定
  * 密码只在本次请求的内存里用一次，不落库、不打日志
+ * 若账号开了多因子认证，则暂存 CAS 会话并返回 mfaRequired，等用户回填验证码
  */
 export async function handleAcademicPasswordLogin(request, env, user) {
   const body = await request.json().catch(() => ({}));
@@ -282,8 +303,91 @@ export async function handleAcademicPasswordLogin(request, env, user) {
     return jsonResponse(error(`统一身份认证登录失败：${e.message}`, 'CAS_ERROR'), 502);
   }
 
+  // 认证已通过，但要求多因子二次验证：暂存会话，让前端进入第二步
+  if (session.mfaRequired) {
+    const type = session.state.reAuthType;
+    if (!isMfaCodeSupported(type)) {
+      return jsonResponse(
+        error('该账号的二次验证方式不是短信/邮箱验证码，暂不支持代登录，请改用手动粘贴 Cookie 绑定', 'MFA_UNSUPPORTED'),
+        400
+      );
+    }
+    const model = new AcademicModel(env.DB);
+    await model.purgeExpiredMfaSessions(MFA_TTL);
+    const token = randomToken();
+    await model.saveMfaSession(user.id, token, JSON.stringify(session.state));
+    return jsonResponse(success({
+      mfaRequired: true,
+      token,
+      contact: session.contact || '',
+      method: mfaMethodLabel(type)
+    }));
+  }
+
   const result = await bindWithCookies(env, user, session.cookies);
-  return result.response || jsonResponse(success({ ...result.data, via: 'password' }));
+  if (result.failure) {
+    // 代登录路径独有的诊断：带上拿到的 Cookie 名与跳转链（只有名字，没有值）
+    const hint = `已拿到 Cookie：${session.cookieNames.join(',') || '无'}；跳转：${session.hops.join(' → ')}`;
+    return jsonResponse(error(`${result.failure.message}（${hint}）`, result.failure.code), result.failure.status);
+  }
+  return jsonResponse(success({ ...result.data, via: 'password' }));
+}
+
+/** 中间态共用：取出本人在有效期内的 CAS 会话 */
+async function loadMfaState(env, user, token) {
+  if (!token) return { failure: { message: '缺少认证会话', code: 'MISSING_TOKEN', status: 400 } };
+  const model = new AcademicModel(env.DB);
+  const state = await model.getMfaSession(user.id, token, MFA_TTL);
+  if (!state) {
+    return { failure: { message: '认证会话已过期，请重新输入学号密码', code: 'MFA_EXPIRED', status: 400 } };
+  }
+  return { model, state };
+}
+
+/** 第二步：给绑定的手机/邮箱下发二次验证码 */
+export async function handleAcademicMfaSend(request, env, user) {
+  const body = await request.json().catch(() => ({}));
+  const loaded = await loadMfaState(env, user, String(body.token || ''));
+  if (loaded.failure) {
+    return jsonResponse(error(loaded.failure.message, loaded.failure.code), loaded.failure.status);
+  }
+
+  try {
+    const sent = await sendMfaCode(loaded.state);
+    return jsonResponse(success({ sent: true, mobile: sent.mobile, label: sent.label }));
+  } catch (e) {
+    if (e instanceof CasError) return jsonResponse(error(e.message, e.code), 400);
+    return jsonResponse(error(`验证码发送失败：${e.message}`, 'MFA_SEND_FAILED'), 502);
+  }
+}
+
+/** 第三步：提交验证码完成二次验证，随后换取教务会话并绑定 */
+export async function handleAcademicMfaVerify(request, env, user) {
+  const body = await request.json().catch(() => ({}));
+  const code = String(body.code || '').trim();
+  if (!code) return jsonResponse(error('请填写验证码', 'MISSING_CODE'), 400);
+
+  const loaded = await loadMfaState(env, user, String(body.token || ''));
+  if (loaded.failure) {
+    return jsonResponse(error(loaded.failure.message, loaded.failure.code), loaded.failure.status);
+  }
+
+  let session;
+  try {
+    session = await verifyMfaCode(loaded.state, code);
+  } catch (e) {
+    // 验证码错误时保留中间态，让用户直接重试
+    if (e instanceof CasError) return jsonResponse(error(e.message, e.code), 400);
+    return jsonResponse(error(`多因子认证失败：${e.message}`, 'MFA_ERROR'), 502);
+  }
+
+  const result = await bindWithCookies(env, user, session.cookies);
+  await loaded.model.deleteMfaSession(String(body.token || ''));
+  if (result.failure) {
+    const hint = `已拿到 Cookie：${session.cookieNames.join(',') || '无'}；跳转：${session.hops.join(' → ')}`;
+    return jsonResponse(error(`${result.failure.message}（${hint}）`, result.failure.code), result.failure.status);
+  }
+  return jsonResponse(success({ ...result.data, via: 'password+mfa' }));
 }
 
 /** 解绑并清空教务缓存 */

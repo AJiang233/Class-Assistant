@@ -101,10 +101,51 @@ export class AcademicModel {
     ).bind(userId, payload).run();
   }
 
+  // ===== 多因子认证中间态 =====
+
+  /** 覆盖写入中间态（state 里只有 Cookie 罐与 reAuthParams，不含密码） */
+  async saveMfaSession(userId, token, state) {
+    return this.db.prepare(
+      `INSERT INTO academic_mfa_sessions (token, user_id, state, created_at)
+       VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+       ON CONFLICT(token) DO UPDATE SET
+         user_id = excluded.user_id,
+         state = excluded.state,
+         created_at = CURRENT_TIMESTAMP`
+    ).bind(token, userId, state).run();
+  }
+
+  /** 取中间态：只认本人的、且未过期的；过期即删并返回 null */
+  async getMfaSession(userId, token, ttlMs) {
+    const row = await this.db.prepare(
+      `SELECT state, created_at FROM academic_mfa_sessions WHERE token = ? AND user_id = ?`
+    ).bind(token, userId).first();
+    if (!row) return null;
+
+    const created = Date.parse(String(row.created_at).replace(' ', 'T') + 'Z');
+    if (!created || Date.now() - created > ttlMs) {
+      await this.deleteMfaSession(token);
+      return null;
+    }
+    return JSON.parse(row.state);
+  }
+
+  async deleteMfaSession(token) {
+    return this.db.prepare('DELETE FROM academic_mfa_sessions WHERE token = ?').bind(token).run();
+  }
+
+  /** 顺手清掉过期中间态，避免表里堆垃圾 */
+  async purgeExpiredMfaSessions(ttlMs) {
+    return this.db.prepare(
+      `DELETE FROM academic_mfa_sessions WHERE created_at < datetime('now', ?)`
+    ).bind(`-${Math.floor(ttlMs / 1000)} seconds`).run();
+  }
+
   // ===== 缓存清理 =====
 
   async clearCache(userId) {
     await this.db.prepare('DELETE FROM academic_timetable WHERE user_id = ?').bind(userId).run();
     await this.db.prepare('DELETE FROM academic_credits WHERE user_id = ?').bind(userId).run();
+    await this.db.prepare('DELETE FROM academic_mfa_sessions WHERE user_id = ?').bind(userId).run();
   }
 }

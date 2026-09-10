@@ -62,16 +62,33 @@
                     </div>
 
                     <!-- 路径一：学号 + 密码（推荐） -->
-                    <div class="form-field">
-                        <label class="form-label" for="acStudentId">学号</label>
-                        <input class="form-input" type="text" id="acStudentId" placeholder="你的学号（即统一身份认证账号）" autocomplete="username">
+                    <div id="pwdStep">
+                        <div class="form-field">
+                            <label class="form-label" for="acStudentId">学号</label>
+                            <input class="form-input" type="text" id="acStudentId" placeholder="你的学号（即统一身份认证账号）" autocomplete="username">
+                        </div>
+                        <div class="form-field">
+                            <label class="form-label" for="acPassword">统一身份认证密码</label>
+                            <input class="form-input" type="password" id="acPassword" placeholder="密码" autocomplete="current-password">
+                            <p class="ac-note">密码只用于这一次登录：服务端登录成功后只保留会话凭据，<b>不保存也不记录你的密码</b>。</p>
+                        </div>
+                        <button type="button" class="btn btn-primary btn-block" id="pwdLoginBtn">登录并绑定</button>
                     </div>
-                    <div class="form-field">
-                        <label class="form-label" for="acPassword">统一身份认证密码</label>
-                        <input class="form-input" type="password" id="acPassword" placeholder="密码" autocomplete="current-password">
-                        <p class="ac-note">密码只用于这一次登录：服务端登录成功后只保留会话凭据，<b>不保存也不记录你的密码</b>。</p>
+
+                    <!-- 路径一 · 第二步：统一身份认证要求多因子（短信/邮箱验证码） -->
+                    <div id="mfaStep" style="display:none;">
+                        <p class="ac-tip" id="mfaTip"></p>
+                        <div class="form-field">
+                            <label class="form-label" for="mfaCode">验证码</label>
+                            <div class="ac-code-row">
+                                <input class="form-input" type="text" id="mfaCode" inputmode="numeric" maxlength="8" placeholder="请输入验证码" autocomplete="one-time-code">
+                                <button type="button" class="btn btn-outline" id="mfaSendBtn">获取验证码</button>
+                            </div>
+                            <p class="ac-note">验证码会发到你绑定的手机或邮箱。没收到就点「获取验证码」重发，2 分钟内有效。</p>
+                        </div>
+                        <button type="button" class="btn btn-primary btn-block" id="mfaVerifyBtn">完成绑定</button>
+                        <button type="button" class="btn btn-outline btn-block" id="mfaBackBtn" style="margin-top:8px;">返回上一步</button>
                     </div>
-                    <button type="button" class="btn btn-primary btn-block" id="pwdLoginBtn">登录并绑定</button>
 
                     <!-- 路径二：手动粘贴 Cookie -->
                     <details class="ac-details">
@@ -162,6 +179,16 @@
         }
         document.getElementById('bindBtn').addEventListener('click', doBind);
         document.getElementById('pwdLoginBtn').addEventListener('click', doPasswordLogin);
+        document.getElementById('mfaSendBtn').addEventListener('click', doMfaSend);
+        document.getElementById('mfaVerifyBtn').addEventListener('click', doMfaVerify);
+        document.getElementById('mfaBackBtn').addEventListener('click', function () {
+            mfaToken = '';
+            document.getElementById('mfaStep').style.display = 'none';
+            document.getElementById('pwdStep').style.display = '';
+        });
+        document.getElementById('mfaCode').addEventListener('keydown', function (e) {
+            if (e.key === 'Enter') doMfaVerify();
+        });
         document.getElementById('unbindBtn').addEventListener('click', doUnbind);
         document.getElementById('refreshBtn').addEventListener('click', function () {
             loadTimetable(activeTerm, true);
@@ -213,7 +240,10 @@
         return raw;
     }
 
-    /** 路径一：学号 + 密码，后端代登录统一身份认证后直接绑定 */
+    var mfaToken = '';
+    var mfaTimer = null;
+
+    /** 路径一 · 第一步：学号 + 密码，后端代登录统一身份认证 */
     async function doPasswordLogin() {
         var studentId = document.getElementById('acStudentId').value.trim();
         var password = document.getElementById('acPassword').value;
@@ -223,17 +253,98 @@
         btn.disabled = true; btn.textContent = '登录中…';
         document.getElementById('bindError').classList.remove('show');
         try {
-            await api('/api/academic/login', {
+            var res = await api('/api/academic/login', {
                 method: 'POST',
                 body: JSON.stringify({ student_id: studentId, password: password })
             });
             document.getElementById('acPassword').value = '';
+            var d = res.data || {};
+            // 账号开了多因子认证：切到第二步回填验证码
+            if (d.mfaRequired) { enterMfaStep(d); return; }
             showFormSuccess('bindSuccess', '绑定成功，正在加载数据…');
             await loadStatus();
         } catch (err) {
             showFormError('bindError', err.message);
         } finally {
             btn.disabled = false; btn.textContent = '登录并绑定';
+        }
+    }
+
+    /** 切到多因子认证步骤 */
+    function enterMfaStep(d) {
+        mfaToken = d.token || '';
+        var tip = '统一身份认证要求二次验证（' + (d.method || '验证码') + '）';
+        if (d.contact) tip += '，验证码将发送到 ' + d.contact;
+        tip += '。点下面的「获取验证码」即可收到。';
+        document.getElementById('mfaTip').textContent = tip;
+        document.getElementById('pwdStep').style.display = 'none';
+        document.getElementById('mfaStep').style.display = '';
+        document.getElementById('mfaCode').value = '';
+        document.getElementById('bindError').classList.remove('show');
+        document.getElementById('mfaCode').focus();
+    }
+
+    /** 重置多因子认证步骤 */
+    function resetMfaStep() {
+        mfaToken = '';
+        if (mfaTimer) { clearInterval(mfaTimer); mfaTimer = null; }
+        var send = document.getElementById('mfaSendBtn');
+        send.disabled = false; send.textContent = '获取验证码';
+        document.getElementById('mfaStep').style.display = 'none';
+        document.getElementById('pwdStep').style.display = '';
+    }
+
+    /** 第二步：下发验证码（带 60 秒倒计时，避免连点） */
+    async function doMfaSend() {
+        if (!mfaToken) { showFormError('bindError', '认证会话已结束，请返回上一步重新输入'); return; }
+        var btn = document.getElementById('mfaSendBtn');
+        btn.disabled = true; btn.textContent = '发送中…';
+        try {
+            var res = await api('/api/academic/mfa/send', { method: 'POST', body: JSON.stringify({ token: mfaToken }) });
+            var d = res.data || {};
+            showFormSuccess('bindSuccess', '验证码已发送' + (d.mobile ? '至 ' + d.mobile : '') + '，请查收');
+            startMfaCountdown(60);
+        } catch (err) {
+            showFormError('bindError', err.message);
+            btn.disabled = false; btn.textContent = '获取验证码';
+        }
+    }
+
+    function startMfaCountdown(seconds) {
+        var btn = document.getElementById('mfaSendBtn');
+        var left = seconds;
+        if (mfaTimer) clearInterval(mfaTimer);
+        btn.disabled = true;
+        btn.textContent = left + 's 后重发';
+        mfaTimer = setInterval(function () {
+            left -= 1;
+            if (left <= 0) {
+                clearInterval(mfaTimer); mfaTimer = null;
+                btn.disabled = false; btn.textContent = '重新获取';
+                return;
+            }
+            btn.textContent = left + 's 后重发';
+        }, 1000);
+    }
+
+    /** 第二步：提交验证码完成绑定 */
+    async function doMfaVerify() {
+        var code = document.getElementById('mfaCode').value.trim();
+        if (!code) { showFormError('bindError', '请填写验证码'); return; }
+        if (!mfaToken) { showFormError('bindError', '认证会话已结束，请返回上一步重新输入'); return; }
+
+        var btn = document.getElementById('mfaVerifyBtn');
+        btn.disabled = true; btn.textContent = '验证中…';
+        document.getElementById('bindError').classList.remove('show');
+        try {
+            await api('/api/academic/mfa/verify', { method: 'POST', body: JSON.stringify({ token: mfaToken, code: code }) });
+            resetMfaStep();
+            showFormSuccess('bindSuccess', '绑定成功，正在加载数据…');
+            await loadStatus();
+        } catch (err) {
+            showFormError('bindError', err.message);
+        } finally {
+            btn.disabled = false; btn.textContent = '完成绑定';
         }
     }
 
