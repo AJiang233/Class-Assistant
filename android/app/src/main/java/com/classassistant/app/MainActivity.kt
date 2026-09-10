@@ -1,8 +1,11 @@
 package com.classassistant.app
 
+import android.Manifest
 import android.annotation.SuppressLint
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.net.http.SslError
+import android.os.Build
 import android.os.Bundle
 import android.view.KeyEvent
 import android.view.View
@@ -13,12 +16,19 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
+import com.classassistant.app.data.Store
 import com.classassistant.app.databinding.ActivityMainBinding
+import com.classassistant.app.notify.Notifier
+import com.classassistant.app.sync.Api
+import com.classassistant.app.sync.Scheduler
 
 /**
  * 班级助理 — WebView 套壳
- * 加载 https://class.qxwkstudio.top，支持登录态持久化、下拉刷新、返回键。
+ * 加载 https://class.qxwkstudio.top，支持登录态持久化、下拉刷新、返回键，
+ * 以及登录后的本地到点提醒（活动/通知）与桌面小组件。
  */
 class MainActivity : AppCompatActivity() {
 
@@ -29,13 +39,34 @@ class MainActivity : AppCompatActivity() {
     @Volatile
     private var scrollAtTop = true
 
-    /** 页面内探针回传滚动状态（JS 桥，运行在非 UI 线程） */
-    private inner class ScrollStateBridge {
+    /** 页面内探针回传滚动状态与登录态（JS 桥方法运行在非 UI 线程） */
+    private inner class HostBridge {
+
         @JavascriptInterface
         fun setScrollAtTop(atTop: Boolean) {
             scrollAtTop = atTop
         }
+
+        /** 页面里的登录 token 变化时保存下来，并触发一次同步 */
+        @JavascriptInterface
+        fun setToken(token: String) {
+            val ctx = applicationContext
+            if (token.isBlank()) {
+                // 网页里退出了登录，本地也清掉，避免继续用旧身份提醒
+                if (Store.token(ctx) != null) Store.clearSession(ctx)
+                return
+            }
+            if (token == Store.token(ctx)) return
+            Store.saveToken(ctx, token)
+            Api.decodeUser(token)?.let { Store.saveUser(ctx, it.first, it.second) }
+            Scheduler.ensurePeriodic(ctx)
+            Scheduler.syncNow(ctx)
+        }
     }
+
+    /** Android 13+ 发通知需要用户授权 */
+    private val notificationPermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -43,6 +74,19 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
         setupWebView()
+
+        Notifier.ensureChannels(this)
+        requestNotificationPermission()
+        // 上次已登录过：先把周期同步挂上，进入页面后探针会把 token 再确认一次
+        if (Store.token(this) != null) Scheduler.ensurePeriodic(this)
+    }
+
+    private fun requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        val granted = ContextCompat.checkSelfPermission(
+            this, Manifest.permission.POST_NOTIFICATIONS
+        ) == PackageManager.PERMISSION_GRANTED
+        if (!granted) notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -58,7 +102,7 @@ class MainActivity : AppCompatActivity() {
             settings.useWideViewPort = true
             settings.loadWithOverviewMode = true
 
-            addJavascriptInterface(ScrollStateBridge(), "CAHost")
+            addJavascriptInterface(HostBridge(), "CAHost")
 
             webViewClient = object : WebViewClient() {
                 // 仅允许站内/同源链接，拦截系统协议
@@ -159,9 +203,38 @@ class MainActivity : AppCompatActivity() {
                   }
                 }
                 try { CAHost.setScrollAtTop(ok); } catch (e) {}
+                if (++tick % 8 === 0) reportToken();
+              }
+              var tick = 0;
+              var lastToken = null;
+              // 登录凭据只存在网页的 localStorage 里，这里按常见键名取，并兜底扫描
+              function looksLikeJwt(v) {
+                return typeof v === 'string' && v.length > 40 && v.split('.').length === 3;
+              }
+              function readToken() {
+                try {
+                  var known = ['ca_token', 'token', 'jwt', 'auth_token'];
+                  for (var k = 0; k < known.length; k++) {
+                    var kv = localStorage.getItem(known[k]);
+                    if (kv && looksLikeJwt(kv)) return kv;
+                  }
+                  var keys = Object.keys(localStorage);
+                  for (var i = 0; i < keys.length; i++) {
+                    var v = localStorage.getItem(keys[i]);
+                    if (v && looksLikeJwt(v)) return v;
+                  }
+                } catch (e) {}
+                return '';
+              }
+              function reportToken() {
+                var t = readToken();
+                if (t === lastToken) return;
+                lastToken = t;
+                try { CAHost.setToken(t); } catch (e) {}
               }
               setInterval(probe, 250);
               probe();
+              reportToken();
             })();
         """.trimIndent()
     }

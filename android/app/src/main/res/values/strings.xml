@@ -1,4 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">班级助理</string>
+
+    <!-- 通知渠道 -->
+    <string name="channel_activity">活动提醒</string>
+    <string name="channel_activity_desc">活动开始前 30 分钟提醒</string>
+    <string name="channel_notice">班级通知</string>
+    <string name="channel_notice_desc">班委发布新通知时提醒</string>
+
+    <!-- 桌面小组件 -->
+    <string name="widget_title">今日活动</string>
+    <string name="widget_title_of">%1$s 的今日活动</string>
+    <string name="widget_empty">今日暂无安排</string>
+    <string name="widget_desc">显示今天的班级活动</string>
 </resources>
