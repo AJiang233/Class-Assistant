@@ -15,21 +15,22 @@ web/                            # Cloudflare Pages 项目根目录（直接部�
 ├── functions/
 │   └── api/
 │       └── [[path]].js         # Pages Functions 入口：仅接管 /api/*，复用 backend/src 的 fetch handler
-├── index.html                  # 应用壳：左侧固定栏 + 右侧内容区（iframe）
+├── index.html                  # 应用壳：侧边栏 + 内容区（iframe 嵌入子页）；小屏改为底部导航
 ├── notices.html                # 通知列表/详情（iframe 内容页）—— 发布/编辑/删除/过期归档/提醒对象
 ├── activities.html             # 活动列表/详情（iframe 内容页）—— 发布/编辑/删除/提醒对象
-├── account.html                # 个人中心 —— 资料 / 修改密码 / 成员管理（注册·编辑·删除）
+├── account.html                # 个人中心 —— 资料 / 个性化（主题）/ 修改密码 / 日历订阅 / 退出登录
+├── admin.html                  # 管理员页面 —— 管理成员 / 添加通知·活动·成员（按权限显示）
 ├── assets/
-│   ├── css/style.css           # 共享样式（主题变量 + 组件）
+│   ├── css/style.css           # 共享样式（液态玻璃主题变量 + 组件 + 响应式）
 │   └── js/app.js               # API 封装 + 会话管理 + 权限判断 + 工具
 ├── backend/
 │   └── src/                    # 后端源码（被 functions 引入，同域运行）
 │       ├── index.js            # fetch 入口（CORS 预检 + 路由分发 + 404）
-│       ├── routes/             # 路由分发：auth / notices / activities
-│       ├── handlers/           # 业务逻辑：认证 / 通知 / 活动
+│       ├── routes/             # 路由分发：auth / notices / activities / calendar
+│       ├── handlers/           # 业务逻辑：认证 / 通知 / 活动 / 日历订阅
 │       ├── models/             # D1 数据访问（users / notices / activities / roles）
 │       ├── middleware/         # CORS / JWT 认证 / 权限 / 日志
-│       └── utils/              # 统一响应 / PBKDF2 / JWT / 权限映射
+│       └── utils/              # 统一响应 / PBKDF2 / JWT / 权限映射 / 时间处理 / iCalendar 生成
 ├── schema.sql                  # D1 表结构
 ├── wrangler.toml               # 本地开发绑定（DB / JWT_SECRET，生产绑定在 Pages 面板配置）
 ├── package.json                # wrangler devDependency + 脚本（dev / deploy / db）
@@ -138,6 +139,38 @@ web/                            # Cloudflare Pages 项目根目录（直接部�
   "remind_people":["张三"] }
 ```
 
+### 日历订阅接口
+
+把班级日程同步到手机系统日历（iOS / 鸿蒙 / Android / 桌面通用，无需安装 App）。
+系统日历无法携带 `Authorization` 头，因此订阅源用 URL 里的长期密钥鉴权。
+
+| 方法 | 路径 | 权限 | 说明 |
+| --- | --- | --- | --- |
+| GET | `/api/calendar/token` | 登录 | 取（首次访问则生成）本人订阅密钥与订阅地址 |
+| POST | `/api/calendar/reset` | 登录 | 重置订阅密钥（旧链接立即失效） |
+| GET | `/api/calendar.ics` | `?key=` 密钥 | `.ics` 订阅源，返回 `text/calendar` |
+
+```jsonc
+// GET /api/calendar/token → 200
+{ "success":true, "data":{
+    "key":"1b5b14a3...",                                          // 32 位十六进制
+    "url":"https://class.qxwkstudio.top/api/calendar.ics?key=1b5b14a3...",
+    "webcal":"webcal://class.qxwkstudio.top/api/calendar.ics?key=1b5b14a3..." } }   // 供 iOS/macOS 一键订阅
+```
+
+订阅源可选参数（未传时用默认值，前端「个人中心 → 日历订阅」会自动拼好）：
+
+| 参数 | 默认 | 范围 | 说明 |
+| --- | --- | --- | --- |
+| `remind` | 30 | 0–1440 | 活动开始前多少分钟提醒；`0` 表示不提醒。通知（全天事件）固定在当天 09:00 提醒 |
+| `past` | 30 | 0–365 | 包含过去多少天的日程 |
+| `future` | 365 | 1–730 | 包含未来多少天的日程 |
+| `notices` | 0 | 0/1 | `1` 时把班级通知也作为当天全天事件加入 |
+
+- 活动导出为 `VEVENT`，时间使用**浮动本地时间**（不带 `Z`/`TZID`，由日历客户端按本机时区解释，与服务端存储的本地时间一致）
+- 未填结束时间的活动按 1 小时处理；通知的 `DTEND` 为次日（RFC 5545 全天事件约定）
+- 密钥泄露时可在个人中心「重置密钥」一键作废旧订阅链接
+
 ---
 
 ## 数据库表结构
@@ -194,13 +227,15 @@ CREATE TABLE activities (
 
 ## 前端说明
 
-- **应用壳布局**：`index.html` 登录后显示左侧侧边栏（主页/活动/通知 + 底部用户区），右侧以 iframe 嵌入 `notices.html` / `activities.html` / `account.html`
-- **权限显隐**：`app.js` 提供 `canContentWrite()` / `canManageUsers()`（依据登录返回的 `permissions`），控制发布/编辑/删除/成员管理入口的显示
+- **应用壳布局**：`index.html` 为侧边栏 + 内容区（iframe 嵌入子页）；**小屏（≤768px）自动隐藏侧边栏、改为底部导航**，同样覆盖 主页 / 活动 / 通知 / 管理员 / 个人中心
+- **班级主页**：日历（可「回到今天」，有活动的日期可点击）、当日通知与当日活动、点击条目弹出详情弹窗
+- **权限显隐**：`app.js` 提供 `canContentWrite()` / `canManageUsers()`（依据登录返回的 `permissions`），控制发布/编辑/删除与管理员入口的显示
+- **管理员页面**：`admin.html`，「管理成员 / 添加通知 / 添加活动 / 添加成员」四个折叠区块，按权限显示（内容发布与成员管理都收在这里）
 - **通知页**：`content:write` 用户可发布/编辑/删除，并可用「查看过期」切到归档列表；
 - **发布/编辑表单**：可选「提醒对象」（从成员多选）、通知可设「存活至」（到期自动隐藏）
-- **个人中心**：资料、修改密码；`user:manage` 用户额外看到「班级成员管理」（注册/编辑/删除/自定义职位）
+- **个人中心**：资料、主题外观、修改密码、日历订阅（可自定义提醒提前量/时间范围/是否含通知，并可重置密钥）、退出登录
 - **API 封装**：`assets/js/app.js` 提供 `api(path, options)`，自动附带 `Bearer` token、401 自动回登录页
-- **主题**：`data-theme` 深浅色，localStorage 记忆
+- **主题**：`data-theme` 深浅色（液态玻璃风格），localStorage 记忆
 - `API_BASE` 保持 `''`（前后端同域，走 Pages Functions）
 
 ---
