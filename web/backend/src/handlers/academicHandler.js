@@ -1,0 +1,427 @@
+import { AcademicModel } from '../models/academicModel.js';
+import { SchoolClient, SchoolSessionExpired } from '../utils/schoolApi.js';
+import { success, error, jsonResponse } from '../utils/response.js';
+
+/** 课表节次方案 id（教务默认方案） */
+const DEFAULT_KBJCMS_ID = 1;
+
+/** 缓存新鲜期：超过则下次访问自动重新抓取（毫秒） */
+const CACHE_TTL = 6 * 60 * 60 * 1000;
+
+// ===== 通用工具 =====
+
+function num(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** 保留一位小数，避免浮点累加出现 19.500000000000004 */
+function round1(value) {
+  return Math.round(value * 10) / 10;
+}
+
+/** D1 的 CURRENT_TIMESTAMP 是 UTC 的 "YYYY-MM-DD HH:MM:SS"，这里统一转成时间戳 */
+function parseSqlTime(value) {
+  if (!value) return 0;
+  const s = String(value);
+  const iso = s.includes('T') ? s : s.replace(' ', 'T') + 'Z';
+  const t = Date.parse(iso);
+  return Number.isNaN(t) ? 0 : t;
+}
+
+function toIso(value) {
+  const t = parseSqlTime(value);
+  if (t) return new Date(t).toISOString();
+  return value ? String(value) : '';
+}
+
+function isFresh(fetchedAt) {
+  const t = parseSqlTime(fetchedAt);
+  return t > 0 && Date.now() - t < CACHE_TTL;
+}
+
+/** 学期下拉项：实时列表优先，历次缓存里出现过的学期做兜底 */
+function buildTerms(terms, cachedTerms, currentId) {
+  const map = new Map();
+  for (const t of terms || []) map.set(t.id, t.xnxqmc || t.id);
+  for (const t of cachedTerms || []) if (!map.has(t.xnxq_id)) map.set(t.xnxq_id, t.xnxq_id);
+  return Array.from(map, ([id, name]) => ({ id, name, current: id === currentId }));
+}
+
+function cachedTermOptions(cachedTerms, currentId) {
+  return (cachedTerms || []).map((t) => ({
+    id: t.xnxq_id,
+    name: t.xnxq_id,
+    current: t.xnxq_id === currentId
+  }));
+}
+
+/** kkzcMx 形如 ",1,2,3,14," —— 教务给出的准确周次列表 */
+function parseWeekList(raw) {
+  const list = String(raw || '')
+    .split(',')
+    .map((s) => parseInt(s, 10))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  return Array.from(new Set(list)).sort((a, b) => a - b);
+}
+
+/** kkzc 形如 "1-14" / "3-8,10-12" —— kkzcMx 缺失时的兜底解析 */
+function parseWeekRange(text) {
+  const out = [];
+  for (const seg of String(text || '').split(/[,，;；]/)) {
+    const range = seg.match(/(\d+)\s*-\s*(\d+)/);
+    if (range) {
+      const from = parseInt(range[1], 10);
+      const to = parseInt(range[2], 10);
+      for (let i = from; i <= to; i++) out.push(i);
+      continue;
+    }
+    const single = parseInt(seg, 10);
+    if (Number.isFinite(single) && single > 0) out.push(single);
+  }
+  return Array.from(new Set(out)).sort((a, b) => a - b);
+}
+
+// ===== 归一化 =====
+
+/** 节次配置 → 课表网格的行（第一节 08:00-08:45 …） */
+function normalizePeriods(list) {
+  return (list || [])
+    .filter((p) => String(p.xsflag ?? '1') === '1')
+    .sort((a, b) => num(a.xh) - num(b.xh))
+    .map((p) => ({
+      index: num(p.xh),
+      name: p.djmc || '',
+      start: p.kssj || '',
+      end: p.jssj || '',
+      block: p.sjdbsmc || '',
+      code: p.jchbmc || ''
+    }));
+}
+
+/** 已排课程的字段裁剪（原始字段有几十个，只留界面用得上的） */
+function normalizeCourse(c) {
+  const weeks = parseWeekList(c.kkzcMx);
+  return {
+    id: String(c.kbid || c.jxapid || c.jxrwId || ''),
+    name: c.kcmc || '',
+    code: c.kcbh || '',
+    teacher: c.skjs || '',
+    room: c.jsmc || '',
+    campus: c.xqmc || '',
+    weekday: num(c.xq),
+    start: c.kssj || '',
+    end: c.jssj || '',
+    weeks: weeks.length ? weeks : parseWeekRange(c.kkzc),
+    weekText: c.kkzc || '',
+    credit: num(c.xf),
+    category: c.kclb || '',
+    nature: c.kcsx || '',
+    className: c.skbj || '',
+    students: num(c.skrs)
+  };
+}
+
+/** 未排课课程 */
+function normalizeUnscheduled(c) {
+  return {
+    id: String(c.jxrwid || ''),
+    name: c.kcmc || '',
+    code: c.kcbm || '',
+    credit: num(c.xf),
+    hours: num(c.zxs),
+    teacher: c.skjs || '',
+    className: c.skbj || '',
+    category: c.kclb || '',
+    campus: c.xqmc || ''
+  };
+}
+
+/** 递归展开学分树的叶子节点（只有叶子带学分数字） */
+function collectCreditRows(nodes, level, out) {
+  for (const node of nodes || []) {
+    const children = node.xywcqkDetailsDtoList || [];
+    const leaf = children.length === 0;
+    const required = num(node.required);
+    const remaining = num(node.remaining);
+    out.push({
+      level,
+      name: node.kctxmc || '',
+      required,
+      obtained: num(node.obtained),
+      current: num(node.current),
+      remaining,
+      // 教务对「0 学分要求」的叶子也会标 achieved，这里同时对空要求兜底
+      achieved: leaf && (node.status === 'achieved' || (required === 0 && remaining === 0)),
+      leaf
+    });
+    if (children.length) collectCreditRows(children, level + 1, out);
+  }
+}
+
+/** 学业达成情况 → 看板数据（扁平行 + 汇总） */
+function normalizeCredits(data) {
+  const allRows = [];
+  collectCreditRows(data && data.xywcqkDetailsDtoList, 1, allRows);
+
+  // 教务在树末尾额外返回一条名为「总计」的叶子（本身不带子节点），
+  // 若按叶子累加会正好翻倍，因此单独摘出来当汇总，且不混进明细
+  const totalRow = allRows.find((r) => r.level === 1 && r.leaf && r.name === '总计');
+  const rows = totalRow ? allRows.filter((r) => r !== totalRow) : allRows;
+
+  const leafRows = rows.filter((r) => r.leaf);
+  let required = 0;
+  let obtained = 0;
+  let current = 0;
+  let remaining = 0;
+  let achievedCount = 0;
+  for (const r of leafRows) {
+    required += r.required;
+    obtained += r.obtained;
+    current += r.current;
+    remaining += r.remaining;
+    if (r.achieved) achievedCount += 1;
+  }
+
+  const summary = {
+    // 有「总计」行时以教务口径为准，否则退回叶子累加
+    required: totalRow ? totalRow.required : round1(required),
+    obtained: totalRow ? totalRow.obtained : round1(obtained),
+    current: totalRow ? totalRow.current : round1(current),
+    remaining: totalRow ? totalRow.remaining : round1(remaining),
+    achievedCount,
+    totalCount: leafRows.length
+  };
+
+  return {
+    profile: {
+      grade: (data && data.xsnj) || '',
+      college: (data && data.xsyx) || '',
+      major: (data && data.xszy) || '',
+      className: (data && data.xsbj) || '',
+      plan: (data && data.dqfa) || '',
+      matchRate: (data && data.dqfappd) || ''
+    },
+    rows,
+    summary
+  };
+}
+
+// ===== 绑定 =====
+
+/** 绑定教务系统：用上报的 Cookie 调一次 sessionUserInfo 做校验，通过才落库 */
+export async function handleAcademicBind(request, env, user) {
+  const body = await request.json().catch(() => ({}));
+  const cookies = String(body.cookies || '').trim();
+  if (!cookies) {
+    return jsonResponse(error('缺少教务系统会话 Cookie', 'MISSING_COOKIES'), 400);
+  }
+
+  const client = new SchoolClient(cookies);
+  let info;
+  try {
+    info = await client.sessionUserInfo();
+  } catch (e) {
+    if (e instanceof SchoolSessionExpired) {
+      return jsonResponse(error('教务登录态无效，请先登录教务系统再回来绑定', 'ACADEMIC_INVALID'), 400);
+    }
+    return jsonResponse(error(`无法连接教务系统：${e.message}`, 'ACADEMIC_UNREACHABLE'), 502);
+  }
+  if (!info || !info.id) {
+    return jsonResponse(error('教务返回的用户信息异常，请重新登录教务系统', 'ACADEMIC_INVALID'), 400);
+  }
+
+  const model = new AcademicModel(env.DB);
+  await model.saveBinding(user.id, {
+    student_no: info.userAccount || '',
+    real_name: info.userNameZh || '',
+    school_uid: info.id,
+    cookies
+  });
+
+  return jsonResponse(success({
+    bound: true,
+    studentNo: info.userAccount || '',
+    realName: info.userNameZh || ''
+  }));
+}
+
+/** 解绑并清空教务缓存 */
+export async function handleAcademicUnbind(request, env, user) {
+  const model = new AcademicModel(env.DB);
+  await model.removeBinding(user.id);
+  return jsonResponse(success({ bound: false }));
+}
+
+/** 绑定状态（含已缓存学期，供页面先渲染下拉框） */
+export async function handleAcademicStatus(request, env, user) {
+  const model = new AcademicModel(env.DB);
+  const binding = await model.getBinding(user.id);
+  const cachedTerms = await model.listTimetableTerms(user.id);
+
+  if (!binding) {
+    return jsonResponse(success({
+      bound: false,
+      terms: cachedTermOptions(cachedTerms, '')
+    }));
+  }
+
+  return jsonResponse(success({
+    bound: true,
+    status: binding.status,
+    studentNo: binding.student_no || '',
+    realName: binding.real_name || '',
+    boundAt: toIso(binding.bound_at),
+    checkedAt: toIso(binding.checked_at),
+    terms: cachedTermOptions(cachedTerms, '')
+  }));
+}
+
+// ===== 课表 =====
+
+/**
+ * 课表（默认走缓存，refresh=1 强制重抓；缓存过期也会自动重抓）
+ * 参数：xnxq=2026-2027-1 指定学期；refresh=1 强制刷新
+ */
+export async function handleAcademicTimetable(request, env, user) {
+  const model = new AcademicModel(env.DB);
+  const url = new URL(request.url);
+  const refresh = url.searchParams.get('refresh') === '1';
+
+  const binding = await model.getBinding(user.id);
+  if (!binding) return jsonResponse(error('尚未绑定教务系统', 'NOT_BOUND'), 400);
+
+  const cachedTerms = await model.listTimetableTerms(user.id);
+  const client = new SchoolClient(binding.cookies);
+
+  // 1. 取学期列表（顺带校验登录态是否还有效），教务不可达时退回本地缓存
+  let terms = null;
+  let liveError = null;
+  try {
+    terms = await client.termList();
+  } catch (e) {
+    liveError = e;
+  }
+  if (liveError instanceof SchoolSessionExpired) {
+    await model.markExpired(user.id);
+    return jsonResponse(error(liveError.message, 'ACADEMIC_EXPIRED'), 400);
+  }
+
+  let xnxqId = url.searchParams.get('xnxq') || '';
+  if (!xnxqId) {
+    const current = (terms || []).find((t) => String(t.dqxqflag) === '1') || (terms || [])[0];
+    xnxqId = current ? current.id : (cachedTerms[0] ? cachedTerms[0].xnxq_id : '');
+  }
+  if (!xnxqId) return jsonResponse(error('未能确定学年学期', 'NO_TERM'), 400);
+
+  // 2. 缓存命中：未强制刷新且未过期，或教务当前不可达（此时优先把旧数据给出去）
+  const cached = await model.getTimetable(user.id, xnxqId);
+  if (cached && (liveError || (!refresh && isFresh(cached.fetched_at)))) {
+    return jsonResponse(success({
+      ...JSON.parse(cached.payload),
+      terms: buildTerms(terms, cachedTerms, xnxqId),
+      fetchedAt: toIso(cached.fetched_at),
+      fromCache: true,
+      stale: !!liveError
+    }));
+  }
+  if (liveError) {
+    return jsonResponse(error(`教务系统暂时不可用：${liveError.message}`, 'ACADEMIC_UNREACHABLE'), 502);
+  }
+
+  // 3. 实时抓取并落库
+  try {
+    const [periods, courses, unscheduled, weekCal] = await Promise.all([
+      client.periodConfig(DEFAULT_KBJCMS_ID, xnxqId),
+      client.arrangedCourses(xnxqId, DEFAULT_KBJCMS_ID),
+      client.unscheduledCourses(xnxqId, DEFAULT_KBJCMS_ID),
+      client.weekCalendar(xnxqId)
+    ]);
+
+    const payload = {
+      xnxqId,
+      periods: normalizePeriods(periods),
+      firstDate: (weekCal && weekCal.ksrq) || '',
+      weekCount: num(weekCal && weekCal.jzzc),
+      courses: (courses || []).map(normalizeCourse),
+      unscheduled: (unscheduled || []).map(normalizeUnscheduled)
+    };
+    await model.saveTimetable(user.id, xnxqId, JSON.stringify(payload));
+    await model.touchBinding(user.id);
+
+    return jsonResponse(success({
+      ...payload,
+      terms: buildTerms(terms, cachedTerms, xnxqId),
+      fetchedAt: new Date().toISOString(),
+      fromCache: false,
+      stale: false
+    }));
+  } catch (e) {
+    if (e instanceof SchoolSessionExpired) {
+      await model.markExpired(user.id);
+      return jsonResponse(error(e.message, 'ACADEMIC_EXPIRED'), 400);
+    }
+    return jsonResponse(error(`抓取课表失败：${e.message}`, 'ACADEMIC_FETCH_FAILED'), 502);
+  }
+}
+
+// ===== 学业达成（学分） =====
+
+/**
+ * 学业达成情况（默认走缓存，refresh=1 强制重抓）
+ * 学分数据依赖「当前执行计划 id」，需先查学生基本信息拿 zxjhid
+ */
+export async function handleAcademicCredits(request, env, user) {
+  const model = new AcademicModel(env.DB);
+  const refresh = new URL(request.url).searchParams.get('refresh') === '1';
+
+  const binding = await model.getBinding(user.id);
+  if (!binding) return jsonResponse(error('尚未绑定教务系统', 'NOT_BOUND'), 400);
+
+  const cached = await model.getCredits(user.id);
+  if (cached && !refresh && isFresh(cached.fetched_at)) {
+    return jsonResponse(success({
+      ...JSON.parse(cached.payload),
+      fetchedAt: toIso(cached.fetched_at),
+      fromCache: true,
+      stale: false
+    }));
+  }
+
+  const client = new SchoolClient(binding.cookies);
+  try {
+    const plan = await client.studentPlan(binding.school_uid || '');
+    const pyfaid = plan && (plan.zxjhid || plan.pyfaid);
+    if (!pyfaid) {
+      return jsonResponse(error('未取到当前执行计划，无法计算学业达成情况', 'NO_PLAN'), 400);
+    }
+
+    const details = await client.creditDetails(binding.school_uid, pyfaid, null);
+    const payload = normalizeCredits(details);
+    await model.saveCredits(user.id, JSON.stringify(payload));
+    await model.touchBinding(user.id);
+
+    return jsonResponse(success({
+      ...payload,
+      fetchedAt: new Date().toISOString(),
+      fromCache: false,
+      stale: false
+    }));
+  } catch (e) {
+    if (e instanceof SchoolSessionExpired) {
+      await model.markExpired(user.id);
+      return jsonResponse(error(e.message, 'ACADEMIC_EXPIRED'), 400);
+    }
+    // 抓取失败但有旧缓存：先把旧数据给出去，页面标记为过期
+    if (cached) {
+      return jsonResponse(success({
+        ...JSON.parse(cached.payload),
+        fetchedAt: toIso(cached.fetched_at),
+        fromCache: true,
+        stale: true,
+        warning: e.message
+      }));
+    }
+    return jsonResponse(error(`抓取学业达成情况失败：${e.message}`, 'ACADEMIC_FETCH_FAILED'), 502);
+  }
+}

@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>课表与学业 - 班级助理</title>
+    <meta name="description" content="班级助理：个人课表与学业达成情况。">
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23007aff'/%3E%3Cpath d='M16 24h32v18H26l-10 8z' fill='none' stroke='%23fff' stroke-width='3' stroke-linejoin='round'/%3E%3Cpath d='M24 30h16M24 34h10' stroke='%23fff' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
+    <link rel="stylesheet" href="assets/css/style.css">
+    <script>
+    /* 主题切换：localStorage('theme') 优先，其次跟随系统 prefers-color-scheme；同步写入 <html> 的 data-theme 防闪烁 */
+    (function () {
+        var KEY = 'theme';
+        var root = document.documentElement;
+        var mq = window.matchMedia('(prefers-color-scheme: dark)');
+        function system() { return mq.matches ? 'dark' : 'light'; }
+        function stored() { try { var v = localStorage.getItem(KEY); return (v === 'dark' || v === 'light') ? v : null; } catch (e) { return null; } }
+        function apply(t) { root.setAttribute('data-theme', t); }
+        function current() { return stored() || system(); }
+        apply(current());
+        function toggle() { var next = current() === 'dark' ? 'light' : 'dark'; apply(next); try { localStorage.setItem(KEY, next); } catch (e) {} }
+        function bind() {
+            var btn = document.getElementById('themeToggle');
+            if (btn) btn.addEventListener('click', toggle);
+            if (mq.addEventListener) mq.addEventListener('change', function (e) { if (!stored()) apply(e.matches ? 'dark' : 'light'); });
+            else if (mq.addListener) mq.addListener(function (e) { if (!stored()) apply(e.matches ? 'dark' : 'light'); });
+            window.addEventListener('storage', function (e) { if (e.key === KEY) apply(current()); });
+        }
+        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind); else bind();
+    })();
+    </script>
+</head>
+<body>
+    <div class="main">
+        <div class="container">
+            <div class="page-head">
+                <h1 class="page-title">课表与学业</h1>
+                <p class="page-desc">从教务系统同步个人课表、未排课程与学分达成情况。</p>
+            </div>
+
+            <!-- 加载中 -->
+            <div id="loadingView">
+                <div class="ac-card">
+                    <div class="skeleton-row"><span class="skeleton-line w80"></span><span class="skeleton-line w35"></span></div>
+                    <div class="skeleton-row"><span class="skeleton-line w80"></span><span class="skeleton-line w35"></span></div>
+                </div>
+            </div>
+
+            <!-- 未绑定：引导 + 绑定表单 -->
+            <div id="bindView" style="display:none;">
+                <div class="ac-card">
+                    <h2 class="section-title">绑定教务系统</h2>
+                    <p class="ac-tip">课表与学分来自教务系统，需要先绑定一次登录态。绑定后由服务器代为拉取，不会保存你的教务密码。</p>
+
+                    <div id="appBindBox" style="display:none;">
+                        <button type="button" class="btn btn-primary btn-block" id="appBindBtn">一键绑定教务系统</button>
+                        <p class="ac-note">会在应用内打开教务系统登录页，登录完成后自动回跳并绑定。</p>
+                    </div>
+
+                    <div class="ac-divider"><span>或手动粘贴 Cookie</span></div>
+
+                    <div class="form-field">
+                        <label class="form-label" for="cookieInput">教务系统 Cookie</label>
+                        <textarea class="form-input" id="cookieInput" rows="4" placeholder="粘贴教务系统的 Cookie 字符串（形如 JSESSIONID=xxx; ...）" autocomplete="off"></textarea>
+                        <p class="ac-note">拿到方式：在电脑浏览器登录教务系统 → F12 打开开发者工具 → Network → 刷新页面 → 点任意一个 api 请求 → Request Headers 里复制整行 Cookie。</p>
+                    </div>
+                    <div class="form-error" id="bindError"></div>
+                    <div class="ac-success" id="bindSuccess"></div>
+                    <button type="button" class="btn btn-primary" id="bindBtn">绑定</button>
+                </div>
+            </div>
+
+            <!-- 已绑定：数据看板 -->
+            <div id="dataView" style="display:none;">
+                <div class="ac-toolbar">
+                    <div class="ac-toolbar-left">
+                        <label class="ac-select-label" for="termSelect">学年学期</label>
+                        <select class="form-input ac-select" id="termSelect"></select>
+                        <span class="ac-meta" id="syncMeta"></span>
+                    </div>
+                    <div class="ac-toolbar-right">
+                        <button type="button" class="btn btn-outline btn-sm" id="refreshBtn">刷新</button>
+                        <button type="button" class="btn btn-outline btn-sm" id="unbindBtn">解绑</button>
+                    </div>
+                </div>
+
+                <div class="ac-alert" id="noticeBox" style="display:none;"></div>
+
+                <!-- 课表 -->
+                <div class="section-block" style="margin-top:0;">
+                    <div class="section-head">
+                        <h2 class="section-title">我的课表</h2>
+                        <span class="section-count" id="weekHint"></span>
+                    </div>
+                    <div id="timetableView"></div>
+                </div>
+
+                <!-- 未排课 -->
+                <div class="section-block" id="unscheduledBlock" style="display:none;">
+                    <div class="section-head">
+                        <h2 class="section-title">未安排课程</h2>
+                        <span class="section-count" id="unscheduledCount"></span>
+                    </div>
+                    <div id="unscheduledView"></div>
+                </div>
+
+                <!-- 学业达成 -->
+                <div class="section-block">
+                    <div class="section-head">
+                        <h2 class="section-title">学业达成情况</h2>
+                        <span class="section-count" id="creditHint"></span>
+                    </div>
+                    <div id="creditsView"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="assets/js/app.js"></script>
+    <script>
+    // ===== 状态 =====
+    var status = null;          // /api/academic/status 返回
+    var timetable = null;       // 课表数据
+    var credits = null;         // 学分数据
+    var activeTerm = '';        // 当前选中的学期
+
+    var WEEKDAY_NAMES = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+
+    (function init() {
+        if (!requireAuth()) return;
+        // App 内才有 JS 桥；有桥才显示「一键绑定」
+        if (window.CAHost && typeof CAHost.startAcademicLogin === 'function') {
+            document.getElementById('appBindBox').style.display = 'block';
+            document.getElementById('appBindBtn').addEventListener('click', function () {
+                try { CAHost.startAcademicLogin(); } catch (e) {}
+            });
+        }
+        document.getElementById('bindBtn').addEventListener('click', doBind);
+        document.getElementById('unbindBtn').addEventListener('click', doUnbind);
+        document.getElementById('refreshBtn').addEventListener('click', function () {
+            loadTimetable(activeTerm, true);
+            loadCredits(true);
+        });
+        document.getElementById('termSelect').addEventListener('change', function () {
+            loadTimetable(this.value, false);
+        });
+        loadStatus();
+    })();
+
+    // ===== 绑定状态 =====
+    async function loadStatus() {
+        try {
+            var res = await api('/api/academic/status');
+            status = res.data || {};
+        } catch (err) {
+            showOnly('bindView');
+            showFormError('bindError', err.message);
+            return;
+        }
+        if (!status.bound) { showOnly('bindView'); return; }
+        showOnly('dataView');
+        if (status.status === 'expired') {
+            showNotice('教务登录态已过期，请重新绑定后查看最新数据。');
+        }
+        loadTimetable('', false);
+        loadCredits(false);
+    }
+
+    function showOnly(id) {
+        ['loadingView', 'bindView', 'dataView'].forEach(function (k) {
+            var el = document.getElementById(k);
+            if (el) el.style.display = (k === id) ? 'block' : 'none';
+        });
+    }
+
+    async function doBind() {
+        var input = document.getElementById('cookieInput');
+        var cookies = input.value.trim();
+        if (!cookies) { showFormError('bindError', '请先粘贴教务系统的 Cookie'); return; }
+        var btn = document.getElementById('bindBtn');
+        btn.disabled = true; btn.textContent = '绑定中…';
+        document.getElementById('bindError').classList.remove('show');
+        try {
+            await api('/api/academic/bind', { method: 'POST', body: JSON.stringify({ cookies: cookies }) });
+            showFormSuccess('bindSuccess', '绑定成功，正在加载数据…');
+            input.value = '';
+            await loadStatus();
+        } catch (err) {
+            showFormError('bindError', err.message);
+        } finally {
+            btn.disabled = false; btn.textContent = '绑定';
+        }
+    }
+
+    async function doUnbind() {
+        if (!window.confirm('解绑后会清除本地缓存的课表与学分数据，确定解绑吗？')) return;
+        try {
+            await api('/api/academic/bind', { method: 'DELETE' });
+            timetable = null; credits = null; activeTerm = '';
+            showOnly('bindView');
+        } catch (err) {
+            showNotice(err.message);
+        }
+    }
+
+    function showFormError(id, msg) {
+        var el = document.getElementById(id);
+        el.textContent = msg;
+        el.classList.add('show');
+    }
+    function showFormSuccess(id, msg) {
+        var el = document.getElementById(id);
+        el.textContent = msg;
+        el.classList.add('show');
+    }
+    function showNotice(msg) {
+        var el = document.getElementById('noticeBox');
+        el.textContent = msg;
+        el.style.display = 'block';
+    }
+    function hideNotice() {
+        document.getElementById('noticeBox').style.display = 'none';
+    }
+
+    // ===== 课表 =====
+    async function loadTimetable(term, refresh) {
+        var view = document.getElementById('timetableView');
+        view.innerHTML = skeletonHTML(4);
+        var path = '/api/academic/timetable';
+        var query = [];
+        if (term) query.push('xnxq=' + encodeURIComponent(term));
+        if (refresh) query.push('refresh=1');
+        if (query.length) path += '?' + query.join('&');
+        try {
+            var res = await api(path);
+            timetable = res.data;
+            activeTerm = timetable.xnxqId;
+            renderTermSelect(timetable.terms, activeTerm);
+            renderSyncMeta(timetable);
+            if (timetable.stale) showNotice('教务系统暂时不可用，当前显示的是缓存数据。');
+            else hideNotice();
+            renderTimetable(timetable);
+            renderUnscheduled(timetable.unscheduled);
+        } catch (err) {
+            if (err.message && err.message.indexOf('绑定') >= 0) {
+                showOnly('bindView');
+                showFormError('bindError', err.message);
+                return;
+            }
+            view.innerHTML = stateHTML(err.message, true);
+        }
+    }
+
+    function renderTermSelect(terms, current) {
+        var sel = document.getElementById('termSelect');
+        var list = terms || [];
+        sel.innerHTML = list.map(function (t) {
+            return '<option value="' + esc(t.id) + '"' + (t.id === current ? ' selected' : '') + '>'
+                + esc(t.name) + (t.current ? '（当前学期）' : '') + '</option>';
+        }).join('');
+    }
+
+    function renderSyncMeta(data) {
+        var parts = [];
+        if (data.fetchedAt) parts.push('更新于 ' + fmtTime(data.fetchedAt));
+        if (data.fromCache) parts.push('缓存');
+        document.getElementById('syncMeta').textContent = parts.join(' · ');
+    }
+
+    /** ISO 时间 → 本地「MM-DD HH:mm」 */
+    function fmtTime(iso) {
+        var d = new Date(iso);
+        if (isNaN(d.getTime())) return iso;
+        var pad = function (n) { return n < 10 ? '0' + n : '' + n; };
+        return pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+    }
+
+    /** 已开学第几周（不在学期内返回 0） */
+    function currentWeek(data) {
+        if (!data.firstDate) return 0;
+        var start = new Date(data.firstDate + 'T00:00:00');
+        if (isNaN(start.getTime())) return 0;
+        var today = new Date();
+        var todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+        var days = Math.floor((todayStart - start) / 86400000);
+        if (days < 0) return 0;
+        var week = Math.floor(days / 7) + 1;
+        return week <= (data.weekCount || 0) ? week : 0;
+    }
+
+    /** 课程在课表里的起始/结束节次行号（按起止时间与节次配置对齐） */
+    function periodRange(periods, course) {
+        var start = -1, end = -1;
+        for (var i = 0; i < periods.length; i++) {
+            if (start < 0 && periods[i].start && periods[i].start === course.start) start = i;
+            if (periods[i].end && periods[i].end === course.end) end = i;
+        }
+        if (start < 0) {
+            // 时间对不上（教务改过作息）时，退化为按时间区间覆盖
+            for (var j = 0; j < periods.length; j++) {
+                if (periods[j].start >= course.start) { start = j; break; }
+            }
+            if (start < 0) start = 0;
+        }
+        if (end < start) end = start;
+        return { start: start, end: end };
+    }
+
+    function renderTimetable(data) {
+        var view = document.getElementById('timetableView');
+        var periods = data.periods || [];
+        var courses = data.courses || [];
+        if (!periods.length || !courses.length) {
+            view.innerHTML = stateHTML(courses.length ? '暂无节次配置，无法渲染课表' : '本学期暂无已排课程');
+            document.getElementById('weekHint').textContent = '';
+            return;
+        }
+
+        var week = currentWeek(data);
+        document.getElementById('weekHint').textContent = week
+            ? ('第 ' + week + ' / ' + (data.weekCount || '?') + ' 周')
+            : (data.firstDate ? '学期未开始或已结束' : '');
+
+        // 每列（周一~周日）逐行扫描，被 rowspan 占用的行跳过
+        var cells = [];   // cells[weekday][row]
+        for (var w = 1; w <= 7; w++) {
+            cells[w] = [];
+            for (var r = 0; r < periods.length; r++) cells[w][r] = null;
+        }
+        courses.forEach(function (c) {
+            if (c.weekday < 1 || c.weekday > 7) return;
+            var range = periodRange(periods, c);
+            for (var r = range.start; r <= range.end; r++) {
+                if (cells[c.weekday][r] === null) cells[c.weekday][r] = { course: c, range: range, anchor: r === range.start };
+            }
+        });
+
+        var html = '<div class="tt-wrap"><table class="tt-table"><thead><tr><th class="tt-time-col"></th>';
+        for (var d = 0; d < 7; d++) {
+            html += '<th' + (week && week > 0 && isTodayWeekday(d + 1) ? ' class="tt-today"' : '') + '>' + WEEKDAY_NAMES[d] + '</th>';
+        }
+        html += '</tr></thead><tbody>';
+
+        for (var row = 0; row < periods.length; row++) {
+            var p = periods[row];
+            var isBlockStart = row === 0 || periods[row - 1].block !== p.block;
+            html += '<tr' + (isBlockStart && row > 0 ? ' class="tt-block-start"' : '') + '>';
+            html += '<td class="tt-time-col"><span class="tt-period">' + esc(p.name) + '</span>'
+                + '<span class="tt-time">' + esc(p.start) + '<br>' + esc(p.end) + '</span></td>';
+            for (var day = 1; day <= 7; day++) {
+                var cell = cells[day][row];
+                if (cell === null) {
+                    html += '<td class="tt-cell"></td>';
+                } else if (!cell.anchor) {
+                    continue; // 被上方 rowspan 覆盖
+                } else {
+                    var span = cell.range.end - cell.range.start + 1;
+                    var c = cell.course;
+                    var inWeek = week > 0 && c.weeks.indexOf(week) >= 0;
+                    html += '<td class="tt-cell" rowspan="' + span + '">' + courseCellHTML(c, inWeek, week > 0) + '</td>';
+                }
+            }
+            html += '</tr>';
+        }
+        html += '</tbody></table></div>';
+        view.innerHTML = html;
+    }
+
+    function isTodayWeekday(weekday) {
+        var jsDay = new Date().getDay();       // 0=周日
+        return (jsDay === 0 ? 7 : jsDay) === weekday;
+    }
+
+    function courseCellHTML(c, inWeek, hasWeek) {
+        var cls = 'tt-course' + (hasWeek ? (inWeek ? ' now' : ' dim') : '');
+        var weeks = c.weeks.length ? (c.weeks.length > 1 ? c.weeks[0] + '-' + c.weeks[c.weeks.length - 1] + '周' : c.weeks[0] + '周') : (c.weekText || '');
+        return '<div class="' + cls + '">'
+            + '<div class="tt-course-name">' + esc(c.name) + '</div>'
+            + (c.room ? '<div class="tt-course-meta">' + esc(c.room) + '</div>' : '')
+            + (c.teacher ? '<div class="tt-course-meta">' + esc(c.teacher) + '</div>' : '')
+            + (weeks ? '<div class="tt-course-week">' + esc(weeks) + '</div>' : '')
+            + '</div>';
+    }
+
+    function renderUnscheduled(list) {
+        var block = document.getElementById('unscheduledBlock');
+        var view = document.getElementById('unscheduledView');
+        var rows = list || [];
+        if (!rows.length) { block.style.display = 'none'; return; }
+        block.style.display = 'block';
+        document.getElementById('unscheduledCount').textContent = rows.length + ' 门';
+        view.innerHTML = '<div class="list">' + rows.map(function (c) {
+            var meta = [];
+            if (c.code) meta.push(c.code);
+            if (c.credit) meta.push(c.credit + ' 学分');
+            if (c.teacher) meta.push(c.teacher);
+            if (c.className) meta.push(c.className);
+            return '<div class="list-row"><div class="list-row-main">'
+                + '<div class="list-row-title">' + esc(c.name) + '</div>'
+                + '<div class="list-row-meta"><span>' + esc(meta.join(' · ')) + '</span></div>'
+                + '</div></div>';
+        }).join('') + '</div>';
+    }
+
+    // ===== 学业达成 / 学分 =====
+    async function loadCredits(refresh) {
+        var view = document.getElementById('creditsView');
+        view.innerHTML = skeletonHTML(3);
+        var path = '/api/academic/credits' + (refresh ? '?refresh=1' : '');
+        try {
+            var res = await api(path);
+            credits = res.data;
+            renderCredits(credits);
+        } catch (err) {
+            view.innerHTML = stateHTML(err.message, true);
+        }
+    }
+
+    function renderCredits(data) {
+        var view = document.getElementById('creditsView');
+        var rows = data.rows || [];
+        var summary = data.summary || {};
+        var profile = data.profile || {};
+        if (!rows.length) { view.innerHTML = stateHTML('暂无学业达成数据'); return; }
+
+        var rate = summary.required > 0 ? Math.round((summary.obtained / summary.required) * 100) : 0;
+        document.getElementById('creditHint').textContent = summary.required > 0
+            ? ('已获 ' + summary.obtained + ' / ' + summary.required + ' 学分')
+            : '';
+
+        var profileLine = [profile.college, profile.major, profile.className].filter(Boolean).join(' · ');
+        var html = '<div class="ac-card">';
+        html += '<div class="credit-head">'
+            + '<div><div class="credit-plan">' + esc(profile.plan || '当前培养方案') + '</div>'
+            + '<div class="credit-sub">' + esc(profileLine) + (profile.matchRate ? ' · 匹配度 ' + esc(profile.matchRate) : '') + '</div></div>'
+            + '<div class="credit-rate">' + rate + '<span>%</span></div>'
+            + '</div>';
+        html += '<div class="credit-bar"><span style="width:' + Math.min(rate, 100) + '%"></span></div>';
+        html += '<div class="credit-stats">'
+            + statBox('要求学分', summary.required)
+            + statBox('已获学分', summary.obtained, 'ok')
+            + statBox('在修学分', summary.current)
+            + statBox('还需学分', summary.remaining, summary.remaining > 0 ? 'warn' : 'ok')
+            + '</div>';
+        html += '</div>';
+
+        html += '<div class="ac-card credit-table">';
+        html += '<div class="credit-row credit-row-head">'
+            + '<span class="cr-name">课程体系</span>'
+            + '<span class="cr-num">要求</span>'
+            + '<span class="cr-num">已获</span>'
+            + '<span class="cr-num">在修</span>'
+            + '<span class="cr-num">还需</span>'
+            + '<span class="cr-state">状态</span>'
+            + '</div>';
+        html += rows.map(function (r) {
+            var isLeaf = r.leaf;
+            var cls = 'credit-row' + (r.level === 1 ? ' lv1' : (r.level === 2 ? ' lv2' : ' lv3'));
+            var name = '<span class="cr-name" style="padding-left:' + ((r.level - 1) * 14) + 'px">' + esc(r.name) + '</span>';
+            var nums = isLeaf
+                ? '<span class="cr-num">' + r.required + '</span>'
+                    + '<span class="cr-num">' + r.obtained + '</span>'
+                    + '<span class="cr-num">' + r.current + '</span>'
+                    + '<span class="cr-num">' + r.remaining + '</span>'
+                    + '<span class="cr-state"><span class="badge ' + (r.achieved ? 'badge-crawler' : 'badge-danger') + '">'
+                    + (r.achieved ? '已达成' : '未达成') + '</span></span>'
+                : '<span class="cr-num">—</span><span class="cr-num">—</span><span class="cr-num">—</span><span class="cr-num">—</span><span class="cr-state"></span>';
+            return '<div class="' + cls + '">' + name + nums + '</div>';
+        }).join('');
+        html += '</div>';
+
+        view.innerHTML = html;
+    }
+
+    function statBox(label, value, tone) {
+        return '<div class="credit-stat' + (tone ? ' ' + tone : '') + '">'
+            + '<span class="credit-stat-value">' + value + '</span>'
+            + '<span class="credit-stat-label">' + esc(label) + '</span>'
+            + '</div>';
+    }
+    </script>
+</body>
+</html>

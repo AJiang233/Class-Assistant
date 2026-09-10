@@ -56,6 +56,10 @@
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
                     <span class="side-text">班级活动</span>
                 </button>
+                <button type="button" class="side-link" id="navAcademic" onclick="switchView('academic')">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/></svg>
+                    <span class="side-text">课表与学业</span>
+                </button>
                 <button type="button" class="side-link" id="navAdmin" style="display:none;" onclick="switchView('admin')">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
                     <span class="side-text">管理员面板</span>
@@ -177,6 +181,7 @@
 
             <!-- 各视图独立 iframe -->
             <iframe id="frameActivities" class="app-frame" data-loaded="0" style="display:none;" title="活动"></iframe>
+            <iframe id="frameAcademic" class="app-frame" data-loaded="0" style="display:none;" title="课表与学业"></iframe>
             <iframe id="frameNotices" class="app-frame" data-loaded="0" style="display:none;" title="通知"></iframe>
             <iframe id="frameAccount" class="app-frame" data-loaded="0" style="display:none;" title="个人中心"></iframe>
             <iframe id="frameAdmin" class="app-frame" data-loaded="0" style="display:none;" title="管理员面板"></iframe>
@@ -196,6 +201,10 @@
             <button type="button" class="bottom-nav-item" data-nav="activities" onclick="switchView('activities')">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
                 <span>班级活动</span>
+            </button>
+            <button type="button" class="bottom-nav-item" data-nav="academic" onclick="switchView('academic')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/></svg>
+                <span>课表</span>
             </button>
             <button type="button" class="bottom-nav-item" data-nav="admin" style="display:none;" onclick="switchView('admin')">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
@@ -245,7 +254,13 @@
             document.getElementById('noticeList').innerHTML = stateHTML('登录后查看班级通知');
             document.getElementById('activityList').innerHTML = stateHTML('登录后查看班级活动');
         }
-        switchView('home');
+        // 支持 ?view=xxx 直达（App 内绑定教务系统后会跳回课表页）
+        var target = 'home';
+        try {
+            var v = new URLSearchParams(window.location.search).get('view');
+            if (v && ['academic', 'activities', 'notices', 'account', 'admin'].indexOf(v) >= 0) target = v;
+        } catch (e) {}
+        switchView(target);
     })();
 
     // 侧边栏底部用户区：未登录=登录按钮，已登录=头像+名字+学号（仅展示，不可点击）
@@ -286,7 +301,7 @@
     }
 
     // ===== 视图切换 =====
-    var FRAME_KEYS = { activities: 'frameActivities', notices: 'frameNotices', account: 'frameAccount', admin: 'frameAdmin' };
+    var FRAME_KEYS = { academic: 'frameAcademic', activities: 'frameActivities', notices: 'frameNotices', account: 'frameAccount', admin: 'frameAdmin' };
     function switchView(key) {
         var authed = !!localStorage.getItem(LS_TOKEN);
         // 未登录访问受保护视图 → 显示登录视图
@@ -294,7 +309,7 @@
         // 当前应高亮的导航项：未登录显示登录视图时，"个人中心"保持高亮
         var navKey = key === 'login' ? 'account' : key;
         // 侧边栏 active 状态
-        ['home', 'activities', 'notices', 'account', 'admin'].forEach(function (k) {
+        ['home', 'academic', 'activities', 'notices', 'account', 'admin'].forEach(function (k) {
             var el = document.getElementById('nav' + k.charAt(0).toUpperCase() + k.slice(1));
             if (el) el.classList.toggle('active', k === navKey);
         });

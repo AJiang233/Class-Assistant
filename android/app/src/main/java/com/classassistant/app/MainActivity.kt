@@ -9,6 +9,7 @@ import android.os.Build
 import android.os.Bundle
 import android.view.KeyEvent
 import android.view.View
+import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.SslErrorHandler
 import android.webkit.WebChromeClient
@@ -16,6 +17,7 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
@@ -24,11 +26,14 @@ import com.classassistant.app.databinding.ActivityMainBinding
 import com.classassistant.app.notify.Notifier
 import com.classassistant.app.sync.Api
 import com.classassistant.app.sync.Scheduler
+import org.json.JSONObject
 
 /**
  * 班级助理 — WebView 套壳
  * 加载 https://class.qxwkstudio.top，支持登录态持久化、下拉刷新、返回键，
  * 以及登录后的本地到点提醒（活动/通知）与桌面小组件。
+ *
+ * 另负责「绑定教务系统」：切到桌面 UA 打开教务登录页，登录完成后读出会话 Cookie 上报后端。
  */
 class MainActivity : AppCompatActivity() {
 
@@ -39,7 +44,16 @@ class MainActivity : AppCompatActivity() {
     @Volatile
     private var scrollAtTop = true
 
-    /** 页面内探针回传滚动状态与登录态（JS 桥方法运行在非 UI 线程） */
+    /** 是否正处于「登录教务系统」流程中（此期间切换 UA、不注入探针） */
+    private var academicLogin = false
+
+    /** 上报 Cookie 期间避免重复触发 */
+    private var bindingInProgress = false
+
+    /** WebView 原始 UA，教务登录结束后还原 */
+    private var defaultUserAgent: String? = null
+
+    /** 页面与原生之间的 JS 桥（桥方法运行在非 UI 线程，操作 UI 需切回主线程） */
     private inner class HostBridge {
 
         @JavascriptInterface
@@ -61,6 +75,12 @@ class MainActivity : AppCompatActivity() {
             Api.decodeUser(token)?.let { Store.saveUser(ctx, it.first, it.second) }
             Scheduler.ensurePeriodic(ctx)
             Scheduler.syncNow(ctx)
+        }
+
+        /** 门户点「一键绑定教务系统」：打开教务登录页，登录完成后自动抓取 Cookie 上报 */
+        @JavascriptInterface
+        fun startAcademicLogin() {
+            runOnUiThread { beginAcademicLogin() }
         }
     }
 
@@ -120,6 +140,12 @@ class MainActivity : AppCompatActivity() {
 
                 override fun onPageFinished(view: WebView, url: String?) {
                     binding.swipeRefresh.isRefreshing = false
+                    if (academicLogin) {
+                        // 教务登录流程中：回到教务域即视为登录完成，读取 Cookie 上报；
+                        // 且不能注入探针——探针在教务页找不到本应用 token 会回传空串，把本地登录态清掉
+                        if (url != null && url.startsWith(SCHOOL_ORIGIN)) uploadAcademicCookies()
+                        return
+                    }
                     // 安装滚动状态探针（脚本内部幂等，重复注入无副作用）
                     view.evaluateJavascript(PROBE_JS, null)
                 }
@@ -156,15 +182,80 @@ class MainActivity : AppCompatActivity() {
         return scheme == "tel" || scheme == "sms" || scheme == "mailto"
     }
 
+    /**
+     * 进入教务系统登录：教务对手机 UA 有兼容问题（页面错乱），因此整个过程固定用桌面 UA。
+     * 登录成功后由 onPageFinished 触发 Cookie 上报，再回到门户。
+     */
+    private fun beginAcademicLogin() {
+        if (academicLogin) return
+        if (Store.token(this) == null) {
+            Toast.makeText(this, "请先登录班级助理", Toast.LENGTH_SHORT).show()
+            return
+        }
+        academicLogin = true
+        bindingInProgress = false
+        if (defaultUserAgent == null) defaultUserAgent = binding.webView.settings.userAgentString
+        binding.webView.settings.userAgentString = DESKTOP_UA
+        binding.webView.loadUrl(SCHOOL_ORIGIN)
+        Toast.makeText(this, "请登录教务系统，登录完成后会自动返回", Toast.LENGTH_LONG).show()
+    }
+
+    /** 读取教务域下的会话 Cookie（含 HttpOnly），交给后端代拉课表与学分 */
+    private fun uploadAcademicCookies() {
+        if (bindingInProgress) return
+        val cookies = CookieManager.getInstance().getCookie(SCHOOL_ORIGIN)
+        if (cookies.isNullOrBlank()) return
+        val token = Store.token(this) ?: return
+        bindingInProgress = true
+
+        Thread {
+            val body = JSONObject().put("cookies", cookies)
+            val res = Api.postJson("/api/academic/bind", token, body)
+            val ok = res?.optBoolean("success") == true
+            val message = when {
+                ok -> "教务系统绑定成功"
+                res != null -> res.optString("error").takeIf { it.isNotBlank() } ?: "绑定失败，请重试"
+                else -> "网络异常，绑定失败"
+            }
+            runOnUiThread {
+                Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+                finishAcademicLogin(ok)
+            }
+        }.start()
+    }
+
+    /** 结束教务登录流程：还原 UA 并回到门户（成功则直接落到课表页） */
+    private fun finishAcademicLogin(success: Boolean) {
+        academicLogin = false
+        bindingInProgress = false
+        defaultUserAgent?.let { binding.webView.settings.userAgentString = it }
+        binding.webView.loadUrl(if (success) "$startUrl/?view=academic" else startUrl)
+    }
+
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
-        if (keyCode == KeyEvent.KEYCODE_BACK && binding.webView.canGoBack()) {
-            binding.webView.goBack()
-            return true
+        if (keyCode == KeyEvent.KEYCODE_BACK) {
+            // 教务登录中途返回 = 放弃绑定，直接回门户
+            if (academicLogin) {
+                finishAcademicLogin(false)
+                return true
+            }
+            if (binding.webView.canGoBack()) {
+                binding.webView.goBack()
+                return true
+            }
         }
         return super.onKeyDown(keyCode, event)
     }
 
     private companion object {
+        /** 教务系统源（服务端代理与 Cookie 归属域） */
+        const val SCHOOL_ORIGIN = "https://szjw.njau.edu.cn"
+
+        /** 教务系统对手机 UA 兼容有问题，登录流程统一用桌面 UA */
+        const val DESKTOP_UA =
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) " +
+                "Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0"
+
         /**
          * 滚动状态探针。
          * 站点是「固定外壳 + 内层 .app-view 滚动」，子页面又跑在同源 iframe 里，

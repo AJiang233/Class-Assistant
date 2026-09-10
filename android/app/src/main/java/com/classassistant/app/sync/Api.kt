@@ -8,7 +8,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 /**
- * 极简接口客户端：只用到几个 GET，不引第三方网络库。
+ * 极简接口客户端：只用到少量 GET/POST，不引第三方网络库。
  * 站点与 App 同源，接口都在 https://class.qxwkstudio.top/api 下。
  */
 object Api {
@@ -36,6 +36,31 @@ object Api {
             val stream = if (code in 200..299) conn.inputStream else conn.errorStream
             val text = stream?.bufferedReader()?.use(BufferedReader::readText)
             if (code !in 200..299 || text.isNullOrBlank()) null else JSONObject(text)
+        } catch (e: Exception) {
+            null
+        } finally {
+            conn?.disconnect()
+        }
+    }
+
+    /** POST JSON（用于把教务系统 Cookie 上报后端）；网络异常返回 null，业务失败返回后端的错误体 */
+    fun postJson(path: String, token: String, body: JSONObject): JSONObject? {
+        var conn: HttpURLConnection? = null
+        return try {
+            conn = (URL(BASE + path).openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                connectTimeout = 20000
+                readTimeout = 20000
+                doOutput = true
+                setRequestProperty("Authorization", "Bearer $token")
+                setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                setRequestProperty("Accept", "application/json")
+            }
+            conn.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
+            val code = conn.responseCode
+            val stream = if (code in 200..299) conn.inputStream else conn.errorStream
+            val text = stream?.bufferedReader()?.use(BufferedReader::readText)
+            if (text.isNullOrBlank()) null else JSONObject(text)
         } catch (e: Exception) {
             null
         } finally {

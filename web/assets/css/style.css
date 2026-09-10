@@ -1150,7 +1150,143 @@ body.app-mode { overflow: hidden; }
 }
 
 /* ═══════════════════════════════════════════════════════════════════
-   21 · 降级回退
+   21 · 教务：课表与学业达成
+   课表按「节次 × 星期」网格排布，课程块用 rowspan 跨节次；
+   学分看板沿用内容层材质，与列表/卡片保持同一套视觉。
+   ═══════════════════════════════════════════════════════════════════ */
+
+.ac-card {
+  padding: 22px;
+  border-radius: var(--radius-lg);
+  background: var(--material);
+  border: 1px solid var(--border);
+  box-shadow: var(--material-shadow), var(--specular);
+  -webkit-backdrop-filter: blur(var(--material-blur)) saturate(160%);
+  backdrop-filter: blur(var(--material-blur)) saturate(160%);
+  margin-bottom: 18px;
+  animation: blockIn var(--dur-slow) var(--ease-standard) both;
+}
+
+.ac-tip { font-size: 0.9rem; color: var(--text-secondary); margin: 8px 0 18px; }
+.ac-note { font-size: 0.83rem; color: var(--text-tertiary); margin-top: 6px; line-height: 1.6; }
+.ac-divider {
+  display: flex; align-items: center; gap: 12px;
+  margin: 22px 0 18px; color: var(--text-tertiary); font-size: 0.8rem;
+}
+.ac-divider::before, .ac-divider::after { content: ''; flex: 1; height: 1px; background: var(--separator); }
+
+.ac-toolbar {
+  display: flex; justify-content: space-between; align-items: center;
+  gap: 12px; flex-wrap: wrap; margin-bottom: 18px;
+}
+.ac-toolbar-left { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.ac-toolbar-right { display: flex; align-items: center; gap: 8px; }
+.ac-select-label { font-size: 0.85rem; font-weight: 600; color: var(--text-secondary); }
+.ac-select { width: auto; min-width: 158px; padding: 8px 12px; font-size: 0.87rem; }
+.ac-meta { font-size: 0.79rem; color: var(--text-tertiary); }
+
+.ac-alert {
+  padding: 11px 15px; margin-bottom: 18px;
+  border-radius: var(--radius-md);
+  background: var(--danger-soft); color: var(--danger);
+  font-size: 0.87rem; font-weight: 600; line-height: 1.5;
+}
+
+.ac-success { display: none; font-size: 0.88rem; font-weight: 600; color: var(--success); margin-bottom: 14px; }
+.ac-success.show { display: block; }
+
+/* 课表网格：小屏横向滚动，时间列吸左 */
+.tt-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.tt-table {
+  width: 100%; min-width: 720px;
+  border-collapse: separate; border-spacing: 0;
+  font-size: 0.83rem;
+}
+.tt-table thead th {
+  padding: 8px 6px; font-size: 0.81rem; font-weight: 600;
+  color: var(--text-secondary); text-align: center;
+  border-bottom: 1px solid var(--border);
+}
+.tt-table thead th.tt-today { color: var(--accent); }
+.tt-table tbody td { border-top: 1px solid var(--separator); vertical-align: top; padding: 3px; }
+.tt-table tbody tr.tt-block-start td { border-top: 1px solid var(--border-strong); }
+.tt-time-col {
+  width: 74px; min-width: 74px; text-align: center;
+  border-right: 1px solid var(--separator); vertical-align: top;
+  padding: 8px 4px;
+}
+.tt-period { display: block; font-size: 0.79rem; font-weight: 600; color: var(--text-secondary); }
+.tt-time { display: block; font-size: 0.69rem; color: var(--text-tertiary); line-height: 1.35; }
+.tt-cell { height: 34px; }
+.tt-course {
+  height: 100%; min-height: 100%;
+  display: flex; flex-direction: column; gap: 1px;
+  padding: 6px 7px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-ring);
+  color: var(--text);
+  line-height: 1.4;
+}
+/* 非本周上课的课程淡出，当前周高亮边框 */
+.tt-course.dim { opacity: 0.38; }
+.tt-course.now { border-color: var(--accent); }
+.tt-course-name { font-size: 0.81rem; font-weight: 600; word-break: break-word; }
+.tt-course-meta { font-size: 0.73rem; color: var(--text-secondary); word-break: break-word; }
+.tt-course-week { font-size: 0.69rem; color: var(--text-tertiary); }
+
+/* 学分看板 */
+.credit-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.credit-plan { font-size: 1.02rem; font-weight: 600; color: var(--text); letter-spacing: -0.01em; }
+.credit-sub { font-size: 0.85rem; color: var(--text-tertiary); margin-top: 3px; }
+.credit-rate { font-size: 1.9rem; font-weight: 700; color: var(--accent); line-height: 1; white-space: nowrap; }
+.credit-rate span { font-size: 0.9rem; font-weight: 600; margin-left: 1px; }
+.credit-bar {
+  height: 8px; margin: 16px 0 14px;
+  border-radius: var(--radius-pill); overflow: hidden;
+  background: var(--material-muted);
+}
+.credit-bar span {
+  display: block; height: 100%;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(90deg, var(--accent), var(--success));
+  transition: width var(--dur-slow) var(--ease-standard);
+}
+.credit-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.credit-stat {
+  text-align: center; padding: 10px 6px;
+  border-radius: var(--radius-sm); background: var(--material-muted);
+}
+.credit-stat-value { display: block; font-size: 1.06rem; font-weight: 700; color: var(--text); }
+.credit-stat-label { display: block; font-size: 0.77rem; color: var(--text-tertiary); margin-top: 1px; }
+.credit-stat.ok .credit-stat-value { color: var(--success); }
+.credit-stat.warn .credit-stat-value { color: var(--danger); }
+
+.credit-table { padding: 8px 10px; }
+.credit-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 52px 52px 52px 52px 74px;
+  align-items: center; gap: 6px;
+  padding: 9px 8px; border-radius: var(--radius-sm);
+  font-size: 0.85rem; color: var(--text);
+}
+.credit-row + .credit-row { border-top: 1px solid var(--separator); }
+.credit-row-head { color: var(--text-tertiary); font-size: 0.79rem; font-weight: 600; }
+.credit-row.lv1 { font-weight: 600; }
+.credit-row.lv2 { color: var(--text-secondary); }
+.cr-name { min-width: 0; word-break: break-word; }
+.cr-num { text-align: right; font-variant-numeric: tabular-nums; }
+.cr-state { text-align: right; }
+
+@media (max-width: 640px) {
+  .ac-card { padding: 18px 16px; }
+  .credit-stats { grid-template-columns: repeat(2, 1fr); }
+  .credit-row { grid-template-columns: minmax(0, 1fr) 38px 38px 38px 38px 62px; gap: 2px; font-size: 0.79rem; padding: 8px 4px; }
+  .credit-row-head { font-size: 0.73rem; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   22 · 降级回退
    ═══════════════════════════════════════════════════════════════════ */
 
 /* 不支持 backdrop-filter 时：所有玻璃/材质退化为不透明表面，保证可读 */
@@ -1158,7 +1294,7 @@ body.app-mode { overflow: hidden; }
   .sidebar { background: var(--surface); }
   .bottom-nav { background: var(--surface); }
   .modal { background: var(--surface); }
-  .calendar, .list, .profile-card, .login-panel { background: var(--surface); }
+  .calendar, .list, .profile-card, .login-panel, .ac-card { background: var(--surface); }
   .btn-outline, .icon-btn, .form-input, .tabs, .chip, .cal-today-btn,
   .sidebar-user, .profile-avatar, .user-avatar, .sidebar-tools .side-link { background: var(--surface); }
   .tab.active { background: var(--surface); }

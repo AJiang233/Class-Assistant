@@ -18,6 +18,7 @@ web/                            # Cloudflare Pages 项目根目录（直接部�
 ├── index.html                  # 应用壳：侧边栏 + 内容区（iframe 嵌入子页）；小屏改为底部导航
 ├── notices.html                # 通知列表/详情（iframe 内容页）—— 发布/编辑/删除/过期归档/提醒对象
 ├── activities.html             # 活动列表/详情（iframe 内容页）—— 发布/编辑/删除/提醒对象
+├── academic.html               # 课表与学业（iframe 内容页）—— 教务课表 / 未排课程 / 学分达成
 ├── account.html                # 个人中心 —— 资料（联系方式自助修改）/ 个性化（主题）/ 日历订阅 / 修改密码 / 强制刷新 / 退出登录
 ├── admin.html                  # 管理员面板 —— 左栏 添加通知·添加活动，右栏 添加成员·管理成员（折叠区块，按权限显示）
 ├── assets/
@@ -26,11 +27,11 @@ web/                            # Cloudflare Pages 项目根目录（直接部�
 ├── backend/
 │   └── src/                    # 后端源码（被 functions 引入，同域运行）
 │       ├── index.js            # fetch 入口（CORS 预检 + 路由分发 + 404）
-│       ├── routes/             # 路由分发：auth / notices / activities / calendar
-│       ├── handlers/           # 业务逻辑：认证 / 通知 / 活动 / 日历订阅
-│       ├── models/             # D1 数据访问（users / notices / activities / roles）
+│       ├── routes/             # 路由分发：auth / notices / activities / calendar / academic
+│       ├── handlers/           # 业务逻辑：认证 / 通知 / 活动 / 日历订阅 / 教务数据
+│       ├── models/             # D1 数据访问（users / notices / activities / roles / academic）
 │       ├── middleware/         # CORS / JWT 认证 / 权限 / 日志
-│       └── utils/              # 统一响应 / PBKDF2 / JWT / 权限映射 / 时间处理 / iCalendar 生成
+│       └── utils/              # 统一响应 / PBKDF2 / JWT / 权限映射 / 时间处理 / iCalendar 生成 / 教务接口客户端
 ├── schema.sql                  # D1 表结构
 ├── wrangler.toml               # 本地开发绑定（DB / JWT_SECRET，生产绑定在 Pages 面板配置）
 ├── package.json                # wrangler devDependency + 脚本（dev / deploy / db）
@@ -177,6 +178,58 @@ web/                            # Cloudflare Pages 项目根目录（直接部�
 
 ---
 
+### 教务系统接口（均需登录）
+
+课表与学分来自教务系统（数智教学微服务平台）。前端与教务系统跨域，且会话 Cookie 为 HttpOnly，
+浏览器里拿不到也调不通，因此统一由后端带着上报的 Cookie 代拉，并缓存进 D1。
+
+绑定方式：App 内「一键绑定」由安卓端用 `CookieManager` 读出教务域 Cookie 上报给后端
+（教务系统对手机 UA 有兼容问题，登录全程固定桌面 UA）；Web 端可手动粘贴 Cookie 兜底。
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/academic/status` | 绑定状态 + 已缓存学期 |
+| POST | `/api/academic/bind` | 绑定，body `{ "cookies": "..." }`（先调 sessionUserInfo 校验） |
+| DELETE | `/api/academic/bind` | 解绑并清空该用户的教务缓存 |
+| GET | `/api/academic/timetable` | 课表，`?xnxq=2026-2027-1` 指定学期，`?refresh=1` 强制重抓 |
+| GET | `/api/academic/credits` | 学业达成 / 学分，`?refresh=1` 强制重抓 |
+
+```jsonc
+// GET /api/academic/timetable → 200
+{ "success":true, "data":{
+    "xnxqId":"2026-2027-1",
+    "terms":[{"id":"2026-2027-1","name":"2026-2027-1","current":true}],
+    "periods":[{"index":3,"name":"第三节","start":"09:50","end":"10:35","block":"上午","code":"03"}],
+    "firstDate":"2026-08-31", "weekCount":19,
+    "courses":[{ "id":"1099331250402893824", "name":"马克思主义基本原理", "code":"MARX1021",
+                 "teacher":"吴国清", "room":"公共教学楼A102", "campus":"滨江校区",
+                 "weekday":5, "start":"09:50", "end":"12:15",
+                 "weeks":[1,2,3], "weekText":"1-14", "credit":3,
+                 "category":"公共必修课", "nature":"必修", "className":"生物育种[251-252]班" }],
+    "unscheduled":[{ "name":"生物统计与试验设计Ⅲ", "code":"CROP4208", "credit":1, "hours":16,
+                     "teacher":"[2020081]贺建波", "className":"生物育种251班", "category":"专业课程" }],
+    "fetchedAt":"2026-09-10T16:14:43.245Z", "fromCache":false, "stale":false } }
+
+// GET /api/academic/credits → 200
+{ "success":true, "data":{
+    "profile":{"grade":"2025","college":"农学院","major":"生物育种科学","className":"生物育种251",
+               "plan":"2025级生物育种科学","matchRate":"82.76%"},
+    "rows":[{"level":1,"name":"通识课程","leaf":false},
+            {"level":3,"name":"思想政治理论必修课","required":18,"obtained":6,"current":8,
+             "remaining":4,"achieved":false,"leaf":true}],
+    "summary":{"required":173.5,"obtained":57,"current":25,"remaining":92.5,"achievedCount":9,"totalCount":23} } }
+```
+
+- **缓存策略**：命中且 6 小时内未过期直接回缓存；`refresh=1` 或已过期则重新抓取。
+  教务不可达时回退旧缓存并置 `stale: true`（页面提示「显示的是缓存数据」）
+- **登录态失效**：教务对未登录请求返回 401，据此把绑定标记为 `expired`，页面提示重新绑定
+- **两处教务接口的坑**：`sessionUserInfo` 用 GET 且返回裸对象（无 `data` 包装）；
+  「学业达成」返回的树末尾另有一条名为「总计」的叶子，按叶子累加会翻倍，须以它为准
+- 学分接口需要「当前执行计划 id」，由 `detailBhzxjh` 返回的 `zxjhid` 提供，链路见 `handlers/academicHandler.js`
+- 教务接口清单、请求体与固定桌面 UA 见 `backend/src/utils/schoolApi.js`
+
+---
+
 ## 数据库表结构
 
 `schema.sql`（Cloudflare D1 / SQLite）：
@@ -223,15 +276,41 @@ CREATE TABLE activities (
   remind_people  TEXT,
   created_at     DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE academic_bindings (            -- 教务系统绑定（每用户一条）
+  user_id       INTEGER PRIMARY KEY,
+  student_no    TEXT,
+  real_name     TEXT,
+  school_uid    TEXT,                       -- 教务用户 id（各接口的 xsid / xsxxid）
+  cookies       TEXT NOT NULL,              -- 教务域会话 Cookie
+  status        TEXT DEFAULT 'ok',          -- ok / expired
+  bound_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+  checked_at    DATETIME
+);
+
+CREATE TABLE academic_timetable (           -- 课表缓存（按用户 + 学期）
+  user_id       INTEGER NOT NULL,
+  xnxq_id       TEXT NOT NULL,
+  payload       TEXT NOT NULL,
+  fetched_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (user_id, xnxq_id)
+);
+
+CREATE TABLE academic_credits (             -- 学业达成（学分）缓存
+  user_id       INTEGER PRIMARY KEY,
+  payload       TEXT NOT NULL,
+  fetched_at    DATETIME DEFAULT CURRENT_TIMESTAMP
+);
 ```
 
-> 新库直接用 `schema.sql` 建表；已有库需执行迁移：`ALTER TABLE notices ADD COLUMN expire_time DATETIME;` 并创建 `roles` 表。
+> 新库直接用 `schema.sql` 建表；已有库需执行迁移：`ALTER TABLE notices ADD COLUMN expire_time DATETIME;`、
+> 创建 `roles` 表，以及创建上表 `academic_bindings` / `academic_timetable` / `academic_credits`。
 
 ---
 
 ## 前端说明
 
-- **应用壳布局**：`index.html` 为侧边栏 + 内容区（iframe 嵌入子页）；**小屏（≤768px）自动隐藏侧边栏、改为底部导航**，同样覆盖 主页 / 活动 / 通知 / 管理员 / 个人中心，并针对手机做字号与间距密度适配
+- **应用壳布局**：`index.html` 为侧边栏 + 内容区（iframe 嵌入子页）；**小屏（≤768px）自动隐藏侧边栏、改为底部导航**，同样覆盖 主页 / 活动 / 课表 / 通知 / 管理员 / 个人中心，并针对手机做字号与间距密度适配
 - **班级主页**：日历（可「回到今天」，有活动的日期可点击）、当日通知与当日活动、点击条目弹出详情弹窗
 - **权限显隐**：`app.js` 提供 `canContentWrite()` / `canManageUsers()`（依据登录返回的 `permissions`），控制发布/编辑/删除与管理员入口的显示
 - **管理员面板**：`admin.html`，左栏「添加通知 / 添加活动」、右栏「添加成员 / 管理成员」四个默认折叠区块，按权限显示（内容发布与成员管理都收在这里；成员编辑用弹窗）
@@ -239,6 +318,7 @@ CREATE TABLE activities (
 - **发布/编辑表单**：统一弹窗形式；可选「提醒对象」（成员以标签多选）、通知可设「存活至」（到期自动隐藏）
 - **列表与详情**：列表行「标题 + 徽章」、元信息带图标（发布人 / 时间 / 地点），点击条目标题弹出详情弹窗
 - **个人中心**：资料（联系方式可自助修改）、主题外观、日历订阅（可自定义提醒提前量/时间范围/是否含通知，并可重置密钥）、修改密码、强制刷新（清除本地缓存并重载，用于修复样式错乱）、退出登录（红色警示卡）
+- **课表与学业**：`academic.html` —— 课表按节次网格渲染（当前周高亮、非本周淡出）、未安排课程列表、学业达成学分看板（要求/已获/在修/还需 + 逐课程体系明细）；未绑定时给出绑定引导，App 内可一键绑定
 - **API 封装**：`assets/js/app.js` 提供 `api(path, options)`，自动附带 `Bearer` token、401 自动回登录页
 - **主题**：`data-theme` 深浅色（液态玻璃风格），localStorage 记忆
 - `API_BASE` 保持 `''`（前后端同域，走 Pages Functions）
