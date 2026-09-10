@@ -527,6 +527,17 @@ body.app-mode { overflow: hidden; }
 .app-view { flex: 1; overflow-y: auto; }
 .app-frame { width: 100%; height: 100%; border: none; flex: 1; background: transparent; }
 
+/* ===== 移动端底部导航（默认隐藏，小屏替代侧边栏） ===== */
+.bottom-nav { display: none; }
+.bottom-nav-item {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+  background: none; border: none; cursor: pointer; font-family: inherit;
+  font-size: 0.72rem; font-weight: 600; color: var(--text-tertiary);
+  transition: color var(--transition);
+}
+.bottom-nav-item svg { width: 20px; height: 20px; }
+.bottom-nav-item.active { color: var(--accent); }
+
 /* ===== 主页分栏 + 日历（液态玻璃） ===== */
 .home-layout { display: grid; grid-template-columns: 344px 1fr; gap: 26px; align-items: start; }
 .calendar {
@@ -576,6 +587,19 @@ body.app-mode { overflow: hidden; }
 .footer p { font-size: 0.82rem; color: var(--text-tertiary); }
 
 /* ===== 响应式 ===== */
+@media (max-width: 768px) {
+  /* 小屏：隐藏侧边栏，改用固定底部导航 */
+  .sidebar { display: none; }
+  .bottom-nav {
+    display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 200;
+    height: 56px; background: var(--g-surface);
+    border-top: 1px solid var(--g-border);
+    -webkit-backdrop-filter: blur(calc(var(--g-blur) + 6px)) saturate(var(--g-saturate));
+    backdrop-filter: blur(calc(var(--g-blur) + 6px)) saturate(var(--g-saturate));
+    box-shadow: var(--g-highlight);
+  }
+  .app-content { padding-bottom: 56px; }
+}
 @media (max-width: 640px) {
   .navbar-inner { padding: 0 16px; }
   .nav-link { padding: 0 10px; }
@@ -590,6 +614,7 @@ body.app-mode { overflow: hidden; }
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .navbar { background: var(--surface); }
   .sidebar { background: var(--sidebar-c); }
+  .bottom-nav { background: var(--surface); }
   .calendar, .list, .detail-card, .profile-card, .login-panel, .form-card { background: var(--surface); }
   .btn-outline, .icon-btn, .theme-toggle, .form-input, .tabs, .badge-webhook, .sidebar-user, .profile-avatar, .user-avatar, .feature-icon { background: var(--surface); }
   .tab.active { background: var(--surface); }
