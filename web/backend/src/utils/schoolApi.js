@@ -9,6 +9,9 @@
 
 export const SCHOOL_ORIGIN = 'https://szjw.njau.edu.cn';
 
+/** 对教务接口的单次请求超时（毫秒）；教务慢或挂起时快速失败，避免无限 pending */
+export const SCHOOL_TIMEOUT_MS = 20000;
+
 /** 桌面 UA：教务系统用手机 UA 访问会出现渲染异常，这里固定伪装成 Edge 桌面端 */
 export const DESKTOP_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) ' +
@@ -62,8 +65,12 @@ export class SchoolClient {
 
     let res;
     try {
-      res = await fetch(url.toString(), init);
+      // 教务侧偶发慢/挂起，超时快速失败，避免请求无限 pending（前端一直卡在加载态）
+      res = await fetch(url.toString(), { ...init, signal: AbortSignal.timeout(SCHOOL_TIMEOUT_MS) });
     } catch (e) {
+      if (e && e.name === 'TimeoutError') {
+        throw new Error(`教务系统响应超时（>${Math.round(SCHOOL_TIMEOUT_MS / 1000)}s）：${path}`);
+      }
       throw new Error(`无法连接教务系统：${e.message}`);
     }
     // 教务对未登录/登录态过期的请求直接返回 401（不是重定向到登录页）
