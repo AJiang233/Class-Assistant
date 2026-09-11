@@ -36,9 +36,11 @@
 ```
 class-assistant/
 ├── agent/          # Agent 编排与提示词（规划中）
-├── crawler/        # 通知抓取与文档爬取（规划中）
+├── crawler/        # 通知抓取（复用根模块 internal，尚未接真实群）
 ├── rag/            # 向量化与检索（规划中）
-├── scheduler/      # 轮询、日历与提醒（规划中）
+├── scheduler/      # Go 常驻调度：封存自检 / Cookie 罐 / 学号比对
+├── cmd/scheduler/  # 调度进程入口
+├── internal/       # 与 Worker 对齐的 Go 规则（vault / identity / roles / ratelimit）
 ├── web/            # Cloudflare Pages 门户（前端 + Functions 后端 + D1，已上线）
 └── android/        # 安卓端（Kotlin，WebView + 本地提醒 + 桌面小组件）
 ```

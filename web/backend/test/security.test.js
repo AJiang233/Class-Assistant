@@ -95,4 +95,10 @@ describe('Cookie 封存', () => {
     const newEnv = { JWT_SECRET: 'jwt-secret-for-vault', COOKIE_SECRET: 'brand-new-cookie-secret' };
     assert.equal(await openCookies(newEnv, sealed), raw);
   });
+
+  it('能解开 Go 调度进程封存的密文', async () => {
+    const env = { COOKIE_SECRET: 'compat-secret-for-go' };
+    const sealed = 'v1.Yzkjl59QocTwaLnh.4yMmGlESPclxP4shg6mBI4jIb5TY-UYYTf6uoqmNUfp2t3VMirrL7S2Mp-185kN5-EiVTw';
+    assert.equal(await openCookies(env, sealed), 'X-Qz-JSession=abc; INGRESSCOOKIE=xyz');
+  });
 });
