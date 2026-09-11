@@ -87,6 +87,90 @@ function fmtPositions(p) {
   return s;
 }
 
+/** 解析职务字段为数组（兼容 JSON 数组字符串 / 逗号·顿号·空格分隔 / 普通字符串） */
+function parsePositionsList(p) {
+  if (p == null) return [];
+  const s = String(p).trim();
+  if (!s) return [];
+  if (s.charAt(0) === '[') {
+    try {
+      const arr = JSON.parse(s);
+      if (Array.isArray(arr)) return arr.map(String).filter(Boolean);
+    } catch (e) { /* 非法 JSON 时按分隔符解析 */ }
+  }
+  return s.split(/[,，、\s]+/).filter(Boolean);
+}
+
+/** 职务标签（chip）样式展示，多个职务并列显示 */
+function positionsChipsHTML(p) {
+  const list = parsePositionsList(p);
+  if (!list.length) return '学生';
+  return list.map(function (n) { return '<span class="pos-tag">' + esc(n) + '</span>'; }).join('');
+}
+
+/** 取某个提醒选择区中「属于指定职位」的成员复选框 */
+function _remindByPosition(boxId, pos) {
+  const box = document.getElementById(boxId);
+  if (!box) return [];
+  return Array.prototype.filter.call(box.querySelectorAll('.remind-cb'), function (cb) {
+    const label = cb.closest('label');
+    return !!label && parsePositionsList(label.getAttribute('data-positions')).indexOf(pos) >= 0;
+  });
+}
+
+/** 同步职位快捷标签的选中态（全选 / 部分 / 未选） */
+function syncRemindQuick(boxId) {
+  const box = document.getElementById(boxId);
+  if (!box) return;
+  Array.prototype.forEach.call(box.querySelectorAll('.pos-chip'), function (btn) {
+    const list = _remindByPosition(boxId, btn.getAttribute('data-pos'));
+    const on = list.filter(function (cb) { return cb.checked; }).length;
+    btn.classList.toggle('on', on > 0);
+    btn.classList.toggle('partial', on > 0 && on < list.length);
+    btn.setAttribute('aria-pressed', on > 0 ? 'true' : 'false');
+  });
+}
+
+/** 点击职位快捷标签：全选 / 取消该职位的所有成员（保存时快照为成员姓名） */
+function toggleRemindPosition(boxId, btn) {
+  const list = _remindByPosition(boxId, btn.getAttribute('data-pos'));
+  const allOn = list.length > 0 && list.every(function (cb) { return cb.checked; });
+  list.forEach(function (cb) { cb.checked = !allOn; });
+  syncRemindQuick(boxId);
+}
+
+/** 渲染「提醒对象」选择区：顶部按职位一键选择，下方成员多选 */
+function renderRemindBox(boxId, members, checkedNames) {
+  const box = document.getElementById(boxId);
+  if (!box) return;
+  box.className = 'remind-box';
+  if (!members || !members.length) {
+    box.innerHTML = '<span style="opacity:.6;font-size:.85rem;">暂无成员可提醒</span>';
+    return;
+  }
+  const checked = {};
+  (checkedNames || []).forEach(function (n) { checked[n] = true; });
+  const positions = [], seen = {};
+  members.forEach(function (m) {
+    parsePositionsList(m.positions).forEach(function (p) {
+      if (!seen[p]) { seen[p] = true; positions.push(p); }
+    });
+  });
+  const quick = positions.map(function (p) {
+    return '<button type="button" class="pos-chip" data-pos="' + esc(p) + '" onclick="toggleRemindPosition(\'' + boxId + '\', this)">' + esc(p) + '</button>';
+  }).join('');
+  const rows = members.map(function (m) {
+    const ps = parsePositionsList(m.positions).join(',');
+    const chk = checked[m.name] ? ' checked' : '';
+    return '<label class="chip" data-positions="' + esc(ps) + '">'
+      + '<input type="checkbox" class="remind-cb" value="' + esc(m.name) + '"' + chk
+      + ' onchange="syncRemindQuick(\'' + boxId + '\')">' + esc(m.name) + '</label>';
+  }).join('');
+  box.innerHTML = (positions.length ? '<div class="remind-quick"><span class="remind-quick-label">按职位选择</span>' + quick + '</div>' : '')
+    + '<div class="remind-members">' + rows + '</div>';
+  syncRemindQuick(boxId);
+}
+
 /** 能否发布/取消 通知、活动（权限由后端按职位+自定义职位计算） */
 function canContentWrite() {
   const u = getSession();

@@ -24,7 +24,7 @@ async function computePermissions(env, positions) {
 export async function handleRegister(request, env) {
   try {
     const body = await request.json();
-    const { student_id, name, password, positions = '学生', contact = '', role_permissions } = body;
+    const { student_id, name, password, positions = '学生', contact = '', role_permissions, role_name } = body;
 
     // 校验必填字段
     if (!student_id || !name || !password) {
@@ -32,13 +32,18 @@ export async function handleRegister(request, env) {
     }
 
     // 若注册了自定义职位且指定了权限，则先把该职位写入 roles 表
+    // role_name 指定该自定义职位的名称；兼容旧客户端：未传 role_name 时回退到字符串形式的 positions
     if (role_permissions && Array.isArray(role_permissions) && role_permissions.length) {
-      const roleModel = new RoleModel(env.DB);
-      await roleModel.upsert(positions, JSON.stringify(role_permissions));
+      const customName = role_name || (typeof positions === 'string' ? positions : '');
+      if (customName) {
+        const roleModel = new RoleModel(env.DB);
+        await roleModel.upsert(customName, JSON.stringify(role_permissions));
+      }
     }
 
-    // positions 兼容数组（自动转 JSON 字符串）或字符串，D1 不接受 object 类型
-    const positionsValue = Array.isArray(positions) ? JSON.stringify(positions) : positions;
+    // positions 兼容数组（自动转 JSON 字符串）或字符串，D1 不接受 object 类型；空数组回退为「学生」
+    const posArr = Array.isArray(positions) ? positions.filter(Boolean) : null;
+    const positionsValue = posArr ? (posArr.length ? JSON.stringify(posArr) : '学生') : positions;
 
     const userModel = new UserModel(env.DB);
 
@@ -297,5 +302,20 @@ export async function handleListMembersPick(request, env, user) {
   } catch (e) {
     console.error('获取成员列表失败:', e);
     return jsonResponse(error('获取成员列表失败', 'LIST_USERS_FAILED'), 500);
+  }
+}
+
+/**
+ * 获取全部自定义职位（供注册/编辑成员时作为可选项，需 user:manage 权限）
+ */
+export async function handleListRoles(request, env, user) {
+  try {
+    const roleModel = new RoleModel(env.DB);
+    const rows = await roleModel.list();
+    const list = rows.map((r) => ({ name: r.name, permissions: r.permissions }));
+    return jsonResponse(success({ list }));
+  } catch (e) {
+    console.error('获取自定义职位失败:', e);
+    return jsonResponse(error('获取自定义职位失败', 'LIST_ROLES_FAILED'), 500);
   }
 }

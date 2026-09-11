@@ -23,6 +23,7 @@ export const ROLE_PERMISSIONS = {
  */
 export function parsePositions(positions) {
   if (positions == null || positions === '') return [];
+  if (Array.isArray(positions)) return positions.filter(Boolean).map(String);
   const v = String(positions);
   if (v.charAt(0) === '[') {
     try {

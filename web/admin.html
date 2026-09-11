@@ -58,7 +58,7 @@
                                 <input id="ntcTitle" class="form-input" type="text" placeholder="请输入通知标题" autocomplete="off">
                             </div>
                             <div class="form-field">
-                                <label class="form-label">内容</label>
+                                <label class="form-label">通知内容</label>
                                 <textarea id="ntcContent" class="form-input" rows="4" placeholder="请输入通知内容"></textarea>
                             </div>
                             <div class="form-field">
@@ -66,12 +66,12 @@
                                 <input id="ntcPublish" class="form-input" type="datetime-local" autocomplete="off">
                             </div>
                             <div class="form-field">
-                                <label class="form-label">存活至（选填，到期自动隐藏）</label>
+                                <label class="form-label">截止时间（未填写则长期通知）</label>
                                 <input id="ntcExpire" class="form-input" type="datetime-local" autocomplete="off">
                             </div>
                             <div class="form-field">
-                                <label class="form-label">提醒对象（选填）</label>
-                                <div id="ntcRemind" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
+                                <label class="form-label">提醒对象（未勾选则通知所有人）</label>
+                                <div id="ntcRemind" class="remind-box"></div>
                             </div>
                             <button type="button" class="btn btn-primary btn-block" id="ntcSubmitBtn" onclick="submitNotice()">发布通知</button>
                         </div>
@@ -94,7 +94,7 @@
                                 <textarea id="actContent" class="form-input" rows="3" placeholder="选填，可填写时间安排、参与方式等"></textarea>
                             </div>
                             <div class="form-field">
-                                <label class="form-label">地点</label>
+                                <label class="form-label">活动地点</label>
                                 <input id="actLocation" class="form-input" type="text" placeholder="选填" autocomplete="off">
                             </div>
                             <div class="form-field">
@@ -102,12 +102,12 @@
                                 <input id="actStart" class="form-input" type="datetime-local" autocomplete="off">
                             </div>
                             <div class="form-field">
-                                <label class="form-label">结束时间</label>
+                                <label class="form-label">结束时间（未填写则仅当天有效）</label>
                                 <input id="actEnd" class="form-input" type="datetime-local" autocomplete="off">
                             </div>
                             <div class="form-field">
-                                <label class="form-label">提醒对象（选填）</label>
-                                <div id="actRemind" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
+                                <label class="form-label">提醒对象（未勾选则通知所有人）</label>
+                                <div id="actRemind" class="remind-box"></div>
                             </div>
                             <button type="button" class="btn btn-primary btn-block" id="actSubmitBtn" onclick="submitActivity()">发布活动</button>
                         </div>
@@ -143,23 +143,17 @@
                                     <input class="form-input" type="text" id="regContact" placeholder="选填" autocomplete="off">
                                 </div>
                                 <div class="form-field">
-                                    <label class="form-label" for="regPositions">职务</label>
-                                    <select class="form-input" id="regPositions">
-                                        <option value="学生">学生</option>
-                                        <option value="班长">班长</option>
-                                        <option value="团支书">团支书</option>
-                                        <option value="学习委员">学习委员</option>
-                                        <option value="__custom__">自定义职位…</option>
-                                    </select>
+                                    <label class="form-label">职务（可多选，留空则为「学生」）</label>
+                                    <div class="pos-picker" id="regPosPicker"></div>
                                 </div>
 
-                                <div id="regCustomFields" style="display:none;">
+                                <div id="regCustomFields">
                                     <div class="form-field">
-                                        <label class="form-label" for="regCustomPosition">职位名称</label>
-                                        <input class="form-input" type="text" id="regCustomPosition" placeholder="如：文艺委员" autocomplete="off">
+                                        <label class="form-label" for="regCustomPosition">自定义职位（可选）</label>
+                                        <input class="form-input" type="text" id="regCustomPosition" placeholder="如：团员、文艺委员" autocomplete="off">
                                     </div>
                                     <div class="form-field">
-                                        <label class="form-label">权限</label>
+                                        <label class="form-label">该自定义职位的权限（可选）</label>
                                         <label style="display:block; margin:6px 0;"><input type="checkbox" id="regPermWrite" value="content:write"> 可发布 / 修改 / 删除 活动、通知</label>
                                         <label style="display:block; margin:6px 0;"><input type="checkbox" id="regPermManage" value="user:manage"> 可注册账号、管理班级成员</label>
                                     </div>
@@ -203,8 +197,12 @@
                         <input id="editName" class="form-input" type="text" placeholder="请输入姓名" autocomplete="off">
                     </div>
                     <div class="form-field">
-                        <label class="form-label">职务</label>
-                        <input id="editPositions" class="form-input" type="text" placeholder="多个职务用、分隔" autocomplete="off">
+                        <label class="form-label">职务（可多选，可自定义）</label>
+                        <div class="pos-picker" id="editPosPicker"></div>
+                        <div class="pos-add">
+                            <input id="editPosNew" class="form-input" type="text" placeholder="添加自定义职位" autocomplete="off">
+                            <button type="button" class="btn btn-outline" onclick="addEditPosition()">添加</button>
+                        </div>
                     </div>
                     <div class="form-field">
                         <label class="form-label">联系方式</label>
@@ -244,13 +242,7 @@
     }
 
     function renderRemindChoices(boxId, checkedNames) {
-        var box = document.getElementById(boxId);
-        if (!box) return;
-        if (!remindChoices.length) { box.innerHTML = '<span style="opacity:.6;font-size:.85rem;">暂无成员可提醒</span>'; return; }
-        box.innerHTML = remindChoices.map(function (m) {
-            var chk = (checkedNames && checkedNames.indexOf(m.name) >= 0) ? ' checked' : '';
-            return '<label class="chip"><input type="checkbox" class="remind-cb" value="' + esc(m.name) + '"' + chk + '>' + esc(m.name) + '</label>';
-        }).join('');
+        renderRemindBox(boxId, remindChoices, checkedNames);
     }
 
     function collectRemind(boxId) {
@@ -372,6 +364,7 @@
             var res = await api('/api/auth/users');
             membersCache = (res.data && res.data.list) || [];
             filterMembers();
+            renderRegPosPicker();   // 成员新增岗位后同步可选项
         } catch (err) {
             el.innerHTML = stateHTML(err.message, true);
         }
@@ -383,14 +376,14 @@
         var box = document.getElementById('memberSearch');
         var q = box ? box.value.trim().toLowerCase() : '';
         var list = !q ? membersCache : membersCache.filter(function (m) {
-            var pos = (Array.isArray(m.positions) && m.positions.length) ? m.positions.join('、') : (m.positions || '');
+            var pos = parsePositionsList(m.positions).join('、');
             return String(m.name || '').toLowerCase().indexOf(q) >= 0
                 || String(m.student_id || '').toLowerCase().indexOf(q) >= 0
                 || String(pos).toLowerCase().indexOf(q) >= 0;
         });
         if (!list.length) { el.innerHTML = stateHTML(q ? '没有匹配的成员' : '暂无成员'); return; }
         el.innerHTML = list.map(function (m) {
-            var pos = (Array.isArray(m.positions) && m.positions.length) ? m.positions.join('、') : (m.positions || '学生');
+            var pos = parsePositionsList(m.positions).join('、') || '学生';
             return '<div class="info-row member-row">'
                 + '<div class="member-main">'
                 + '<div class="member-line">'
@@ -407,13 +400,83 @@
         }).join('');
     }
 
+    // 预设职务（可多选）
+    var POSITION_PRESETS = ['班长', '团支书', '学习委员'];
+    var rolesCache = [];   // roles 表：已定义的自定义职位
+
+    // 汇总可选职务：预设 + roles 表已定义 + 成员已在用 + 当前已选（去重，排除「学生」）
+    function allPositionNames(selected) {
+        var names = POSITION_PRESETS.slice();
+        function push(p) {
+            p = String(p == null ? '' : p).trim();
+            if (p && p !== '学生' && names.indexOf(p) < 0) names.push(p);
+        }
+        (rolesCache || []).forEach(function (r) { push(r.name); });
+        (membersCache || []).forEach(function (m) {
+            parsePositionsList(m.positions).forEach(push);
+        });
+        (selected || []).forEach(push);
+        return names;
+    }
+
+    // 渲染职务多选标签
+    function renderPosPicker(boxId, selected) {
+        var box = document.getElementById(boxId);
+        if (!box) return;
+        var sel = {};
+        (selected || []).forEach(function (p) { sel[p] = true; });
+        box.innerHTML = allPositionNames(selected).map(function (p) {
+            var chk = sel[p] ? ' checked' : '';
+            return '<label class="chip"><input type="checkbox" class="pos-cb" value="' + esc(p) + '"' + chk + '>' + esc(p) + '</label>';
+        }).join('');
+    }
+
+    // 注册表单的职务选择器（保留当前勾选）
+    function renderRegPosPicker() {
+        var checked = [];
+        document.querySelectorAll('#regPosPicker .pos-cb:checked').forEach(function (cb) { checked.push(cb.value); });
+        renderPosPicker('regPosPicker', checked);
+    }
+
+    // 加载 roles 表已定义的自定义职位
+    async function loadRoles() {
+        try {
+            var res = await api('/api/auth/roles');
+            rolesCache = (res.data && res.data.list) || [];
+        } catch (e) { rolesCache = []; }
+        renderRegPosPicker();
+    }
+
+    // 编辑弹窗的职务选择器
+    function renderEditPosPicker(selected) {
+        renderPosPicker('editPosPicker', selected);
+    }
+
+    // 向编辑弹窗的职务选择器添加自定义职位标签
+    function addEditPosition() {
+        var input = document.getElementById('editPosNew');
+        var box = document.getElementById('editPosPicker');
+        if (!input || !box) return;
+        var name = input.value.trim();
+        if (!name) return;
+        var found = Array.prototype.filter.call(box.querySelectorAll('.pos-cb'), function (cb) { return cb.value === name; })[0];
+        if (found) {
+            found.checked = true;
+        } else {
+            var label = document.createElement('label');
+            label.className = 'chip';
+            label.innerHTML = '<input type="checkbox" class="pos-cb" value="' + esc(name) + '" checked>' + esc(name);
+            box.appendChild(label);
+        }
+        input.value = '';
+    }
+
     function startEditMember(id) {
         var m = (membersCache || []).filter(function (x) { return x.id === id; })[0];
         if (!m) { alert('未找到该成员'); return; }
-        var posText = (Array.isArray(m.positions) && m.positions.length) ? m.positions.join(',') : (m.positions || '');
         document.getElementById('editMemberTitle').textContent = '编辑成员';
         document.getElementById('editName').value = m.name || '';
-        document.getElementById('editPositions').value = posText;
+        renderEditPosPicker(parsePositionsList(m.positions));
         document.getElementById('editContact').value = m.contact || '';
         document.getElementById('editMemberError').classList.remove('show');
         editingMemberId = id;
@@ -429,10 +492,10 @@
         var errBox = document.getElementById('editMemberError');
         errBox.classList.remove('show');
         var name = document.getElementById('editName').value.trim();
-        var positionsRaw = document.getElementById('editPositions').value.trim();
         var contact = document.getElementById('editContact').value.trim();
         if (!name) { errBox.textContent = '姓名不能为空'; errBox.classList.add('show'); return; }
-        var positions = positionsRaw ? positionsRaw.split(/[,，、\s]+/).filter(Boolean) : [];
+        var positions = [];
+        document.querySelectorAll('#editPosPicker .pos-cb:checked').forEach(function (cb) { positions.push(cb.value); });
         var btn = document.getElementById('editMemberBtn');
         btn.disabled = true; var t = btn.textContent; btn.textContent = '保存中…';
         try {
@@ -459,12 +522,6 @@
 
     // ===== 添加成员 =====
     function initMemberManagement() {
-        var regPositionSelect = document.getElementById('regPositions');
-        regPositionSelect.addEventListener('change', function () {
-            var custom = this.value === '__custom__';
-            document.getElementById('regCustomFields').style.display = custom ? 'block' : 'none';
-        });
-
         var regForm = document.getElementById('regForm');
         regForm.addEventListener('submit', async function (e) {
             e.preventDefault();
@@ -474,14 +531,18 @@
             var name = document.getElementById('regName').value.trim();
             var password = document.getElementById('regPassword').value;
             var contact = document.getElementById('regContact').value.trim();
-            var positions = regPositionSelect.value;
-            var role_permissions;
-            if (positions === '__custom__') {
-                positions = document.getElementById('regCustomPosition').value.trim();
-                if (!positions) { errBox.textContent = '请输入自定义职位名称'; errBox.classList.add('show'); return; }
+            // 多选职务标签
+            var positions = [];
+            document.querySelectorAll('#regPosPicker .pos-cb:checked').forEach(function (cb) { positions.push(cb.value); });
+            // 自定义职位（单个，可同时为该职位配置权限）
+            var customPosition = document.getElementById('regCustomPosition').value.trim();
+            if (customPosition && positions.indexOf(customPosition) < 0) positions.push(customPosition);
+            var role_permissions = null;
+            if (customPosition) {
                 role_permissions = [];
                 if (document.getElementById('regPermWrite').checked) role_permissions.push('content:write');
                 if (document.getElementById('regPermManage').checked) role_permissions.push('user:manage');
+                if (!role_permissions.length) role_permissions = null;
             }
             if (!student_id || !name || !password) { errBox.textContent = '学号、姓名、密码为必填'; errBox.classList.add('show'); return; }
             if (password.length < 6) { errBox.textContent = '密码长度至少 6 位'; errBox.classList.add('show'); return; }
@@ -489,12 +550,11 @@
             btn.disabled = true; var t = btn.textContent; btn.textContent = '注册中…';
             try {
                 var payload = { student_id: student_id, name: name, password: password, positions: positions, contact: contact };
-                if (role_permissions) payload.role_permissions = role_permissions;
+                if (role_permissions) { payload.role_permissions = role_permissions; payload.role_name = customPosition; }
                 await api('/api/auth/register', { method: 'POST', body: JSON.stringify(payload) });
                 errBox.classList.add('show');
                 errBox.textContent = '注册成功';
                 regForm.reset();
-                document.getElementById('regCustomFields').style.display = 'none';
                 loadMembers();
             } catch (err) {
                 errBox.textContent = err.message;
@@ -520,6 +580,7 @@
             document.getElementById(id).style.display = 'block';
         });
         initMemberManagement();
+        loadRoles();
         loadMembers();
     }
 
@@ -532,6 +593,7 @@
     window.saveMember = saveMember;
     window.delMember = delMember;
     window.filterMembers = filterMembers;
+    window.addEditPosition = addEditPosition;
     })();
     </script>
 </body>

@@ -7,7 +7,8 @@ import {
   handleListUsers,
   handleDeleteUser,
   handleUpdateUser,
-  handleListMembersPick
+  handleListMembersPick,
+  handleListRoles
 } from '../handlers/authHandler.js';
 import { withAuth, withPermission } from '../middleware/auth.js';
 
@@ -52,6 +53,11 @@ export async function authRoutes(request, env, ctx) {
   // 获取成员精简列表（任何登录用户，用于提醒对象选择）
   if (path === '/api/auth/members-pick' && method === 'GET') {
     return withAuth(handleListMembersPick)(request, env, ctx);
+  }
+
+  // 获取自定义职位列表（需 user:manage 权限）
+  if (path === '/api/auth/roles' && method === 'GET') {
+    return withPermission('user:manage')(handleListRoles)(request, env, ctx);
   }
 
   // 更新/删除班级成员（需 user:manage 权限）

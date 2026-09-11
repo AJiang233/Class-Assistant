@@ -388,13 +388,16 @@
             var res = await api('/api/activities?scope=all&limit=200');
             var list = (res.data && res.data.list) || [];
             eventDates.clear();
-            list.forEach(function (a) { expand(eventDates, a.start_time, a.end_time); });
+            // 只标「提醒当前账户（含全班）」的日子，与当日列表口径一致
+            list.filter(function (a) { return remindMe(a.remind_people); })
+                .forEach(function (a) { expand(eventDates, a.start_time, a.end_time); });
         } catch (e) {}
         try {
             var nres = await api('/api/notices?scope=all&limit=200');
             var nlist = (nres.data && nres.data.list) || [];
             noticeDates.clear();
-            nlist.forEach(function (n) { expand(noticeDates, n.publish_time, n.expire_time); });
+            nlist.filter(function (n) { return remindMe(n.remind_people); })
+                .forEach(function (n) { expand(noticeDates, n.publish_time, n.expire_time); });
         } catch (e) {}
         var now = new Date();
         calYear = now.getFullYear();
@@ -474,14 +477,34 @@
         loadNotices(activeDate);
     }
 
+    // 当前账户是否在提醒名单内：remind_people 为空视为「全班」（提醒所有人）
+    function remindMe(raw) {
+        if (!raw) return true;
+        var s = String(raw).trim();
+        var arr;
+        if (s.charAt(0) === '[') {
+            try { var parsed = JSON.parse(s); if (Array.isArray(parsed)) arr = parsed; } catch (e) { return true; }
+        } else {
+            arr = s.split(',');
+        }
+        arr = (arr || []).map(function (x) { return String(x).trim(); }).filter(Boolean);
+        if (!arr.length) return true;
+        var u = getSession();
+        var meName = (u && u.name) ? String(u.name) : '';
+        var meId = (u && u.id != null) ? String(u.id) : '';
+        return (meName !== '' && arr.indexOf(meName) >= 0) || (meId !== '' && arr.indexOf(meId) >= 0);
+    }
+
     async function loadNotices(date) {
         var el = document.getElementById('noticeList');
         el.innerHTML = skeletonHTML(3);
-        var q = date ? ('?limit=3&date=' + encodeURIComponent(date)) : '?limit=3';
+        var q = date ? ('?limit=50&date=' + encodeURIComponent(date)) : '?limit=50';
         try {
             var res = await api('/api/notices' + q);
             var list = (res.data && res.data.list) || [];
-            if (!list.length) { el.innerHTML = stateHTML('暂无通知'); return; }
+            // 主页展示提醒当前账户（含「全班」）的通知，当天全部（不限条数）
+            list = list.filter(function (n) { return remindMe(n.remind_people); });
+            if (!list.length) { el.innerHTML = stateHTML('暂无提醒你的通知'); return; }
             list.sort(function (a, b) { return String(b.publish_time || '').localeCompare(String(a.publish_time || '')); });
             el.innerHTML = list.map(function (n) {
                 var pub = n.publisher ? '<span>' + icon('user') + esc(n.publisher) + '</span>' : '';
@@ -507,11 +530,13 @@
     async function loadActivities(date) {
         var el = document.getElementById('activityList');
         el.innerHTML = skeletonHTML(3);
-        var q = date ? ('?date=' + encodeURIComponent(date) + '&limit=3') : '?limit=3';
+        var q = date ? ('?date=' + encodeURIComponent(date) + '&limit=50') : '?limit=50';
         try {
             var res = await api('/api/activities' + q);
             var list = (res.data && res.data.list) || [];
-            if (!list.length) { el.innerHTML = stateHTML('暂无活动'); return; }
+            // 主页展示提醒当前账户（含「全班」）的活动，当天全部（不限条数）
+            list = list.filter(function (a) { return remindMe(a.remind_people); });
+            if (!list.length) { el.innerHTML = stateHTML('暂无提醒你的活动'); return; }
             list.sort(function (a, b) { return String(b.start_time || '').localeCompare(String(a.start_time || '')); });
             el.innerHTML = list.map(function (a) {
                 var meta = '<span>' + icon('clock') + esc(fmtDate(a.start_time)) + '</span>';

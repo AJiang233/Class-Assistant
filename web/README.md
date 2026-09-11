@@ -42,7 +42,7 @@ web/                            # Cloudflare Pages 项目根目录（直接部�
 
 ## 权限体系（按职位）
 
-用户 `positions` 字段决定权限（可为单值或 JSON 数组）。预设职位：
+用户 `positions` 字段决定权限，**支持多个职位**（单值字符串或 JSON 数组，如 `["班长","团员"]`）。多职位时权限取**各职位权限的并集**。预设职位：
 
 | 职位 | 内容权限（发布/编辑/删除 通知·活动） | 管理权限（注册账号·成员管理） |
 | --- | :---: | :---: |
@@ -50,7 +50,8 @@ web/                            # Cloudflare Pages 项目根目录（直接部�
 | 学习委员 | ✅ | ❌ |
 | 其它成员 | ❌（只读） | ❌ |
 
-- **自定义职位**：可在「注册成员」表单里新建自定义职位并勾选权限（可发布内容 / 可管理成员），存入 `roles` 表持久化。
+- **自定义职位**：可在「注册成员」表单里新建自定义职位并勾选权限（可发布内容 / 可管理成员），存入 `roles` 表持久化；注册时用 `role_name` 指定该职位的名称。无权限要求的自定义职位（如「团员」）直接写进 `positions` 即可，无需建 `roles`。注册 / 编辑成员时，可选项会自动包含**预设职位 + `roles` 表已定义的自定义职位 + 成员表中已在用的自定义职位**。
+- **按职位一键选择提醒对象**：发布 / 编辑 通知·活动时，提醒对象选择区顶部会按成员职位生成快捷标签，点击即全选该职位的成员（最终保存为成员姓名快照）。
 - 登录 / `me` 接口会返回当前用户的 `permissions` 数组，前端据此显隐发布/编辑/删除/成员管理入口。
 - 读取（通知/活动列表、详情）对任意已登录用户开放。
 
@@ -85,14 +86,15 @@ web/                            # Cloudflare Pages 项目根目录（直接部�
 | GET | `/api/auth/users` | `user:manage` | 班级成员列表 |
 | PUT | `/api/auth/users/:id` | `user:manage` | 编辑成员（姓名/职务/联系方式） |
 | DELETE | `/api/auth/users/:id` | `user:manage` | 删除成员 |
-| GET | `/api/auth/members-pick` | 登录 | 成员精简列表（id/name，供提醒对象选择） |
+| GET | `/api/auth/members-pick` | 登录 | 成员精简列表（id/name/positions，供提醒对象按职位一键选择） |
+| GET | `/api/auth/roles` | `user:manage` | 自定义职位列表（供注册/编辑成员时作为可选项） |
 
 ```jsonc
 // 注册 POST /api/auth/register（body，需 user:manage）
 { "student_id":"2024001", "name":"张三", "password":"123456",
-  "positions":"班长", "contact":"13800000000" }   // positions 可为字符串或数组
-// 自定义职位时额外传：
-{ "role_permissions": ["content:write","user:manage"] }
+  "positions":["班长","团员"], "contact":"13800000000" }   // positions 可为字符串或数组（多职位）
+// 自定义职位并配权限时额外传（role_name 指定该自定义职位名）：
+{ "role_permissions": ["content:write","user:manage"], "role_name": "文艺委员" }
 
 // 登录 POST /api/auth/login → 200
 { "success":true, "data":{
@@ -273,7 +275,7 @@ CREATE TABLE users (
   name           TEXT NOT NULL,
   password_hash  TEXT NOT NULL,             -- "盐值:PBKDF2哈希"
   auth_key       TEXT,                      -- 预留（Agent/Webhook 认证）
-  positions      TEXT DEFAULT '学生',        -- JSON 数组字符串（职位）
+  positions      TEXT DEFAULT '学生',        -- 职位：单个字符串或 JSON 数组字符串（可多职位）
   contact        TEXT,
   update_time    DATETIME DEFAULT CURRENT_TIMESTAMP
 );

@@ -69,11 +69,11 @@ export class UserModel {
   }
 
   /**
-   * 获取成员精简列表（仅 id/name，供提醒对象选择器等使用）
+   * 获取成员精简列表（id/name/positions，供提醒对象选择器按职位一键选择使用）
    */
   async listPicks() {
     const result = await this.db.prepare(
-      'SELECT id, name FROM users ORDER BY name ASC'
+      'SELECT id, name, positions FROM users ORDER BY name ASC'
     ).all();
     return result.results;
   }

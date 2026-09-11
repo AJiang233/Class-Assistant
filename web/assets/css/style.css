@@ -313,9 +313,10 @@ body {
 .btn-primary:active { filter: brightness(0.96); }
 .btn-primary:disabled { box-shadow: none; filter: none; }
 
-/* 导航层玻璃按钮 */
+/* 导航层玻璃按钮（略降白度 + 中性可见边框，避免在浅色卡片上看不出边界） */
 .btn-outline {
-  background: var(--lg-fill); border-color: var(--lg-edge); color: var(--text);
+  background: color-mix(in srgb, var(--lg-fill) 85%, var(--material-muted));
+  border-color: var(--border-strong); color: var(--text);
   -webkit-backdrop-filter: blur(18px) saturate(var(--lg-saturate));
   backdrop-filter: blur(18px) saturate(var(--lg-saturate));
   box-shadow: var(--specular);
@@ -608,7 +609,8 @@ input[type="checkbox"]:disabled { opacity: 0.5; cursor: not-allowed; }
 .chip {
   display: inline-flex; align-items: center; gap: 7px;
   padding: 7px 13px; border-radius: var(--radius-pill);
-  background: var(--lg-fill); border: 1px solid var(--lg-edge);
+  background: color-mix(in srgb, var(--lg-fill) 85%, var(--material-muted));
+  border: 1px solid var(--border-strong);
   font-size: 0.89rem; color: var(--text); cursor: pointer;
   box-shadow: var(--specular);
   -webkit-backdrop-filter: blur(14px) saturate(var(--lg-saturate));
@@ -626,6 +628,39 @@ input[type="checkbox"]:disabled { opacity: 0.5; cursor: not-allowed; }
   background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 38%, transparent);
   color: var(--accent); font-weight: 650;
 }
+
+/* 职务标签（只读展示，如个人资料页） */
+.pos-tag {
+  display: inline-block; padding: 2px 10px; margin: 2px 6px 2px 0;
+  border-radius: var(--radius-pill); font-size: 0.84rem; line-height: 1.5;
+  background: var(--accent-soft); color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+/* 职务多选选择器（注册 / 编辑成员） */
+.pos-picker { display: flex; flex-wrap: wrap; gap: 8px; }
+.pos-add { display: flex; gap: 8px; margin-top: 10px; }
+.pos-add .form-input { flex: 1; }
+
+/* 提醒对象选择区：顶部按职位一键选择 + 下方成员多选 */
+.remind-box { display: block; }
+.remind-quick { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 12px; }
+.remind-quick-label { font-size: 0.82rem; color: var(--text-secondary); }
+.remind-members { display: flex; flex-wrap: wrap; gap: 8px; }
+.pos-chip {
+  border: 1px solid var(--border-strong);
+  background: color-mix(in srgb, var(--lg-fill) 85%, var(--material-muted));
+  color: var(--text); border-radius: var(--radius-pill);
+  padding: 5px 12px; font-size: 0.84rem; font-family: inherit; cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease-standard),
+              border-color var(--dur-fast) var(--ease-standard),
+              color var(--dur-fast) var(--ease-standard),
+              transform var(--dur-fast) var(--ease-standard);
+}
+.pos-chip:hover { background: var(--lg-fill-hover); }
+.pos-chip:active { transform: scale(0.97); }
+.pos-chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.pos-chip.partial { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 
 .form-error {
   font-size: 0.88rem; color: var(--danger); margin-bottom: 14px; display: none;
@@ -807,6 +842,13 @@ input[type="checkbox"]:disabled { opacity: 0.5; cursor: not-allowed; }
 }
 .section-title { font-size: 1.08rem; font-weight: 700; color: var(--text); letter-spacing: -0.014em; }
 .section-count { font-size: 0.86rem; color: var(--text-secondary); font-weight: 600; white-space: nowrap; }
+/* 可折叠分组：<details>/<summary> 原生展开收起（正在进行默认展开，未来/过去默认折叠） */
+.section-block > summary { list-style: none; cursor: pointer; }
+.section-block > summary::-webkit-details-marker { display: none; }
+.section-block > summary:hover .section-title { color: var(--accent); }
+.section-right { display: flex; align-items: center; gap: 8px; }
+.section-chevron { color: var(--text-secondary); flex-shrink: 0; transition: transform var(--dur-slow) var(--ease-spring); }
+.section-block[open] > summary .section-chevron { transform: rotate(180deg); }
 
 /* ═══════════════════════════════════════════════════════════════════
    16 · 内测横幅

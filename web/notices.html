@@ -87,7 +87,7 @@
                         </div>
                         <div class="form-field">
                             <label class="form-label">提醒对象（选填）</label>
-                            <div id="editRemind" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
+                            <div id="editRemind" class="remind-box"></div>
                         </div>
                     </div>
                     <div class="modal-foot">
@@ -121,13 +121,7 @@
     }
 
     function renderRemindChoices(checkedNames) {
-        var box = document.getElementById('editRemind');
-        if (!box) return;
-        if (!remindChoices.length) { box.innerHTML = '<span style="opacity:.6;font-size:.85rem;">暂无成员可提醒</span>'; return; }
-        box.innerHTML = remindChoices.map(function (m) {
-            var chk = (checkedNames && checkedNames.indexOf(m.name) >= 0) ? ' checked' : '';
-            return '<label class="chip"><input type="checkbox" class="remind-cb" value="' + esc(m.name) + '"' + chk + '>' + esc(m.name) + '</label>';
-        }).join('');
+        renderRemindBox('editRemind', remindChoices, checkedNames);
     }
 
     function collectRemind() {
@@ -173,11 +167,17 @@
             + '</button>';
     }
 
-    function groupHTML(title, rows) {
-        return '<div class="section-block">'
-            + '<div class="section-head"><h2 class="section-title">' + title + '</h2><span class="section-count">共 ' + rows.length + ' 条</span></div>'
+    function groupHTML(title, rows, open) {
+        return '<details class="section-block"' + (open ? ' open' : '') + '>'
+            + '<summary class="section-head">'
+            + '<h2 class="section-title">' + title + '</h2>'
+            + '<span class="section-right">'
+            + '<span class="section-count">共 ' + rows.length + ' 条</span>'
+            + '<svg class="section-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>'
+            + '</span>'
+            + '</summary>'
             + '<div class="list">' + rows.map(rowHTML).join('') + '</div>'
-            + '</div>';
+            + '</details>';
     }
 
     // ===== 加载列表（按 正在进行 / 将要开始 / 已经结束 分组） =====
@@ -194,9 +194,9 @@
             groups.upcoming.sort(byPublishAsc);
             groups.ended.sort(byPublishDesc);
             var html = '';
-            if (groups.ongoing.length) html += groupHTML('正在进行', groups.ongoing);
-            if (groups.upcoming.length) html += groupHTML('将要开始', groups.upcoming);
-            if (groups.ended.length) html += groupHTML('已经结束', groups.ended);
+            if (groups.ongoing.length) html += groupHTML('正在进行', groups.ongoing, true);
+            if (groups.upcoming.length) html += groupHTML('将要开始', groups.upcoming, false);
+            if (groups.ended.length) html += groupHTML('已经结束', groups.ended, false);
             el.innerHTML = html;
         } catch (err) {
             el.innerHTML = stateHTML(err.message, true);
