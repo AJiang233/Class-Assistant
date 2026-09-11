@@ -16,7 +16,17 @@ async function api(path, options = {}) {
   const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
   const token = localStorage.getItem(LS_TOKEN);
   if (token) headers['Authorization'] = 'Bearer ' + token;
-  const res = await fetch(API_BASE + path, { ...options, headers });
+  // 前端兜底超时：后端或网络挂起时也能拿到异常回显，而不是无限卡在加载态。
+  // providers 若已带 signal（供手动取消复用）则不覆盖。
+  const init = options.signal ? options : { ...options, signal: AbortSignal.timeout(30000) };
+  let res;
+  try {
+    res = await fetch(API_BASE + path, { ...init, headers });
+  } catch (e) {
+    // 超时/断网时 fetch 直接 reject，message 常为空，这里转成可读文案
+    const timedOut = !(options.signal) && e && (e.name === 'TimeoutError' || e.name === 'AbortError');
+    throw new Error(timedOut ? '请求超时（>30s），请检查网络后重试' : ('网络错误：' + (e.message || '无法连接服务器')));
+  }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     // 登录态失效（token 过期/无效）：清除本地会话，回主页引导页
