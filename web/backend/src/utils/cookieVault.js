@@ -33,6 +33,14 @@ export function vaultSecret(env) {
   throw new Error('缺少 COOKIE_SECRET / JWT_SECRET，无法封存教务会话');
 }
 
+/** 解密时按这个顺序试：现用密钥 → 旧的 JWT 派生密钥。后加 COOKIE_SECRET 不能把已封存记录锁死。 */
+function vaultSecrets(env) {
+  const list = [];
+  if (env && env.COOKIE_SECRET) list.push(String(env.COOKIE_SECRET));
+  if (env && env.JWT_SECRET) list.push(`${env.JWT_SECRET}:academic-cookie-v1`);
+  return [...new Set(list)];
+}
+
 async function importKey(secret) {
   const raw = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(secret)));
   return crypto.subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
@@ -64,7 +72,18 @@ export async function openCookies(env, stored) {
   }
   const iv = b64ToBytes(parts[1]);
   const data = b64ToBytes(parts[2]);
-  const key = await importKey(vaultSecret(env));
-  const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, data);
-  return new TextDecoder().decode(plain);
+  const secrets = vaultSecrets(env);
+  if (!secrets.length) throw new Error('缺少 COOKIE_SECRET / JWT_SECRET，无法解封教务会话');
+
+  let lastErr = null;
+  for (const secret of secrets) {
+    try {
+      const key = await importKey(secret);
+      const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, data);
+      return new TextDecoder().decode(plain);
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr || new Error('教务会话密文损坏');
 }

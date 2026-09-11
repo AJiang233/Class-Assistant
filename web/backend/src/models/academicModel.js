@@ -1,3 +1,5 @@
+import { openCookies } from '../utils/cookieVault.js';
+
 /**
  * 教务数据模型
  * 表结构：
@@ -123,7 +125,7 @@ export class AcademicModel {
   }
 
   /** 取中间态：只认本人的、且未过期的；过期即删并返回 null */
-  async getMfaSession(userId, token, ttlMs) {
+  async getMfaSession(userId, token, ttlMs, env) {
     const row = await this.db.prepare(
       `SELECT state, created_at FROM academic_mfa_sessions WHERE token = ? AND user_id = ?`
     ).bind(token, userId).first();
@@ -134,7 +136,8 @@ export class AcademicModel {
       await this.deleteMfaSession(token);
       return null;
     }
-    return JSON.parse(row.state);
+    const raw = await openCookies(env, row.state);
+    return JSON.parse(raw);
   }
 
   async deleteMfaSession(token) {

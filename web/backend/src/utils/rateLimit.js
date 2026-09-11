@@ -43,15 +43,15 @@ export async function consumeRateLimit(db, key, limit, windowMs) {
   const now = Date.now();
   try {
     const row = await db.prepare(
-      'SELECT count, reset_at FROM rate_limits WHERE key = ?'
+      'SELECT hits AS count, reset_at FROM rate_limits WHERE key = ?'
     ).bind(key).first();
     const next = nextRateState(row, now, limit, windowMs);
     if (next.allowed) {
       await db.prepare(
-        `INSERT INTO rate_limits (key, count, reset_at)
+        `INSERT INTO rate_limits (key, hits, reset_at)
          VALUES (?, ?, ?)
          ON CONFLICT(key) DO UPDATE SET
-           count = excluded.count,
+           hits = excluded.hits,
            reset_at = excluded.reset_at`
       ).bind(key, next.count, next.reset_at).run();
     }

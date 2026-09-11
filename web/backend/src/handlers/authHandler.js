@@ -15,7 +15,7 @@ import { consumeRateLimit, resetRateLimit, clientIp } from '../utils/rateLimit.j
 
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const LOGIN_ID_LIMIT = 8;
-const LOGIN_IP_LIMIT = 20;
+const LOGIN_IP_LIMIT = 60;
 const PASSWORD_MIN = 6;
 const PASSWORD_MAX = 72;
 
@@ -67,7 +67,7 @@ export async function handleRegister(request, env) {
 
     // 自定义职位才允许写 roles 表；系统预置名一旦被写入，全班同名职位都会被提权
     let positionsValue = Array.isArray(positions) ? JSON.stringify(positions) : positions;
-    if (role_permissions && Array.isArray(role_permissions)) {
+    if (Array.isArray(role_permissions) && role_permissions.length > 0) {
       const rawName = Array.isArray(positions) ? positions[0] : positions;
       if (isReservedRole(rawName)) {
         return jsonResponse(error('不能把系统预置职位当自定义职位写入权限表', 'RESERVED_ROLE'), 400);
@@ -120,6 +120,9 @@ export async function handleLogin(request, env) {
     if (!student_id || !password) {
       return jsonResponse(error('学号和密码为必填字段', 'MISSING_FIELDS'), 400);
     }
+    if (!env.JWT_SECRET) {
+      return jsonResponse(error('服务端未配置 JWT_SECRET', 'SERVER_MISCONFIGURED'), 500);
+    }
 
     const ipKey = `login:ip:${clientIp(request)}`;
     const idKey = `login:id:${String(student_id).trim()}`;
@@ -144,6 +147,7 @@ export async function handleLogin(request, env) {
     }
 
     await resetRateLimit(env.DB, idKey);
+    await resetRateLimit(env.DB, ipKey);
 
     const token = await sign(
       {

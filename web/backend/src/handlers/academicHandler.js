@@ -276,7 +276,13 @@ async function bindWithCookies(env, user, cookies) {
     return { failure: { message: '教务返回的用户信息异常，请重新登录教务系统', code: 'ACADEMIC_INVALID', status: 400 } };
   }
   if (!sameStudentId(user.student_id, info.userAccount)) {
-    return { failure: { message: '教务账号与当前学号不一致，只能绑定本人', code: 'ACADEMIC_IDENTITY_MISMATCH', status: 403 } };
+    return {
+      failure: {
+        message: `教务返回学号 ${info.userAccount || '空'}，与当前账号 ${user.student_id} 不一致，只能绑定本人`,
+        code: 'ACADEMIC_IDENTITY_MISMATCH',
+        status: 403
+      }
+    };
   }
 
   const model = new AcademicModel(env.DB);
@@ -357,7 +363,7 @@ export async function handleAcademicPasswordLogin(request, env, user) {
     const model = new AcademicModel(env.DB);
     await model.purgeExpiredMfaSessions(MFA_TTL);
     const token = randomToken();
-    await model.saveMfaSession(user.id, token, JSON.stringify(session.state));
+    await model.saveMfaSession(user.id, token, await sealCookies(env, JSON.stringify(session.state)));
     return jsonResponse(success({
       mfaRequired: true,
       token,
@@ -373,6 +379,7 @@ export async function handleAcademicPasswordLogin(request, env, user) {
     return jsonResponse(error(`${result.failure.message}（${hint}）`, result.failure.code), result.failure.status);
   }
   await resetRateLimit(env.DB, `academic:user:${user.id}`);
+  await resetRateLimit(env.DB, `academic:id:${studentId}`);
   return jsonResponse(success({ ...result.data, via: 'password' }));
 }
 
@@ -380,7 +387,7 @@ export async function handleAcademicPasswordLogin(request, env, user) {
 async function loadMfaState(env, user, token) {
   if (!token) return { failure: { message: '缺少认证会话', code: 'MISSING_TOKEN', status: 400 } };
   const model = new AcademicModel(env.DB);
-  const state = await model.getMfaSession(user.id, token, MFA_TTL);
+  const state = await model.getMfaSession(user.id, token, MFA_TTL, env);
   if (!state) {
     return { failure: { message: '认证会话已过期，请重新输入学号密码', code: 'MFA_EXPIRED', status: 400 } };
   }
@@ -434,6 +441,7 @@ export async function handleAcademicMfaVerify(request, env, user) {
     return jsonResponse(error(`${result.failure.message}（${hint}）`, result.failure.code), result.failure.status);
   }
   await resetRateLimit(env.DB, `academic:user:${user.id}`);
+  await resetRateLimit(env.DB, `academic:id:${user.student_id}`);
   return jsonResponse(success({ ...result.data, via: 'password+mfa' }));
 }
 

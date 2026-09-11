@@ -38,8 +38,10 @@ describe('自定义职位', () => {
   it('预置职位名不能当自定义职位', () => {
     assert.equal(isReservedRole('学生'), true);
     assert.equal(isReservedRole('班长'), true);
+    assert.equal(isReservedRole('团支书'), true);
     assert.equal(assertCustomRoleName('学生').ok, false);
     assert.equal(assertCustomRoleName('文艺委员').ok, true);
+    assert.equal(assertCustomRoleName('').ok, false);
   });
 
   it('权限只保留白名单', () => {
@@ -85,6 +87,14 @@ describe('Cookie 封存', () => {
 
   it('旧明文可以直接读出，方便平滑迁移', async () => {
     assert.equal(await openCookies(env, 'SESSION=plain'), 'SESSION=plain');
+  });
+
+  it('后加 COOKIE_SECRET 时仍能解开用 JWT 派生密钥封存的旧记录', async () => {
+    const raw = 'X-Qz-JSession=legacy';
+    const oldEnv = { JWT_SECRET: 'jwt-secret-for-vault' };
+    const sealed = await sealCookies(oldEnv, raw);
+    const newEnv = { JWT_SECRET: 'jwt-secret-for-vault', COOKIE_SECRET: 'brand-new-cookie-secret' };
+    assert.equal(await openCookies(newEnv, sealed), raw);
   });
 });
 

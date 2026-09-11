@@ -46,29 +46,37 @@ function tokenVersionOf(user) {
   return Number.isFinite(n) ? n : 0;
 }
 
+async function loadFreshUser(request, env) {
+  if (!env.JWT_SECRET) {
+    return { error: jsonError(500, '服务端未配置 JWT_SECRET', 'SERVER_MISCONFIGURED') };
+  }
+  const authResult = await authenticate(request, env.JWT_SECRET);
+  if (!authResult.valid) {
+    return { error: jsonError(401, '未登录或登录已过期', 'UNAUTHORIZED') };
+  }
+
+  const userModel = new UserModel(env.DB);
+  const fresh = await userModel.findById(authResult.user.id);
+  if (!fresh) {
+    return { error: jsonError(401, '未登录或登录已过期', 'UNAUTHORIZED') };
+  }
+
+  const tokenVer = Number(authResult.user.ver ?? 0);
+  if (tokenVer !== tokenVersionOf(fresh)) {
+    return { error: jsonError(401, '登录已失效，请重新登录', 'TOKEN_REVOKED') };
+  }
+  return { user: fresh };
+}
+
 /**
  * 需要认证的路由包装器
  * handler 签名统一为 (request, env, user)，user 为数据库里的最新资料。
  */
 export function withAuth(handler) {
   return async (request, env, ctx) => {
-    const authResult = await authenticate(request, env.JWT_SECRET);
-    if (!authResult.valid) {
-      return jsonError(401, '未登录或登录已过期', 'UNAUTHORIZED');
-    }
-
-    const userModel = new UserModel(env.DB);
-    const fresh = await userModel.findById(authResult.user.id);
-    if (!fresh) {
-      return jsonError(401, '未登录或登录已过期', 'UNAUTHORIZED');
-    }
-
-    const tokenVer = Number(authResult.user.ver ?? 0);
-    if (tokenVer !== tokenVersionOf(fresh)) {
-      return jsonError(401, '登录已失效，请重新登录', 'TOKEN_REVOKED');
-    }
-
-    return handler(request, env, fresh);
+    const loaded = await loadFreshUser(request, env);
+    if (loaded.error) return loaded.error;
+    return handler(request, env, loaded.user);
   };
 }
 
@@ -79,31 +87,17 @@ export function withAuth(handler) {
  */
 export function withPermission(perm) {
   return (handler) => async (request, env, ctx) => {
-    const authResult = await authenticate(request, env.JWT_SECRET);
-    if (!authResult.valid) {
-      return jsonError(401, '未登录或登录已过期', 'UNAUTHORIZED');
-    }
-
-    // 用最新用户数据判断权限，保证职位变更即时生效
-    const userModel = new UserModel(env.DB);
-    const fresh = await userModel.findById(authResult.user.id);
-    if (!fresh) {
-      return jsonError(401, '未登录或登录已过期', 'UNAUTHORIZED');
-    }
-
-    const tokenVer = Number(authResult.user.ver ?? 0);
-    if (tokenVer !== tokenVersionOf(fresh)) {
-      return jsonError(401, '登录已失效，请重新登录', 'TOKEN_REVOKED');
-    }
+    const loaded = await loadFreshUser(request, env);
+    if (loaded.error) return loaded.error;
 
     // 加载自定义职位权限（roles 表），让自定义职位也能参与鉴权
     const roleModel = new RoleModel(env.DB);
     const customMap = buildRoleMap(await roleModel.list());
 
-    if (!hasPermission(fresh.positions, perm, customMap)) {
+    if (!hasPermission(loaded.user.positions, perm, customMap)) {
       return jsonError(403, '没有操作权限', 'FORBIDDEN');
     }
 
-    return handler(request, env, fresh);
+    return handler(request, env, loaded.user);
   };
 }

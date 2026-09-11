@@ -326,7 +326,7 @@ CREATE TABLE academic_credits (             -- 学业达成（学分）缓存
 
 CREATE TABLE rate_limits (                  -- 登录 / 教务代登录固定窗口限流
   key       TEXT PRIMARY KEY,
-  count     INTEGER NOT NULL DEFAULT 0,
+  hits      INTEGER NOT NULL DEFAULT 0,
   reset_at  INTEGER NOT NULL
 );
 
