@@ -49,6 +49,7 @@
                         <div class="form-field" style="margin-bottom:0;">
                             <label class="form-label">主题外观</label>
                             <div class="tabs pref-seg" id="themeSeg">
+                                <span class="tab-pill" id="themeSegPill" aria-hidden="true"></span>
                                 <button type="button" class="tab" data-theme-choice="system">跟随系统</button>
                                 <button type="button" class="tab" data-theme-choice="light">浅色</button>
                                 <button type="button" class="tab" data-theme-choice="dark">深色</button>
@@ -365,6 +366,19 @@
         for (var i = 0; i < btns.length; i++) {
             btns[i].classList.toggle('active', btns[i].getAttribute('data-theme-choice') === cur);
         }
+        moveThemeSegPill();
+    }
+    // 滑动滑块：与移动端底栏同款，位置与尺寸按激活项实测写入
+    function moveThemeSegPill() {
+        var pill = document.getElementById('themeSegPill');
+        if (!pill) return;
+        var active = pill.parentNode.querySelector('.tab.active');
+        if (!active) { pill.style.opacity = '0'; return; }
+        pill.style.left = active.offsetLeft + 'px';
+        pill.style.top = active.offsetTop + 'px';
+        pill.style.width = active.offsetWidth + 'px';
+        pill.style.height = active.offsetHeight + 'px';
+        pill.style.opacity = '1';
     }
     (function bindThemeSeg() {
         var seg = document.getElementById('themeSeg');
@@ -378,6 +392,9 @@
         });
         window.addEventListener('storage', function (e) { if (e.key === 'theme') markThemeSeg(); });
         markThemeSeg();
+        // 首帧布局稳定后再定位一次；旋屏/尺寸变化时重算
+        setTimeout(moveThemeSegPill, 0);
+        window.addEventListener('resize', moveThemeSegPill);
     })();
 
     // ===== 修改密码 =====

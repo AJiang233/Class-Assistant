@@ -629,11 +629,23 @@ body {
               box-shadow var(--dur-base) var(--ease-standard),
               transform var(--dur-press) var(--ease-spring);
 }
-.tab:hover { background: var(--material-muted); }
+.tab:not(.active):hover { background: var(--material-muted); }
 .tab:active { transform: scale(0.97); }
-.tab.active {
-  background: var(--material-strong); color: var(--accent); font-weight: 700;
+/* 激活态只保留颜色与字重，背景交给下面的滑块 —— 这样切换时背景是「滑」过去的，
+   而不是就地淡入。 */
+.tab.active { color: var(--accent); font-weight: 700; }
+/* 主题分段的滑动滑块：与移动端底栏 .bottom-nav-pill 同一套弹簧动画。
+   位置与尺寸由 JS 按激活项实测写入；左右滑动走弹簧，上下/高度仅在换行时变化。 */
+.tab-pill {
+  position: absolute; z-index: 0; left: 0; top: 0; width: 0; height: 0;
+  border-radius: var(--radius-pill);
+  background: var(--material-strong);
   box-shadow: var(--specular), 0 4px 12px -6px rgba(0, 0, 0, 0.18);
+  opacity: 0;
+  transform: translateZ(0);
+  transition: left 0.45s var(--ease-spring), width 0.45s var(--ease-spring),
+              opacity var(--dur-base) var(--ease-standard);
+  pointer-events: none;
 }
 
 .form-field { margin-bottom: 18px; }
@@ -1301,12 +1313,14 @@ body.app-mode { overflow: hidden; }
   /* 底栏胶囊滑块：底部要扣掉安全区，否则会被 Home 指示条压住 */
   .bottom-nav-pill { top: 5px; bottom: calc(5px + var(--safe-bottom)); }
 
-  /* 导航项：命中区抬到 44px，标签从 10.6px 提到可读区间 */
+  /* 导航项：命中区抬到 44px，标签从 10.6px 提到可读区间。
+     字号写死为 px（原 0.78rem@14px ≈ 10.9px）：底栏是固定尺寸的 chrome，
+     不随根字号变化，根字号回到 15px 后仍保持等比缩小过的观感。 */
   .bottom-nav-item {
     min-height: var(--tap-min);
     padding: 4px 2px;
     gap: 3px;
-    font-size: 0.78rem;
+    font-size: 11px;
     touch-action: manipulation;
   }
   .bottom-nav-item svg { width: 22px; height: 22px; }
@@ -1331,8 +1345,8 @@ body.app-mode { overflow: hidden; }
 
 /* ── 21.2 手机端密度与命中区 ─────────────────────────────────────── */
 @media (max-width: 768px), (max-height: 500px) and (pointer: coarse) {
-  html { font-size: 14px; }
-  body { font-size: 14px; line-height: 1.6; }
+  html { font-size: 15px; }
+  body { font-size: 15px; line-height: 1.6; }
 
   /* 手机端隐藏滚动条：经典滚动条会占掉右侧横向空间，把本应居中的内容挤偏。
      隐藏后仍可正常滚动（滚动条只是不可见）。 */
@@ -1374,7 +1388,8 @@ body.app-mode { overflow: hidden; }
      特异度更高会盖掉上面的 16px，这里显式加一级权重复位，同样避开聚焦缩放。 */
   .form-input.ac-select { font-size: max(16px, 0.95rem); }
   select.form-input { padding-right: 36px; background-position: right 11px center; }
-  .btn { padding: 10px 16px; font-size: 0.89rem; min-height: var(--tap-min); }
+  /* 按钮纵向收紧：min-height 44→40，padding 同步减小（与 chip 的 38px 折中同一量级） */
+  .btn { padding: 8px 16px; font-size: 0.89rem; min-height: 40px; }
   .btn-row .btn { padding-left: 4px; padding-right: 4px; font-size: 0.84rem; }
   /* chip 是多选标签，成组密集排列，取 38px 折中（仍明显大于桌面端） */
   .chip { padding: 7px 12px; font-size: 0.85rem; min-height: 38px; }
@@ -1413,9 +1428,6 @@ body.app-mode { overflow: hidden; }
   .cal-day { font-size: 0.78rem; }
   .cal-nav .icon-btn { width: 40px; height: 40px; }
 
-  /* 三列按钮在 320px 宽度下会挤成竖排文字，改为两列 */
-  .btn-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-
   .credit-stats { grid-template-columns: repeat(2, 1fr); }
   .credit-row { grid-template-columns: minmax(0, 1fr) 34px 34px 34px 34px 56px; font-size: 0.76rem; }
   .credit-row-head { font-size: 0.7rem; }
@@ -1433,7 +1445,7 @@ body.app-mode { overflow: hidden; }
     padding-top: 2px;
     padding-bottom: calc(2px + var(--safe-bottom));
   }
-  .bottom-nav-item { min-height: 38px; font-size: 0.7rem; gap: 1px; }
+  .bottom-nav-item { min-height: 38px; font-size: 10px; gap: 1px; }
   .bottom-nav-item svg { width: 18px; height: 18px; }
   .bottom-nav-pill { top: 2px; bottom: calc(2px + var(--safe-bottom)); }
   .main { padding-bottom: calc(48px + var(--safe-bottom) + 14px); }
@@ -1643,8 +1655,8 @@ body.app-mode { overflow: hidden; }
   .btn-outline, .icon-btn, .form-input, .chip, .cal-today-btn,
   .sidebar-user, .profile-avatar, .user-avatar, .sidebar-tools .side-link,
   .pos-chip, input[type="checkbox"] { background: var(--surface); }
-  .tab.active { background: var(--surface); }
-  .list-row:hover, .side-link:hover, .tab:hover, .cal-day:hover { background: var(--bg-sunken); }
+  .tab-pill { background: var(--surface); }
+  .list-row:hover, .side-link:hover, .tab:not(.active):hover, .cal-day:hover { background: var(--bg-sunken); }
 }
 
 /* 降低透明度（系统「减少透明度」）：玻璃自动变为更实、更不透明的表面。
