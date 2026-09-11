@@ -104,7 +104,7 @@ export async function handleCalendarFeed(request, env) {
 
     // 活动
     const activityModel = new ActivityModel(env.DB);
-    const activities = await activityModel.list(MAX_EVENTS, 0);
+    const activities = await activityModel.listAll(MAX_EVENTS, 0);
     for (const item of activities) {
       const start = parseLocalDateTime(item.start_time);
       if (start == null || start < from || start > to) continue;

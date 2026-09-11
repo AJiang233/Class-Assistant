@@ -20,7 +20,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : Worker(context, p
         val token = Store.token(ctx) ?: return Result.success()
         Notifier.ensureChannels(ctx)
 
-        val activities = Api.getList("/api/activities?limit=100", token) ?: return Result.retry()
+        val activities = Api.getList("/api/activities?scope=all&limit=100", token) ?: return Result.retry()
         val notices = Api.getList("/api/notices?limit=50", token) ?: return Result.retry()
 
         val me = Api.decodeUser(token)

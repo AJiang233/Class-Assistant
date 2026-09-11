@@ -34,7 +34,7 @@
     </script>
 </head>
 <body>
-    <!-- 应用壳（未登录也显示，登录后加载日程） -->
+    <!-- 应用壳（未登录也显示，登录后加载活动） -->
     <div class="app-shell" id="appShell">
         <aside class="sidebar" id="sidebar">
             <a href="index.html" class="sidebar-brand">
@@ -95,8 +95,8 @@
                 <div class="main">
                     <div class="container">
                     <div class="page-head">
-                        <h1 class="page-title">班级主页</h1>
-                        <p class="page-desc">查看班级的日程与通知，点击左侧日历日期可查看当天的安排。</p>
+                        <h1 class="page-title">我的主页</h1>
+                        <p class="page-desc">查看班级的活动与通知，点击左侧日历日期可查看当天的安排。</p>
                     </div>
                     <div class="beta-banner">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
@@ -130,7 +130,7 @@
                             <div class="section-block">
                                 <div class="section-head">
                                     <h2 class="section-title" id="scheduleDateTitle">今日活动</h2>
-                                    <button type="button" class="btn btn-outline btn-sm" onclick="switchView('activities')">全部日程</button>
+                                    <button type="button" class="btn btn-outline btn-sm" onclick="switchView('activities')">全部活动</button>
                                 </div>
                                 <div class="list" id="activityList"></div>
                             </div>
@@ -139,7 +139,7 @@
                     </div>
                 </div>
 
-                <!-- 详情弹窗（点击"当日日程/当日通知"行弹出） -->
+                <!-- 详情弹窗（点击"当日活动/当日通知"行弹出） -->
                 <div class="modal-overlay" id="detailModal">
                     <div class="modal">
                         <div class="modal-head">
@@ -218,6 +218,7 @@
     // ===== 日历状态变量（提前声明，避免初始化时因 var 提升导致 eventDates 为 undefined 而崩溃） =====
     var calYear, calMonth;
     var eventDates = new Set();
+    var noticeDates = new Set();
     var activeDate = null;
 
     // ===== 初始化 =====
@@ -235,12 +236,12 @@
         }
         if (authed) {
             loadCalendar().then(function () {
-                // 默认选中今天，加载今日日程与通知
+                // 默认选中今天，加载今日活动与通知
                 if (!activeDate) activeDate = todayKey();
                 refreshDay();
             });
         } else {
-            // 未登录：主页只显示框架，不加载日程
+            // 未登录：主页只显示框架，不加载活动
             var now = new Date();
             calYear = now.getFullYear();
             calMonth = now.getMonth();
@@ -370,14 +371,30 @@
 
     // ===== 日历 =====
     async function loadCalendar() {
+        // 把 [开始日, 结束日] 逐天展开进集合（按天、两端都含；结束为空或早于开始时按单日）
+        function expand(set, rawStart, rawEnd) {
+            var s = String(rawStart || '').slice(0, 10);
+            if (!s) return;
+            var e = String(rawEnd || '').slice(0, 10);
+            if (!e || e < s) e = s;
+            var cur = new Date(s + 'T00:00:00');
+            var end = new Date(e + 'T00:00:00');
+            while (cur <= end) {
+                set.add(dateKey(cur.getFullYear(), cur.getMonth(), cur.getDate()));
+                cur.setDate(cur.getDate() + 1);
+            }
+        }
         try {
-            var res = await api('/api/activities?limit=100');
+            var res = await api('/api/activities?scope=all&limit=200');
             var list = (res.data && res.data.list) || [];
             eventDates.clear();
-            list.forEach(function (a) {
-                var d = String(a.start_time || '').slice(0, 10);
-                if (d) eventDates.add(d);
-            });
+            list.forEach(function (a) { expand(eventDates, a.start_time, a.end_time); });
+        } catch (e) {}
+        try {
+            var nres = await api('/api/notices?scope=all&limit=200');
+            var nlist = (nres.data && nres.data.list) || [];
+            noticeDates.clear();
+            nlist.forEach(function (n) { expand(noticeDates, n.publish_time, n.expire_time); });
         } catch (e) {}
         var now = new Date();
         calYear = now.getFullYear();
@@ -405,7 +422,7 @@
             if (m < 0) { m = 11; y = calYear - 1; }
             if (m > 11) { m = 0; y = calYear + 1; }
             var k = dateKey(y, m, n);
-            var cls = 'cal-day' + (other ? ' other' : '') + (eventDates.has(k) ? ' has-event' : '') + (k === today ? ' today' : '') + (k === activeDate ? ' active' : '');
+            var cls = 'cal-day' + (other ? ' other' : '') + ((eventDates.has(k) || noticeDates.has(k)) ? ' has-event' : '') + (k === today ? ' today' : '') + (k === activeDate ? ' active' : '');
             var click = ' onclick="selectDate(\'' + k + '\')"';
             html += '<div class="' + cls + '"' + click + '>' + n + '</div>';
         }
@@ -433,11 +450,11 @@
 
     // 今日/某日期格式化标题
     function dayTitle(k) {
-        if (!k) return '今日日程';
+        if (!k) return '今日活动';
         var t = todayKey();
-        if (k === t) return '今日日程';
+        if (k === t) return '今日活动';
         var p = k.split('-');
-        return parseInt(p[1]) + ' 月 ' + parseInt(p[2]) + ' 日 · 日程';
+        return parseInt(p[1]) + ' 月 ' + parseInt(p[2]) + ' 日 · 活动';
     }
     function dayNoticeTitle(k) {
         if (!k) return '当前通知';
@@ -447,7 +464,7 @@
         return parseInt(p[1]) + ' 月 ' + parseInt(p[2]) + ' 日 · 通知';
     }
 
-    // ===== 加载指定日期日程/通知（默认今天） =====
+    // ===== 加载指定日期活动/通知（默认今天） =====
     function refreshDay() {
         if (!activeDate) activeDate = todayKey();
         document.getElementById('scheduleDateTitle').textContent = dayTitle(activeDate);
@@ -512,7 +529,7 @@
         }
     }
 
-    // ===== 详情弹窗（点击"当日日程/当日通知"行弹出） =====
+    // ===== 详情弹窗（点击"当日活动/当日通知"行弹出） =====
     function openDetail() {
         var ov = document.getElementById('detailModal');
         if (ov) ov.classList.add('show');

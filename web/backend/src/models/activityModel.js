@@ -20,24 +20,36 @@ export class ActivityModel {
   }
 
   /**
-   * 获取活动列表（按开始时间倒序）
+   * 获取「当前生效」的活动列表（按开始时间倒序）
+   * 时间窗口：[start_time, end_time]（按天，两端都含）；end_time 为空则视为只有开始当天
+   * 与通知同一套口径：窗口覆盖某天，该天就显示（不传 date 时以「今天」为目标日）
    * @param {number} limit
    * @param {number} offset
-   * @param {string} [date] 可选，按开始日期过滤（格式 YYYY-MM-DD）
+   * @param {string} [date] 可选，目标日期 YYYY-MM-DD；返回时间窗口覆盖该日的活动
    */
   async list(limit = 50, offset = 0, date = null) {
-    const hasDate = date ? date.length > 0 : false;
-    const sql = hasDate
-      ? `SELECT id, title, content, location, start_time, end_time, publisher, remind_people, created_at
+    const day = date ? '?' : "substr(datetime('now', '+8 hours'), 1, 10)";
+    const sql = `SELECT id, title, content, location, start_time, end_time, publisher, remind_people, created_at
          FROM activities
-         WHERE substr(start_time, 1, 10) = ?
-         ORDER BY start_time DESC
-         LIMIT ? OFFSET ?`
-      : `SELECT id, title, content, location, start_time, end_time, publisher, remind_people, created_at
-         FROM activities
+         WHERE substr(start_time, 1, 10) <= ${day}
+           AND max(substr(start_time, 1, 10), substr(coalesce(nullif(end_time, ''), start_time), 1, 10)) >= ${day}
          ORDER BY start_time DESC
          LIMIT ? OFFSET ?`;
-    const result = await this.db.prepare(sql).bind(...(hasDate ? [date, limit, offset] : [limit, offset])).all();
+    const args = date ? [date, date, limit, offset] : [limit, offset];
+    const result = await this.db.prepare(sql).bind(...args).all();
+    return result.results;
+  }
+
+  /**
+   * 获取全部活动（含已结束/未来的，供「全部活动」归档视图，按开始时间倒序）
+   */
+  async listAll(limit = 50, offset = 0) {
+    const result = await this.db.prepare(
+      `SELECT id, title, content, location, start_time, end_time, publisher, remind_people, created_at
+       FROM activities
+       ORDER BY start_time DESC
+       LIMIT ? OFFSET ?`
+    ).bind(limit, offset).all();
     return result.results;
   }
 

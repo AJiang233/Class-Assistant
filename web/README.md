@@ -112,7 +112,7 @@ web/                            # Cloudflare Pages 项目根目录（直接部�
 | 方法 | 路径 | 权限 | 说明 |
 | --- | --- | --- | --- |
 | POST | `/api/notices` | `content:write` | 发布通知 |
-| GET | `/api/notices` | 登录 | 通知列表（自动过滤已过期） |
+| GET | `/api/notices` | 登录 | 通知列表（默认只返回「当前生效」，支持 `scope`/`date`，见下） |
 | GET | `/api/notices/archive` | `content:write` | 归档列表（含已过期，供管理员查看） |
 | GET | `/api/notices/:id` | 登录 | 通知详情 |
 | PUT | `/api/notices/:id` | `content:write` | 编辑通知 |
@@ -132,7 +132,7 @@ web/                            # Cloudflare Pages 项目根目录（直接部�
 | 方法 | 路径 | 权限 | 说明 |
 | --- | --- | --- | --- |
 | POST | `/api/activities` | `content:write` | 发布活动 |
-| GET | `/api/activities` | 登录 | 活动列表 |
+| GET | `/api/activities` | 登录 | 活动列表（默认只返回「当前生效」，支持 `scope`/`date`，见下） |
 | GET | `/api/activities/:id` | 登录 | 活动详情 |
 | PUT | `/api/activities/:id` | `content:write` | 编辑活动 |
 | DELETE | `/api/activities/:id` | `content:write` | 删除活动 |
@@ -143,6 +143,17 @@ web/                            # Cloudflare Pages 项目根目录（直接部�
   "start_time":"2026-09-12 09:00:00", "end_time":"2026-09-12 16:00:00",
   "remind_people":["张三"] }
 ```
+
+### 列表筛选参数（通知与活动一致）
+
+| 参数 | 默认 | 说明 |
+| --- | --- | --- |
+| `scope` | `active` | `active` 只返回「当前生效」的条目；`all` 返回全部（含未开始/已结束），供「全部」页按 进行中/将要开始/已结束 分类 |
+| `date` | 不传 | `YYYY-MM-DD`，只返回时间窗口覆盖该日的条目，用于主页按日历选中日期展示 |
+| `limit` / `offset` | `50` / `0` | 分页 |
+
+时间窗口按「天」比较、两端都含：通知为 `[publish_time, expire_time]`，活动为 `[start_time, end_time]`。
+不传 `date` 时以「今天」为目标日；结束时间为空时，通知视为永不失效，活动视为仅开始当天。
 
 ### 日历订阅接口
 

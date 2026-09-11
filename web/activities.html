@@ -184,7 +184,7 @@
         var el = document.getElementById('activityListView');
         el.innerHTML = skeletonHTML(5);
         try {
-            var res = await api('/api/activities');
+            var res = await api('/api/activities?scope=all');
             var list = (res.data && res.data.list) || [];
             if (!list.length) { el.innerHTML = stateHTML('暂无活动'); return; }
             var groups = { ongoing: [], upcoming: [], ended: [] };

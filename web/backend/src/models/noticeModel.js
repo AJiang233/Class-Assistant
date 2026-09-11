@@ -21,28 +21,21 @@ export class NoticeModel {
 
   /**
    * 获取「当前生效」的通知列表（按发布时间倒序）
-   * 生效窗口：[publish_time, expire_time)；publish_time 为空则视为立即生效，expire_time 为空则视为永不失效
-   * 即：已到发布时间 且 尚未过期 —— 只要处于该窗口内，每天都会出现在主页
+   * 生效窗口：[publish_time, expire_time]（按天，两端都含）；publish_time 为空则视为立即生效，expire_time 为空则视为永不失效
+   * 与活动同一套口径：窗口覆盖某天，该天就显示（不传 date 时以「今天」为目标日）
    * @param {number} limit
    * @param {number} offset
-   * @param {string} [date] 可选，按日期过滤（格式 YYYY-MM-DD）：返回生效窗口覆盖该日的通知
+   * @param {string} [date] 可选，目标日期 YYYY-MM-DD；返回生效窗口覆盖该日的通知
    */
   async list(limit = 50, offset = 0, date = null) {
-    const hasDate = date ? date.length > 0 : false;
-    const sql = hasDate
-      ? `SELECT id, title, content, publish_time, publisher, remind_people, source, expire_time, created_at
+    const day = date ? '?' : "substr(datetime('now', '+8 hours'), 1, 10)";
+    const sql = `SELECT id, title, content, publish_time, publisher, remind_people, source, expire_time, created_at
          FROM notices
-         WHERE (publish_time IS NULL OR publish_time = '' OR publish_time <= ?)
-           AND (expire_time IS NULL OR expire_time = '' OR expire_time > ?)
-         ORDER BY publish_time DESC
-         LIMIT ? OFFSET ?`
-      : `SELECT id, title, content, publish_time, publisher, remind_people, source, expire_time, created_at
-         FROM notices
-         WHERE (publish_time IS NULL OR publish_time <= datetime('now', '+8 hours'))
-           AND (expire_time IS NULL OR expire_time = '' OR expire_time > datetime('now', '+8 hours'))
+         WHERE (publish_time IS NULL OR publish_time = '' OR substr(publish_time, 1, 10) <= ${day})
+           AND (expire_time IS NULL OR expire_time = '' OR substr(expire_time, 1, 10) >= ${day})
          ORDER BY publish_time DESC
          LIMIT ? OFFSET ?`;
-    const args = hasDate ? [date + ' 23:59:59', date + ' 00:00:00', limit, offset] : [limit, offset];
+    const args = date ? [date, date, limit, offset] : [limit, offset];
     const result = await this.db.prepare(sql).bind(...args).all();
     return result.results;
   }

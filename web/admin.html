@@ -176,6 +176,9 @@
                             <svg class="collapse-arrow" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                         </button>
                         <div class="collapse-body">
+                            <div class="form-field">
+                                <input id="memberSearch" class="form-input" type="search" placeholder="搜索姓名 / 学号 / 职务" autocomplete="off" oninput="filterMembers()">
+                            </div>
                             <div class="info-list" id="memberList"></div>
                         </div>
                     </div>
@@ -367,28 +370,41 @@
         el.innerHTML = stateHTML('加载中…');
         try {
             var res = await api('/api/auth/users');
-            var list = (res.data && res.data.list) || [];
-            membersCache = list;
-            if (!list.length) { el.innerHTML = stateHTML('暂无成员'); return; }
-            el.innerHTML = list.map(function (m) {
-                var pos = (Array.isArray(m.positions) && m.positions.length) ? m.positions.join('、') : (m.positions || '学生');
-                return '<div class="info-row member-row">'
-                    + '<div class="member-main">'
-                    + '<div class="member-line">'
-                    + '<span class="member-name">' + esc(m.name) + '</span>'
-                    + '<span class="member-pos">' + esc(pos) + '</span>'
-                    + '</div>'
-                    + '<div class="member-sub">学号 ' + esc(m.student_id) + '</div>'
-                    + '</div>'
-                    + '<div class="member-actions">'
-                    + '<button type="button" class="btn btn-outline" onclick="startEditMember(' + m.id + ')">编辑</button>'
-                    + '<button type="button" class="btn btn-danger" onclick="delMember(' + m.id + ')">删除</button>'
-                    + '</div>'
-                    + '</div>';
-            }).join('');
+            membersCache = (res.data && res.data.list) || [];
+            filterMembers();
         } catch (err) {
             el.innerHTML = stateHTML(err.message, true);
         }
+    }
+
+    // 纯前端按关键词过滤成员（姓名 / 学号 / 职务）
+    function filterMembers() {
+        var el = document.getElementById('memberList');
+        var box = document.getElementById('memberSearch');
+        var q = box ? box.value.trim().toLowerCase() : '';
+        var list = !q ? membersCache : membersCache.filter(function (m) {
+            var pos = (Array.isArray(m.positions) && m.positions.length) ? m.positions.join('、') : (m.positions || '');
+            return String(m.name || '').toLowerCase().indexOf(q) >= 0
+                || String(m.student_id || '').toLowerCase().indexOf(q) >= 0
+                || String(pos).toLowerCase().indexOf(q) >= 0;
+        });
+        if (!list.length) { el.innerHTML = stateHTML(q ? '没有匹配的成员' : '暂无成员'); return; }
+        el.innerHTML = list.map(function (m) {
+            var pos = (Array.isArray(m.positions) && m.positions.length) ? m.positions.join('、') : (m.positions || '学生');
+            return '<div class="info-row member-row">'
+                + '<div class="member-main">'
+                + '<div class="member-line">'
+                + '<span class="member-name">' + esc(m.name) + '</span>'
+                + '<span class="member-pos">' + esc(pos) + '</span>'
+                + '</div>'
+                + '<div class="member-sub">学号 ' + esc(m.student_id) + '</div>'
+                + '</div>'
+                + '<div class="member-actions">'
+                + '<button type="button" class="btn btn-outline" onclick="startEditMember(' + m.id + ')">编辑</button>'
+                + '<button type="button" class="btn btn-danger" onclick="delMember(' + m.id + ')">删除</button>'
+                + '</div>'
+                + '</div>';
+        }).join('');
     }
 
     function startEditMember(id) {
@@ -515,6 +531,7 @@
     window.cancelEditMember = cancelEditMember;
     window.saveMember = saveMember;
     window.delMember = delMember;
+    window.filterMembers = filterMembers;
     })();
     </script>
 </body>
