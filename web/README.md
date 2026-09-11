@@ -87,7 +87,9 @@ web/                            # Cloudflare Pages 项目根目录（直接部�
 | PUT | `/api/auth/users/:id` | `user:manage` | 编辑成员（姓名/职务/联系方式） |
 | DELETE | `/api/auth/users/:id` | `user:manage` | 删除成员 |
 | GET | `/api/auth/members-pick` | 登录 | 成员精简列表（id/name/positions，供提醒对象按职位一键选择） |
-| GET | `/api/auth/roles` | `user:manage` | 自定义职位列表（供注册/编辑成员时作为可选项） |
+| GET | `/api/auth/roles` | `user:manage` | 自定义职位列表（含 id/name/permissions） |
+| POST | `/api/auth/roles` | `user:manage` | 新增/更新自定义职位（同名则覆盖权限） |
+| DELETE | `/api/auth/roles/:id` | `user:manage` | 删除自定义职位 |
 
 ```jsonc
 // 注册 POST /api/auth/register（body，需 user:manage）

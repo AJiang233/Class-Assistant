@@ -312,10 +312,52 @@ export async function handleListRoles(request, env, user) {
   try {
     const roleModel = new RoleModel(env.DB);
     const rows = await roleModel.list();
-    const list = rows.map((r) => ({ name: r.name, permissions: r.permissions }));
+    const list = rows.map((r) => ({ id: r.id, name: r.name, permissions: r.permissions }));
     return jsonResponse(success({ list }));
   } catch (e) {
     console.error('获取自定义职位失败:', e);
     return jsonResponse(error('获取自定义职位失败', 'LIST_ROLES_FAILED'), 500);
+  }
+}
+
+/**
+ * 新增/更新自定义职位（需 user:manage 权限；同名则更新权限）
+ */
+export async function handleCreateRole(request, env, user) {
+  try {
+    const body = await request.json();
+    const name = String(body.name == null ? '' : body.name).trim();
+    if (!name) {
+      return jsonResponse(error('职位名称不能为空', 'MISSING_FIELDS'), 400);
+    }
+    const permissions = Array.isArray(body.permissions) ? body.permissions.filter(Boolean) : [];
+
+    const roleModel = new RoleModel(env.DB);
+    await roleModel.upsert(name, JSON.stringify(permissions));
+
+    return jsonResponse(success({ message: '添加成功' }), 201);
+  } catch (e) {
+    console.error('添加自定义职位失败:', e);
+    return jsonResponse(error('添加自定义职位失败，请稍后重试', 'CREATE_ROLE_FAILED'), 500);
+  }
+}
+
+/**
+ * 删除自定义职位（需 user:manage 权限）
+ */
+export async function handleDeleteRole(request, env, user, params) {
+  try {
+    const id = parseInt(params.id);
+    if (!id) {
+      return jsonResponse(error('无效的职位ID', 'INVALID_ID'), 400);
+    }
+
+    const roleModel = new RoleModel(env.DB);
+    await roleModel.deleteById(id);
+
+    return jsonResponse(success({ message: '删除成功' }));
+  } catch (e) {
+    console.error('删除自定义职位失败:', e);
+    return jsonResponse(error('删除自定义职位失败，请稍后重试', 'DELETE_ROLE_FAILED'), 500);
   }
 }

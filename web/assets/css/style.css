@@ -321,8 +321,7 @@ body {
   backdrop-filter: blur(18px) saturate(var(--lg-saturate));
   box-shadow: var(--specular);
 }
-.btn-outline:hover { background: var(--lg-fill-hover); transform: translateY(-1px); }
-.btn-outline:active { transform: scale(0.965); }
+.btn-outline:hover { background: var(--lg-fill-hover); }
 
 .btn-sm { min-height: 30px; padding: 5px 14px; font-size: 0.84rem; }
 
