@@ -40,9 +40,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
     private val startUrl = "https://class.qxwkstudio.top"
 
-    /** 网页当前是否已滚到顶部（由页面内探针回传，供下拉刷新判断） */
+    /** 是否允许下拉刷新（仅主页、无弹窗、且页面已置顶时允许；由页面内探针回传） */
     @Volatile
-    private var scrollAtTop = true
+    private var pullRefreshReady = true
 
     /** 是否正处于「登录教务系统」流程中（此期间切换 UA、不注入探针） */
     private var academicLogin = false
@@ -57,8 +57,8 @@ class MainActivity : AppCompatActivity() {
     private inner class HostBridge {
 
         @JavascriptInterface
-        fun setScrollAtTop(atTop: Boolean) {
-            scrollAtTop = atTop
+        fun setPullRefreshReady(ready: Boolean) {
+            pullRefreshReady = ready
         }
 
         /** 页面里的登录 token 变化时保存下来，并触发一次同步 */
@@ -171,8 +171,8 @@ class MainActivity : AppCompatActivity() {
             loadUrl(startUrl)
         }
 
-        // 只有页面真的在顶部时，下拉才触发刷新；否则把手势交还给页面滚动
-        binding.swipeRefresh.setOnChildScrollUpCallback { _, _ -> !scrollAtTop }
+        // 只有「主页 + 无弹窗 + 已置顶」时才允许下拉刷新；其余情况把手势交还给页面滚动
+        binding.swipeRefresh.setOnChildScrollUpCallback { _, _ -> !pullRefreshReady }
         binding.swipeRefresh.setOnRefreshListener { binding.webView.reload() }
     }
 
@@ -257,10 +257,11 @@ class MainActivity : AppCompatActivity() {
                 "Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0"
 
         /**
-         * 滚动状态探针。
+         * 下拉刷新探针。
          * 站点是「固定外壳 + 内层 .app-view 滚动」，子页面又跑在同源 iframe 里，
          * 因此 webView.scrollY 恒为 0，无法直接判断是否在顶部。
-         * 这里在页面内周期性探测真实滚动位置，通过 CAHost 桥回传给原生层。
+         * 这里在页面内周期性探测真实滚动位置，通过 CAHost 桥回传给原生层；
+         * 且只有「主页 + 无弹窗 + 已置顶」才判为可下拉刷新。
          */
         val PROBE_JS = """
             (function () {
@@ -273,8 +274,23 @@ class MainActivity : AppCompatActivity() {
                 } catch (e) {}
                 return true;
               }
+              // 是否停在「主页」视图（下拉刷新只保留给主页）
+              function onHome() {
+                var h = document.getElementById('homeView');
+                return !!h && h.style.display !== 'none';
+              }
+              // 是否有弹窗打开（.modal-overlay 关闭时 display:none，尺寸为 0）
+              function modalOpen(doc) {
+                try {
+                  var o = doc.querySelectorAll('.modal-overlay');
+                  for (var i = 0; i < o.length; i++) {
+                    if (o[i].offsetWidth > 0 || o[i].offsetHeight > 0) return true;
+                  }
+                } catch (e) {}
+                return false;
+              }
               function probe() {
-                var ok = atTop(document);
+                var ok = atTop(document) && onHome() && !modalOpen(document);
                 if (ok) {
                   var views = document.querySelectorAll('.app-view');
                   for (var v = 0; v < views.length; v++) {
@@ -293,7 +309,7 @@ class MainActivity : AppCompatActivity() {
                     } catch (e) {}
                   }
                 }
-                try { CAHost.setScrollAtTop(ok); } catch (e) {}
+                try { CAHost.setPullRefreshReady(ok); } catch (e) {}
                 if (++tick % 8 === 0) reportToken();
               }
               var tick = 0;
