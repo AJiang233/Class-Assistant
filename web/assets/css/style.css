@@ -1064,10 +1064,16 @@ body.app-mode { overflow: hidden; }
    20 · 响应式
    ═══════════════════════════════════════════════════════════════════ */
 
+/* 仅手机端显示（桌面端隐藏） */
+.only-mobile { display: none; }
+
 @media (max-width: 768px) {
   body { background-attachment: scroll; }
   .sidebar { display: none; }
+  .only-mobile { display: block; }
 
+  /* 底栏 = 导航层液态玻璃，与侧栏用同一套配方：
+     --lg-fill 半透明底 + blur(30px) / saturate(180%) 强折射 + --specular 受光高光 + --lg-edge 边缘受光 */
   .bottom-nav {
     display: flex; position: fixed; left: 0; right: 0; bottom: 0;
     height: calc(60px + env(safe-area-inset-bottom));
@@ -1076,31 +1082,28 @@ body.app-mode { overflow: hidden; }
     padding-right: max(4px, env(safe-area-inset-right));
     border-radius: 0; border: none;
     border-top: 1px solid var(--lg-edge);
-    background: linear-gradient(180deg,
-      color-mix(in srgb, var(--lg-fill) 84%, transparent),
-      color-mix(in srgb, var(--lg-fill) 72%, transparent));
-    -webkit-backdrop-filter: blur(30px) saturate(var(--lg-saturate));
-    backdrop-filter: blur(30px) saturate(var(--lg-saturate));
-    box-shadow: 0 -12px 30px -14px rgba(0, 0, 0, 0.16);
+    background: var(--lg-fill);
+    -webkit-backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate));
+    backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate));
+    box-shadow: var(--specular), 0 -12px 30px -16px rgba(0, 0, 0, 0.30);
     overflow: hidden;
     z-index: 200;
+    transition: transform var(--dur-base) var(--ease-standard),
+                opacity var(--dur-base) var(--ease-standard);
   }
-  /* 上缘受光：液态玻璃光源语义 */
-  .bottom-nav::before {
-    content: ""; position: absolute; top: 0; left: 0; right: 0; height: 1px;
-    background: linear-gradient(90deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.65), rgba(255, 255, 255, 0));
+  /* 输入法弹出时收起底栏：Android 键盘会压缩视口，fixed 底栏否则会被顶到键盘上方 */
+  .bottom-nav.kb-hidden {
+    transform: translateY(115%);
+    opacity: 0;
     pointer-events: none;
   }
-  :root[data-theme="dark"] .bottom-nav {
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.04));
-    border-top-color: rgba(255, 255, 255, 0.11);
-    box-shadow: 0 -10px 24px -12px rgba(0, 0, 0, 0.5);
-  }
-  :root[data-theme="dark"] .bottom-nav::before {
-    background: linear-gradient(90deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0));
-  }
 
-  .app-content { padding-bottom: calc(60px + env(safe-area-inset-bottom)); }
+  /* 弹窗避开底栏：内容可以穿过底栏，弹窗不能被它盖住 */
+  .modal-overlay { padding: 12px 12px calc(60px + env(safe-area-inset-bottom) + 12px); }
+  .modal { max-height: calc(100dvh - 96px); }
+
+  /* 底部不再预留空带：让内容从底栏下方穿过，毛玻璃才能"透出页面"。
+     避让空间改由 .main 的下内边距提供（对所有页面统一生效） */
 }
 
 /* 移动端密度优化 */
@@ -1108,7 +1111,8 @@ body.app-mode { overflow: hidden; }
   html { font-size: 15px; }
   body { font-size: 14px; line-height: 1.62; }
 
-  .main { padding: 20px 16px 40px; }
+  /* 底部让出底栏高度 + 一点呼吸空间（内容会从底栏下方滚过） */
+  .main { padding: 20px 16px calc(60px + env(safe-area-inset-bottom) + 20px); }
   .page-head { margin-bottom: 18px; }
   .page-title { font-size: 1.45rem; }
   .page-desc { font-size: 0.86rem; margin-top: 5px; }

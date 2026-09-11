@@ -115,8 +115,15 @@
                     </div>
                 </div>
 
-                <!-- 右列：强制刷新 + 修改密码 + 退出登录 -->
+                <!-- 右列：管理员入口（仅手机端）+ 强制刷新 + 修改密码 + 退出登录 -->
                 <div class="split-col">
+                    <!-- 管理员面板入口（仅手机端；桌面端侧边栏已有该项） -->
+                    <div class="profile-card only-mobile" id="adminEntryCard">
+                        <h2 style="margin:0 0 8px;">管理员面板</h2>
+                        <p class="profile-sub" style="margin:0 0 16px;">发布通知与活动、管理班级成员。</p>
+                        <button class="btn btn-primary btn-block" type="button" onclick="openAdmin()">进入管理员面板</button>
+                    </div>
+
                     <div class="profile-card">
                         <h2 style="margin:0 0 8px;">强制刷新</h2>
                         <p class="profile-sub" style="margin:0 0 16px;">页面样式错乱或显示异常时，清除本地缓存并重新加载整个应用。</p>
@@ -196,6 +203,16 @@
         if (head) head.setAttribute('aria-expanded', open ? 'true' : 'false');
     }
     window.toggleCollapse = toggleCollapse;
+
+    // ===== 管理员面板入口（仅手机端显示；无权限则直接移除该卡片） =====
+    if (!(canManageUsers() || canContentWrite())) {
+        var adminEntry = document.getElementById('adminEntryCard');
+        if (adminEntry) adminEntry.remove();
+    }
+    function openAdmin() {
+        try { window.parent.switchView('admin'); } catch (e) {}
+    }
+    window.openAdmin = openAdmin;
 
     // ===== 修改联系方式（本人可改自己的） =====
     function openContactEdit() {
