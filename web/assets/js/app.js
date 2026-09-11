@@ -34,7 +34,11 @@ async function api(path, options = {}) {
       clearSession();
       redirectToIndex();
     }
-    throw new Error(data.error || '请求失败 (' + res.status + ')');
+    // 透传后端错误码与 HTTP 状态，供前端按 code 精确分支（不再靠文案匹配）
+    const err = new Error(data.error || '请求失败 (' + res.status + ')');
+    err.code = data.code || '';
+    err.httpStatus = res.status;
+    throw err;
   }
   return data;
 }
