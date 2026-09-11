@@ -12,6 +12,7 @@ import {
 import { hashPassword, verifyPassword } from '../src/utils/crypto.js';
 import { sign, verify } from '../src/utils/jwt.js';
 import { isSealed, openCookies, sealCookies } from '../src/utils/cookieVault.js';
+import { MFA_MAX_ATTEMPTS } from '../src/models/academicModel.js';
 
 describe('sameStudentId', () => {
   it('trim 后精确匹配', () => {
@@ -100,5 +101,17 @@ describe('Cookie 封存', () => {
     const env = { COOKIE_SECRET: 'compat-secret-for-go' };
     const sealed = 'v1.Yzkjl59QocTwaLnh.4yMmGlESPclxP4shg6mBI4jIb5TY-UYYTf6uoqmNUfp2t3VMirrL7S2Mp-185kN5-EiVTw';
     assert.equal(await openCookies(env, sealed), 'X-Qz-JSession=abc; INGRESSCOOKIE=xyz');
+  });
+
+  it('密钥全部缺失时封存/解封都抛错（由 handler 转成 VAULT_NOT_CONFIGURED）', async () => {
+    await assert.rejects(() => sealCookies({}, 'SESSION=x'));
+    const sealed = await sealCookies(env, 'SESSION=x');
+    await assert.rejects(() => openCookies({}, sealed));
+  });
+});
+
+describe('MFA 尝试上限', () => {
+  it('上限为 5 次', () => {
+    assert.equal(MFA_MAX_ATTEMPTS, 5);
   });
 });

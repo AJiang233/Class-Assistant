@@ -23,4 +23,6 @@ go run ./cmd/scheduler run           # 长期运行
 
 `once` / `run` 需要环境变量 `COOKIE_SECRET` 或 `JWT_SECRET`，与 Pages Secrets 同一套，才能解开 Worker 写入 D1 的教务 Cookie。
 
-抓取（`crawler/`）还没接到真实班级群，会复用这些包，不另起一套规则。
+## 现状
+
+**当前只做封存自检**：`run` 每小时验证一次 vault 能封能解，确认进程活着、密钥配置没坏。课表/通知的真实轮询抓取还没接进来，跑这个进程不会替用户拉任何数据。抓取（`crawler/`）后续会复用 `internal/` 里的 vault / identity / roles / ratelimit，不另起一套规则。

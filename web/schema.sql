@@ -76,6 +76,7 @@ CREATE TABLE IF NOT EXISTS academic_credits (
 CREATE TABLE IF NOT EXISTS academic_mfa_sessions (
   token         TEXT PRIMARY KEY,          -- 一次性令牌，前端持有并回传
   user_id       INTEGER NOT NULL,
-  state         TEXT NOT NULL,             -- CAS Cookie 罐 + reAuthParams（不含密码）
+  state         TEXT NOT NULL,             -- CAS Cookie 罐 + reAuthParams（AES-GCM 密文，不含密码）
+  attempts      INTEGER DEFAULT 0,         -- 验证码试错计数，满 5 次 token 作废
   created_at    DATETIME DEFAULT CURRENT_TIMESTAMP
 );

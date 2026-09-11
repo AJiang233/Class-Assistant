@@ -304,6 +304,20 @@ export async function handleUpdateUser(request, env, user, params) {
       return jsonResponse(error('没有可更新的字段', 'MISSING_FIELDS'), 400);
     }
 
+    // 职位名与注册同规则：预置名可以写（那是正常任职），自定义名不能冒用预置名、不能超长
+    let positionsValue;
+    if (positions !== undefined) {
+      const list = Array.isArray(positions) ? positions : [positions];
+      for (const p of list) {
+        if (isReservedRole(p)) continue;
+        const named = assertCustomRoleName(p);
+        if (!named.ok) {
+          return jsonResponse(error(named.message, named.code), 400);
+        }
+      }
+      positionsValue = Array.isArray(positions) ? JSON.stringify(positions) : positions;
+    }
+
     const userModel = new UserModel(env.DB);
     const existing = await userModel.findById(id);
     if (!existing) {
@@ -312,7 +326,7 @@ export async function handleUpdateUser(request, env, user, params) {
 
     const data = {};
     if (name !== undefined) data.name = name;
-    if (positions !== undefined) data.positions = Array.isArray(positions) ? JSON.stringify(positions) : positions;
+    if (positions !== undefined) data.positions = positionsValue;
     if (contact !== undefined) data.contact = contact;
 
     await userModel.update(id, data);

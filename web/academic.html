@@ -449,7 +449,7 @@
             renderUnscheduled(timetable.unscheduled);
         } catch (err) {
             // 会话过期/未绑定用错误码精确判断（不再靠文案匹配，避免误伤渲染错误）
-            if (err.code === 'ACADEMIC_EXPIRED' || err.code === 'NOT_BOUND') {
+            if (err.code === 'ACADEMIC_EXPIRED' || err.code === 'ACADEMIC_DECRYPT_FAILED' || err.code === 'NOT_BOUND') {
                 showOnly('bindView');
                 showFormError('bindError', err.message);
                 return;

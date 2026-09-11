@@ -38,16 +38,19 @@ async function readBindingCookies(env, model, binding) {
 }
 
 async function schoolClientFromBinding(env, model, binding) {
+  let cookies;
   try {
-    const cookies = await readBindingCookies(env, model, binding);
-    if (!cookies) {
-      return { failure: { message: '教务登录态已失效，请重新绑定', code: 'ACADEMIC_EXPIRED', status: 400 } };
-    }
-    return { client: new SchoolClient(cookies) };
-  } catch {
+    cookies = await readBindingCookies(env, model, binding);
+  } catch (e) {
+    // 密文损坏 / 密钥轮换后解不开：与登录态过期区分开，便于排查是密钥问题而非教务问题
+    console.error('教务会话解密失败:', e);
     await model.markExpired(binding.user_id);
-    return { failure: { message: '教务会话无法解密，请重新绑定', code: 'ACADEMIC_EXPIRED', status: 400 } };
+    return { failure: { message: '教务会话无法解密，请重新绑定', code: 'ACADEMIC_DECRYPT_FAILED', status: 400 } };
   }
+  if (!cookies) {
+    return { failure: { message: '教务登录态已失效，请重新绑定', code: 'ACADEMIC_EXPIRED', status: 400 } };
+  }
+  return { client: new SchoolClient(cookies) };
 }
 
 // ===== 通用工具 =====
@@ -279,12 +282,20 @@ async function bindWithCookies(env, user, cookies) {
     };
   }
 
+  let sealed;
+  try {
+    sealed = await sealCookies(env, cookies);
+  } catch (e) {
+    console.error('教务会话封存失败:', e);
+    return { failure: { message: '服务端未配置教务会话加密密钥', code: 'VAULT_NOT_CONFIGURED', status: 500 } };
+  }
+
   const model = new AcademicModel(env.DB);
   await model.saveBinding(user.id, {
     student_no: info.userAccount || '',
     real_name: info.userNameZh || '',
     school_uid: info.id,
-    cookies: await sealCookies(env, cookies)
+    cookies: sealed
   });
 
   return {
@@ -352,7 +363,14 @@ export async function handleAcademicPasswordLogin(request, env, user) {
     const model = new AcademicModel(env.DB);
     await model.purgeExpiredMfaSessions(MFA_TTL);
     const token = randomToken();
-    await model.saveMfaSession(user.id, token, await sealCookies(env, JSON.stringify(session.state)));
+    let sealedState;
+    try {
+      sealedState = await sealCookies(env, JSON.stringify(session.state));
+    } catch (e) {
+      console.error('MFA 中间态封存失败:', e);
+      return jsonResponse(error('服务端未配置教务会话加密密钥', 'VAULT_NOT_CONFIGURED'), 500);
+    }
+    await model.saveMfaSession(user.id, token, sealedState);
     return jsonResponse(success({
       mfaRequired: true,
       token,
@@ -413,8 +431,11 @@ export async function handleAcademicMfaVerify(request, env, user) {
   try {
     session = await verifyMfaCode(loaded.state, code);
   } catch (e) {
-    // 验证码错误时保留中间态，让用户直接重试
-    if (e instanceof CasError) return jsonResponse(error(e.message, e.code), 400);
+    // 验证码错误时保留中间态，让用户直接重试；但记一次尝试，超限后中间态作废
+    if (e instanceof CasError) {
+      await loaded.model.bumpMfaAttempts(String(body.token || ''));
+      return jsonResponse(error(e.message, e.code), 400);
+    }
     return jsonResponse(error(`多因子认证失败：${e.message}`, 'MFA_ERROR'), 502);
   }
 
