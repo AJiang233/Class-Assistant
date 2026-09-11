@@ -67,7 +67,7 @@
                             </div>
                             <div class="form-field">
                                 <label class="form-label">截止时间（未填写则长期通知）</label>
-                                <input id="ntcExpire" class="form-input" type="datetime-local" autocomplete="off">
+                                <input id="ntcExpire" class="form-input" type="datetime-local" data-empty-hint="未填写（长期有效）" autocomplete="off">
                             </div>
                             <div class="form-field">
                                 <label class="form-label">提醒对象（未勾选则通知所有人）</label>
@@ -103,7 +103,7 @@
                             </div>
                             <div class="form-field">
                                 <label class="form-label">结束时间（未填写则仅当天有效）</label>
-                                <input id="actEnd" class="form-input" type="datetime-local" autocomplete="off">
+                                <input id="actEnd" class="form-input" type="datetime-local" data-empty-hint="未填写（仅当天）" autocomplete="off">
                             </div>
                             <div class="form-field">
                                 <label class="form-label">提醒对象（未勾选则通知所有人）</label>
@@ -191,7 +191,7 @@
                             <div class="form-field">
                                 <label class="form-label">该职位的权限（可选，不勾选则仅为称号）</label>
                                 <label style="display:block; margin:6px 0;"><input type="checkbox" id="rolePermWrite" value="content:write"> 可发布 / 修改 / 删除 活动、通知</label>
-                                <label style="display:block; margin:6px 0;"><input type="checkbox" id="rolePermManage" value="user:manage"> 可注册账号、管理班级成员</label>
+                                <label style="display:block; margin:6px 0;"><input type="checkbox" id="rolePermManage" value="user:manage"> 可注册账号、管理班级成员、添加 / 管理职位</label>
                             </div>
                             <button type="button" class="btn btn-primary btn-block" id="roleAddBtn" onclick="addRole()">添加职位</button>
                         </div>
@@ -217,16 +217,16 @@
                         <input id="editName" class="form-input" type="text" placeholder="请输入姓名" autocomplete="off">
                     </div>
                     <div class="form-field">
-                        <label class="form-label">职务（可多选，可自定义）</label>
+                        <label class="form-label">职务（可多选）</label>
                         <div class="pos-picker" id="editPosPicker"></div>
-                        <div class="pos-add">
-                            <input id="editPosNew" class="form-input" type="text" placeholder="添加自定义职位" autocomplete="off">
-                            <button type="button" class="btn btn-outline" onclick="addEditPosition()">添加</button>
-                        </div>
                     </div>
                     <div class="form-field">
                         <label class="form-label">联系方式</label>
                         <input id="editContact" class="form-input" type="text" placeholder="选填" autocomplete="off">
+                    </div>
+                    <div class="form-field">
+                        <label class="form-label">重置密码（留空则不修改）</label>
+                        <input id="editPassword" class="form-input" type="password" placeholder="至少 6 位" autocomplete="new-password">
                     </div>
                 </div>
                 <div class="modal-foot">
@@ -327,7 +327,8 @@
             document.getElementById('ntcTitle').value = '';
             document.getElementById('ntcContent').value = '';
             document.getElementById('ntcPublish').value = nowLocal();
-            document.getElementById('ntcExpire').value = '';
+            document.getElementById('ntcExpire').value = todayEnd();
+            refreshDateHints();
             renderRemindChoices('ntcRemind', []);
             errBox.textContent = '发布成功';
             errBox.classList.add('show');
@@ -362,6 +363,7 @@
             document.getElementById('actLocation').value = '';
             document.getElementById('actStart').value = nowLocal();
             document.getElementById('actEnd').value = todayEnd();
+            refreshDateHints();
             renderRemindChoices('actRemind', []);
             errBox.textContent = '发布成功';
             errBox.classList.add('show');
@@ -422,6 +424,12 @@
 
     // 预设职务（可多选）
     var POSITION_PRESETS = ['班长', '团支书', '学习委员'];
+    // 与后端 ROLE_PERMISSIONS 保持一致，用于「管理职位」中展示默认职位权限
+    var PRESET_PERMISSIONS = {
+        '班长': ['content:write', 'user:manage'],
+        '团支书': ['content:write', 'user:manage'],
+        '学习委员': ['content:write']
+    };
     var rolesCache = [];   // roles 表：已定义的自定义职位
 
     // 汇总可选职务：预设 + roles 表已定义 + 成员已在用 + 当前已选（去重，排除「学生」）
@@ -471,23 +479,39 @@
     }
 
     // 权限码 → 中文
-    var PERM_LABELS = { 'content:write': '发布内容', 'user:manage': '成员管理' };
+    var PERM_LABELS = { 'content:write': '发布内容', 'user:manage': '成员与职位管理' };
+    function permLabels(list) {
+        if (!list || !list.length) return '无特殊权限';
+        return list.map(function (k) { return PERM_LABELS[k] || k; }).join('、');
+    }
     function rolePermText(permissions) {
         var arr = [];
         try { var p = JSON.parse(permissions); if (Array.isArray(p)) arr = p; } catch (e) {}
-        if (!arr.length) return '无特殊权限';
-        return arr.map(function (k) { return PERM_LABELS[k] || k; }).join('、');
+        return permLabels(arr);
     }
 
-    // 渲染「管理职位」列表
+    // 渲染「管理职位」列表：默认职位置顶（不可修改 / 删除），其下为自定义职位
     function renderRoleList() {
         var el = document.getElementById('roleList');
         if (!el) return;
-        if (!rolesCache.length) { el.innerHTML = stateHTML('暂无自定义职位'); return; }
-        el.innerHTML = rolesCache.map(function (r) {
+        var preset = POSITION_PRESETS.map(function (name) {
             return '<div class="info-row member-row">'
                 + '<div class="member-main">'
-                + '<div class="member-line"><span class="member-name">' + esc(r.name) + '</span></div>'
+                + '<div class="member-line">'
+                + '<span class="member-name">' + esc(name) + '</span>'
+                + '<span class="member-pos">默认</span>'
+                + '</div>'
+                + '<div class="member-sub">' + esc(permLabels(PRESET_PERMISSIONS[name] || [])) + '</div>'
+                + '</div>'
+                + '</div>';
+        }).join('');
+        var custom = rolesCache.map(function (r) {
+            return '<div class="info-row member-row">'
+                + '<div class="member-main">'
+                + '<div class="member-line">'
+                + '<span class="member-name">' + esc(r.name) + '</span>'
+                + '<span class="member-pos">自定义</span>'
+                + '</div>'
                 + '<div class="member-sub">' + esc(rolePermText(r.permissions)) + '</div>'
                 + '</div>'
                 + '<div class="member-actions">'
@@ -495,6 +519,10 @@
                 + '</div>'
                 + '</div>';
         }).join('');
+        el.innerHTML = '<div class="roles-group-label">默认职位（不可修改 / 删除）</div>'
+            + preset
+            + '<div class="roles-group-label">自定义职位</div>'
+            + (rolesCache.length ? custom : stateHTML('暂无自定义职位'));
     }
 
     // 添加自定义职位（同名则更新其权限）
@@ -537,25 +565,6 @@
         renderPosPicker('editPosPicker', selected);
     }
 
-    // 向编辑弹窗的职务选择器添加自定义职位标签
-    function addEditPosition() {
-        var input = document.getElementById('editPosNew');
-        var box = document.getElementById('editPosPicker');
-        if (!input || !box) return;
-        var name = input.value.trim();
-        if (!name) return;
-        var found = Array.prototype.filter.call(box.querySelectorAll('.pos-cb'), function (cb) { return cb.value === name; })[0];
-        if (found) {
-            found.checked = true;
-        } else {
-            var label = document.createElement('label');
-            label.className = 'chip';
-            label.innerHTML = '<input type="checkbox" class="pos-cb" value="' + esc(name) + '" checked>' + esc(name);
-            box.appendChild(label);
-        }
-        input.value = '';
-    }
-
     function startEditMember(id) {
         var m = (membersCache || []).filter(function (x) { return x.id === id; })[0];
         if (!m) { alert('未找到该成员'); return; }
@@ -563,6 +572,7 @@
         document.getElementById('editName').value = m.name || '';
         renderEditPosPicker(parsePositionsList(m.positions));
         document.getElementById('editContact').value = m.contact || '';
+        document.getElementById('editPassword').value = '';
         document.getElementById('editMemberError').classList.remove('show');
         editingMemberId = id;
         openModal('editMemberModal');
@@ -578,13 +588,17 @@
         errBox.classList.remove('show');
         var name = document.getElementById('editName').value.trim();
         var contact = document.getElementById('editContact').value.trim();
+        var password = document.getElementById('editPassword').value;
         if (!name) { errBox.textContent = '姓名不能为空'; errBox.classList.add('show'); return; }
+        if (password && password.length < 6) { errBox.textContent = '新密码长度至少 6 位'; errBox.classList.add('show'); return; }
         var positions = [];
         document.querySelectorAll('#editPosPicker .pos-cb:checked').forEach(function (cb) { positions.push(cb.value); });
         var btn = document.getElementById('editMemberBtn');
         btn.disabled = true; var t = btn.textContent; btn.textContent = '保存中…';
         try {
-            await api('/api/auth/users/' + editingMemberId, { method: 'PUT', body: JSON.stringify({ name: name, positions: positions, contact: contact }) });
+            var payload = { name: name, positions: positions, contact: contact };
+            if (password) payload.password = password;
+            await api('/api/auth/users/' + editingMemberId, { method: 'PUT', body: JSON.stringify(payload) });
             cancelEditMember();
             loadMembers();
         } catch (err) {
@@ -639,6 +653,32 @@
         });
     }
 
+    // ===== datetime-local 空值提示：用「未填写」替换原生的 yyyy/mm/dd 占位 =====
+    function refreshDateHints() {
+        var wraps = document.querySelectorAll('.dt-field');
+        for (var i = 0; i < wraps.length; i++) {
+            var inp = wraps[i].querySelector('input');
+            wraps[i].classList.toggle('is-empty', !(inp && inp.value));
+        }
+    }
+    function initDateHints() {
+        var inputs = document.querySelectorAll('input[type="datetime-local"]');
+        for (var i = 0; i < inputs.length; i++) {
+            var input = inputs[i];
+            var wrap = document.createElement('div');
+            wrap.className = 'dt-field';
+            input.parentNode.insertBefore(wrap, input);
+            wrap.appendChild(input);
+            var hint = document.createElement('span');
+            hint.className = 'dt-hint';
+            hint.textContent = input.getAttribute('data-empty-hint') || '未填写';
+            wrap.appendChild(hint);
+            input.addEventListener('input', refreshDateHints);
+            input.addEventListener('change', refreshDateHints);
+        }
+        refreshDateHints();
+    }
+
     // ===== 初始化：按权限显示对应区块 =====
     if (canWrite) {
         ['addNoticeCard', 'addActivityCard'].forEach(function (id) {
@@ -647,16 +687,25 @@
         document.getElementById('actStart').value = nowLocal();
         document.getElementById('actEnd').value = todayEnd();
         document.getElementById('ntcPublish').value = nowLocal();
+        document.getElementById('ntcExpire').value = todayEnd();
         loadRemindChoices();
     }
+    // 职位卡片：与「添加/管理成员」卡片一样正常显示，列表只读，增删在提交时由后端校验权限
+    ['manageRolesCard', 'addRoleCard'].forEach(function (id) {
+        document.getElementById(id).style.display = 'block';
+    });
+    loadRoles();
+
     if (canManage) {
-        ['membersCard', 'addMemberCard', 'manageRolesCard', 'addRoleCard'].forEach(function (id) {
+        ['membersCard', 'addMemberCard'].forEach(function (id) {
             document.getElementById(id).style.display = 'block';
         });
         initMemberManagement();
-        loadRoles();
         loadMembers();
     }
+
+    // 默认值已填好后再接管日期输入的空值提示
+    initDateHints();
 
     // 供内联 onclick 调用
     window.toggleCollapse = toggleCollapse;
@@ -667,7 +716,6 @@
     window.saveMember = saveMember;
     window.delMember = delMember;
     window.filterMembers = filterMembers;
-    window.addEditPosition = addEditPosition;
     window.addRole = addRole;
     window.delRole = delRole;
     })();

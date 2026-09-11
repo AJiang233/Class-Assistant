@@ -580,6 +580,17 @@ input[type="datetime-local"].form-input::-webkit-calendar-picker-indicator {
 }
 input[type="datetime-local"].form-input::-webkit-calendar-picker-indicator:hover { opacity: 1; }
 
+/* datetime-local 空值：用「未填写」提示替换原生的 yyyy/mm/dd 占位 */
+.dt-field { position: relative; }
+.dt-field .dt-hint {
+  position: absolute; left: 15px; top: 50%; transform: translateY(-50%);
+  pointer-events: none; color: var(--text-tertiary); font-size: 0.96rem;
+  display: none;
+}
+.dt-field.is-empty .dt-hint { display: block; }
+.dt-field.is-empty input:not(:focus) { color: transparent; }
+.dt-field.is-empty input:focus ~ .dt-hint { display: none; }
+
 /* 复选框 */
 input[type="checkbox"] {
   appearance: none; -webkit-appearance: none;
@@ -638,8 +649,6 @@ input[type="checkbox"]:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* 职务多选选择器（注册 / 编辑成员） */
 .pos-picker { display: flex; flex-wrap: wrap; gap: 8px; }
-.pos-add { display: flex; gap: 8px; margin-top: 10px; }
-.pos-add .form-input { flex: 1; }
 
 /* 提醒对象选择区：顶部按职位一键选择 + 下方成员多选 */
 .remind-box { display: block; }
@@ -760,6 +769,10 @@ input[type="checkbox"]:disabled { opacity: 0.5; cursor: not-allowed; }
 .member-sub { font-size: 0.84rem; color: var(--text-tertiary); margin-top: 3px; }
 .member-actions { display: flex; gap: 6px; flex-shrink: 0; }
 .member-actions .btn { padding: 4px 11px; font-size: 0.82rem; min-height: 28px; }
+
+/* 管理职位：分组小标题 */
+.roles-group-label { font-size: 0.82rem; color: var(--text-tertiary); margin: 14px 0 2px; }
+.roles-group-label:first-child { margin-top: 0; }
 
 .split-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
 .split-col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }

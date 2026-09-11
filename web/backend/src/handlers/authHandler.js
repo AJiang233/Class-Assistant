@@ -257,7 +257,7 @@ export async function handleDeleteUser(request, env, user, params) {
 }
 
 /**
- * 更新班级成员资料（姓名/职务/联系方式，需 user:manage 权限）
+ * 更新班级成员资料（姓名/职务/联系方式/重置密码，需 user:manage 权限）
  */
 export async function handleUpdateUser(request, env, user, params) {
   try {
@@ -267,8 +267,8 @@ export async function handleUpdateUser(request, env, user, params) {
     }
 
     const body = await request.json();
-    const { name, positions, contact } = body;
-    if (name === undefined && positions === undefined && contact === undefined) {
+    const { name, positions, contact, password } = body;
+    if (name === undefined && positions === undefined && contact === undefined && password === undefined) {
       return jsonResponse(error('没有可更新的字段', 'MISSING_FIELDS'), 400);
     }
 
@@ -282,6 +282,14 @@ export async function handleUpdateUser(request, env, user, params) {
     if (name !== undefined) data.name = name;
     if (positions !== undefined) data.positions = Array.isArray(positions) ? JSON.stringify(positions) : positions;
     if (contact !== undefined) data.contact = contact;
+    if (password !== undefined && password !== null && password !== '') {
+      const pwd = String(password);
+      if (pwd.length < 6) {
+        return jsonResponse(error('密码长度至少 6 位', 'WEAK_PASSWORD'), 400);
+      }
+      const { hash, salt } = await hashPassword(pwd);
+      data.password_hash = `${salt}:${hash}`;
+    }
 
     await userModel.update(id, data);
     return jsonResponse(success({ message: '更新成功' }));

@@ -57,9 +57,9 @@ export async function authRoutes(request, env, ctx) {
     return withAuth(handleListMembersPick)(request, env, ctx);
   }
 
-  // 自定义职位：列表（需 user:manage 权限）
+  // 自定义职位：列表（任何登录用户可读，保证「管理职位」卡片能正常显示）
   if (path === '/api/auth/roles' && method === 'GET') {
-    return withPermission('user:manage')(handleListRoles)(request, env, ctx);
+    return withAuth(handleListRoles)(request, env, ctx);
   }
 
   // 新增/更新自定义职位（需 user:manage 权限）
