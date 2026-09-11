@@ -8,10 +8,9 @@ import {
   isMfaCodeSupported,
   mfaMethodLabel
 } from '../utils/casLogin.js';
-import { success, error, jsonResponse, tooManyRequests } from '../utils/response.js';
+import { success, error, jsonResponse } from '../utils/response.js';
 import { sameStudentId } from '../utils/identity.js';
 import { sealCookies, openCookies, isSealed } from '../utils/cookieVault.js';
-import { consumeRateLimit, resetRateLimit } from '../utils/rateLimit.js';
 
 /** 课表节次方案 id（教务默认方案） */
 const DEFAULT_KBJCMS_ID = 1;
@@ -28,11 +27,6 @@ function randomToken() {
   crypto.getRandomValues(bytes);
   return Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('');
 }
-
-const ACADEMIC_LOGIN_LIMIT = 5;
-const ACADEMIC_LOGIN_WINDOW_MS = 15 * 60 * 1000;
-const MFA_SEND_LIMIT = 3;
-const MFA_SEND_WINDOW_MS = 10 * 60 * 1000;
 
 /** 读出教务 Cookie；旧明文记录顺手封存回去 */
 async function readBindingCookies(env, model, binding) {
@@ -334,11 +328,6 @@ export async function handleAcademicPasswordLogin(request, env, user) {
     return jsonResponse(error('只能绑定自己的教务账号', 'ACADEMIC_IDENTITY_MISMATCH'), 403);
   }
 
-  const userHit = await consumeRateLimit(env.DB, `academic:user:${user.id}`, ACADEMIC_LOGIN_LIMIT, ACADEMIC_LOGIN_WINDOW_MS);
-  if (!userHit.allowed) return tooManyRequests(userHit.retryAfterMs);
-  const idHit = await consumeRateLimit(env.DB, `academic:id:${studentId}`, 8, ACADEMIC_LOGIN_WINDOW_MS);
-  if (!idHit.allowed) return tooManyRequests(idHit.retryAfterMs);
-
   let session;
   try {
     session = await loginWithPassword(studentId, password);
@@ -378,8 +367,6 @@ export async function handleAcademicPasswordLogin(request, env, user) {
     const hint = `已拿到 Cookie：${session.cookieNames.join(',') || '无'}；跳转：${session.hops.join(' → ')}`;
     return jsonResponse(error(`${result.failure.message}（${hint}）`, result.failure.code), result.failure.status);
   }
-  await resetRateLimit(env.DB, `academic:user:${user.id}`);
-  await resetRateLimit(env.DB, `academic:id:${studentId}`);
   return jsonResponse(success({ ...result.data, via: 'password' }));
 }
 
@@ -401,9 +388,6 @@ export async function handleAcademicMfaSend(request, env, user) {
   if (loaded.failure) {
     return jsonResponse(error(loaded.failure.message, loaded.failure.code), loaded.failure.status);
   }
-
-  const mfaHit = await consumeRateLimit(env.DB, `academic:mfa:${user.id}`, MFA_SEND_LIMIT, MFA_SEND_WINDOW_MS);
-  if (!mfaHit.allowed) return tooManyRequests(mfaHit.retryAfterMs);
 
   try {
     const sent = await sendMfaCode(loaded.state);
@@ -440,8 +424,6 @@ export async function handleAcademicMfaVerify(request, env, user) {
     const hint = `已拿到 Cookie：${session.cookieNames.join(',') || '无'}；跳转：${session.hops.join(' → ')}`;
     return jsonResponse(error(`${result.failure.message}（${hint}）`, result.failure.code), result.failure.status);
   }
-  await resetRateLimit(env.DB, `academic:user:${user.id}`);
-  await resetRateLimit(env.DB, `academic:id:${user.student_id}`);
   return jsonResponse(success({ ...result.data, via: 'password+mfa' }));
 }
 

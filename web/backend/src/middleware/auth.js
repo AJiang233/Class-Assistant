@@ -41,11 +41,6 @@ function jsonError(status, message, code) {
   });
 }
 
-function tokenVersionOf(user) {
-  const n = Number(user && user.token_version);
-  return Number.isFinite(n) ? n : 0;
-}
-
 async function loadFreshUser(request, env) {
   if (!env.JWT_SECRET) {
     return { error: jsonError(500, '服务端未配置 JWT_SECRET', 'SERVER_MISCONFIGURED') };
@@ -59,11 +54,6 @@ async function loadFreshUser(request, env) {
   const fresh = await userModel.findById(authResult.user.id);
   if (!fresh) {
     return { error: jsonError(401, '未登录或登录已过期', 'UNAUTHORIZED') };
-  }
-
-  const tokenVer = Number(authResult.user.ver ?? 0);
-  if (tokenVer !== tokenVersionOf(fresh)) {
-    return { error: jsonError(401, '登录已失效，请重新登录', 'TOKEN_REVOKED') };
   }
   return { user: fresh };
 }

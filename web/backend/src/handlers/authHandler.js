@@ -2,7 +2,7 @@ import { UserModel } from '../models/userModel.js';
 import { RoleModel } from '../models/roleModel.js';
 import { hashPassword, verifyPassword } from '../utils/crypto.js';
 import { sign } from '../utils/jwt.js';
-import { success, error, jsonResponse, tooManyRequests } from '../utils/response.js';
+import { success, error, jsonResponse } from '../utils/response.js';
 import {
   parsePositions,
   getPermissions,
@@ -11,11 +11,7 @@ import {
   sanitizePermissions,
   assertCustomRoleName
 } from '../utils/permissions.js';
-import { consumeRateLimit, resetRateLimit, clientIp } from '../utils/rateLimit.js';
 
-const LOGIN_WINDOW_MS = 15 * 60 * 1000;
-const LOGIN_ID_LIMIT = 8;
-const LOGIN_IP_LIMIT = 60;
 const PASSWORD_MIN = 6;
 const PASSWORD_MAX = 72;
 
@@ -124,13 +120,6 @@ export async function handleLogin(request, env) {
       return jsonResponse(error('服务端未配置 JWT_SECRET', 'SERVER_MISCONFIGURED'), 500);
     }
 
-    const ipKey = `login:ip:${clientIp(request)}`;
-    const idKey = `login:id:${String(student_id).trim()}`;
-    const ipHit = await consumeRateLimit(env.DB, ipKey, LOGIN_IP_LIMIT, LOGIN_WINDOW_MS);
-    if (!ipHit.allowed) return tooManyRequests(ipHit.retryAfterMs);
-    const idHit = await consumeRateLimit(env.DB, idKey, LOGIN_ID_LIMIT, LOGIN_WINDOW_MS);
-    if (!idHit.allowed) return tooManyRequests(idHit.retryAfterMs);
-
     const userModel = new UserModel(env.DB);
     const user = await userModel.findByStudentId(student_id);
 
@@ -146,15 +135,11 @@ export async function handleLogin(request, env) {
       return jsonResponse(error('学号或密码错误', 'INVALID_CREDENTIALS'), 401);
     }
 
-    await resetRateLimit(env.DB, idKey);
-    await resetRateLimit(env.DB, ipKey);
-
     const token = await sign(
       {
         id: user.id,
         student_id: user.student_id,
-        name: user.name,
-        ver: Number(user.token_version || 0)
+        name: user.name
       },
       env.JWT_SECRET,
       jwtExpiresIn(env)
@@ -252,11 +237,7 @@ export async function handleChangePassword(request, env, user) {
     }
 
     const { hash: newHash, salt: newSalt } = await hashPassword(new_password);
-    const nextVersion = Number(existing.token_version || 0) + 1;
-    await userModel.update(existing.id, {
-      password_hash: `${newSalt}:${newHash}`,
-      token_version: nextVersion
-    });
+    await userModel.update(existing.id, { password_hash: `${newSalt}:${newHash}` });
 
     return jsonResponse(success({ message: '密码修改成功' }));
   } catch (e) {

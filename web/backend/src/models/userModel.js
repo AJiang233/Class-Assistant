@@ -53,7 +53,7 @@ export class UserModel {
    */
   async findById(id) {
     const result = await this.db.prepare(
-      'SELECT id, student_id, name, positions, contact, token_version, update_time FROM users WHERE id = ?'
+      'SELECT id, student_id, name, positions, contact, update_time FROM users WHERE id = ?'
     ).bind(id).first();
     return result;
   }
@@ -111,7 +111,6 @@ export class UserModel {
     if (data.positions !== undefined) { fields.push('positions = ?'); values.push(data.positions); }
     if (data.contact !== undefined) { fields.push('contact = ?'); values.push(data.contact); }
     if (data.password_hash !== undefined) { fields.push('password_hash = ?'); values.push(data.password_hash); }
-    if (data.token_version !== undefined) { fields.push('token_version = ?'); values.push(data.token_version); }
 
     if (fields.length === 0) return { success: true };
 

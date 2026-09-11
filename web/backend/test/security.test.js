@@ -12,7 +12,6 @@ import {
 import { hashPassword, verifyPassword } from '../src/utils/crypto.js';
 import { sign, verify } from '../src/utils/jwt.js';
 import { isSealed, openCookies, sealCookies } from '../src/utils/cookieVault.js';
-import { nextRateState } from '../src/utils/rateLimit.js';
 
 describe('sameStudentId', () => {
   it('trim 后精确匹配', () => {
@@ -63,10 +62,10 @@ describe('密码哈希', () => {
 
 describe('JWT', () => {
   it('签发后能校验，过期或被改则失败', async () => {
-    const token = await sign({ id: 1, student_id: '2022103071', ver: 3 }, 'test-secret', 60);
+    const token = await sign({ id: 1, student_id: '2022103071' }, 'test-secret', 60);
     const payload = await verify(token, 'test-secret');
     assert.equal(payload.id, 1);
-    assert.equal(payload.ver, 3);
+    assert.equal(payload.student_id, '2022103071');
 
     const expired = await sign({ id: 1 }, 'test-secret', -10);
     assert.equal(await verify(expired, 'test-secret'), null);
@@ -95,22 +94,5 @@ describe('Cookie 封存', () => {
     const sealed = await sealCookies(oldEnv, raw);
     const newEnv = { JWT_SECRET: 'jwt-secret-for-vault', COOKIE_SECRET: 'brand-new-cookie-secret' };
     assert.equal(await openCookies(newEnv, sealed), raw);
-  });
-});
-
-describe('限流窗口', () => {
-  it('窗口内超过上限拒绝，过期后重置', () => {
-    const now = 1_000_000;
-    const first = nextRateState(null, now, 3, 1000);
-    assert.equal(first.allowed, true);
-    assert.equal(first.count, 1);
-
-    const blocked = nextRateState({ count: 3, reset_at: now + 500 }, now, 3, 1000);
-    assert.equal(blocked.allowed, false);
-    assert.equal(blocked.retryAfterMs, 500);
-
-    const reset = nextRateState({ count: 3, reset_at: now - 1 }, now, 3, 1000);
-    assert.equal(reset.allowed, true);
-    assert.equal(reset.count, 1);
   });
 });
