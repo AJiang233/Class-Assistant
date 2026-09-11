@@ -79,19 +79,48 @@ function readSetCookies(response) {
   return single.split(/,(?=\s*[^;,\s]+=)/);
 }
 
-/** 跳转链会横跨 authserver / workflow / szjw 三个域，这里按域分别记 Cookie */
+/** 无 Path 属性时，浏览器按「请求路径去掉最后一段」作为默认 Path */
+function defaultCookiePath(pathname) {
+  const p = pathname || '/';
+  if (p[0] !== '/') return '/';
+  const idx = p.lastIndexOf('/');
+  return idx <= 0 ? '/' : p.slice(0, idx);
+}
+
+/** Path 必须是以 / 开头的前缀，否则按默认 / 处理 */
+function normalizeCookiePath(path) {
+  return path && path[0] === '/' ? path : '/';
+}
+
+/** RFC 6265 的路径匹配：完全相等，或前缀且边界为 / */
+function cookiePathMatches(requestPath, cookiePath) {
+  if (requestPath === cookiePath) return true;
+  if (!requestPath.startsWith(cookiePath)) return false;
+  return cookiePath.endsWith('/') || requestPath[cookiePath.length] === '/';
+}
+
+/**
+ * 跳转链会横跨 authserver / workflow / szjw 三个域，这里按域分别记 Cookie。
+ *
+ * 必须带上 Path：workflow 网关会给同名 Cookie 下发多个 Path 版本
+ * （如 INGRESSCOOKIE 分别在 /cas 与 /sso 各一份，还有 DEVICE_ID/TGC/JSESSIONID）。
+ * 若只按名字存取，/sso 的值会覆盖 /cas 的值，访问 /cas/* 时就带错了
+ * nginx-ingress 的会话保持 Cookie，导致 workflow 找不到会话、回跳 /sso/403。
+ */
 class CookieJar {
   constructor() {
-    this.map = new Map();
+    this.map = new Map(); // key: `${domain}\t${path}\t${name}`
   }
 
   add(response, url) {
-    let host;
+    let parsed;
     try {
-      host = new URL(url).hostname.toLowerCase();
+      parsed = new URL(url);
     } catch {
       return;
     }
+    const host = parsed.hostname.toLowerCase();
+    const defaultPath = defaultCookiePath(parsed.pathname);
     for (const raw of readSetCookies(response)) {
       const [pair, ...attrs] = raw.split(';');
       const eq = pair.indexOf('=');
@@ -99,45 +128,58 @@ class CookieJar {
       const name = pair.slice(0, eq).trim();
       const value = pair.slice(eq + 1).trim();
       let domain = host;
+      let path = defaultPath;
+      let maxAge = null;
+      let expires = null;
       for (const attr of attrs) {
-        const [k, v] = attr.split('=');
-        if (v && k && k.trim().toLowerCase() === 'domain') {
-          domain = v.trim().replace(/^\./, '').toLowerCase();
-        }
+        const i = attr.indexOf('=');
+        const k = (i < 0 ? attr : attr.slice(0, i)).trim().toLowerCase();
+        const v = i < 0 ? '' : attr.slice(i + 1).trim();
+        if (k === 'domain' && v) domain = v.replace(/^\./, '').toLowerCase();
+        else if (k === 'path' && v) path = normalizeCookiePath(v);
+        else if (k === 'max-age') maxAge = Number(v);
+        else if (k === 'expires') expires = Date.parse(v);
       }
-      const key = `${domain}\t${name}`;
-      if (value) this.map.set(key, { name, value, domain });
-      else this.map.delete(key);
+      const key = `${domain}\t${path}\t${name}`;
+      const expired =
+        value === '' ||
+        (maxAge !== null && Number.isFinite(maxAge) && maxAge <= 0) ||
+        (expires !== null && !Number.isNaN(expires) && expires <= Date.now());
+      // 过期只删同域 + 同 Path + 同名的那一份，不波及其它 Path 的同名 Cookie
+      if (expired) this.map.delete(key);
+      else this.map.set(key, { name, value, domain, path });
     }
   }
 
-  headerFor(url) {
-    let host;
+  /** 选出对该 URL 生效的 Cookie（域匹配 + 路径匹配），更具体的 Path 优先 */
+  matchesFor(url) {
+    let parsed;
     try {
-      host = new URL(url).hostname.toLowerCase();
+      parsed = new URL(url);
     } catch {
-      return '';
+      return [];
     }
+    const host = parsed.hostname.toLowerCase();
+    const requestPath = parsed.pathname || '/';
     const out = [];
     for (const c of this.map.values()) {
-      if (host === c.domain || host.endsWith(`.${c.domain}`)) out.push(`${c.name}=${c.value}`);
+      if (host !== c.domain && !host.endsWith(`.${c.domain}`)) continue;
+      if (!cookiePathMatches(requestPath, c.path)) continue;
+      out.push(c);
     }
-    return out.join('; ');
+    out.sort((a, b) => b.path.length - a.path.length);
+    return out;
+  }
+
+  headerFor(url) {
+    return this.matchesFor(url)
+      .map((c) => `${c.name}=${c.value}`)
+      .join('; ');
   }
 
   /** 只取 Cookie 名（不取值），用于失败时定位问题 */
   namesFor(url) {
-    let host;
-    try {
-      host = new URL(url).hostname.toLowerCase();
-    } catch {
-      return [];
-    }
-    const out = [];
-    for (const c of this.map.values()) {
-      if (host === c.domain || host.endsWith(`.${c.domain}`)) out.push(c.name);
-    }
-    return out;
+    return this.matchesFor(url).map((c) => c.name);
   }
 
   /** 序列化：多因子认证要跨请求续用同一个 CAS 会话 */
@@ -148,7 +190,10 @@ class CookieJar {
   static fromJSON(list) {
     const jar = new CookieJar();
     for (const c of list || []) {
-      if (c && c.name && c.domain) jar.map.set(`${c.domain}\t${c.name}`, c);
+      if (c && c.name && c.domain) {
+        const path = normalizeCookiePath(c.path || '/');
+        jar.map.set(`${c.domain}\t${path}\t${c.name}`, { name: c.name, value: c.value, domain: c.domain, path });
+      }
     }
     return jar;
   }
@@ -191,8 +236,9 @@ async function followRedirects(startUrl, jar, options = {}, maxHops = 10) {
     if (!location) break;
     url = new URL(location, url).toString();
     hops.push(url);
-    // 跳转后降级为 GET，避免把登录凭据重发到后续站点
-    res = await send(url, jar, { headers: options.headers });
+    // 跳转后降级为 GET，且不再带表单的 Content-Type / Origin / Referer：
+    // 后续站点是 workflow/szjw，带着 authserver 的跨域头可能被网关当成异常请求
+    res = await send(url, jar);
   }
   return { res, url, hops };
 }
@@ -425,12 +471,12 @@ export async function verifyMfaCode(state, code) {
   // 通过后照页面的做法跳到 /login?service=… 领 ticket，再一路跟到教务
   const loginUrl = `${AUTH_ORIGIN}/authserver/login?service=${encodeURIComponent(state.service || '')}`;
   const chain = await traceRedirects(loginUrl, jar);
-  const reachSchool = hostOf(chain[chain.length - 1].url) !== AUTH_HOST;
+  // 必须真的落到教务域（szjw）才算换到会话；停在 workflow 等中间域说明换会话失败
+  const reachedSchool = hostOf(chain[chain.length - 1].url) === hostOf(SCHOOL_ORIGIN);
   const cookies = jar.headerFor(SCHOOL_ORIGIN);
   const cookieNames = jar.namesFor(SCHOOL_ORIGIN);
 
-  // 只有真的落到教务域、且教务下发了 Cookie 才算成功
-  if (reachSchool && cookies) {
+  if (reachedSchool && cookies) {
     return { cookies, hops: chain.map((h) => safeUrl(h.url)), cookieNames, trail: chain.map(describeHop) };
   }
 
@@ -527,7 +573,11 @@ export async function loginWithPassword(studentId, password) {
   }
 
   // 4. 已回到教务域：ticket 落在教务的 SSO 回调上，由它换取会话并下发 Cookie
+  //    必须真的落到 szjw；停在 workflow 等中间域只是拿到了中间站的 Cookie，换不到会话
   //    能不能用由调用方再用 sessionUserInfo 验一次
+  if (hostOf(result.url) !== hostOf(SCHOOL_ORIGIN)) {
+    throw new CasError(`登录流程未回到教务系统（跳转：${hops.join(' → ')}）`, 'CAS_NO_SESSION');
+  }
   const cookies = jar.headerFor(SCHOOL_ORIGIN);
   if (!cookies) {
     throw new CasError(`登录已通过，但未取到教务会话（跳转：${hops.join(' → ')}）`, 'CAS_NO_SESSION');
