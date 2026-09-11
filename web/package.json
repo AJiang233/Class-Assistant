@@ -7,8 +7,10 @@
   "scripts": {
     "dev": "wrangler pages dev .",
     "deploy": "wrangler pages deploy .",
+    "test": "node --test backend/test/*.test.js",
     "db:local": "wrangler d1 execute class-assistant-db --local --file=./schema.sql",
-    "db:remote": "wrangler d1 execute class-assistant-db --remote --file=./schema.sql"
+    "db:remote": "wrangler d1 execute class-assistant-db --remote --file=./schema.sql",
+    "db:migrate": "wrangler d1 execute class-assistant-db --remote --file=./migrations/2026-09-11-security.sql"
   },
   "devDependencies": {
     "wrangler": "^3.90.0"

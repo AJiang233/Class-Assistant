@@ -18,6 +18,38 @@ export const ROLE_PERMISSIONS = {
   '学习委员': ['content:write']
 };
 
+/** 系统预置职位：不允许写进 roles 表覆盖全班权限 */
+export const RESERVED_ROLES = Object.freeze(['学生', '班长', '团支书', '学习委员']);
+
+/** 自定义职位只能拥有这两个权限点，禁止东拼出 admin 之类 */
+export const ALLOWED_PERMISSIONS = Object.freeze(['content:write', 'user:manage']);
+
+export function isReservedRole(name) {
+  return RESERVED_ROLES.includes(String(name || '').trim());
+}
+
+export function sanitizePermissions(list) {
+  if (!Array.isArray(list)) return [];
+  const out = [];
+  for (const item of list) {
+    const perm = String(item || '');
+    if (ALLOWED_PERMISSIONS.includes(perm) && !out.includes(perm)) out.push(perm);
+  }
+  return out;
+}
+
+export function assertCustomRoleName(name) {
+  const trimmed = String(name || '').trim();
+  if (!trimmed) return { ok: false, message: '职位名称不能为空', code: 'INVALID_ROLE' };
+  if (isReservedRole(trimmed)) {
+    return { ok: false, message: '不能把系统预置职位当自定义职位写入权限表', code: 'RESERVED_ROLE' };
+  }
+  if (trimmed.length > 20) {
+    return { ok: false, message: '职位名称最多 20 个字符', code: 'ROLE_TOO_LONG' };
+  }
+  return { ok: true, name: trimmed };
+}
+
 /**
  * 把 positions 解析为角色数组（兼容字符串与 JSON 数组）
  */

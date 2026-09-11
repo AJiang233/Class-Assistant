@@ -38,19 +38,19 @@ export async function noticeRoutes(request, env, ctx) {
     const params = { id: match[1] };
 
     if (method === 'GET') {
-      return withAuth((req, env, ctx, user) =>
+      return withAuth((req, env, user) =>
         handleGetNotice(req, env, user, params)
       )(request, env, ctx);
     }
 
     if (method === 'PUT') {
-      return withPermission('content:write')((req, env, c, user) =>
+      return withPermission('content:write')((req, env, user) =>
         handleUpdateNotice(req, env, user, params)
       )(request, env, ctx);
     }
 
     if (method === 'DELETE') {
-      return withPermission('content:write')((req, env, c, user) =>
+      return withPermission('content:write')((req, env, user) =>
         handleDeleteNotice(req, env, user, params)
       )(request, env, ctx);
     }

@@ -115,6 +115,8 @@ class MainActivity : AppCompatActivity() {
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true          // localStorage：登录态持久化
             settings.databaseEnabled = true
+            settings.allowFileAccess = false
+            settings.allowContentAccess = false
             settings.loadsImagesAutomatically = true
             settings.mediaPlaybackRequiresUserGesture = false
             settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
@@ -122,7 +124,7 @@ class MainActivity : AppCompatActivity() {
             settings.useWideViewPort = true
             settings.loadWithOverviewMode = true
 
-            addJavascriptInterface(HostBridge(), "CAHost")
+            addJavascriptInterface(HostBridge(), HOST_BRIDGE)
 
             webViewClient = object : WebViewClient() {
                 // 仅允许站内/同源链接，拦截系统协议
@@ -131,7 +133,9 @@ class MainActivity : AppCompatActivity() {
                     request: WebResourceRequest
                 ): Boolean {
                     val url = request.url
-                    return isSystemScheme(url)
+                    if (isSystemScheme(url)) return true
+                    // 非白名单域名不在带 JS 桥的 WebView 里打开
+                    return !isAllowedUrl(url)
                 }
 
                 override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
@@ -182,6 +186,16 @@ class MainActivity : AppCompatActivity() {
         return scheme == "tel" || scheme == "sms" || scheme == "mailto"
     }
 
+    /** 门户页只放行自己的站点；教务登录流程额外放行南农域名 */
+    private fun isAllowedUrl(url: android.net.Uri): Boolean {
+        val scheme = url.scheme?.lowercase() ?: return false
+        if (scheme != "https") return false
+        val host = url.host?.lowercase() ?: return false
+        if (host == PORTAL_HOST) return true
+        if (!academicLogin) return false
+        return host == SCHOOL_HOST || host.endsWith(".njau.edu.cn")
+    }
+
     /**
      * 进入教务系统登录：教务对手机 UA 有兼容问题（页面错乱），因此整个过程固定用桌面 UA。
      * 登录成功后由 onPageFinished 触发 Cookie 上报，再回到门户。
@@ -194,6 +208,8 @@ class MainActivity : AppCompatActivity() {
         }
         academicLogin = true
         bindingInProgress = false
+        // 教务域不要暴露 CAHost，避免统一身份认证页面能改门户 token
+        binding.webView.removeJavascriptInterface(HOST_BRIDGE)
         if (defaultUserAgent == null) defaultUserAgent = binding.webView.settings.userAgentString
         binding.webView.settings.userAgentString = DESKTOP_UA
         binding.webView.loadUrl(SCHOOL_ORIGIN)
@@ -229,6 +245,7 @@ class MainActivity : AppCompatActivity() {
         academicLogin = false
         bindingInProgress = false
         defaultUserAgent?.let { binding.webView.settings.userAgentString = it }
+        binding.webView.addJavascriptInterface(HostBridge(), HOST_BRIDGE)
         binding.webView.loadUrl(if (success) "$startUrl/?view=academic" else startUrl)
     }
 
@@ -248,6 +265,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private companion object {
+        const val HOST_BRIDGE = "CAHost"
+        const val PORTAL_HOST = "class.qxwkstudio.top"
+        const val SCHOOL_HOST = "szjw.njau.edu.cn"
+
         /** 教务系统源（服务端代理与 Cookie 归属域） */
         const val SCHOOL_ORIGIN = "https://szjw.njau.edu.cn"
 

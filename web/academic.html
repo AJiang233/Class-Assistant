@@ -66,7 +66,8 @@
                     <div id="pwdStep">
                         <div class="form-field">
                             <label class="form-label" for="acStudentId">学号</label>
-                            <input class="form-input" type="text" id="acStudentId" placeholder="你的学号（即统一身份认证账号）" autocomplete="username">
+                            <input class="form-input" type="text" id="acStudentId" placeholder="当前账号学号" autocomplete="username" readonly>
+                            <p class="ac-note">只能绑定本人教务账号，学号已按当前登录身份锁定。</p>
                         </div>
                         <div class="form-field">
                             <label class="form-label" for="acPassword">统一身份认证密码</label>
@@ -186,6 +187,10 @@
         });
         try {
             if (!requireAuth()) return;
+            var me = getSession();
+            if (me && me.student_id) {
+                document.getElementById('acStudentId').value = me.student_id;
+            }
             // App 内才有 JS 桥；有桥才显示「一键绑定」
             if (window.CAHost && typeof CAHost.startAcademicLogin === 'function') {
                 document.getElementById('appBindBox').style.display = 'block';

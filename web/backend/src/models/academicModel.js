@@ -51,6 +51,13 @@ export class AcademicModel {
     ).bind(userId).run();
   }
 
+  /** 仅更新 Cookie 密文（明文旧记录读出后回写时用） */
+  async saveCookies(userId, cookies) {
+    return this.db.prepare(
+      `UPDATE academic_bindings SET cookies = ?, checked_at = CURRENT_TIMESTAMP WHERE user_id = ?`
+    ).bind(cookies, userId).run();
+  }
+
   /** 解绑并清空该用户的教务缓存 */
   async removeBinding(userId) {
     await this.db.prepare('DELETE FROM academic_bindings WHERE user_id = ?').bind(userId).run();

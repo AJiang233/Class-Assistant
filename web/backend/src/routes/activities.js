@@ -32,19 +32,19 @@ export async function activityRoutes(request, env, ctx) {
     const params = { id: match[1] };
 
     if (method === 'GET') {
-      return withAuth((req, env, ctx, user) =>
+      return withAuth((req, env, user) =>
         handleGetActivity(req, env, user, params)
       )(request, env, ctx);
     }
 
     if (method === 'PUT') {
-      return withPermission('content:write')((req, env, c, user) =>
+      return withPermission('content:write')((req, env, user) =>
         handleUpdateActivity(req, env, user, params)
       )(request, env, ctx);
     }
 
     if (method === 'DELETE') {
-      return withPermission('content:write')((req, env, c, user) =>
+      return withPermission('content:write')((req, env, user) =>
         handleDeleteActivity(req, env, user, params)
       )(request, env, ctx);
     }

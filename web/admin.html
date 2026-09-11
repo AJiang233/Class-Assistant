@@ -463,6 +463,11 @@
             if (positions === '__custom__') {
                 positions = document.getElementById('regCustomPosition').value.trim();
                 if (!positions) { errBox.textContent = '请输入自定义职位名称'; errBox.classList.add('show'); return; }
+                if (['学生', '班长', '团支书', '学习委员'].indexOf(positions) >= 0) {
+                    errBox.textContent = '不能使用系统预置职位名作为自定义职位';
+                    errBox.classList.add('show');
+                    return;
+                }
                 role_permissions = [];
                 if (document.getElementById('regPermWrite').checked) role_permissions.push('content:write');
                 if (document.getElementById('regPermManage').checked) role_permissions.push('user:manage');

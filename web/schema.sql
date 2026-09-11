@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS users (
   auth_key       TEXT,
   positions      TEXT DEFAULT '学生',
   contact        TEXT,
+  token_version  INTEGER NOT NULL DEFAULT 0,  -- 改密后自增，旧 JWT 立即失效
   update_time    DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -50,7 +51,7 @@ CREATE TABLE IF NOT EXISTS academic_bindings (
   student_no    TEXT,                      -- 教务学号
   real_name     TEXT,                      -- 教务姓名
   school_uid    TEXT,                      -- 教务用户 id（即各接口的 xsid / xsxxid）
-  cookies       TEXT NOT NULL,             -- 教务域下的会话 Cookie 串
+  cookies       TEXT NOT NULL,             -- 教务会话 Cookie（AES-GCM 密文，旧明文记录读时兼容）
   status        TEXT DEFAULT 'ok',         -- ok / expired
   bound_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
   checked_at    DATETIME                   -- 最近一次成功校验/抓取时间
@@ -70,6 +71,13 @@ CREATE TABLE IF NOT EXISTS academic_credits (
   user_id       INTEGER PRIMARY KEY,
   payload       TEXT NOT NULL,             -- 归一化学分 JSON
   fetched_at    DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 登录 / 教务代登录限流
+CREATE TABLE IF NOT EXISTS rate_limits (
+  key       TEXT PRIMARY KEY,
+  count     INTEGER NOT NULL DEFAULT 0,
+  reset_at  INTEGER NOT NULL              -- 窗口结束时间戳（毫秒）
 );
 
 -- 多因子认证中间态：代登录被要求二次验证时，暂存 CAS 会话，等用户回填验证码

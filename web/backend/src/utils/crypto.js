@@ -54,7 +54,17 @@ export async function hashPassword(password, salt = null) {
  * @param {string} salt - 存储的盐值
  * @returns {Promise<boolean>}
  */
+/** 定长字符串比较，避免按字符短路返回 */
+export function timingSafeEqual(left, right) {
+  const a = String(left || '');
+  const b = String(right || '');
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
 export async function verifyPassword(password, hash, salt) {
   const result = await hashPassword(password, salt);
-  return result.hash === hash;
+  return timingSafeEqual(result.hash, hash);
 }

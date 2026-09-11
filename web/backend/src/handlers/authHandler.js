@@ -2,8 +2,39 @@ import { UserModel } from '../models/userModel.js';
 import { RoleModel } from '../models/roleModel.js';
 import { hashPassword, verifyPassword } from '../utils/crypto.js';
 import { sign } from '../utils/jwt.js';
-import { success, error, jsonResponse } from '../utils/response.js';
-import { parsePositions, getPermissions, buildRoleMap } from '../utils/permissions.js';
+import { success, error, jsonResponse, tooManyRequests } from '../utils/response.js';
+import {
+  parsePositions,
+  getPermissions,
+  buildRoleMap,
+  isReservedRole,
+  sanitizePermissions,
+  assertCustomRoleName
+} from '../utils/permissions.js';
+import { consumeRateLimit, resetRateLimit, clientIp } from '../utils/rateLimit.js';
+
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const LOGIN_ID_LIMIT = 8;
+const LOGIN_IP_LIMIT = 20;
+const PASSWORD_MIN = 6;
+const PASSWORD_MAX = 72;
+
+function publicUser(user, permissions) {
+  return {
+    id: user.id,
+    student_id: user.student_id,
+    name: user.name,
+    positions: user.positions,
+    contact: user.contact,
+    update_time: user.update_time,
+    permissions
+  };
+}
+
+function jwtExpiresIn(env) {
+  const n = parseInt(env && env.JWT_EXPIRES_IN, 10);
+  return Number.isFinite(n) && n > 0 ? n : 604800;
+}
 
 /**
  * 计算某用户的权限集合（含自定义职位，来自 roles 表）
@@ -30,15 +61,25 @@ export async function handleRegister(request, env) {
     if (!student_id || !name || !password) {
       return jsonResponse(error('学号、姓名、密码为必填字段', 'MISSING_FIELDS'), 400);
     }
-
-    // 若注册了自定义职位且指定了权限，则先把该职位写入 roles 表
-    if (role_permissions && Array.isArray(role_permissions) && role_permissions.length) {
-      const roleModel = new RoleModel(env.DB);
-      await roleModel.upsert(positions, JSON.stringify(role_permissions));
+    if (String(password).length < PASSWORD_MIN || String(password).length > PASSWORD_MAX) {
+      return jsonResponse(error(`密码长度须为 ${PASSWORD_MIN}–${PASSWORD_MAX} 位`, 'WEAK_PASSWORD'), 400);
     }
 
-    // positions 兼容数组（自动转 JSON 字符串）或字符串，D1 不接受 object 类型
-    const positionsValue = Array.isArray(positions) ? JSON.stringify(positions) : positions;
+    // 自定义职位才允许写 roles 表；系统预置名一旦被写入，全班同名职位都会被提权
+    let positionsValue = Array.isArray(positions) ? JSON.stringify(positions) : positions;
+    if (role_permissions && Array.isArray(role_permissions)) {
+      const rawName = Array.isArray(positions) ? positions[0] : positions;
+      if (isReservedRole(rawName)) {
+        return jsonResponse(error('不能把系统预置职位当自定义职位写入权限表', 'RESERVED_ROLE'), 400);
+      }
+      const named = assertCustomRoleName(rawName);
+      if (!named.ok) {
+        return jsonResponse(error(named.message, named.code), 400);
+      }
+      const roleModel = new RoleModel(env.DB);
+      await roleModel.upsert(named.name, JSON.stringify(sanitizePermissions(role_permissions)));
+      positionsValue = named.name;
+    }
 
     const userModel = new UserModel(env.DB);
 
@@ -80,6 +121,13 @@ export async function handleLogin(request, env) {
       return jsonResponse(error('学号和密码为必填字段', 'MISSING_FIELDS'), 400);
     }
 
+    const ipKey = `login:ip:${clientIp(request)}`;
+    const idKey = `login:id:${String(student_id).trim()}`;
+    const ipHit = await consumeRateLimit(env.DB, ipKey, LOGIN_IP_LIMIT, LOGIN_WINDOW_MS);
+    if (!ipHit.allowed) return tooManyRequests(ipHit.retryAfterMs);
+    const idHit = await consumeRateLimit(env.DB, idKey, LOGIN_ID_LIMIT, LOGIN_WINDOW_MS);
+    if (!idHit.allowed) return tooManyRequests(idHit.retryAfterMs);
+
     const userModel = new UserModel(env.DB);
     const user = await userModel.findByStudentId(student_id);
 
@@ -95,24 +143,24 @@ export async function handleLogin(request, env) {
       return jsonResponse(error('学号或密码错误', 'INVALID_CREDENTIALS'), 401);
     }
 
-    // 生成 JWT
+    await resetRateLimit(env.DB, idKey);
+
     const token = await sign(
-      { id: user.id, student_id: user.student_id, name: user.name },
-      env.JWT_SECRET
+      {
+        id: user.id,
+        student_id: user.student_id,
+        name: user.name,
+        ver: Number(user.token_version || 0)
+      },
+      env.JWT_SECRET,
+      jwtExpiresIn(env)
     );
 
     const permissions = await computePermissions(env, user.positions);
 
     return jsonResponse(success({
       token,
-      user: {
-        id: user.id,
-        student_id: user.student_id,
-        name: user.name,
-        positions: user.positions,
-        contact: user.contact,
-        permissions
-      }
+      user: publicUser(user, permissions)
     }));
   } catch (e) {
     console.error('登录失败:', e);
@@ -134,7 +182,7 @@ export async function handleMe(request, env, userPayload) {
 
     const permissions = await computePermissions(env, user.positions);
 
-    return jsonResponse(success({ ...user, permissions }));
+    return jsonResponse(success(publicUser(user, permissions)));
   } catch (e) {
     console.error('获取用户信息失败:', e);
     return jsonResponse(error('获取用户信息失败', 'FETCH_USER_FAILED'), 500);
@@ -183,8 +231,8 @@ export async function handleChangePassword(request, env, user) {
     if (!old_password || !new_password) {
       return jsonResponse(error('旧密码、新密码为必填字段', 'MISSING_FIELDS'), 400);
     }
-    if (new_password.length < 6) {
-      return jsonResponse(error('新密码长度至少 6 位', 'WEAK_PASSWORD'), 400);
+    if (new_password.length < PASSWORD_MIN || new_password.length > PASSWORD_MAX) {
+      return jsonResponse(error(`新密码长度须为 ${PASSWORD_MIN}–${PASSWORD_MAX} 位`, 'WEAK_PASSWORD'), 400);
     }
 
     const userModel = new UserModel(env.DB);
@@ -200,7 +248,11 @@ export async function handleChangePassword(request, env, user) {
     }
 
     const { hash: newHash, salt: newSalt } = await hashPassword(new_password);
-    await userModel.update(existing.id, { password_hash: `${newSalt}:${newHash}` });
+    const nextVersion = Number(existing.token_version || 0) + 1;
+    await userModel.update(existing.id, {
+      password_hash: `${newSalt}:${newHash}`,
+      token_version: nextVersion
+    });
 
     return jsonResponse(success({ message: '密码修改成功' }));
   } catch (e) {
