@@ -43,6 +43,7 @@
                 <div class="ac-card">
                     <div class="skeleton-row"><span class="skeleton-line w80"></span><span class="skeleton-line w35"></span></div>
                     <div class="skeleton-row"><span class="skeleton-line w80"></span><span class="skeleton-line w35"></span></div>
+                    <p class="ac-note" id="loadingTip" style="margin-top:10px;">正在加载…</p>
                 </div>
             </div>
 
@@ -169,39 +170,63 @@
     var WEEKDAY_NAMES = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
 
     (function init() {
-        if (!requireAuth()) return;
-        // App 内才有 JS 桥；有桥才显示「一键绑定」
-        if (window.CAHost && typeof CAHost.startAcademicLogin === 'function') {
-            document.getElementById('appBindBox').style.display = 'block';
-            document.getElementById('appBindBtn').addEventListener('click', function () {
-                try { CAHost.startAcademicLogin(); } catch (e) {}
+        // 全局兜底：任何未捕获异常都不再静默卡骨架屏，直接显示在加载区
+        window.addEventListener('error', function (e) {
+            var lv = document.getElementById('loadingView');
+            if (lv && lv.style.display !== 'none') {
+                lv.innerHTML = stateHTML('脚本错误：' + (e.message || '未知错误'), true);
+            }
+        });
+        window.addEventListener('unhandledrejection', function (e) {
+            var lv = document.getElementById('loadingView');
+            var msg = e && e.reason && e.reason.message ? e.reason.message : String(e.reason || '未知错误');
+            if (lv && lv.style.display !== 'none') {
+                lv.innerHTML = stateHTML('加载失败：' + msg, true);
+            }
+        });
+        try {
+            if (!requireAuth()) return;
+            // App 内才有 JS 桥；有桥才显示「一键绑定」
+            if (window.CAHost && typeof CAHost.startAcademicLogin === 'function') {
+                document.getElementById('appBindBox').style.display = 'block';
+                document.getElementById('appBindBtn').addEventListener('click', function () {
+                    try { CAHost.startAcademicLogin(); } catch (e) {}
+                });
+            }
+            document.getElementById('bindBtn').addEventListener('click', doBind);
+            document.getElementById('pwdLoginBtn').addEventListener('click', doPasswordLogin);
+            document.getElementById('mfaSendBtn').addEventListener('click', doMfaSend);
+            document.getElementById('mfaVerifyBtn').addEventListener('click', doMfaVerify);
+            document.getElementById('mfaBackBtn').addEventListener('click', function () {
+                mfaToken = '';
+                document.getElementById('mfaStep').style.display = 'none';
+                document.getElementById('pwdStep').style.display = '';
             });
+            document.getElementById('mfaCode').addEventListener('keydown', function (e) {
+                if (e.key === 'Enter') doMfaVerify();
+            });
+            document.getElementById('unbindBtn').addEventListener('click', doUnbind);
+            document.getElementById('refreshBtn').addEventListener('click', function () {
+                loadTimetable(activeTerm, true);
+                loadCredits(true);
+            });
+            document.getElementById('termSelect').addEventListener('change', function () {
+                loadTimetable(this.value, false);
+            });
+            loadStatus();
+        } catch (e) {
+            var lv = document.getElementById('loadingView');
+            if (lv) lv.innerHTML = stateHTML('页面初始化失败：' + (e.message || e), true);
         }
-        document.getElementById('bindBtn').addEventListener('click', doBind);
-        document.getElementById('pwdLoginBtn').addEventListener('click', doPasswordLogin);
-        document.getElementById('mfaSendBtn').addEventListener('click', doMfaSend);
-        document.getElementById('mfaVerifyBtn').addEventListener('click', doMfaVerify);
-        document.getElementById('mfaBackBtn').addEventListener('click', function () {
-            mfaToken = '';
-            document.getElementById('mfaStep').style.display = 'none';
-            document.getElementById('pwdStep').style.display = '';
-        });
-        document.getElementById('mfaCode').addEventListener('keydown', function (e) {
-            if (e.key === 'Enter') doMfaVerify();
-        });
-        document.getElementById('unbindBtn').addEventListener('click', doUnbind);
-        document.getElementById('refreshBtn').addEventListener('click', function () {
-            loadTimetable(activeTerm, true);
-            loadCredits(true);
-        });
-        document.getElementById('termSelect').addEventListener('change', function () {
-            loadTimetable(this.value, false);
-        });
-        loadStatus();
     })();
 
     // ===== 绑定状态 =====
+    function setLoadingTip(text) {
+        var tip = document.getElementById('loadingTip');
+        if (tip) tip.textContent = text;
+    }
     async function loadStatus() {
+        setLoadingTip('正在查询教务绑定状态…');
         try {
             var res = await api('/api/academic/status');
             status = res.data || {};
@@ -211,6 +236,7 @@
             return;
         }
         if (!status.bound) { showOnly('bindView'); return; }
+        setLoadingTip('已绑定，正在拉取课表与学分…');
         showOnly('dataView');
         if (status.status === 'expired') {
             showNotice('教务登录态已过期，请重新绑定后查看最新数据。');
@@ -417,7 +443,8 @@
             renderTimetable(timetable);
             renderUnscheduled(timetable.unscheduled);
         } catch (err) {
-            if (err.message && err.message.indexOf('绑定') >= 0) {
+            // 会话过期/未绑定用错误码精确判断（不再靠文案匹配，避免误伤渲染错误）
+            if (err.code === 'ACADEMIC_EXPIRED' || err.code === 'NOT_BOUND') {
                 showOnly('bindView');
                 showFormError('bindError', err.message);
                 return;
