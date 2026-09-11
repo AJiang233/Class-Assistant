@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>通知 - 班级助理</title>
     <meta name="description" content="班级助理：班级通知列表与详情。">
     <meta name="color-scheme" content="light dark">
@@ -21,10 +21,7 @@
         function apply(t) { root.setAttribute('data-theme', t); }
         function current() { return stored() || system(); }
         apply(current());
-        function toggle() { var next = current() === 'dark' ? 'light' : 'dark'; apply(next); try { localStorage.setItem(KEY, next); } catch (e) {} }
         function bind() {
-            var btn = document.getElementById('themeToggle');
-            if (btn) btn.addEventListener('click', toggle);
             if (mq.addEventListener) mq.addEventListener('change', function (e) { if (!stored()) apply(e.matches ? 'dark' : 'light'); });
             else if (mq.addListener) mq.addListener(function (e) { if (!stored()) apply(e.matches ? 'dark' : 'light'); });
             window.addEventListener('storage', function (e) { if (e.key === KEY) apply(current()); });

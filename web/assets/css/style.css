@@ -1,21 +1,21 @@
 /* =====================================================================
    班级助理 · 前端共享样式
    ---------------------------------------------------------------------
-   设计依据：
-   1) Apple Human Interface Guidelines（系统色 / Label 语义 / 字号层级 / 44pt 触控）
-   2) Liquid Glass（WWDC25）—— 材质只用于「导航层」，内容层用不透明材质，
-      避免玻璃叠玻璃导致层级混乱；上缘受光 + 内反光；交互时内部发光。
-   3) Pinguo（Apple 风格设计系统）令牌 —— 圆角 1.2rem、胶囊按钮、
-      whisper-light 阴影、cubic-bezier(0.32,0.72,0,1) 与 150/250/350ms 动效带。
-
-   相比旧版的改动：
-   - 内容层（列表 / 卡片 / 日历 / 弹窗）由「高通透玻璃」改为「高可读材质」，
-     文字对比度显著提升，背景光晕仍作为氛围透出；
-   - 导航层（侧栏 / 底栏 / 分段控件 / 图标按钮）保留液态玻璃并强化受光；
-   - 文字层级对比度全部达到 WCAG AA（正文 ≥ 7:1，次要 ≥ 4.5:1）；
-   - 新增克制、可被 prefers-reduced-motion 关闭的 Apple 风格动效。
-
-   约定：全部类名与页面结构保持不变，仅增强视觉与可读性。
+   设计依据（Apple HIG · Liquid Glass, WWDC25）：
+   1) 分层 —— Liquid Glass 只属于「导航与浮层」层（侧栏 / 底栏 / 弹窗 /
+      分段控件）。内容层一律使用不模糊的标准材质；不在内容层叠玻璃，
+      也禁止玻璃叠玻璃。
+   2) 光学 —— 每个玻璃面只开一条 backdrop-filter 通道
+      （blur + saturate + brightness）；折射用「透镜环」渐变近似，
+      镜面反射用 inset 受光高光；指针位置（--mx / --my）驱动的高光
+      表现材质对交互的响应。
+   3) 形状 —— 同心圆角（内半径 = 外半径 − 边框 − 内边距），控件全胶囊。
+   4) 动效 —— cubic-bezier(0.32,0.72,0,1) 标准曲线 +
+      cubic-bezier(0.34,1.56,0.64,1) 轻回弹；只动画 transform / opacity，
+      绝不动画 backdrop-filter。
+   5) 性能 —— 同屏 backdrop-filter ≤ 3 处，导航模糊 12–16px；
+      正文滚动区不加模糊层；移动端进一步降级。
+   6) 无障碍 —— prefers-reduced-motion / reduced-transparency / contrast。
    ===================================================================== */
 
 *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
@@ -42,13 +42,13 @@
   --surface: #ffffff;
 
   /* ── 文字（Apple Label 语义，对比度按可读性上调） ── */
-  --text: #1d1d1f;            /* label         · 白底 15.9:1 */
-  --text-secondary: #48484a;  /* secondaryLabel · 白底 9.6:1  */
-  --text-tertiary: #6e6e73;   /* tertiaryLabel  · 白底 5.9:1  */
+  --text: #1d1d1f;            /* label          · 白底 15.9:1 */
+  --text-secondary: #45454a;  /* secondaryLabel · 白底 10.0:1 */
+  --text-tertiary: #6b6b70;   /* tertiaryLabel  · 白底 6.1:1  */
 
   /* ── 描边 / 分隔线（Apple hairline） ── */
-  --border: rgba(60, 60, 67, 0.12);
-  --border-strong: rgba(60, 60, 67, 0.22);
+  --border: rgba(60, 60, 67, 0.14);
+  --border-strong: rgba(60, 60, 67, 0.24);
   --separator: rgba(60, 60, 67, 0.10);
 
   /* ── 强调色 ── */
@@ -61,52 +61,81 @@
   --success: #248a3d;
   --success-soft: rgba(52, 199, 89, 0.15);
   --danger: #d70015;
-  --danger-soft: rgba(255, 59, 48, 0.12);
+  --danger-soft: rgba(255, 59, 48, 0.10);
 
-  /* ── 形状（Pinguo：圆角 1.2rem，按钮全胶囊） ── */
+  /* ── 形状 ── */
   --radius-sm: 10px;
   --radius-md: 14px;
   --radius-lg: 20px;        /* ≈1.2rem */
   --radius-xl: 26px;
   --radius-pill: 999px;
 
-  /* ── 材质 A：导航层液态玻璃（强折射，供背景光晕透出） ── */
-  --lg-blur: 30px;
-  --lg-saturate: 180%;
-  --lg-fill: rgba(255, 255, 255, 0.58);
-  --lg-fill-strong: rgba(255, 255, 255, 0.72);
-  --lg-fill-hover: rgba(255, 255, 255, 0.82);
-  --lg-edge: rgba(255, 255, 255, 0.65);   /* 玻璃边缘受光 */
+  /* 同心圆角：内层半径 = 外层半径 − 边框 − 内边距（负值取 0，必须带单位）。
+     本项目中多数容器的内边距 ≥ 圆角半径，此时内层视为独立表面（非同心），
+     仅在内边距小于半径时用 --radius-inner 修正。 */
+  --pad-card: 22px;
+  --radius-inner: max(0px, calc(var(--radius-lg) - var(--pad-card) - 1px));
 
-  /* ── 材质 B：内容层高可读材质（弱透明，文字清晰） ── */
-  --material: rgba(255, 255, 255, 0.80);
-  --material-strong: rgba(255, 255, 255, 0.90);
-  --material-blur: 22px;
+  /* ── 材质 A：导航/浮层液态玻璃（唯一允许 backdrop-filter 的一层） ── */
+  --lg-blur: 14px;              /* 12–20px：半径越大越贵，靠 saturate 补偿观感 */
+  --lg-saturate: 180%;          /* 补偿模糊造成的去饱和，100% 会发灰 */
+  --lg-brightness: 1.05;
+  --lg-fill: rgba(255, 255, 255, 0.62);
+  --lg-fill-strong: rgba(255, 255, 255, 0.76);
+  --lg-fill-hover: rgba(255, 255, 255, 0.82);
+  --lg-edge: rgba(255, 255, 255, 0.62);   /* 上缘受光 hairline */
+  --lg-shade: rgba(60, 60, 67, 0.12);     /* 下缘暗 line，定义轮廓 */
+  /* 透镜环：边缘更亮 → 中心透明，近似凸透镜边缘聚光 */
+  --lg-lens: radial-gradient(125% 125% at 50% 50%,
+      rgba(255, 255, 255, 0) 56%,
+      rgba(255, 255, 255, 0.10) 80%,
+      rgba(255, 255, 255, 0.26) 100%);
+  /* 指针跟随的高光：--mx / --my 为指针在控件内的坐标，由 app.js 写入；
+     这里的默认值居中，JS 未介入（触屏/减少透明度）时高光层也不出错。 */
+  --lg-glare: rgba(255, 255, 255, 0.26);
+  --mx: 50%;
+  --my: 50%;
+
+  /* ── 材质 B：内容层标准材质（不模糊，保证文字清晰） ── */
+  --material: rgba(255, 255, 255, 0.90);
+  --material-strong: rgba(255, 255, 255, 0.96);
   --material-muted: rgba(120, 120, 128, 0.09);
 
-  /* ── 受光高光（光源在上：上缘亮线 + 内侧反光） ── */
-  --specular: inset 0 1px 0 rgba(255, 255, 255, 0.9);
-  --specular-ring: inset 0 0 0 1px rgba(255, 255, 255, 0.42);
-  --lg-glow: 0 18px 44px -20px rgba(24, 39, 75, 0.20), 0 6px 16px -10px rgba(0, 0, 0, 0.10);
-  --material-shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 10px 30px -18px rgba(16, 24, 40, 0.16);
-  --shadow-overlay: 0 32px 80px -24px rgba(16, 24, 40, 0.30), 0 8px 24px -12px rgba(16, 24, 40, 0.16);
+  /* ── 受光高光与投射 ── */
+  --specular: inset 0 1px 0 rgba(255, 255, 255, 0.95);
+  --lg-glow: 0 18px 44px -24px rgba(24, 39, 75, 0.22), 0 6px 16px -12px rgba(0, 0, 0, 0.08);
+  --material-shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 12px 30px -22px rgba(16, 24, 40, 0.18);
+  --shadow-overlay: 0 32px 80px -26px rgba(16, 24, 40, 0.30), 0 8px 24px -14px rgba(16, 24, 40, 0.16);
 
-  /* ── 排版（Pinguo 尺度，界面字号跟随系统字体栈） ── */
+  /* ── 排版（界面字号跟随系统字体栈） ── */
   --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
     system-ui, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
     "Helvetica Neue", Arial, sans-serif;
   --font-mono: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
 
-  /* ── 动效（Pinguo：150 / 250 / 350ms 三档 + 统一贝塞尔） ── */
-  --ease-standard: cubic-bezier(0.32, 0.72, 0, 1);
-  --ease-spring: cubic-bezier(0.22, 0.61, 0.36, 1);
+  /* ── 动效 ── */
+  --ease-standard: cubic-bezier(0.32, 0.72, 0, 1);   /* Apple 标准减速曲线 */
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);  /* 轻回弹（仅用于形状/位移） */
   --dur-fast: 150ms;
   --dur-base: 250ms;
   --dur-slow: 350ms;
+  --dur-press: 160ms;
   --transition: var(--dur-base) var(--ease-standard);
 
   --container: 1160px;
   --nav-height: 60px;
+
+  /* ── 移动端安全区（刘海 / 灵动岛 / Home 指示条）──
+     统一收敛成自定义属性：一是全站只在这里读 env()，二是
+     iframe 子页面读不到父页面的安全区（iframe 内 env() 恒为 0），
+     需要由 app.js 把父页面的实测值转发进来覆盖。 */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+
+  /* ── 触屏最小命中区（Apple HIG：44×44pt）── */
+  --tap-min: 44px;
 }
 
 :root[data-theme="dark"] {
@@ -120,8 +149,8 @@
   --text-secondary: #c7c7cc;  /* 黑底 11.3:1 */
   --text-tertiary: #98989d;   /* 黑底 7.3:1  */
 
-  --border: rgba(255, 255, 255, 0.13);
-  --border-strong: rgba(255, 255, 255, 0.26);
+  --border: rgba(255, 255, 255, 0.14);
+  --border-strong: rgba(255, 255, 255, 0.28);
   --separator: rgba(255, 255, 255, 0.09);
 
   --accent: var(--sys-blue-dark);
@@ -135,21 +164,26 @@
   --danger-soft: rgba(255, 69, 58, 0.16);
 
   /* 深色导航玻璃：低白度、暗场受光 */
-  --lg-fill: rgba(28, 28, 32, 0.55);
-  --lg-fill-strong: rgba(38, 38, 44, 0.72);
+  --lg-fill: rgba(30, 30, 34, 0.58);
+  --lg-fill-strong: rgba(46, 46, 52, 0.76);
   --lg-fill-hover: rgba(255, 255, 255, 0.10);
-  --lg-edge: rgba(255, 255, 255, 0.14);
+  --lg-edge: rgba(255, 255, 255, 0.15);
+  --lg-shade: rgba(0, 0, 0, 0.45);
+  --lg-lens: radial-gradient(125% 125% at 50% 50%,
+      rgba(255, 255, 255, 0) 56%,
+      rgba(255, 255, 255, 0.04) 80%,
+      rgba(255, 255, 255, 0.10) 100%);
+  --lg-glare: rgba(255, 255, 255, 0.22);
 
   /* 深色内容材质：保持文字对比度 */
-  --material: rgba(28, 28, 30, 0.78);
-  --material-strong: rgba(32, 32, 36, 0.90);
-  --material-muted: rgba(255, 255, 255, 0.06);
+  --material: rgba(28, 28, 30, 0.90);
+  --material-strong: rgba(34, 34, 38, 0.96);
+  --material-muted: rgba(255, 255, 255, 0.07);
 
-  --specular: inset 0 1px 0 rgba(255, 255, 255, 0.14);
-  --specular-ring: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
-  --lg-glow: 0 20px 52px -22px rgba(0, 0, 0, 0.62), 0 6px 18px -10px rgba(0, 0, 0, 0.45);
-  --material-shadow: 0 1px 2px rgba(0, 0, 0, 0.34), 0 14px 34px -20px rgba(0, 0, 0, 0.60);
-  --shadow-overlay: 0 36px 88px -26px rgba(0, 0, 0, 0.78), 0 10px 28px -14px rgba(0, 0, 0, 0.55);
+  --specular: inset 0 1px 0 rgba(255, 255, 255, 0.13);
+  --lg-glow: 0 20px 52px -26px rgba(0, 0, 0, 0.62), 0 6px 18px -12px rgba(0, 0, 0, 0.45);
+  --material-shadow: 0 1px 2px rgba(0, 0, 0, 0.34), 0 14px 34px -22px rgba(0, 0, 0, 0.60);
+  --shadow-overlay: 0 36px 88px -28px rgba(0, 0, 0, 0.78), 0 10px 28px -16px rgba(0, 0, 0, 0.55);
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -160,6 +194,8 @@ html {
   scroll-behavior: smooth;
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
+  /* 触屏：去掉系统点击灰块（已有自绘按压态），并消除 300ms 点击延迟与双击缩放 */
+  -webkit-tap-highlight-color: transparent;
 }
 
 body {
@@ -235,8 +271,14 @@ body {
   from { opacity: 0; }
   to   { opacity: 1; }
 }
+/* 浮层材质 morph：从触发点轻微放大弹入（Apple：菜单从按钮处「冒」出来） */
 @keyframes modalIn {
-  from { opacity: 0; transform: translateY(14px) scale(0.972); }
+  from { opacity: 0; transform: translateY(10px) scale(0.965); }
+  to   { opacity: 1; transform: none; }
+}
+/* 手机端浮层：自底部升起（Sheet），位移距离用 dvh 以适配地址栏变化 */
+@keyframes sheetUp {
+  from { opacity: 0; transform: translateY(24px); }
   to   { opacity: 1; transform: none; }
 }
 @keyframes sk-pulse {
@@ -250,7 +292,49 @@ body {
 }
 
 /* ═══════════════════════════════════════════════════════════════════
-   4 · 品牌标记
+   4 · 液态玻璃基元
+   ---------------------------------------------------------------------
+   玻璃面本体（侧栏 / 底栏 / 弹窗 / 分段控件）各自持有一条
+   backdrop-filter 通道；透镜环由各自的 ::before 提供渐变聚光。
+   透镜环与指针高光都只是「渐变 + inset 阴影」，不额外增加模糊通道，
+   因此观感提升几乎不产生 GPU 成本。
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* 指针跟随高光的作用对象。--mx / --my 由 JS 写入（缺省居中）。
+   静止不可见，指针悬停时从指针位置向外扩散 ——
+   对应 Liquid Glass「光随指尖移动」的交互反馈。
+   两条排除规则，都是为了「易读性优先」：
+   1. 实心按钮（primary / danger）上是白字，叠加白色高光会明显削弱对比度；
+   2. 只在 :hover 触发，不响应 :focus-visible —— 键盘聚焦时没有指针坐标，
+      高光会固定落在控件正中、正好压在文字底下，反而影响阅读
+      （键盘用户已有独立的 accent 焦点环）。 */
+:is(.btn, .side-link, .tab, .bottom-nav-item, .icon-btn,
+    .chip, .pos-chip, .cal-today-btn, .modal-close):not(.btn-primary):not(.btn-danger) {
+  position: relative;
+}
+:is(.btn, .side-link, .tab, .bottom-nav-item, .icon-btn,
+    .chip, .pos-chip, .cal-today-btn, .modal-close):not(.btn-primary):not(.btn-danger)::after {
+  content: "";
+  position: absolute; inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: radial-gradient(circle farthest-side at var(--mx, 50%) var(--my, 50%),
+    var(--lg-glare) 0%, rgba(255, 255, 255, 0) 100%);
+  opacity: 0;
+  transition: opacity var(--dur-base) var(--ease-standard);
+}
+:is(.btn, .side-link, .tab, .bottom-nav-item, .icon-btn,
+    .chip, .pos-chip, .cal-today-btn, .modal-close):not(.btn-primary):not(.btn-danger):hover::after {
+  opacity: 1;
+}
+/* 触屏/无悬停设备：无指针位置可言，直接不渲染高光层，省掉无谓的图层与重绘 */
+@media (hover: none) {
+  :is(.btn, .side-link, .tab, .bottom-nav-item, .icon-btn,
+      .chip, .pos-chip, .cal-today-btn, .modal-close)::after { display: none; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   5 · 品牌标记
    ═══════════════════════════════════════════════════════════════════ */
 
 .brand-mark {
@@ -258,17 +342,20 @@ body {
   background: linear-gradient(160deg, #4aa3ff, var(--sys-blue) 55%, #0060cc);
   box-shadow: var(--specular), 0 4px 12px rgba(0, 122, 255, 0.36);
   display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  position: relative; isolation: isolate; overflow: hidden;
   transition: transform var(--dur-base) var(--ease-spring), box-shadow var(--dur-base) var(--ease-standard);
 }
-.sidebar-brand:hover .brand-mark,
-.auth-brand:hover .brand-mark { transform: scale(1.06) rotate(-2deg); }
+@media (hover: hover) {
+  .sidebar-brand:hover .brand-mark,
+  .auth-brand:hover .brand-mark { transform: scale(1.06) rotate(-2deg); }
+}
 
 .tgl-btn .icon-sun { display: none; }
 :root[data-theme="dark"] .tgl-btn .icon-sun { display: block; }
 :root[data-theme="dark"] .tgl-btn .icon-moon { display: none; }
 
 /* ═══════════════════════════════════════════════════════════════════
-   5 · 布局与页头
+   6 · 布局与页头
    ═══════════════════════════════════════════════════════════════════ */
 
 .main { flex: 1; padding: 40px 28px 72px; }
@@ -285,10 +372,12 @@ body {
 }
 
 /* ═══════════════════════════════════════════════════════════════════
-   6 · 按钮（Pinguo：全胶囊 + whisper-light 阴影）
+   7 · 按钮
+   内容层按钮用标准材质填充（不做玻璃）；按压给轻微回弹 + 指针高光。
    ═══════════════════════════════════════════════════════════════════ */
 
 .btn {
+  position: relative; isolation: isolate;
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   min-height: 40px; padding: 10px 20px; border-radius: var(--radius-pill);
   font-size: 0.94rem; font-weight: 600; letter-spacing: -0.008em;
@@ -298,68 +387,68 @@ body {
               color var(--dur-fast) var(--ease-standard),
               border-color var(--dur-fast) var(--ease-standard),
               box-shadow var(--dur-base) var(--ease-standard),
-              transform var(--dur-fast) var(--ease-standard),
+              transform var(--dur-press) var(--ease-spring),
               filter var(--dur-fast) var(--ease-standard);
 }
-.btn:active { transform: scale(0.965); }
+.btn:active { transform: scale(0.96); }
 .btn:disabled { opacity: 0.42; cursor: not-allowed; transform: none; }
 
 .btn-primary {
   background: linear-gradient(180deg, #2b8dff, var(--accent));
   color: #fff;
-  box-shadow: var(--specular), 0 6px 16px -4px rgba(0, 122, 255, 0.45);
+  box-shadow: var(--specular), 0 6px 16px -6px rgba(0, 122, 255, 0.45);
 }
-.btn-primary:hover { filter: brightness(1.06); box-shadow: var(--specular), 0 10px 24px -6px rgba(0, 122, 255, 0.5); }
+/* 悬停反馈只在真有指针（可悬停）的设备上生效。触屏上 :hover 会在点按后
+   「粘住」，而这些规则没有对应的状态类能盖回来，所以统一在源头守卫。
+   位置保持在 :active 之前，保证按下反馈的优先级不变。 */
+@media (hover: hover) {
+  .btn-primary:hover { filter: brightness(1.06); box-shadow: var(--specular), 0 10px 24px -8px rgba(0, 122, 255, 0.5); }
+  .btn-outline:hover { background: var(--surface); border-color: var(--border-strong); }
+  .btn-danger:hover { background: color-mix(in srgb, var(--danger) 16%, transparent); border-color: var(--danger); }
+}
 .btn-primary:active { filter: brightness(0.96); }
 .btn-primary:disabled { box-shadow: none; filter: none; }
 
-/* 导航层玻璃按钮（略降白度 + 中性可见边框，避免在浅色卡片上看不出边界） */
+/* 次要按钮：systemFill 实色（内容层不做玻璃，保证文字清晰） */
 .btn-outline {
-  background: color-mix(in srgb, var(--lg-fill) 85%, var(--material-muted));
+  background: var(--material-strong);
   border-color: var(--border-strong); color: var(--text);
-  -webkit-backdrop-filter: blur(18px) saturate(var(--lg-saturate));
-  backdrop-filter: blur(18px) saturate(var(--lg-saturate));
   box-shadow: var(--specular);
 }
-.btn-outline:hover { background: var(--lg-fill-hover); }
+.btn-outline:active { background: var(--material-muted); }
 
 .btn-sm { min-height: 30px; padding: 5px 14px; font-size: 0.84rem; }
 
 .btn-danger {
-  background: var(--danger-soft); border-color: color-mix(in srgb, var(--danger) 34%, transparent);
+  background: var(--danger-soft); border-color: color-mix(in srgb, var(--danger) 32%, transparent);
   color: var(--danger);
-  -webkit-backdrop-filter: blur(18px) saturate(var(--lg-saturate));
-  backdrop-filter: blur(18px) saturate(var(--lg-saturate));
-  box-shadow: var(--specular);
 }
-.btn-danger:hover { border-color: var(--danger); filter: brightness(1.04); }
 
 .btn-block { width: 100%; }
 
 /* ═══════════════════════════════════════════════════════════════════
-   7 · 内容材质容器（列表 / 卡片）
-   Liquid Glass 规范：不在内容层叠加玻璃，改用高可读材质
+   8 · 内容材质容器（列表 / 卡片）
+   Liquid Glass 规范：内容层用标准材质，不叠玻璃、不加模糊。
    ═══════════════════════════════════════════════════════════════════ */
 
 .list {
   background: var(--material);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg); overflow: hidden;
-  -webkit-backdrop-filter: blur(var(--material-blur)) saturate(160%);
-  backdrop-filter: blur(var(--material-blur)) saturate(160%);
   box-shadow: var(--material-shadow), var(--specular);
   animation: blockIn var(--dur-slow) var(--ease-standard) both;
 }
+/* 嵌套在卡片正文里的列表：同心圆角（外层半径 − 内边距 − 边框） */
+.collapse-body > .list,
+.modal-body > .list { border-radius: var(--radius-inner); }
 
 .list-row {
   display: flex; align-items: center; gap: 16px; width: 100%;
   padding: 17px 22px; border-bottom: 1px solid var(--separator);
   background: none; border-top: none; border-left: none; border-right: none;
   text-align: left; cursor: pointer; font-family: inherit;
-  transition: background-color var(--dur-fast) var(--ease-standard),
-              transform var(--dur-fast) var(--ease-standard);
-  /* fill-mode 用 backwards：延时期间保持隐形，动画结束不残留 transform，
-     否则会覆盖 :active 的按压缩放反馈 */
+  transition: background-color var(--dur-fast) var(--ease-standard);
+  /* fill-mode 用 backwards：延时期间保持隐形，动画结束不残留 transform */
   animation: rowIn var(--dur-slow) var(--ease-standard) backwards;
 }
 /* 逐条入场：桌面端首屏最多 8 条错峰，避免长列表等待 */
@@ -373,8 +462,9 @@ body {
 .list-row:nth-child(n+8) { animation-delay: 260ms; }
 
 .list-row:last-child { border-bottom: none; }
-.list-row:hover { background: var(--accent-soft); }
-.list-row:active { background: var(--accent-soft); transform: scale(0.995); }
+@media (hover: hover) { .list-row:hover { background: var(--accent-soft); } }
+/* 行内按压：改背景 + 内阴影（不用 scale，避免被容器圆角裁切） */
+.list-row:active { background: var(--accent-soft); box-shadow: inset 0 0 0 999px rgba(120, 120, 128, 0.06); }
 
 .list-row-main { flex: 1; min-width: 0; }
 .list-row-title {
@@ -395,26 +485,27 @@ body {
   color: var(--text-tertiary); flex-shrink: 0;
   transition: transform var(--dur-base) var(--ease-standard), color var(--dur-base) var(--ease-standard);
 }
-.list-row:hover .list-row-arrow { transform: translateX(3px); color: var(--accent); }
+@media (hover: hover) {
+  .list-row:hover .list-row-arrow { transform: translateX(3px); color: var(--accent); }
+}
 
 /* ═══════════════════════════════════════════════════════════════════
-   8 · 徽章（半透明语义胶囊）
+   9 · 徽章（语义胶囊，实色 —— 逐行元素绝不能加模糊）
    ═══════════════════════════════════════════════════════════════════ */
 
 .badge {
   display: inline-flex; align-items: center; padding: 3px 10px;
   border-radius: var(--radius-pill);
   font-size: 0.78rem; font-weight: 600; line-height: 1.5; letter-spacing: 0.005em;
-  -webkit-backdrop-filter: blur(10px) saturate(165%);
-  backdrop-filter: blur(10px) saturate(165%);
   border: 1px solid transparent;
   transition: background-color var(--dur-fast) var(--ease-standard);
 }
 .badge-manual { background: var(--accent-soft); color: var(--accent); border-color: color-mix(in srgb, var(--accent) 26%, transparent); }
 .badge-crawler { background: var(--success-soft); color: var(--success); border-color: color-mix(in srgb, var(--success) 30%, transparent); }
+.badge-danger { background: var(--danger-soft); color: var(--danger); border-color: color-mix(in srgb, var(--danger) 30%, transparent); }
 
 /* ═══════════════════════════════════════════════════════════════════
-   9 · 详情内容
+   10 · 详情内容
    ═══════════════════════════════════════════════════════════════════ */
 
 .detail-title {
@@ -452,28 +543,28 @@ body {
 .detail-head .detail-title { margin-bottom: 0; }
 
 /* ═══════════════════════════════════════════════════════════════════
-   10 · 弹窗
+   11 · 弹窗（浮层 = 玻璃层）
    ═══════════════════════════════════════════════════════════════════ */
 
 .modal-overlay {
   position: fixed; inset: 0; z-index: 500;
   display: none; align-items: center; justify-content: center;
-  background: rgba(15, 17, 22, 0.44);
-  -webkit-backdrop-filter: blur(10px) saturate(140%);
-  backdrop-filter: blur(10px) saturate(140%);
+  background: rgba(15, 17, 22, 0.40);
+  -webkit-backdrop-filter: blur(6px) saturate(140%);
+  backdrop-filter: blur(6px) saturate(140%);
   padding: 20px;
 }
-:root[data-theme="dark"] .modal-overlay { background: rgba(0, 0, 0, 0.58); }
+:root[data-theme="dark"] .modal-overlay { background: rgba(0, 0, 0, 0.56); }
 .modal-overlay.show { display: flex; animation: overlayIn var(--dur-base) var(--ease-standard) both; }
 .modal-overlay.show .modal { animation: modalIn var(--dur-slow) var(--ease-spring) both; }
 
 .modal {
-  background: var(--material-strong);
-  border: 1px solid var(--border);
+  background: var(--lg-fill-strong);
+  border: 1px solid var(--lg-edge);
   border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-overlay), var(--specular);
-  -webkit-backdrop-filter: blur(var(--lg-blur)) saturate(170%);
-  backdrop-filter: blur(var(--lg-blur)) saturate(170%);
+  box-shadow: var(--specular), var(--shadow-overlay);
+  -webkit-backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate)) brightness(var(--lg-brightness));
+  backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate)) brightness(var(--lg-brightness));
   max-width: 720px; width: 100%; max-height: 86vh;
   display: flex; flex-direction: column; overflow: hidden;
 }
@@ -488,11 +579,15 @@ body {
   width: 34px; height: 34px; border-radius: 50%;
   transition: background-color var(--dur-fast) var(--ease-standard),
               color var(--dur-fast) var(--ease-standard),
-              transform var(--dur-fast) var(--ease-standard);
+              transform var(--dur-press) var(--ease-spring);
 }
 .modal-close:hover { background: var(--material-muted); color: var(--text); }
 .modal-close:active { transform: scale(0.9); }
-.modal-body { padding: 22px; overflow-y: auto; }
+.modal-body {
+  padding: 22px; overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;   /* 弹窗内滚到底不把背后页面一起带动 */
+}
 .modal-body .detail-title { font-size: 1.4rem; margin-bottom: 10px; }
 .modal-body .detail-head { margin-bottom: 12px; }
 .modal-body .detail-head .detail-title { margin-bottom: 0; }
@@ -509,30 +604,41 @@ body {
 }
 
 /* ═══════════════════════════════════════════════════════════════════
-   11 · 表单
+   12 · 表单
    ═══════════════════════════════════════════════════════════════════ */
 
-/* 分段控件：导航层玻璃 */
+/* 分段控件：控件层，保留玻璃（单屏只会出现一个） */
 .tabs {
+  position: relative; isolation: isolate;
   display: flex; background: var(--lg-fill); border: 1px solid var(--lg-edge);
   border-radius: var(--radius-pill); padding: 4px; margin-bottom: 24px;
-  -webkit-backdrop-filter: blur(20px) saturate(var(--lg-saturate));
-  backdrop-filter: blur(20px) saturate(var(--lg-saturate));
-  box-shadow: var(--specular);
+  -webkit-backdrop-filter: blur(12px) saturate(var(--lg-saturate));
+  backdrop-filter: blur(12px) saturate(var(--lg-saturate));
+  /* 上缘受光 + 下缘暗线（定义玻璃厚度）+ 轻微浮起 */
+  box-shadow: var(--specular), inset 0 -1px 0 var(--lg-shade), var(--lg-glow);
+}
+/* 分段控件的透镜环：玻璃边缘的聚光。纯渐变，不额外增加模糊通道 */
+.tabs::before {
+  content: ""; position: absolute; inset: 0; z-index: 0;
+  border-radius: inherit; pointer-events: none;
+  background: var(--lg-lens);
 }
 .tab {
+  position: relative; isolation: isolate; z-index: 1;
   flex: 1; text-align: center; padding: 9px 0; border: none; background: none;
   border-radius: var(--radius-pill);
   font-size: 0.91rem; font-weight: 600; color: var(--text-secondary); cursor: pointer;
   font-family: inherit;
   transition: background-color var(--dur-base) var(--ease-standard),
               color var(--dur-base) var(--ease-standard),
-              box-shadow var(--dur-base) var(--ease-standard);
+              box-shadow var(--dur-base) var(--ease-standard),
+              transform var(--dur-press) var(--ease-spring);
 }
 .tab:hover { background: var(--material-muted); }
+.tab:active { transform: scale(0.97); }
 .tab.active {
   background: var(--material-strong); color: var(--accent); font-weight: 700;
-  box-shadow: var(--specular), 0 4px 12px -4px rgba(0, 0, 0, 0.16);
+  box-shadow: var(--specular), 0 4px 12px -6px rgba(0, 0, 0, 0.18);
 }
 
 .form-field { margin-bottom: 18px; }
@@ -545,17 +651,15 @@ body {
   font-size: 0.96rem; font-family: inherit;
   background: var(--material-strong); border: 1px solid var(--border);
   border-radius: var(--radius-md); color: var(--text); line-height: 1.5;
-  -webkit-backdrop-filter: blur(16px) saturate(160%);
-  backdrop-filter: blur(16px) saturate(160%);
   box-shadow: var(--specular);
   transition: border-color var(--dur-fast) var(--ease-standard),
               box-shadow var(--dur-base) var(--ease-standard),
               background-color var(--dur-fast) var(--ease-standard);
 }
 .form-input::placeholder { color: var(--text-tertiary); }
-.form-input:hover { border-color: var(--border-strong); }
+@media (hover: hover) { .form-input:hover { border-color: var(--border-strong); } }
 .form-input:focus {
-  outline: none; border-color: var(--accent); background: var(--material-strong);
+  outline: none; border-color: var(--accent);
   box-shadow: 0 0 0 3.5px var(--accent-ring), var(--specular);
 }
 .form-input:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -567,7 +671,7 @@ textarea.form-input { min-height: 96px; resize: vertical; line-height: 1.6; }
 select.form-input {
   appearance: none; -webkit-appearance: none; -moz-appearance: none;
   padding-right: 42px; cursor: pointer;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236e6e73' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236b6b70' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 15px center;
   background-size: 15px 15px;
@@ -615,22 +719,21 @@ input[type="checkbox"]:checked::after {
 input[type="checkbox"]:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3.5px var(--accent-ring); }
 input[type="checkbox"]:disabled { opacity: 0.5; cursor: not-allowed; }
 
-/* 多选芯片 */
+/* 多选芯片：实色（提醒对象可能一次渲染几十个，绝不能逐个加模糊） */
 .chip {
+  position: relative; isolation: isolate;
   display: inline-flex; align-items: center; gap: 7px;
   padding: 7px 13px; border-radius: var(--radius-pill);
-  background: color-mix(in srgb, var(--lg-fill) 85%, var(--material-muted));
+  background: var(--material-strong);
   border: 1px solid var(--border-strong);
   font-size: 0.89rem; color: var(--text); cursor: pointer;
   box-shadow: var(--specular);
-  -webkit-backdrop-filter: blur(14px) saturate(var(--lg-saturate));
-  backdrop-filter: blur(14px) saturate(var(--lg-saturate));
   transition: background-color var(--dur-fast) var(--ease-standard),
               border-color var(--dur-fast) var(--ease-standard),
               color var(--dur-fast) var(--ease-standard),
-              transform var(--dur-fast) var(--ease-standard);
+              transform var(--dur-press) var(--ease-spring);
 }
-.chip:hover { background: var(--lg-fill-hover); }
+.chip:hover { background: var(--surface); }
 .chip:active { transform: scale(0.97); }
 .chip input[type="checkbox"] { width: 16px; height: 16px; border-radius: 5px; }
 .chip input[type="checkbox"]:checked::after { left: 4px; top: 1px; width: 4px; height: 8px; }
@@ -657,15 +760,15 @@ input[type="checkbox"]:disabled { opacity: 0.5; cursor: not-allowed; }
 .remind-members { display: flex; flex-wrap: wrap; gap: 8px; }
 .pos-chip {
   border: 1px solid var(--border-strong);
-  background: color-mix(in srgb, var(--lg-fill) 85%, var(--material-muted));
+  background: var(--material-strong);
   color: var(--text); border-radius: var(--radius-pill);
   padding: 5px 12px; font-size: 0.84rem; font-family: inherit; cursor: pointer;
   transition: background-color var(--dur-fast) var(--ease-standard),
               border-color var(--dur-fast) var(--ease-standard),
               color var(--dur-fast) var(--ease-standard),
-              transform var(--dur-fast) var(--ease-standard);
+              transform var(--dur-press) var(--ease-spring);
 }
-.pos-chip:hover { background: var(--lg-fill-hover); }
+.pos-chip:hover { background: var(--surface); }
 .pos-chip:active { transform: scale(0.97); }
 .pos-chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
 .pos-chip.partial { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
@@ -677,7 +780,7 @@ input[type="checkbox"]:disabled { opacity: 0.5; cursor: not-allowed; }
 .form-error.show { display: block; animation: rowIn var(--dur-base) var(--ease-standard) both; }
 
 /* ═══════════════════════════════════════════════════════════════════
-   12 · 空状态 / 骨架屏
+   13 · 空状态 / 骨架屏
    ═══════════════════════════════════════════════════════════════════ */
 
 .state {
@@ -709,7 +812,7 @@ input[type="checkbox"]:disabled { opacity: 0.5; cursor: not-allowed; }
 .skeleton-line.w80 { width: 80%; }
 
 /* ═══════════════════════════════════════════════════════════════════
-   13 · 卡片 / 个人中心
+   14 · 卡片 / 个人中心
    ═══════════════════════════════════════════════════════════════════ */
 
 .profile-card {
@@ -717,8 +820,6 @@ input[type="checkbox"]:disabled { opacity: 0.5; cursor: not-allowed; }
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: 34px 38px; max-width: 600px;
-  -webkit-backdrop-filter: blur(var(--material-blur)) saturate(160%);
-  backdrop-filter: blur(var(--material-blur)) saturate(160%);
   box-shadow: var(--material-shadow), var(--specular);
   animation: blockIn var(--dur-slow) var(--ease-standard) both;
 }
@@ -732,8 +833,6 @@ input[type="checkbox"]:disabled { opacity: 0.5; cursor: not-allowed; }
   width: 56px; height: 56px; border-radius: 50%; flex-shrink: 0;
   background: var(--accent-soft); color: var(--accent);
   border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
-  -webkit-backdrop-filter: blur(10px) saturate(165%);
-  backdrop-filter: blur(10px) saturate(165%);
   display: flex; align-items: center; justify-content: center;
   font-size: 1.32rem; font-weight: 700; letter-spacing: -0.01em;
   box-shadow: var(--specular);
@@ -748,9 +847,9 @@ input[type="checkbox"]:disabled { opacity: 0.5; cursor: not-allowed; }
 .card-danger h2 { color: var(--danger); }
 .card-danger .btn-danger {
   background: var(--danger); color: #fff; border-color: transparent;
-  box-shadow: var(--specular), 0 6px 16px -4px color-mix(in srgb, var(--danger) 45%, transparent);
+  box-shadow: var(--specular), 0 6px 16px -6px color-mix(in srgb, var(--danger) 45%, transparent);
 }
-.card-danger .btn-danger:hover { filter: brightness(1.06); }
+@media (hover: hover) { .card-danger .btn-danger:hover { filter: brightness(1.06); } }
 
 .info-list { margin-top: 10px; }
 .info-row {
@@ -795,7 +894,7 @@ input[type="checkbox"]:disabled { opacity: 0.5; cursor: not-allowed; }
   border-radius: var(--radius-md);
   transition: opacity var(--dur-fast) var(--ease-standard);
 }
-.collapse-head:hover { opacity: 0.82; }
+@media (hover: hover) { .collapse-head:hover { opacity: 0.82; } }
 .collapse-head h2 { margin: 0; }
 .collapse-arrow {
   color: var(--text-secondary); flex-shrink: 0;
@@ -806,7 +905,7 @@ input[type="checkbox"]:disabled { opacity: 0.5; cursor: not-allowed; }
 .collapse.open .collapse-body { display: block; animation: blockIn var(--dur-slow) var(--ease-standard) both; }
 
 /* ═══════════════════════════════════════════════════════════════════
-   14 · 登录品牌区 / 登录面板
+   15 · 登录品牌区 / 登录面板
    ═══════════════════════════════════════════════════════════════════ */
 
 .auth-brand { text-align: center; margin-bottom: 26px; }
@@ -818,22 +917,21 @@ input[type="checkbox"]:disabled { opacity: 0.5; cursor: not-allowed; }
 .auth-title { font-size: 1.22rem; font-weight: 700; letter-spacing: -0.018em; color: var(--text); }
 
 .login-panel {
-  position: relative; overflow: hidden;
+  position: relative;
   background:
-    radial-gradient(420px 300px at 88% -4%, rgba(10, 132, 255, 0.14), transparent 62%),
-    radial-gradient(380px 300px at 2% 104%, rgba(88, 86, 214, 0.12), transparent 62%),
-    radial-gradient(300px 220px at 50% 118%, rgba(90, 200, 250, 0.10), transparent 60%),
+    radial-gradient(420px 300px at 88% -4%, rgba(10, 132, 255, 0.12), transparent 62%),
+    radial-gradient(380px 300px at 2% 104%, rgba(88, 86, 214, 0.10), transparent 62%),
+    radial-gradient(300px 220px at 50% 118%, rgba(90, 200, 250, 0.08), transparent 60%),
     var(--material-strong);
   border: 1px solid var(--border);
   border-radius: var(--radius-xl); padding: 36px 40px;
-  -webkit-backdrop-filter: blur(var(--lg-blur)) saturate(170%);
-  backdrop-filter: blur(var(--lg-blur)) saturate(170%);
   box-shadow: var(--material-shadow), var(--specular);
   animation: blockIn var(--dur-slow) var(--ease-standard) both;
 }
-/* 上缘受光 + 内侧反光（Liquid Glass 光源语义） */
+/* 上缘受光 + 内侧反光（光源语义：光来自上方） */
 .login-panel::before {
   content: ""; position: absolute; inset: 0; pointer-events: none;
+  border-radius: inherit;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0) 42%),
     linear-gradient(90deg, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0) 55%);
@@ -844,7 +942,7 @@ input[type="checkbox"]:disabled { opacity: 0.5; cursor: not-allowed; }
 .login-panel > * { position: relative; z-index: 1; }
 
 /* ═══════════════════════════════════════════════════════════════════
-   15 · 首页 / 区块
+   16 · 首页 / 区块
    ═══════════════════════════════════════════════════════════════════ */
 
 .section-block { margin-top: 40px; }
@@ -857,13 +955,13 @@ input[type="checkbox"]:disabled { opacity: 0.5; cursor: not-allowed; }
 /* 可折叠分组：<details>/<summary> 原生展开收起（正在进行默认展开，未来/过去默认折叠） */
 .section-block > summary { list-style: none; cursor: pointer; }
 .section-block > summary::-webkit-details-marker { display: none; }
-.section-block > summary:hover .section-title { color: var(--accent); }
+@media (hover: hover) { .section-block > summary:hover .section-title { color: var(--accent); } }
 .section-right { display: flex; align-items: center; gap: 8px; }
 .section-chevron { color: var(--text-secondary); flex-shrink: 0; transition: transform var(--dur-slow) var(--ease-spring); }
 .section-block[open] > summary .section-chevron { transform: rotate(180deg); }
 
 /* ═══════════════════════════════════════════════════════════════════
-   16 · 内测横幅
+   17 · 内测横幅
    ═══════════════════════════════════════════════════════════════════ */
 
 .beta-banner {
@@ -874,30 +972,43 @@ input[type="checkbox"]:disabled { opacity: 0.5; cursor: not-allowed; }
   color: var(--accent);
   font-size: 0.89rem; font-weight: 600; line-height: 1.5;
   border: 1px solid color-mix(in srgb, var(--accent) 20%, transparent);
-  -webkit-backdrop-filter: blur(18px) saturate(170%);
-  backdrop-filter: blur(18px) saturate(170%);
   animation: blockIn var(--dur-slow) var(--ease-standard) both;
 }
 .beta-banner svg { width: 17px; height: 17px; flex-shrink: 0; }
 
 /* ═══════════════════════════════════════════════════════════════════
-   17 · 应用壳
+   18 · 应用壳
    ═══════════════════════════════════════════════════════════════════ */
 
 body.app-mode { overflow: hidden; }
-.app-shell { display: flex; height: 100dvh; }
+.app-shell {
+  display: flex;
+  height: 100vh;   /* 旧内核回退（不支持 dvh 时至少不会塌成 0） */
+  height: 100dvh;  /* 移动端地址栏收起/展开时不跳动 */
+  overflow: hidden;
+}
 
-/* 侧栏 = 导航层，保留液态玻璃 */
+/* 侧栏 = 导航层玻璃（第 1 个玻璃面） */
 .sidebar {
+  position: relative; isolation: isolate;
   width: 264px; flex-shrink: 0;
   background: var(--lg-fill);
   border-right: 1px solid var(--lg-edge);
-  -webkit-backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate));
-  backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate));
+  -webkit-backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate)) brightness(var(--lg-brightness));
+  backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate)) brightness(var(--lg-brightness));
   display: flex; flex-direction: column;
   transition: width var(--dur-slow) var(--ease-standard);
   box-shadow: var(--specular);
 }
+/* 侧栏透镜环：右缘受光，模拟玻璃厚度 */
+.sidebar::before {
+  content: ""; position: absolute; inset: 0; z-index: 0; pointer-events: none;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0) 34%);
+}
+:root[data-theme="dark"] .sidebar::before {
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0) 34%);
+}
+.sidebar > * { position: relative; z-index: 1; }
 .sidebar.collapsed { width: 72px; }
 
 .sidebar-brand {
@@ -907,7 +1018,7 @@ body.app-mode { overflow: hidden; }
   text-decoration: none; white-space: nowrap; overflow: hidden;
   transition: opacity var(--dur-fast) var(--ease-standard);
 }
-.sidebar-brand:hover { opacity: 0.86; }
+@media (hover: hover) { .sidebar-brand:hover { opacity: 0.86; } }
 .sidebar-brand .brand-text { overflow: hidden; text-overflow: ellipsis; }
 .sidebar.collapsed .sidebar-brand { justify-content: center; padding: 20px 0; }
 .sidebar.collapsed .brand-text { display: none; }
@@ -915,17 +1026,18 @@ body.app-mode { overflow: hidden; }
 .sidebar-nav { flex: 1; padding: 14px 12px; overflow-y: auto; }
 
 .side-link {
+  position: relative; isolation: isolate;
   display: flex; align-items: center; gap: 11px; width: 100%;
   min-height: 42px;
   padding: 10px 14px; margin-bottom: 3px; border-radius: var(--radius-md);
   background: none; border: none; cursor: pointer; font-family: inherit; text-align: left;
   color: var(--text-secondary); font-size: 0.94rem; font-weight: 600;
-  white-space: nowrap; position: relative;
+  white-space: nowrap;
   transition: background-color var(--dur-fast) var(--ease-standard),
               color var(--dur-fast) var(--ease-standard),
-              transform var(--dur-fast) var(--ease-standard);
+              transform var(--dur-press) var(--ease-spring);
 }
-.side-link:hover { background: var(--lg-fill-hover); color: var(--text); }
+@media (hover: hover) { .side-link:hover { background: var(--lg-fill-hover); color: var(--text); } }
 .side-link:active { transform: scale(0.985); }
 .side-link.active {
   background: var(--accent-soft); color: var(--accent); font-weight: 700;
@@ -948,31 +1060,27 @@ body.app-mode { overflow: hidden; }
 .sidebar-tools { display: flex; flex-direction: column; gap: 8px; }
 .sidebar-tools .side-link {
   justify-content: center; text-align: center;
-  border: 1px solid var(--lg-edge); border-radius: var(--radius-pill);
-  background: var(--lg-fill);
-  -webkit-backdrop-filter: blur(18px) saturate(var(--lg-saturate));
-  backdrop-filter: blur(18px) saturate(var(--lg-saturate));
+  border: 1px solid var(--border-strong); border-radius: var(--radius-pill);
+  background: var(--material-muted);
   box-shadow: var(--specular);
   color: var(--text-secondary);
   height: 38px; min-height: 38px; padding: 0 12px;
 }
-.sidebar-tools .side-link:hover { background: var(--lg-fill-hover); color: var(--text); }
+@media (hover: hover) { .sidebar-tools .side-link:hover { background: var(--accent-soft); color: var(--text); } }
 .sidebar.collapsed .sidebar-tools .side-link { padding: 0; }
 .sidebar.collapsed .sidebar-tools .side-link .side-text { display: none; }
 
-/* 图标按钮：导航层玻璃 */
+/* 图标按钮：控件层，用 systemFill 实色（数量多，不逐个开模糊） */
 .icon-btn {
   width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center;
-  background: var(--lg-fill); border: 1px solid var(--lg-edge); border-radius: var(--radius-pill);
-  -webkit-backdrop-filter: blur(18px) saturate(var(--lg-saturate));
-  backdrop-filter: blur(18px) saturate(var(--lg-saturate));
+  background: var(--material-muted); border: 1px solid var(--border); border-radius: var(--radius-pill);
   color: var(--text-secondary); cursor: pointer;
   box-shadow: var(--specular);
   transition: background-color var(--dur-fast) var(--ease-standard),
               color var(--dur-fast) var(--ease-standard),
-              transform var(--dur-fast) var(--ease-standard);
+              transform var(--dur-press) var(--ease-spring);
 }
-.icon-btn:hover { color: var(--text); background: var(--lg-fill-hover); }
+@media (hover: hover) { .icon-btn:hover { color: var(--text); background: var(--accent-soft); } }
 .icon-btn:active { transform: scale(0.92); }
 .icon-btn svg { width: 16px; height: 16px; }
 
@@ -989,8 +1097,6 @@ body.app-mode { overflow: hidden; }
   width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0;
   background: var(--accent-soft); color: var(--accent);
   border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
-  -webkit-backdrop-filter: blur(10px) saturate(165%);
-  backdrop-filter: blur(10px) saturate(165%);
   display: flex; align-items: center; justify-content: center;
   font-size: 0.93rem; font-weight: 700;
   box-shadow: var(--specular);
@@ -1003,18 +1109,44 @@ body.app-mode { overflow: hidden; }
 .sidebar-bottom .btn { width: 100%; }
 .sidebar.collapsed .sidebar-bottom .btn { padding: 10px 0; }
 
-.app-content { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.app-view { flex: 1; overflow-y: auto; }
+.app-content { flex: 1; min-width: 0; display: flex; flex-direction: column; position: relative; }
+/* 滚动容器：惯性滚动 + 阻止滚动链传递到外层（否则滚到底会带动整页/父文档） */
+.app-view {
+  flex: 1; overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
 /* 视图切换入场：display 由 none → block 时动画自动重放 */
 .app-view { animation: viewFade var(--dur-base) var(--ease-standard) both; }
-.app-frame { width: 100%; height: 100%; border: none; flex: 1; background: transparent; }
+.app-frame { width: 100%; height: 100%; border: none; flex: 1; background: transparent; display: block; }
+
+/* 左右滑动切页：新视图从对应一侧滑入（仅移动端手势触发；为避免影响桌面端 sticky，transform 只在移动端出现） */
+.app-view.slide-in-next,
+.app-frame.slide-in-next { animation: viewSlideNext var(--dur-base) var(--ease-standard) both; }
+.app-view.slide-in-prev,
+.app-frame.slide-in-prev { animation: viewSlidePrev var(--dur-base) var(--ease-standard) both; }
+/* 结束帧必须回到 transform: none，而不能写 translateX(0)。
+   fill-mode 是 both，动画结束后会保留末帧的声明值：translateX(0) 即使位移为 0
+   也仍是「非 none 的 transform」，会让 .app-view 变成新的层叠上下文与包含块。
+   后果是 #homeView 里的详情弹窗（position:fixed; z-index:500）被降级到
+   homeView 的层叠上下文内，于是被固定在底栏（z-index:200）之下 —— 划动过一次
+   之后弹窗就会渲染在底栏背后。与 blockIn / rowIn / modalIn 统一用 none 的写法保持一致。 */
+@keyframes viewSlideNext {
+  from { opacity: 0; transform: translateX(18%); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes viewSlidePrev {
+  from { opacity: 0; transform: translateX(-18%); }
+  to   { opacity: 1; transform: none; }
+}
 
 /* ═══════════════════════════════════════════════════════════════════
-   18 · 移动端底部导航（导航层玻璃）
+   19 · 移动端底部导航（导航层玻璃，第 1 个玻璃面）
    ═══════════════════════════════════════════════════════════════════ */
 
 .bottom-nav { display: none; }
 .bottom-nav-item {
+  position: relative; isolation: isolate;
   flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 2px; padding: 6px 6px; min-height: 44px;
   background: none; border: none; cursor: pointer; font-family: inherit;
@@ -1022,9 +1154,9 @@ body.app-mode { overflow: hidden; }
   border-radius: 14px;
   transition: color var(--dur-base) var(--ease-standard),
               background-color var(--dur-fast) var(--ease-standard),
-              transform var(--dur-fast) var(--ease-standard);
+              transform var(--dur-press) var(--ease-spring);
 }
-.bottom-nav-item:hover { color: var(--text); background: var(--material-muted); }
+.bottom-nav-item:hover { color: var(--text); }
 .bottom-nav-item:active { transform: scale(0.94); }
 .bottom-nav-item svg { width: 20px; height: 20px; position: relative; z-index: 1; transition: transform var(--dur-base) var(--ease-spring); }
 .bottom-nav-item span { position: relative; z-index: 1; }
@@ -1043,7 +1175,7 @@ body.app-mode { overflow: hidden; }
 }
 
 /* ═══════════════════════════════════════════════════════════════════
-   19 · 主页分栏 + 日历
+   20 · 主页分栏 + 日历
    ═══════════════════════════════════════════════════════════════════ */
 
 .home-layout { display: grid; grid-template-columns: 344px 1fr; gap: 26px; align-items: start; }
@@ -1053,8 +1185,6 @@ body.app-mode { overflow: hidden; }
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: 22px; position: sticky; top: 0;
-  -webkit-backdrop-filter: blur(var(--material-blur)) saturate(160%);
-  backdrop-filter: blur(var(--material-blur)) saturate(160%);
   box-shadow: var(--material-shadow), var(--specular);
   animation: blockIn var(--dur-slow) var(--ease-standard) both;
 }
@@ -1065,14 +1195,14 @@ body.app-mode { overflow: hidden; }
 .cal-today-btn {
   height: 30px; padding: 0 12px; margin-right: 2px;
   display: inline-flex; align-items: center;
-  background: var(--lg-fill); border: 1px solid var(--lg-edge); border-radius: var(--radius-pill);
+  background: var(--material-muted); border: 1px solid var(--border); border-radius: var(--radius-pill);
   color: var(--text-secondary); font-size: 0.79rem; font-weight: 600; cursor: pointer;
   font-family: inherit; box-shadow: var(--specular);
   transition: background-color var(--dur-fast) var(--ease-standard),
               color var(--dur-fast) var(--ease-standard),
-              transform var(--dur-fast) var(--ease-standard);
+              transform var(--dur-press) var(--ease-spring);
 }
-.cal-today-btn:hover { color: var(--text); background: var(--lg-fill-hover); }
+@media (hover: hover) { .cal-today-btn:hover { color: var(--text); background: var(--accent-soft); } }
 .cal-today-btn:active { transform: scale(0.94); }
 
 .cal-week { display: grid; grid-template-columns: repeat(7, 1fr); text-align: center; margin-bottom: 6px; }
@@ -1085,7 +1215,7 @@ body.app-mode { overflow: hidden; }
   font-size: 0.88rem; font-weight: 500; color: var(--text-secondary); cursor: pointer;
   transition: background-color var(--dur-fast) var(--ease-standard),
               color var(--dur-fast) var(--ease-standard),
-              transform var(--dur-fast) var(--ease-standard),
+              transform var(--dur-press) var(--ease-spring),
               box-shadow var(--dur-base) var(--ease-standard);
 }
 .cal-day:hover { background: var(--accent-soft); color: var(--text); }
@@ -1115,35 +1245,56 @@ body.app-mode { overflow: hidden; }
 }
 
 /* ═══════════════════════════════════════════════════════════════════
-   20 · 响应式
+   21 · 响应式与移动端适配
+   断点：900（平板/窄桌面）→ 768 或「矮视口 + 粗指针」（手机，
+   横屏手机宽度常 >768px，但高度只有 ~390px，也要走手机布局）
+   → 400（小屏）→ 横屏低高度微调。
+   触屏通行规则见 21.5。
    ═══════════════════════════════════════════════════════════════════ */
 
 /* 仅手机端显示（桌面端隐藏） */
 .only-mobile { display: none; }
 
-@media (max-width: 768px) {
+@media (max-width: 768px), (max-height: 500px) and (pointer: coarse) {
   body { background-attachment: scroll; }
   .sidebar { display: none; }
   .only-mobile { display: block; }
 
-  /* 底栏 = 导航层液态玻璃，与侧栏用同一套配方：
-     --lg-fill 半透明底 + blur(30px) / saturate(180%) 强折射 + --specular 受光高光 + --lg-edge 边缘受光 */
+  /* 底栏 = 导航层液态玻璃：blur 14px + saturate 180% + 上缘受光 + 边缘 hairline。
+     高度含底部安全区，内容滚到 Home 指示条之下仍能透出毛玻璃。 */
   .bottom-nav {
     display: flex; position: fixed; left: 0; right: 0; bottom: 0;
-    height: calc(60px + env(safe-area-inset-bottom));
-    padding: 5px 4px calc(5px + env(safe-area-inset-bottom));
-    padding-left: max(4px, env(safe-area-inset-left));
-    padding-right: max(4px, env(safe-area-inset-right));
+    height: calc(var(--nav-height) + var(--safe-bottom));
+    padding: 5px 4px calc(5px + var(--safe-bottom));
+    padding-left: max(4px, var(--safe-left));
+    padding-right: max(4px, var(--safe-right));
     border-radius: 0; border: none;
     border-top: 1px solid var(--lg-edge);
     background: var(--lg-fill);
-    -webkit-backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate));
-    backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate));
-    box-shadow: var(--specular), 0 -12px 30px -16px rgba(0, 0, 0, 0.30);
-    overflow: hidden;
+    -webkit-backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate)) brightness(var(--lg-brightness));
+    backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate)) brightness(var(--lg-brightness));
+    box-shadow: var(--specular), 0 -12px 30px -18px rgba(0, 0, 0, 0.28);
+    /* 不用 overflow:hidden —— 滚动边缘效果挂在 ::before 上（在元素框之外） */
+    overflow: visible;
     z-index: 200;
+    touch-action: manipulation;
     transition: transform var(--dur-base) var(--ease-standard),
                 opacity var(--dur-base) var(--ease-standard);
+  }
+  /* 滚动边缘效果（Scroll Edge Effect）：内容从底栏下方滚过时，用一段带遮罩的
+     浅模糊带说明「内容在这里被切断」，而不是用阴影把它压暗。
+     只用 3px 半径 + 22px 高度的小面积，成本远低于给整个滚动区加模糊。 */
+  .bottom-nav::before {
+    content: ""; position: absolute; left: 0; right: 0; bottom: 100%; height: 22px;
+    pointer-events: none;
+    background: linear-gradient(to top, var(--lg-fill), rgba(255, 255, 255, 0));
+    -webkit-backdrop-filter: blur(3px) saturate(150%);
+    backdrop-filter: blur(3px) saturate(150%);
+    -webkit-mask-image: linear-gradient(to top, #000 0%, rgba(0, 0, 0, 0) 100%);
+    mask-image: linear-gradient(to top, #000 0%, rgba(0, 0, 0, 0) 100%);
+  }
+  :root[data-theme="dark"] .bottom-nav::before {
+    background: linear-gradient(to top, var(--lg-fill), rgba(0, 0, 0, 0));
   }
   /* 输入法弹出时收起底栏：Android 键盘会压缩视口，fixed 底栏否则会被顶到键盘上方 */
   .bottom-nav.kb-hidden {
@@ -1152,63 +1303,168 @@ body.app-mode { overflow: hidden; }
     pointer-events: none;
   }
 
-  /* 弹窗避开底栏：内容可以穿过底栏，弹窗不能被它盖住 */
-  .modal-overlay { padding: 12px 12px calc(60px + env(safe-area-inset-bottom) + 12px); }
-  .modal { max-height: calc(100dvh - 96px); }
+  /* 底栏胶囊滑块：底部要扣掉安全区，否则会被 Home 指示条压住 */
+  .bottom-nav-pill { top: 5px; bottom: calc(5px + var(--safe-bottom)); }
+
+  /* 导航项：命中区抬到 44px，标签从 10.6px 提到可读区间 */
+  .bottom-nav-item {
+    min-height: var(--tap-min);
+    padding: 4px 2px;
+    gap: 3px;
+    font-size: 0.78rem;
+    touch-action: manipulation;
+  }
+  .bottom-nav-item svg { width: 22px; height: 22px; }
+
+  /* ── 弹窗 → 底部浮层（Sheet）──
+     iOS 26 在手机端把模态从底部推上来，而不是在屏幕正中缩放入场。
+     浮层 z-index 高于底栏，因此会盖住底栏（由遮罩压暗），
+     与系统行为一致：Sheet 打开时 Tab Bar 不再可点。 */
+  .modal-overlay {
+    align-items: flex-end;
+    padding: 12px max(12px, var(--safe-right)) calc(var(--safe-bottom) + 12px) max(12px, var(--safe-left));
+  }
+  .modal {
+    max-height: calc(100dvh - var(--safe-top) - 24px);
+    border-radius: var(--radius-xl) var(--radius-xl) var(--radius-lg) var(--radius-lg);
+  }
+  .modal-overlay.show .modal { animation: sheetUp var(--dur-slow) var(--ease-standard) both; }
 
   /* 底部不再预留空带：让内容从底栏下方穿过，毛玻璃才能"透出页面"。
      避让空间改由 .main 的下内边距提供（对所有页面统一生效） */
 }
 
-/* 移动端密度优化 */
-@media (max-width: 768px) {
+/* ── 21.2 手机端密度与命中区 ─────────────────────────────────────── */
+@media (max-width: 768px), (max-height: 500px) and (pointer: coarse) {
   html { font-size: 15px; }
-  body { font-size: 14px; line-height: 1.62; }
+  body { font-size: 15px; line-height: 1.6; }
 
-  /* 底部让出底栏高度 + 一点呼吸空间（内容会从底栏下方滚过） */
-  .main { padding: 20px 16px calc(60px + env(safe-area-inset-bottom) + 20px); }
+  /* 底部让出底栏高度 + 安全区 + 一点呼吸空间（内容会从底栏下方滚过）；
+     左右用 max() 兼顾横屏刘海遮挡。 */
+  .main {
+    padding: 20px max(16px, var(--safe-right)) calc(var(--nav-height) + var(--safe-bottom) + 20px) max(16px, var(--safe-left));
+  }
   .page-head { margin-bottom: 18px; }
   .page-title { font-size: 1.45rem; }
-  .page-desc { font-size: 0.86rem; margin-top: 5px; }
+  .page-desc { font-size: 0.88rem; margin-top: 5px; }
 
   .profile-card, .split-grid .profile-card { padding: 18px 16px; }
   .profile-head { gap: 14px; padding-bottom: 16px; }
   .profile-avatar { width: 46px; height: 46px; font-size: 1.06rem; }
   .profile-name { font-size: 1.07rem; }
-  .profile-sub { font-size: 0.82rem; }
-  .info-row { padding: 10px 2px; font-size: 0.87rem; }
+  .profile-sub { font-size: 0.84rem; }
+  .info-row { padding: 11px 2px; font-size: 0.89rem; }
   .collapse-body { margin-top: 12px; }
 
-  .list-row { padding: 13px 15px; gap: 12px; }
-  .list-row-title { font-size: 0.96rem; margin-bottom: 4px; }
-  .list-row-meta { font-size: 0.8rem; gap: 11px; }
-  .badge { padding: 2px 8px; font-size: 0.72rem; }
+  .list-row { padding: 14px 15px; gap: 12px; }
+  .list-row-title { font-size: 0.98rem; margin-bottom: 4px; }
+  .list-row-meta { font-size: 0.82rem; gap: 11px; }
+  .badge { padding: 3px 8px; font-size: 0.74rem; }
 
-  .form-field { margin-bottom: 14px; }
-  .form-label { font-size: 0.84rem; margin-bottom: 6px; }
-  .form-input { padding: 9px 12px; font-size: 0.89rem; min-height: 42px; }
+  .form-field { margin-bottom: 16px; }
+  .form-label { font-size: 0.86rem; margin-bottom: 7px; }
+  /* 关键：iOS Safari 在聚焦 font-size < 16px 的输入框时会强制放大整个页面。
+     用 max() 兜住 16px 下限 —— 字号只会变大不会变小，从而消除聚焦缩放跳动。 */
+  .form-input {
+    padding: 10px 12px;
+    font-size: max(16px, 0.95rem);
+    min-height: var(--tap-min);
+  }
+  /* 学年学期下拉同时带 .ac-select（自带 0.87rem 字号，且定位于本块之后），
+     特异度更高会盖掉上面的 16px，这里显式加一级权重复位，同样避开聚焦缩放。 */
+  .form-input.ac-select { font-size: max(16px, 0.95rem); }
   select.form-input { padding-right: 36px; background-position: right 11px center; }
-  .btn { padding: 8px 16px; font-size: 0.86rem; min-height: 38px; }
-  .btn-row .btn { padding-left: 4px; padding-right: 4px; font-size: 0.81rem; }
-  .chip { padding: 6px 11px; font-size: 0.83rem; }
+  .btn { padding: 10px 16px; font-size: 0.89rem; min-height: var(--tap-min); }
+  .btn-row .btn { padding-left: 4px; padding-right: 4px; font-size: 0.84rem; }
+  /* chip 是多选标签，成组密集排列，取 38px 折中（仍明显大于桌面端） */
+  .chip { padding: 7px 12px; font-size: 0.85rem; min-height: 38px; }
   .tabs { padding: 3px; margin-bottom: 18px; }
-  .tab { padding: 8px 0; font-size: 0.85rem; }
+  .tab { padding: 11px 0; font-size: 0.88rem; }
 
-  .cal-day { font-size: 0.81rem; }
+  /* 日历：格子在窄屏本就接近 46px，这里只调整操作按钮的命中区 */
+  .cal-day { font-size: 0.83rem; }
+  .cal-nav .icon-btn { width: var(--tap-min); height: var(--tap-min); }
+  .cal-today-btn { height: var(--tap-min); padding: 0 14px; }
 
   .detail-title { font-size: 1.34rem; margin-bottom: 10px; }
-  .detail-meta { font-size: 0.82rem; gap: 6px 16px; padding-bottom: 14px; margin-bottom: 18px; }
-  .detail-body { font-size: 0.96rem; line-height: 1.8; }
+  .detail-meta { font-size: 0.84rem; gap: 6px 16px; padding-bottom: 14px; margin-bottom: 18px; }
+  .detail-body { font-size: 1rem; line-height: 1.8; }
   .detail-byline { margin-top: 18px; padding-top: 14px; }
 
-  .beta-banner { padding: 9px 12px; font-size: 0.82rem; margin-bottom: 16px; }
+  .beta-banner { padding: 10px 12px; font-size: 0.84rem; margin-bottom: 16px; }
 
   /* 移动端减少逐条错峰，避免长列表出现等待感 */
   .list-row { animation-delay: 0ms !important; }
+
+  /* 教务工具栏：窄屏让筛选下拉独占一行，避免与按钮挤在同一行 */
+  .ac-toolbar { gap: 10px; }
+  .ac-select { min-width: 0; width: 100%; }
+  .ac-code-row .btn { min-width: 96px; }
+}
+
+/* ── 21.3 小屏手机（≤400px，如 iPhone SE / mini）────────────────── */
+@media (max-width: 400px) {
+  .main {
+    padding: 16px max(12px, var(--safe-right)) calc(var(--nav-height) + var(--safe-bottom) + 16px) max(12px, var(--safe-left));
+  }
+  .page-title { font-size: 1.32rem; }
+
+  .calendar, .ac-card, .profile-card, .split-grid .profile-card { padding: 15px 13px; }
+  .cal-day { font-size: 0.78rem; }
+  .cal-nav .icon-btn { width: 40px; height: 40px; }
+
+  /* 三列按钮在 320px 宽度下会挤成竖排文字，改为两列 */
+  .btn-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+  .credit-stats { grid-template-columns: repeat(2, 1fr); }
+  .credit-row { grid-template-columns: minmax(0, 1fr) 34px 34px 34px 34px 56px; font-size: 0.76rem; }
+  .credit-row-head { font-size: 0.7rem; }
+
+  .modal-head { padding: 14px 15px; }
+  .modal-body { padding: 15px; }
+}
+
+/* ── 21.4 手机横屏（高度被压得很矮，底栏需收窄）────────────────── */
+@media (max-width: 900px) and (orientation: landscape) and (max-height: 500px) {
+  .bottom-nav {
+    height: calc(48px + var(--safe-bottom));
+    padding-top: 2px;
+    padding-bottom: calc(2px + var(--safe-bottom));
+  }
+  .bottom-nav-item { min-height: 38px; font-size: 0.7rem; gap: 1px; }
+  .bottom-nav-item svg { width: 18px; height: 18px; }
+  .bottom-nav-pill { top: 2px; bottom: calc(2px + var(--safe-bottom)); }
+  .main { padding-bottom: calc(48px + var(--safe-bottom) + 14px); }
+  .modal { max-height: calc(100dvh - var(--safe-top) - 16px); }
+}
+
+/* ── 21.5 触屏通行规则（粗指针设备）────────────────────────────────
+   1. 去掉只在悬停时才有意义的反馈，避免 iOS 点击后留下"粘住的 hover"；
+   2. 交互元素统一 touch-action: manipulation（去 300ms 延迟与双击缩放）；
+   3. 导航类文字禁止长按选中（内容区仍可正常选择复制）。 */
+@media (hover: none) and (pointer: coarse) {
+  /* 注意：这里不再「事后覆盖」各控件的 :hover —— 本块位于样式表末尾，
+     同特异度下会盖掉 .tab.active / .side-link.active / .cal-day.active
+     这类状态样式。粘住的悬停反馈统一改为在规则源头用
+     @media (hover: hover) 守卫（见各控件定义处）。 */
+
+  /* 按压态即时响应：去掉点击延迟与双击缩放 */
+  button, a, [role="button"], label, .tab, .chip, .pos-chip, .cal-day,
+  .icon-btn, .cal-today-btn, .modal-close, .side-link, .bottom-nav-item,
+  .list-row, .collapse-head {
+    touch-action: manipulation;
+  }
+
+  /* 导航与标签类文字禁止长按选中；正文/详情仍可正常选择复制 */
+  .bottom-nav, .tabs, .cal-nav, .bottom-nav-item, .tab, .chip, .pos-chip,
+  .side-link, .page-title, .section-title, .list-row-title {
+    -webkit-user-select: none;
+    user-select: none;
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════════════
-   21 · 教务：课表与学业达成
+   22 · 教务：课表与学业达成
    课表按「节次 × 星期」网格排布，课程块用 rowspan 跨节次；
    学分看板沿用内容层材质，与列表/卡片保持同一套视觉。
    ═══════════════════════════════════════════════════════════════════ */
@@ -1219,8 +1475,6 @@ body.app-mode { overflow: hidden; }
   background: var(--material);
   border: 1px solid var(--border);
   box-shadow: var(--material-shadow), var(--specular);
-  -webkit-backdrop-filter: blur(var(--material-blur)) saturate(160%);
-  backdrop-filter: blur(var(--material-blur)) saturate(160%);
   margin-bottom: 18px;
   animation: blockIn var(--dur-slow) var(--ease-standard) both;
 }
@@ -1275,7 +1529,18 @@ body.app-mode { overflow: hidden; }
 .ac-success.show { display: block; }
 
 /* 课表网格：小屏横向滚动，时间列吸左 */
-.tt-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+/* 课表：小屏横向滚动。右侧用遮罩渐隐提示「还有内容」，比滚动条更容易被看见 */
+.tt-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  background:
+    linear-gradient(90deg, transparent calc(100% - 28px), rgba(0, 0, 0, 0.05)) right / 28px 100% no-repeat;
+}
+:root[data-theme="dark"] .tt-wrap {
+  background:
+    linear-gradient(90deg, transparent calc(100% - 28px), rgba(255, 255, 255, 0.05)) right / 28px 100% no-repeat;
+}
 .tt-table {
   width: 100%; min-width: 720px;
   border-collapse: separate; border-spacing: 0;
@@ -1365,19 +1630,76 @@ body.app-mode { overflow: hidden; }
 }
 
 /* ═══════════════════════════════════════════════════════════════════
-   22 · 降级回退
+   23 · 降级回退与无障碍
    ═══════════════════════════════════════════════════════════════════ */
 
-/* 不支持 backdrop-filter 时：所有玻璃/材质退化为不透明表面，保证可读 */
+/* 不支持 backdrop-filter：玻璃退化为实色表面，仍保留受光与阴影 */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .sidebar { background: var(--surface); }
-  .bottom-nav { background: var(--surface); }
-  .modal { background: var(--surface); }
+  .sidebar, .bottom-nav, .modal, .tabs { background: var(--surface); }
+  .bottom-nav::before { display: none; }
+  .modal-overlay { background: rgba(15, 17, 22, 0.52); }
   .calendar, .list, .profile-card, .login-panel, .ac-card { background: var(--surface); }
-  .btn-outline, .icon-btn, .form-input, .tabs, .chip, .cal-today-btn,
-  .sidebar-user, .profile-avatar, .user-avatar, .sidebar-tools .side-link { background: var(--surface); }
+  .btn-outline, .icon-btn, .form-input, .chip, .cal-today-btn,
+  .sidebar-user, .profile-avatar, .user-avatar, .sidebar-tools .side-link,
+  .pos-chip, input[type="checkbox"] { background: var(--surface); }
   .tab.active { background: var(--surface); }
   .list-row:hover, .side-link:hover, .tab:hover, .cal-day:hover { background: var(--bg-sunken); }
+}
+
+/* 降低透明度（系统「减少透明度」）：玻璃自动变为更实、更不透明的表面。
+   Apple 要求材质自行适配，而不是让开发者另做一套。 */
+@media (prefers-reduced-transparency: reduce) {
+  .sidebar, .bottom-nav, .modal, .tabs {
+    background: var(--surface);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  .bottom-nav::before { display: none; }
+  .modal-overlay {
+    background: rgba(15, 17, 22, 0.62);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  :root[data-theme="dark"] .modal-overlay { background: rgba(0, 0, 0, 0.76); }
+  /* 关闭透明后：透镜环与指针高光都不再成立，一并撤掉 */
+  .sidebar::before, .bottom-nav::before, .login-panel::before { background: none; }
+  :is(.btn, .side-link, .tab, .bottom-nav-item, .icon-btn,
+      .chip, .pos-chip, .cal-today-btn, .modal-close)::after { display: none; }
+  :root {
+    --bg: #ffffff;
+    --material: #ffffff;
+    --material-strong: #ffffff;
+  }
+  :root[data-theme="dark"] {
+    --bg: #000000;
+    --material: #1c1c1e;
+    --material-strong: #1c1c1e;
+  }
+}
+
+/* 提高对比度：玻璃偏向纯色、描边更清晰、阴影更明确 */
+@media (prefers-contrast: more) {
+  :root {
+    --border: rgba(60, 60, 67, 0.42);
+    --border-strong: rgba(60, 60, 67, 0.62);
+    --separator: rgba(60, 60, 67, 0.30);
+    --text-secondary: #2c2c2e;
+    --text-tertiary: #48484a;
+    --lg-edge: rgba(60, 60, 67, 0.42);
+    --material: rgba(255, 255, 255, 0.98);
+    --material-strong: #ffffff;
+  }
+  :root[data-theme="dark"] {
+    --border: rgba(255, 255, 255, 0.44);
+    --border-strong: rgba(255, 255, 255, 0.68);
+    --separator: rgba(255, 255, 255, 0.30);
+    --text-secondary: #e5e5ea;
+    --text-tertiary: #c7c7cc;
+    --lg-edge: rgba(255, 255, 255, 0.44);
+    --material: rgba(28, 28, 30, 0.98);
+    --material-strong: #1c1c1e;
+  }
+  .card-danger { border-color: var(--danger); }
 }
 
 /* 降低动效偏好：关闭全部动画与过渡（Apple 无障碍要求） */

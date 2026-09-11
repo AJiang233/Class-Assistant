@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>个人中心 - 班级助理</title>
     <meta name="description" content="班级助理：我的资料、个性化与修改密码。">
     <meta name="color-scheme" content="light dark">
@@ -21,10 +21,7 @@
         function apply(t) { root.setAttribute('data-theme', t); }
         function current() { return stored() || system(); }
         apply(current());
-        function toggle() { var next = current() === 'dark' ? 'light' : 'dark'; apply(next); try { localStorage.setItem(KEY, next); } catch (e) {} }
         function bind() {
-            var btn = document.getElementById('themeToggle');
-            if (btn) btn.addEventListener('click', toggle);
             if (mq.addEventListener) mq.addEventListener('change', function (e) { if (!stored()) apply(e.matches ? 'dark' : 'light'); });
             else if (mq.addListener) mq.addListener(function (e) { if (!stored()) apply(e.matches ? 'dark' : 'light'); });
             window.addEventListener('storage', function (e) { if (e.key === KEY) apply(current()); });
@@ -300,6 +297,16 @@
 
     // ===== 加载我的资料 =====
     var currentContact = '';
+    /** 更新时间：后端存的是 UTC（CURRENT_TIMESTAMP），展示时转为北京时间（+8） */
+    function fmtUpdateTime(d) {
+        if (!d) return '时间未知';
+        var t = Date.parse(String(d).replace(' ', 'T') + 'Z');
+        if (isNaN(t)) return d;
+        var bj = new Date(t + 8 * 3600 * 1000);
+        var p = function (n) { return (n < 10 ? '0' : '') + n; };
+        return bj.getUTCFullYear() + '-' + p(bj.getUTCMonth() + 1) + '-' + p(bj.getUTCDate())
+            + ' ' + p(bj.getUTCHours()) + ':' + p(bj.getUTCMinutes()) + ':' + p(bj.getUTCSeconds());
+    }
     async function loadProfile() {
         var card = document.getElementById('profileCard');
         card.innerHTML = stateHTML('加载中…');
@@ -322,7 +329,7 @@
                 + '<span id="contactValue">' + esc(u.contact || '未填写') + '</span>'
                 + '<button type="button" class="btn btn-outline btn-sm" onclick="openContactEdit()">修改</button>'
                 + '</span></div>'
-                + '<div class="info-row"><span class="k">更新时间</span><span class="v">' + esc(fmtDate(u.update_time)) + '</span></div>'
+                + '<div class="info-row"><span class="k">更新时间</span><span class="v">' + esc(fmtUpdateTime(u.update_time)) + '</span></div>'
                 + '</div>';
         } catch (err) {
             card.innerHTML = stateHTML(err.message, true);
@@ -369,6 +376,7 @@
             applyTheme(btn.getAttribute('data-theme-choice'));
             markThemeSeg();
         });
+        window.addEventListener('storage', function (e) { if (e.key === 'theme') markThemeSeg(); });
         markThemeSeg();
     })();
 

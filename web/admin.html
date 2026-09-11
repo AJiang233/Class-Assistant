@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>管理员面板 - 班级助理</title>
     <meta name="description" content="班级助理：管理员功能，发布活动、通知与管理班级成员。">
     <meta name="color-scheme" content="light dark">
@@ -21,10 +21,7 @@
         function apply(t) { root.setAttribute('data-theme', t); }
         function current() { return stored() || system(); }
         apply(current());
-        function toggle() { var next = current() === 'dark' ? 'light' : 'dark'; apply(next); try { localStorage.setItem(KEY, next); } catch (e) {} }
         function bind() {
-            var btn = document.getElementById('themeToggle');
-            if (btn) btn.addEventListener('click', toggle);
             if (mq.addEventListener) mq.addEventListener('change', function (e) { if (!stored()) apply(e.matches ? 'dark' : 'light'); });
             else if (mq.addListener) mq.addListener(function (e) { if (!stored()) apply(e.matches ? 'dark' : 'light'); });
             window.addEventListener('storage', function (e) { if (e.key === KEY) apply(current()); });
@@ -405,12 +402,11 @@
         });
         if (!list.length) { el.innerHTML = stateHTML(q ? '没有匹配的成员' : '暂无成员'); return; }
         el.innerHTML = list.map(function (m) {
-            var pos = parsePositionsList(m.positions).join('、') || '学生';
             return '<div class="info-row member-row">'
                 + '<div class="member-main">'
                 + '<div class="member-line">'
                 + '<span class="member-name">' + esc(m.name) + '</span>'
-                + '<span class="member-pos">' + esc(pos) + '</span>'
+                + '<span class="member-pos">' + positionsChipsHTML(m.positions) + '</span>'
                 + '</div>'
                 + '<div class="member-sub">学号 ' + esc(m.student_id) + '</div>'
                 + '</div>'

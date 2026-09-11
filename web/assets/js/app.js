@@ -286,3 +286,59 @@ function todayEnd() {
   var d = new Date(); var pad = function (n) { return n < 10 ? '0' + n : '' + n; };
   return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + 'T23:59';
 }
+
+/* ===== 移动端安全区转发（iframe 子页面，纯表现层） =====
+   通知/活动/教务/个人中心/管理员这几个页面是作为 iframe 嵌在主页里的。
+   iframe 内部 env(safe-area-inset-*) 恒为 0，父页面的底部安全区传不进来，
+   结果内容会被底栏压住一截（尤其带 Home 指示条的机型）。
+   同源时从父页面读取实测值，覆盖到本地 --safe-* 变量；
+   跨域或读取失败则原样保留 env() 的结果。 */
+(function () {
+  if (window.self === window.top) return;
+  try {
+    var pcs = window.parent.getComputedStyle(window.parent.document.documentElement);
+    ['top', 'bottom', 'left', 'right'].forEach(function (side) {
+      var v = pcs.getPropertyValue('--safe-' + side).trim();
+      if (v && v.indexOf('env(') === -1) {
+        document.documentElement.style.setProperty('--safe-' + side, v);
+      }
+    });
+  } catch (e) { /* 跨域或父页面未就绪：保留 env() 结果 */ }
+})();
+
+/* ===== 液态玻璃：指针跟随高光（纯表现层，与业务/接口无关） =====
+   把指针在控件内的相对坐标写入 --mx / --my（px），由 CSS 的
+   radial-gradient 渲染出「光随指尖移动」的镜面高光。
+   性能约定：
+   - 全程只在 document 上挂 1 个 passive 监听（事件委托），不侵入其它逻辑
+   - pointermove 只记录坐标，样式写入合并到 requestAnimationFrame，一帧最多一次
+   - 只对当前悬停的那 1 个元素写内联变量，不做批量遍历/重排
+   - 系统开启「减少透明度」或触屏（无悬停）时不工作，省掉无谓重绘 */
+(function () {
+  if (!window.matchMedia || !window.requestAnimationFrame) return;
+  var SEL = '.btn, .side-link, .tab, .bottom-nav-item, .icon-btn,'
+    + '.chip, .pos-chip, .cal-today-btn, .modal-close';
+  var FILLED = '.btn-primary, .btn-danger'; // 实心按钮不参与（与 CSS 保持一致，保文字对比度）
+  var reduceTrans = window.matchMedia('(prefers-reduced-transparency: reduce)');
+  var noHover = window.matchMedia('(hover: none)');
+  var target = null, px = 0, py = 0, queued = false;
+
+  function flush() {
+    queued = false;
+    if (!target || !target.isConnected) return;
+    var r = target.getBoundingClientRect();
+    target.style.setProperty('--mx', (px - r.left) + 'px');
+    target.style.setProperty('--my', (py - r.top) + 'px');
+  }
+
+  document.addEventListener('pointermove', function (e) {
+    if (e.pointerType === 'touch') return;
+    if (document.hidden || reduceTrans.matches || noHover.matches) return;
+    var el = e.target instanceof Element ? e.target.closest(SEL) : null;
+    if (el && el.matches(FILLED)) el = null;
+    target = el;
+    if (!el) return;
+    px = e.clientX; py = e.clientY;
+    if (!queued) { queued = true; requestAnimationFrame(flush); }
+  }, { passive: true });
+})();

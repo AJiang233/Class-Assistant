@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>班级助理</title>
     <meta name="description" content="班级助理：集中查看班级通知与活动。">
     <meta name="color-scheme" content="light dark">
@@ -21,10 +21,7 @@
         function apply(t) { root.setAttribute('data-theme', t); }
         function current() { return stored() || system(); }
         apply(current());
-        function toggle() { var next = current() === 'dark' ? 'light' : 'dark'; apply(next); try { localStorage.setItem(KEY, next); } catch (e) {} }
         function bind() {
-            var btn = document.getElementById('themeToggle');
-            if (btn) btn.addEventListener('click', toggle);
             if (mq.addEventListener) mq.addEventListener('change', function (e) { if (!stored()) apply(e.matches ? 'dark' : 'light'); });
             else if (mq.addListener) mq.addListener(function (e) { if (!stored()) apply(e.matches ? 'dark' : 'light'); });
             window.addEventListener('storage', function (e) { if (e.key === KEY) apply(current()); });
@@ -297,10 +294,12 @@
 
     // ===== 视图切换 =====
     var FRAME_KEYS = { academic: 'frameAcademic', activities: 'frameActivities', notices: 'frameNotices', account: 'frameAccount', admin: 'frameAdmin' };
-    function switchView(key) {
+    var currentView = 'home';   // 当前视图（供移动端左右滑动判断相邻页）
+    function switchView(key, slideDir) {
         var authed = !!localStorage.getItem(LS_TOKEN);
         // 未登录访问受保护视图 → 显示登录视图
         if (!authed && key !== 'home' && key !== 'login') key = 'login';
+        currentView = key;
         // 当前应高亮的导航项：未登录显示登录视图时，"个人中心"保持高亮
         var navKey = key === 'login' ? 'account' : key;
         // 侧边栏 active 状态
@@ -328,9 +327,91 @@
                 f.src = fk + '.html';
                 f.setAttribute('data-loaded', '1');
             }
+            // iframe 内的触摸不会冒泡到主壳，同源下挂到其文档上才能收到手势
+            if (show && f.getAttribute('data-swipe') !== '1') {
+                f.setAttribute('data-swipe', '1');
+                f.addEventListener('load', function () { bindFrameSwipe(this); });
+            }
         }
         if (isHome) document.getElementById('homeView').scrollTop = 0;
+        slideShownView(isHome, isLogin, key, slideDir);
     }
+
+    // ===== 移动端左右滑动切页 =====
+    // 顺序与底部导航一致。教务页（课表）同样可划入划出：课表的横向滚动
+    // 由 isHorizontallyScrollable 单独让位，不需要在页级再拦一道。
+    var SWIPE_PAGES = ['home', 'notices', 'activities', 'academic', 'account'];
+    var SWIPE_THRESHOLD = 50;
+    // 屏幕左缘约 20px 是 iOS 系统「返回上一层」手势的判定区。
+    // 我们的监听是 passive 的、无法 preventDefault，若不在起点就放手，
+    // 从该区域右滑会同时触发系统返回与本应用的上一页，导致一次手势跳两级。
+    var SWIPE_EDGE_GUARD = 20;
+    var swipeMq = window.matchMedia('(max-width: 768px), (max-height: 500px) and (pointer: coarse)');
+
+    /** 手指起点是否落在可横向滚动的区域（如课表）——是则本次手势不切页，交给滚动 */
+    function isHorizontallyScrollable(el, win) {
+        var doc = win.document;
+        while (el && el.nodeType === 1 && el !== doc.body && el !== doc.documentElement) {
+            var ox = win.getComputedStyle(el).overflowX;
+            if ((ox === 'auto' || ox === 'scroll') && el.scrollWidth > el.clientWidth + 2) return true;
+            el = el.parentElement;
+        }
+        return false;
+    }
+
+    function swipeTo(dir) {
+        var i = SWIPE_PAGES.indexOf(currentView);
+        if (i < 0) return;
+        var j = i + dir;
+        if (j < 0 || j >= SWIPE_PAGES.length) return;   // 两端停住，不循环
+        switchView(SWIPE_PAGES[j], dir);
+    }
+
+    /** 给一个文档（主壳或同源 iframe 内文档）挂横向滑动监听；只监听不拦截，滚动不受影响 */
+    function bindSwipe(doc, win) {
+        if (!doc || doc.__swipeBound) return;
+        doc.__swipeBound = true;
+        var startX = 0, startY = 0, tracking = false;
+        doc.addEventListener('touchstart', function (e) {
+            tracking = false;
+            if (!swipeMq.matches || e.touches.length !== 1) return;
+            // 主壳里落在 iframe 上的触摸由 iframe 自己处理，避免重复切页
+            if (win === window && e.target && e.target.tagName === 'IFRAME') return;
+            var t = e.touches[0];
+            // 左缘判定区留给系统手势。移动端布局下侧栏已隐藏、iframe 占满整宽，
+            // 所以这里的 clientX 就等同于屏幕横向位置（无需再补 iframe 偏移）。
+            if (t.clientX <= SWIPE_EDGE_GUARD) return;
+            startX = t.clientX; startY = t.clientY;
+            tracking = !isHorizontallyScrollable(e.target, win);
+        }, { passive: true });
+        doc.addEventListener('touchend', function (e) {
+            if (!tracking || e.changedTouches.length !== 1) return;
+            tracking = false;
+            var t = e.changedTouches[0];
+            var dx = t.clientX - startX, dy = t.clientY - startY;
+            if (Math.abs(dx) < SWIPE_THRESHOLD || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+            swipeTo(dx < 0 ? 1 : -1);
+        }, { passive: true });
+        // 系统手势/来电等打断时收尾，避免 tracking 与起点坐标残留到下一次手势
+        doc.addEventListener('touchcancel', function () { tracking = false; }, { passive: true });
+    }
+
+    function bindFrameSwipe(frame) {
+        try { bindSwipe(frame.contentDocument, frame.contentWindow); } catch (e) {}
+    }
+
+    /** 切页入场：手势切页时新视图从对应一侧滑入；非手势切换则清掉残留类，保持原淡入 */
+    function slideShownView(isHome, isLogin, key, dir) {
+        var el = isHome ? document.getElementById('homeView')
+            : (isLogin ? document.getElementById('loginView') : document.getElementById(FRAME_KEYS[key]));
+        if (!el) return;
+        el.classList.remove('slide-in-next', 'slide-in-prev');
+        if (!dir) return;
+        void el.offsetWidth;   // 强制回流，确保动画重放
+        el.classList.add(dir > 0 ? 'slide-in-next' : 'slide-in-prev');
+    }
+
+    bindSwipe(document, window);
 
     // ===== 移动端底部导航：胶囊滑块平滑移动到当前激活项 =====
     function moveBottomNavPill() {
