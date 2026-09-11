@@ -1311,16 +1311,18 @@ body.app-mode { overflow: hidden; }
   }
   .bottom-nav-item svg { width: 22px; height: 22px; }
 
-  /* ── 弹窗：手机端同样在屏幕正中弹出 ──
-     不再做成贴底的 Sheet（那会把弹窗挤到屏幕底部）。
-     只保留 dvh 高度与安全区内边距：dvh 随地址栏伸缩，安全区避免内容
-     贴住刘海 / Home 指示条。浮层 z-index 高于底栏，弹窗仍会盖住底栏。 */
+  /* ── 弹窗：手机端居中，且底部必须让开固定底栏 ──
+     子页是在同源 iframe 里渲染的：iframe 内容自成一个层叠上下文，
+     弹窗即使 z-index:500 也盖不过父壳里 position:fixed 的底栏（z-index:200）。
+     所以必须靠内边距把弹窗底部抬到底栏之上，否则长表单弹窗的底部按钮会落进
+     被底栏遮住的区域，点不到。dvh 随地址栏伸缩，安全区避免内容贴住刘海/
+     Home 指示条。--nav-height 由各断点统一给出（横屏在 21.4 覆盖为 48px）。 */
   .modal-overlay {
     align-items: center;
-    padding: max(12px, var(--safe-top)) max(12px, var(--safe-right)) max(12px, var(--safe-bottom)) max(12px, var(--safe-left));
+    padding: max(12px, var(--safe-top)) max(12px, var(--safe-right)) calc(var(--nav-height) + var(--safe-bottom) + 12px) max(12px, var(--safe-left));
   }
   .modal {
-    max-height: calc(100dvh - var(--safe-top) - var(--safe-bottom) - 24px);
+    max-height: calc(100dvh - var(--nav-height) - var(--safe-bottom) - max(12px, var(--safe-top)) - 12px);
   }
 
   /* 底部不再预留空带：让内容从底栏下方穿过，毛玻璃才能"透出页面"。
@@ -1329,8 +1331,13 @@ body.app-mode { overflow: hidden; }
 
 /* ── 21.2 手机端密度与命中区 ─────────────────────────────────────── */
 @media (max-width: 768px), (max-height: 500px) and (pointer: coarse) {
-  html { font-size: 15px; }
-  body { font-size: 15px; line-height: 1.6; }
+  html { font-size: 14px; }
+  body { font-size: 14px; line-height: 1.6; }
+
+  /* 手机端隐藏滚动条：经典滚动条会占掉右侧横向空间，把本应居中的内容挤偏。
+     隐藏后仍可正常滚动（滚动条只是不可见）。 */
+  * { scrollbar-width: none; }
+  ::-webkit-scrollbar { width: 0; height: 0; }
 
   /* 底部让出底栏高度 + 安全区 + 一点呼吸空间（内容会从底栏下方滚过）；
      左右用 max() 兼顾横屏刘海遮挡。 */
@@ -1419,6 +1426,8 @@ body.app-mode { overflow: hidden; }
 
 /* ── 21.4 手机横屏（高度被压得很矮，底栏需收窄）────────────────── */
 @media (max-width: 900px) and (orientation: landscape) and (max-height: 500px) {
+  /* 横屏底栏收窄：把 --nav-height 收到 48px，弹窗让位与内边距随之自动适配 */
+  :root { --nav-height: 48px; }
   .bottom-nav {
     height: calc(48px + var(--safe-bottom));
     padding-top: 2px;
@@ -1428,7 +1437,6 @@ body.app-mode { overflow: hidden; }
   .bottom-nav-item svg { width: 18px; height: 18px; }
   .bottom-nav-pill { top: 2px; bottom: calc(2px + var(--safe-bottom)); }
   .main { padding-bottom: calc(48px + var(--safe-bottom) + 14px); }
-  .modal { max-height: calc(100dvh - var(--safe-top) - 16px); }
 }
 
 /* ── 21.5 触屏通行规则（粗指针设备）────────────────────────────────

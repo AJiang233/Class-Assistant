@@ -341,7 +341,7 @@
     // 顺序与底部导航一致。教务页（课表）同样可划入划出：课表的横向滚动
     // 由 isHorizontallyScrollable 单独让位，不需要在页级再拦一道。
     var SWIPE_PAGES = ['home', 'notices', 'activities', 'academic', 'account'];
-    var SWIPE_THRESHOLD = 50;
+    var SWIPE_THRESHOLD = 35;
     // 屏幕左缘约 20px 是 iOS 系统「返回上一层」手势的判定区。
     // 我们的监听是 passive 的、无法 preventDefault，若不在起点就放手，
     // 从该区域右滑会同时触发系统返回与本应用的上一页，导致一次手势跳两级。
