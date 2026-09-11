@@ -276,11 +276,6 @@ body {
   from { opacity: 0; transform: translateY(10px) scale(0.965); }
   to   { opacity: 1; transform: none; }
 }
-/* 手机端浮层：自底部升起（Sheet），位移距离用 dvh 以适配地址栏变化 */
-@keyframes sheetUp {
-  from { opacity: 0; transform: translateY(24px); }
-  to   { opacity: 1; transform: none; }
-}
 @keyframes sk-pulse {
   0%, 100% { opacity: 1; }
   50%      { opacity: 0.42; }
@@ -1316,19 +1311,17 @@ body.app-mode { overflow: hidden; }
   }
   .bottom-nav-item svg { width: 22px; height: 22px; }
 
-  /* ── 弹窗 → 底部浮层（Sheet）──
-     iOS 26 在手机端把模态从底部推上来，而不是在屏幕正中缩放入场。
-     浮层 z-index 高于底栏，因此会盖住底栏（由遮罩压暗），
-     与系统行为一致：Sheet 打开时 Tab Bar 不再可点。 */
+  /* ── 弹窗：手机端同样在屏幕正中弹出 ──
+     不再做成贴底的 Sheet（那会把弹窗挤到屏幕底部）。
+     只保留 dvh 高度与安全区内边距：dvh 随地址栏伸缩，安全区避免内容
+     贴住刘海 / Home 指示条。浮层 z-index 高于底栏，弹窗仍会盖住底栏。 */
   .modal-overlay {
-    align-items: flex-end;
-    padding: 12px max(12px, var(--safe-right)) calc(var(--safe-bottom) + 12px) max(12px, var(--safe-left));
+    align-items: center;
+    padding: max(12px, var(--safe-top)) max(12px, var(--safe-right)) max(12px, var(--safe-bottom)) max(12px, var(--safe-left));
   }
   .modal {
-    max-height: calc(100dvh - var(--safe-top) - 24px);
-    border-radius: var(--radius-xl) var(--radius-xl) var(--radius-lg) var(--radius-lg);
+    max-height: calc(100dvh - var(--safe-top) - var(--safe-bottom) - 24px);
   }
-  .modal-overlay.show .modal { animation: sheetUp var(--dur-slow) var(--ease-standard) both; }
 
   /* 底部不再预留空带：让内容从底栏下方穿过，毛玻璃才能"透出页面"。
      避让空间改由 .main 的下内边距提供（对所有页面统一生效） */
