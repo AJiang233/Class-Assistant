@@ -33,9 +33,18 @@ jobs:
         run: chmod +x android/gradlew
 
       - name: Inject version into build.gradle.kts
+        env:
+          VERSION_CODE: ${{ github.event.inputs.version_code }}
+          VERSION_NAME: ${{ github.event.inputs.version_name }}
         run: |
-          sed -i -E "s/versionCode = .*/versionCode = ${{ github.event.inputs.version_code }}/" android/app/build.gradle.kts
-          sed -i -E "s/versionName = .*/versionName = \"${{ github.event.inputs.version_name }}\"/" android/app/build.gradle.kts
+          # Kotlin 没有前导零字面量，00101 会让脚本编译直接失败，所以先规整成纯十进制整数
+          if ! [[ "$VERSION_CODE" =~ ^[0-9]+$ ]]; then
+            echo "::error::version_code 必须是纯数字，收到：$VERSION_CODE"
+            exit 1
+          fi
+          VERSION_CODE=$((10#$VERSION_CODE))
+          sed -i -E "s/versionCode = .*/versionCode = $VERSION_CODE/" android/app/build.gradle.kts
+          sed -i -E "s/versionName = .*/versionName = \"$VERSION_NAME\"/" android/app/build.gradle.kts
           grep -nE "versionCode|versionName" android/app/build.gradle.kts
 
       - name: Build Debug APK
