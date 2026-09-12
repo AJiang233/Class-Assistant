@@ -329,6 +329,9 @@
 
     // 供内联 onclick 调用
     window.showDetail = showDetail;
+
+    var deepActivityId = new URLSearchParams(location.search).get('id');
+    if (deepActivityId) showDetail(deepActivityId);
     window.deleteActivity = deleteActivity;
     window.startEdit = startEdit;
     window.cancelEdit = cancelEdit;

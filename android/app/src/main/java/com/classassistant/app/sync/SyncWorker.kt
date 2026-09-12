@@ -10,7 +10,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * 后台同步：拉取活动与通知 → 更新本地缓存 → 重排提醒闹钟 → 对新通知发一条提醒。
+ * 后台同步：拉取活动与通知 → 更新本地缓存 → 重排提醒闹钟 → 对新通知逐条发提醒。
  * 未登录（没有 token）时直接跳过，等用户在网页里登录后由 MainActivity 触发。
  */
 class SyncWorker(context: Context, params: WorkerParameters) : Worker(context, params) {
@@ -70,7 +70,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : Worker(context, p
         return Result.success()
     }
 
-    /** 同步时发现比上次更新更晚的通知，就提醒一次 */
+    /** 同步时发现比上次更新更晚的通知，逐条提醒一次 */
     private fun notifyNewNotices(context: Context, rows: List<JSONObject>) {
         val times = rows.mapNotNull { parseServerTime(it.optString("publish_time")) }
         val newest = times.maxOrNull() ?: return
@@ -86,18 +86,17 @@ class SyncWorker(context: Context, params: WorkerParameters) : Worker(context, p
             val t = parseServerTime(row.optString("publish_time"))
             t != null && t > lastSeen
         }
-        if (fresh.isNotEmpty()) {
-            val title = if (fresh.size == 1) {
-                fresh.first().optString("title").ifBlank { "新的班级通知" }
-            } else {
-                "有 ${fresh.size} 条新的班级通知"
-            }
-            val body = if (fresh.size == 1) {
-                fresh.first().optString("content").replace("\n", " ").take(120).ifBlank { "点击查看详情" }
-            } else {
-                fresh.take(3).joinToString("、") { it.optString("title") }.take(120)
-            }
-            Notifier.notifyNotice(context, NOTICE_NOTIFICATION_ID, title, body)
+        // 每条新通知单独发一条、各带自己的深链（网页侧 index.html 读 ?view= / ?id= 后落到该条），互不覆盖
+        for (row in fresh) {
+            val id = row.optInt("id", 0)
+            if (id == 0) continue
+            Notifier.notifyNotice(
+                context,
+                NOTICE_ID_BASE + id,
+                row.optString("title").ifBlank { "新的班级通知" },
+                row.optString("content").replace("\n", " ").take(120).ifBlank { "点击查看详情" },
+                "?view=notices&id=$id"
+            )
         }
         if (newest > lastSeen) Store.setLastNoticeTime(context, newest)
     }
@@ -111,8 +110,58 @@ class SyncWorker(context: Context, params: WorkerParameters) : Worker(context, p
         return Result.success()
     }
 
-    private companion object {
+    companion object {
         const val HORIZON_MILLIS = 7L * 24 * 60 * 60 * 1000
-        const val NOTICE_NOTIFICATION_ID = 9001
+
+        /**
+         * 个人页「推送通知测试」用：拉最新一条真实活动 / 通知，按其 id 与深链发一条本地通知，
+         * 让用户自查推送是否可达、点通知能否跳到对应详情。
+         * kind 为 "activity" / "notice"；返回值是一句结果提示，网页直接展示（不做二次判断）。
+         * 复用真实 id：和正式提醒同号，重复点会覆盖而不是叠一堆，深链也一致。
+         */
+        fun pushTestNotification(context: Context, kind: String): String {
+            val token = Store.token(context) ?: return "请先登录后再测试推送"
+            val res = when (kind) {
+                "activity" -> Api.get("/api/activities?scope=all&limit=1", token)
+                "notice" -> Api.get("/api/notices?scope=all&limit=1", token)
+                else -> return "未知的推送类型"
+            }
+            if (res is Api.Res.Unauthorized) return "登录态已失效，请重新登录后再试"
+            // 取最新一条：两个列表接口都是最新在前（活动按 start_time DESC，通知按 publish_time DESC）
+            val row = res.listOrNull()?.firstOrNull() ?: return "没有拉到数据，请检查网络"
+            val id = row.optInt("id", 0)
+            if (id == 0) return "数据缺少 id，无法推送"
+
+            Notifier.ensureChannels(context)
+            return if (kind == "activity") {
+                val title = row.optString("title").ifBlank { "班级活动" }
+                val start = parseServerTime(row.optString("start_time"))
+                Notifier.notifyActivity(
+                    context,
+                    id,
+                    title,
+                    if (start != null) "${formatDayClock(start)} 开始" else "即将开始",
+                    row.optString("location")
+                )
+                "已推送活动：$title"
+            } else {
+                val title = row.optString("title").ifBlank { "班级通知" }
+                Notifier.notifyNotice(
+                    context,
+                    NOTICE_ID_BASE + id,
+                    title,
+                    row.optString("content").replace("\n", " ").take(120).ifBlank { "点击查看详情" },
+                    "?view=notices&id=$id"
+                )
+                "已推送通知：$title"
+            }
+        }
+
+        /**
+         * 通知 id 基数：每条通知用 NOTICE_ID_BASE + 通知 id，天然去重（同一条重复同步不会叠加）。
+         * 必须与活动提醒的 id（直接用活动 id，见 Notifier.notifyActivity）拉开距离，
+         * 否则两个列表里 id 相同的记录会互相顶掉。
+         */
+        const val NOTICE_ID_BASE = 100_000
     }
 }

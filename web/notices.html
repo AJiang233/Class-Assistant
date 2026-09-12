@@ -247,7 +247,8 @@
         try {
             var res = await api('/api/notices/' + id);
             var n = res.data;
-            var badge = '<span class="badge badge-' + esc(n.source || 'manual') + '">' + esc(sourceName(n.source)) + '</span>';
+            var badge = '<span class="badge badge-' + esc(n.source || 'manual') + '">' + esc(sourceName(n.source)) + '</span>'
+                + (n.link ? '<span class="badge badge-form">表单</span>' : '');
             var meta = '<span>' + icon('clock') + '发布 ' + esc(fmtDate(n.publish_time)) + '</span>';
             if (n.expire_time) meta += '<span>' + icon('clock') + '截止 ' + esc(fmtDate(n.expire_time)) + '</span>';
             var byline = '<div class="detail-byline"><span>' + icon('user') + '通知人 ' + esc(n.publisher || '未知') + '</span></div>';
@@ -337,6 +338,9 @@
 
     // 供内联 onclick 调用
     window.showDetail = showDetail;
+
+    var deepNoticeId = new URLSearchParams(location.search).get('id');
+    if (deepNoticeId) showDetail(deepNoticeId);
     window.deleteNotice = deleteNotice;
     window.startEdit = startEdit;
     window.cancelEdit = cancelEdit;

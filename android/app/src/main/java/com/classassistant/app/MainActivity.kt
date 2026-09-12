@@ -26,6 +26,7 @@ import com.classassistant.app.databinding.ActivityMainBinding
 import com.classassistant.app.notify.Notifier
 import com.classassistant.app.sync.Api
 import com.classassistant.app.sync.Scheduler
+import com.classassistant.app.sync.SyncWorker
 import org.json.JSONObject
 
 /**
@@ -102,6 +103,24 @@ class MainActivity : AppCompatActivity() {
         fun startAcademicLogin() {
             if (!fromAppPage()) return
             runOnUiThread { beginAcademicLogin() }
+        }
+
+        /**
+         * 个人页「推送通知测试」：用最新一条真实活动 / 通知发一条本地通知，
+         * 让用户自查推送是否可达、点通知能否跳到对应详情。kind 为 "activity" / "notice"。
+         * 桥方法不在 UI 线程，这里同步发请求没问题（网页那边会先把按钮置灰）。
+         */
+        @JavascriptInterface
+        fun testNotification(kind: String): String {
+            if (!fromAppPage()) return ""
+            return SyncWorker.pushTestNotification(applicationContext, kind)
+        }
+
+        /** 关于软件卡片显示的 App 版本号；网页版没有原生桥，拿不到会退回「网页版」 */
+        @JavascriptInterface
+        fun appVersion(): String {
+            if (!fromAppPage()) return ""
+            return BuildConfig.VERSION_NAME
         }
     }
 
@@ -195,7 +214,7 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
-            loadUrl(startUrl)
+            loadUrl(initialUrl())
         }
 
         // 只有「主页 + 无弹窗 + 已置顶」时才允许下拉刷新；其余情况把手势交还给页面滚动
@@ -207,6 +226,15 @@ class MainActivity : AppCompatActivity() {
     private fun isSystemScheme(url: android.net.Uri): Boolean {
         val scheme = url.scheme?.lowercase() ?: return false
         return scheme == "tel" || scheme == "sms" || scheme == "mailto"
+    }
+
+    /**
+     * 启动地址：从提醒通知点进来时，intent 里带着要直达页面的深链（?view=…&id=…），
+     * 直接落到那条通知 / 活动；没有深链就回主页。
+     */
+    private fun initialUrl(): String {
+        val deep = intent?.getStringExtra(Notifier.EXTRA_DEEP_LINK)
+        return if (deep.isNullOrBlank()) startUrl else "$startUrl/$deep"
     }
 
     /**

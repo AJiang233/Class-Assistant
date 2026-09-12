@@ -36,6 +36,9 @@ android {
     }
     buildFeatures {
         viewBinding = true
+        // 个人页「关于软件」要显示 App 版本号，读 BuildConfig.VERSION_NAME；
+        // AGP 8 起 buildConfig 默认关闭，不显式打开就没有这个类
+        buildConfig = true
     }
 }
 

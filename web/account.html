@@ -113,7 +113,7 @@
                     </div>
                 </div>
 
-                <!-- 右列：管理员入口（仅手机端）+ 强制刷新 + 修改密码 + 退出登录 -->
+                <!-- 右列：管理员入口（仅手机端）+ 强制刷新 + 推送测试 + 修改密码 + 退出登录 + 关于 -->
                 <div class="split-col">
                     <!-- 管理员面板入口（仅手机端；桌面端侧边栏已有该项） -->
                     <div class="profile-card only-mobile" id="adminEntryCard">
@@ -126,6 +126,18 @@
                         <h2 style="margin:0 0 8px;">强制刷新</h2>
                         <p class="profile-sub" style="margin:0 0 16px;">页面样式错乱或显示异常时，清除本地缓存并重新加载整个应用。</p>
                         <button class="btn btn-outline btn-block" id="reloadBtn" type="button" onclick="forceRefresh()">清除缓存并刷新</button>
+                    </div>
+
+                    <!-- 推送通知测试：只有安卓 App 里的网页有原生桥，网页版点了只给提示 -->
+                    <div class="profile-card">
+                        <h2 style="margin:0 0 8px;">推送通知测试</h2>
+                        <p class="profile-sub" style="margin:0 0 16px;">用最新一条真实活动 / 通知发一条测试推送，检查手机能否收到、点击能否跳到对应详情。</p>
+                        <!-- 一行两个按钮：.btn-row 默认三列，这里改两列 -->
+                        <div class="btn-row" style="grid-template-columns:repeat(2, minmax(0,1fr));">
+                            <button class="btn btn-outline" id="testActivityBtn" type="button" onclick="testPush('activity')">推送活动通知</button>
+                            <button class="btn btn-outline" id="testNoticeBtn" type="button" onclick="testPush('notice')">推送通知通知</button>
+                        </div>
+                        <p class="profile-sub" id="pushHint" style="margin:14px 0 0;"></p>
                     </div>
 
                     <div class="profile-card collapse" id="pwdCard">
@@ -157,6 +169,17 @@
                         <h2 style="margin:0 0 8px;">退出登录</h2>
                         <p class="profile-sub" style="margin:0 0 16px;">退出后需重新输入学号与密码登录。</p>
                         <button class="btn btn-danger btn-block" onclick="window.parent.logout()">退出登录</button>
+                    </div>
+
+                    <!-- 关于软件：版本号从原生桥取（网页版没有桥，显示「网页版」）；下载指向 Actions 构建产物，仓库暂无 Releases -->
+                    <div class="profile-card" id="aboutCard">
+                        <h2 style="margin:0 0 8px;">关于软件</h2>
+                        <div class="info-list">
+                            <div class="info-row"><span class="k">版本号</span><span class="v" id="aboutVersion">—</span></div>
+                            <div class="info-row"><span class="k">项目仓库</span><span class="v"><a href="https://github.com/AJiang233/Class-Assistant" target="_blank" rel="noopener">Class-Assistant</a></span></div>
+                            <div class="info-row"><span class="k">下载</span><span class="v"><a href="https://github.com/AJiang233/Class-Assistant/actions/workflows/build-android.yml" target="_blank" rel="noopener">安卓安装包（Actions 构建产物）</a></span></div>
+                            <div class="info-row"><span class="k">协作方</span><span class="v">AJiang233 · TsoiTZF · TidalStarNan</span></div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -295,6 +318,49 @@
         target.location.replace(next);
     }
     window.forceRefresh = forceRefresh;
+
+    // ===== 推送通知测试 =====
+    // 网页本身发不了系统通知，只有安卓壳注入的 CAHost 桥能触发原生通知；
+    // 网页版（含 PWA）没有这个桥，点了就只给一句提示，不做假的成功反馈。
+    function pushHint(text) {
+        document.getElementById('pushHint').textContent = text || '';
+    }
+    function testPush(kind) {
+        var btn = document.getElementById(kind === 'activity' ? 'testActivityBtn' : 'testNoticeBtn');
+        pushHint('');
+        if (!window.CAHost || typeof CAHost.testNotification !== 'function') {
+            pushHint('网页版没有系统通知通道，请安装安卓 App 后在本页测试。');
+            return;
+        }
+        var label = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = '推送中…';
+        // 桥方法是同步阻塞的（原生那边要发请求），延时一拍先把按钮状态画出来再调
+        setTimeout(function () {
+            var msg = '';
+            try {
+                msg = CAHost.testNotification(kind);
+            } catch (e) {
+                msg = '推送失败：' + (e && e.message ? e.message : e);
+            }
+            btn.disabled = false;
+            btn.textContent = label;
+            pushHint(msg || '已发送，请查看手机通知栏。');
+        }, 0);
+    }
+    window.testPush = testPush;
+
+    // ===== 关于软件：版本号 =====
+    // App 内取原生版本号（原生桥回传 BuildConfig.VERSION_NAME）；网页版没有桥，显示「网页版」
+    (function loadAppVersion() {
+        var el = document.getElementById('aboutVersion');
+        if (!el) return;
+        var v = '';
+        try {
+            if (window.CAHost && typeof CAHost.appVersion === 'function') v = CAHost.appVersion();
+        } catch (e) {}
+        el.textContent = v ? 'v' + v : '网页版';
+    })();
 
     // ===== 加载我的资料 =====
     var currentContact = '';

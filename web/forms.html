@@ -84,8 +84,8 @@
         errorBox.classList.remove('show');
     }
 
-    function fieldHTML(f) {
-        var label = '<label class="form-label" for="f_' + f.key + '">' + esc(f.label) + (f.required ? ' *' : '') + '</label>';
+    function fieldHTML(f, i) {
+        var label = '<label class="form-label" for="f_' + f.key + '">' + (i + 1) + '. ' + esc(f.label) + (f.required ? ' *' : '') + '</label>';
         var body;
 
         if (f.type === 'textarea') {

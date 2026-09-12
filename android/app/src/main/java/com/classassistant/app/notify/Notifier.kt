@@ -19,6 +19,9 @@ object Notifier {
     const val CHANNEL_ACTIVITY = "activity_reminder"
     const val CHANNEL_NOTICE = "class_notice"
 
+    /** 点通知要直达的页面深链（?view=…&id=…），MainActivity 启动时拼到站点地址后面 */
+    const val EXTRA_DEEP_LINK = "ca_deep_link"
+
     fun ensureChannels(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val manager = context.getSystemService(NotificationManager::class.java) ?: return
@@ -38,7 +41,8 @@ object Notifier {
         )
     }
 
-    /** 活动到点提醒 */
+    /** 活动到点提醒。notificationId 就是活动 id（Scheduler → AlarmReceiver 传的 event.id），
+     *  所以能直接拼深链；也正因为通知 id 被活动占用，通知那边得另开一段号（见 SyncWorker.NOTICE_ID_BASE）。 */
     fun notifyActivity(
         context: Context,
         notificationId: Int,
@@ -50,18 +54,32 @@ object Notifier {
             append(whenText)
             if (!location.isNullOrBlank()) append(" · ").append(location)
         }
-        send(context, CHANNEL_ACTIVITY, notificationId, title, body)
+        send(context, CHANNEL_ACTIVITY, notificationId, title, body, "?view=activities&id=$notificationId")
     }
 
-    /** 新通知提醒 */
-    fun notifyNotice(context: Context, notificationId: Int, title: String, body: String) {
-        send(context, CHANNEL_NOTICE, notificationId, title, body)
+    /** 新通知提醒（每个 id 一条独立通知，重复发同一 id 会覆盖而不是叠加） */
+    fun notifyNotice(
+        context: Context,
+        notificationId: Int,
+        title: String,
+        body: String,
+        deepLink: String? = null
+    ) {
+        send(context, CHANNEL_NOTICE, notificationId, title, body, deepLink)
     }
 
-    private fun send(context: Context, channel: String, id: Int, title: String, body: String) {
+    private fun send(
+        context: Context,
+        channel: String,
+        id: Int,
+        title: String,
+        body: String,
+        deepLink: String?
+    ) {
         ensureChannels(context)
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            if (!deepLink.isNullOrBlank()) putExtra(EXTRA_DEEP_LINK, deepLink)
         }
         val pending = PendingIntent.getActivity(
             context,
