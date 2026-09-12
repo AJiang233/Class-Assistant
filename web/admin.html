@@ -67,7 +67,7 @@
                                 <input id="ntcExpire" class="form-input" type="datetime-local" data-empty-hint="未填写（长期有效）" autocomplete="off">
                             </div>
                             <div class="form-field">
-                                <label class="form-label">提醒对象（未勾选则通知所有人）</label>
+                                <label class="form-label">提醒对象（未勾选则全班，不含「不计入班级管理」的职位）</label>
                                 <div id="ntcRemind" class="remind-box"></div>
                             </div>
                             <button type="button" class="btn btn-primary btn-block" id="ntcSubmitBtn" onclick="submitNotice()">发布通知</button>
@@ -103,7 +103,7 @@
                                 <input id="actEnd" class="form-input" type="datetime-local" data-empty-hint="未填写（仅当天）" autocomplete="off">
                             </div>
                             <div class="form-field">
-                                <label class="form-label">提醒对象（未勾选则通知所有人）</label>
+                                <label class="form-label">提醒对象（未勾选则全班，不含「不计入班级管理」的职位）</label>
                                 <div id="actRemind" class="remind-box"></div>
                             </div>
                             <button type="button" class="btn btn-primary btn-block" id="actSubmitBtn" onclick="submitActivity()">发布活动</button>
@@ -147,7 +147,7 @@
                                 <button type="button" class="btn btn-outline btn-block" onclick="addFieldRow()" style="margin-top:8px;">添加字段</button>
                             </div>
                             <div class="form-field">
-                                <label class="form-label">提交对象（未勾选则全班，用于算未交名单）</label>
+                                <label class="form-label">提交对象（未勾选则全班，用于算未交名单；不含「不计入班级管理」的职位）</label>
                                 <div id="fcRemind" class="remind-box"></div>
                             </div>
                             <div class="form-field">
@@ -246,8 +246,9 @@
                             </div>
                             <div class="form-field">
                                 <label class="form-label">该职位的权限（可选，不勾选则仅为称号）</label>
-                                <label style="display:block; margin:6px 0;"><input type="checkbox" id="rolePermWrite" value="content:write"> 可发布 / 修改 / 删除 活动、通知</label>
+                                <label style="display:block; margin:6px 0;"><input type="checkbox" id="rolePermWrite" value="content:write"> 可发布 / 修改 / 删除 活动、通知，创建 / 管理表单</label>
                                 <label style="display:block; margin:6px 0;"><input type="checkbox" id="rolePermManage" value="user:manage"> 可注册账号、管理班级成员、添加 / 管理职位</label>
+                                <label style="display:block; margin:6px 0;"><input type="checkbox" id="rolePermExclude" value="class:exclude"> 不计入班级管理（提醒对象为空时不算全班，需在提醒对象里明确勾选才通知）</label>
                             </div>
                             <button type="button" class="btn btn-primary btn-block" id="roleAddBtn" onclick="addRole()">添加职位</button>
                         </div>
@@ -310,12 +311,45 @@
                     </div>
                     <div class="form-field">
                         <label class="form-label">提交明细</label>
-                        <div id="formSubsList"></div>
+                        <!-- 按需加载：明细是「每人一条 × 全部答案」，最重的一个请求，点了才拉（见 loadFormSubs） -->
+                        <button type="button" class="btn btn-outline btn-block" id="formSubsBtn" onclick="loadFormSubs()">查看提交明细</button>
+                        <div id="formSubsList" style="margin-top:8px;"></div>
                     </div>
                 </div>
                 <div class="modal-foot">
                     <button type="button" class="btn btn-outline" onclick="closeModal('formResultModal')">关闭</button>
                     <button type="button" class="btn btn-primary" onclick="exportForm()">导出 CSV</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 修改表单时间 / 修改策略：只动截止时间和「允许修改」，字段与内容一律不碰 -->
+        <div class="modal-overlay" id="formTimeModal">
+            <div class="modal">
+                <div class="modal-head">
+                    <span class="modal-title">修改时间</span>
+                    <button type="button" class="modal-close" onclick="closeModal('formTimeModal')" aria-label="关闭">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-error" id="formTimeError"></div>
+                    <div class="form-field">
+                        <label class="form-label" for="ftDeadline">截止时间（留空则长期开放）</label>
+                        <input id="ftDeadline" class="form-input" type="datetime-local" data-empty-hint="未填写（长期开放）" autocomplete="off">
+                    </div>
+                    <div class="form-field" style="margin-bottom:0;">
+                        <label class="form-label" for="ftEditPolicy">允许修改</label>
+                        <select id="ftEditPolicy" class="form-input">
+                            <option value="before_deadline">截止前可修改</option>
+                            <option value="none">提交后不可修改</option>
+                            <option value="always">随时可修改</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-foot">
+                    <button type="button" class="btn btn-outline" onclick="closeModal('formTimeModal')">取消</button>
+                    <button type="button" class="btn btn-primary" id="formTimeBtn" onclick="saveFormTime()">保存</button>
                 </div>
             </div>
         </div>
@@ -366,7 +400,7 @@
     }
 
     // ===== 编辑弹窗：打开 / 关闭（成员） =====
-    var MODAL_IDS = ['editMemberModal', 'formResultModal'];
+    var MODAL_IDS = ['editMemberModal', 'formResultModal', 'formTimeModal'];
     function openModal(id) {
         var el = document.getElementById(id);
         if (!el) return;
@@ -563,7 +597,7 @@
     }
 
     // 权限码 → 中文
-    var PERM_LABELS = { 'content:write': '发布内容', 'user:manage': '成员与职位管理' };
+    var PERM_LABELS = { 'content:write': '发布内容（活动、通知、表单）', 'user:manage': '成员与职位管理', 'class:exclude': '不计入班级管理' };
     function permLabels(list) {
         if (!list || !list.length) return '无特殊权限';
         return list.map(function (k) { return PERM_LABELS[k] || k; }).join('、');
@@ -618,6 +652,7 @@
         var permissions = [];
         if (document.getElementById('rolePermWrite').checked) permissions.push('content:write');
         if (document.getElementById('rolePermManage').checked) permissions.push('user:manage');
+        if (document.getElementById('rolePermExclude').checked) permissions.push('class:exclude');
         var btn = document.getElementById('roleAddBtn');
         btn.disabled = true; var t = btn.textContent; btn.textContent = '添加中…';
         try {
@@ -625,6 +660,7 @@
             document.getElementById('roleName').value = '';
             document.getElementById('rolePermWrite').checked = false;
             document.getElementById('rolePermManage').checked = false;
+            document.getElementById('rolePermExclude').checked = false;
             errBox.textContent = '添加成功';
             errBox.classList.add('show');
             loadRoles();
@@ -795,6 +831,7 @@
 
     // ===== 表单管理 =====
     var formResultId = null;     // 当前查看结果的表单 id（导出用）
+    var formResultForm = null;   // 结果弹窗拉到的表单（字段定义 / 是否匿名），供明细按需加载复用，省一次 /api/forms/:id
     var formPendingText = '';    // 未交名单文本（一键复制用）
     var fieldSeq = 0;
 
@@ -822,25 +859,38 @@
             + '<div class="member-line"><span>' + esc(meta.join(' · ')) + '</span></div>'
             + '</div>'
             + '<div class="member-actions">'
+            + '<button type="button" class="btn btn-outline btn-sm" onclick="openFormTime(' + f.id + ')">修改时间</button>'
             + '<button type="button" class="btn btn-outline btn-sm" onclick="openFormResult(' + f.id + ')">结果</button>'
-            + '<button type="button" class="btn btn-outline btn-sm" onclick="delForm(' + f.id + ')">删除</button>'
+            + '<button type="button" class="btn btn-danger btn-sm" onclick="delForm(' + f.id + ')">删除</button>'
             + '</div>'
             + '</div>';
     }
 
     // ===== 字段编辑器 =====
+    /**
+     * 序号（字段1、字段2）只是前端渲染，方便对照；删掉中间某个后要重排，
+     * 所以每次增删都调一次。提交时的 key 仍按当前顺序生成（见 collectFields），与这里显示的序号一致。
+     */
+    function renumberFields() {
+        var titles = document.querySelectorAll('#fcFields .fld-title');
+        for (var i = 0; i < titles.length; i++) titles[i].textContent = '字段' + (i + 1);
+    }
+
     function fieldRowHTML() {
         var id = 'fld' + (++fieldSeq);
         return '<div class="info-row member-row" id="' + id + '">'
             + '<div class="member-main">'
-            + '<div class="form-field" style="margin-bottom:8px;"><input class="form-input fld-label" type="text" placeholder="字段名称，如：姓名" autocomplete="off"></div>'
-            + '<div class="form-field" style="margin-bottom:8px;"><select class="form-input fld-type" onchange="onFieldTypeChange(this)">'
+            + '<div class="member-line"><span class="member-name fld-title">字段</span></div>'
+            + '<div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin:8px 0;">'
+            + '<select class="form-input fld-type" style="width:auto;" onchange="onFieldTypeChange(this)">'
             + '<option value="text">单行文本</option><option value="textarea">多行文本</option>'
             + '<option value="radio">单选</option><option value="checkbox">多选</option>'
             + '<option value="number">数字</option><option value="date">日期</option>'
-            + '</select></div>'
-            + '<div class="form-field fld-options-wrap" style="display:none; margin-bottom:8px;"><input class="form-input fld-options" type="text" placeholder="选项，用逗号分隔，如：午餐,晚餐" autocomplete="off"></div>'
-            + '<label style="display:block;"><input type="checkbox" class="fld-required"> 必填</label>'
+            + '</select>'
+            + '<label style="display:flex; align-items:center; gap:6px; white-space:nowrap; font-size:0.9rem; color:var(--text-secondary); cursor:pointer;"><input type="checkbox" class="fld-required"> 必填</label>'
+            + '</div>'
+            + '<div style="margin-bottom:8px;"><input class="form-input fld-label" type="text" placeholder="字段内容，如：姓名" autocomplete="off"></div>'
+            + '<div class="fld-options-wrap" style="display:none;"><input class="form-input fld-options" type="text" placeholder="选项，用逗号分隔，如：午餐,晚餐" autocomplete="off"></div>'
             + '</div>'
             + '<div class="member-actions"><button type="button" class="btn btn-danger btn-sm" onclick="removeFieldRow(\'' + id + '\')">删除</button></div>'
             + '</div>';
@@ -848,11 +898,14 @@
 
     function addFieldRow() {
         document.getElementById('fcFields').insertAdjacentHTML('beforeend', fieldRowHTML());
+        renumberFields();
     }
 
     function removeFieldRow(id) {
+        if (!confirm('确定删除该字段？已填的名称与选项会一起丢掉。')) return;
         var el = document.getElementById(id);
         if (el) el.remove();
+        renumberFields();
     }
 
     function onFieldTypeChange(sel) {
@@ -953,23 +1006,79 @@
         }
     }
 
+    // ===== 修改表单时间 / 修改策略 =====
+    // 只提交 deadline 与 edit_policy 两项：字段定义一旦有人提交就被后端锁死，
+    // 从管理列表直接改字段很容易和已有答案的 key 对不上，所以这里不提供改内容的入口。
+    var formTimeId = null;
+    async function openFormTime(id) {
+        formTimeId = id;
+        var errBox = document.getElementById('formTimeError');
+        errBox.classList.remove('show');
+        document.getElementById('ftDeadline').value = '';
+        document.getElementById('ftEditPolicy').value = 'before_deadline';
+        refreshDateHints();
+        openModal('formTimeModal');
+        try {
+            var res = await api('/api/forms/' + id);
+            var form = res.data.form;
+            // 服务端存的是 'YYYY-MM-DD HH:mm:ss'，datetime-local 只认 'YYYY-MM-DDTHH:mm'
+            document.getElementById('ftDeadline').value =
+                form.deadline ? String(form.deadline).replace(' ', 'T').slice(0, 16) : '';
+            document.getElementById('ftEditPolicy').value = form.edit_policy || 'before_deadline';
+            refreshDateHints();
+        } catch (err) {
+            errBox.textContent = err.message;
+            errBox.classList.add('show');
+        }
+    }
+
+    async function saveFormTime() {
+        if (!formTimeId) return;
+        var errBox = document.getElementById('formTimeError');
+        errBox.classList.remove('show');
+        var btn = document.getElementById('formTimeBtn');
+        btn.disabled = true;
+        var original = btn.textContent;
+        btn.textContent = '保存中…';
+        try {
+            await api('/api/forms/' + formTimeId, {
+                method: 'PUT',
+                body: JSON.stringify({
+                    // 空串即「清除截止时间」（后端 toLocalDateTime('') 返回 null）
+                    deadline: document.getElementById('ftDeadline').value || '',
+                    edit_policy: document.getElementById('ftEditPolicy').value
+                })
+            });
+            closeModal('formTimeModal');
+            loadFormsAdmin();
+        } catch (err) {
+            errBox.textContent = err.message;
+            errBox.classList.add('show');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = original;
+        }
+    }
+
     async function openFormResult(id) {
         formResultId = id;
+        formResultForm = null;
         formPendingText = '';
         document.getElementById('formResultTitle').textContent = '表单结果';
         document.getElementById('formResultMeta').textContent = '加载中…';
         document.getElementById('formPendingList').innerHTML = '';
         document.getElementById('formSubsList').innerHTML = '';
+        document.getElementById('formSubsBtn').style.display = '';
         openModal('formResultModal');
         try {
             var formRes = await api('/api/forms/' + id);
             var form = formRes.data.form;
-            var fields = form.fields || [];
+            formResultForm = form;
             document.getElementById('formResultTitle').textContent = form.title;
 
             var meta = [];
             if (form.anonymous) meta.push('匿名表单：只看得到谁交了，看不到谁答了什么');
-            if (form.deadline) meta.push('截止 ' + fmtDate(form.deadline));
+            meta.push(form.deadline ? '截止 ' + fmtDate(form.deadline) : '长期有效');
             document.getElementById('formResultMeta').textContent = meta.join(' · ');
 
             var prog = await api('/api/forms/' + id + '/progress');
@@ -978,30 +1087,53 @@
             document.getElementById('formPendingList').innerHTML = '<div class="info-row member-row">'
                 + '<div class="member-main">'
                 + '<div class="member-line"><span class="member-name">已交 ' + (p.submitted || 0) + ' / ' + (p.total || 0) + '</span></div>'
-                + '<div class="member-line"><span>' + (formPendingText ? esc(formPendingText) : '全部已交') + '</span></div>'
+                + '<div class="member-line"><span>' + (formPendingText ? '还没交的：' + esc(formPendingText) : '全部已交') + '</span></div>'
                 + '</div></div>';
-
-            var subsRes = await api('/api/forms/' + id + '/submissions');
-            var list = (subsRes.data && subsRes.data.list) || [];
-            if (!list.length) {
-                document.getElementById('formSubsList').innerHTML = stateHTML('还没有人提交');
-                return;
-            }
-            document.getElementById('formSubsList').innerHTML = list.map(function (s) {
-                var who = form.anonymous ? '匿名' : (esc(s.name || '未知') + ' · ' + esc(s.student_id || ''));
-                var answers = fields.map(function (f) {
-                    var v = s.answers[f.key];
-                    var text = Array.isArray(v) ? v.join('、') : (v == null || v === '' ? '—' : String(v));
-                    return esc(f.label) + '：' + esc(text);
-                }).join('　');
-                return '<div class="info-row member-row"><div class="member-main">'
-                    + '<div class="member-line"><span class="member-name">' + who + '</span></div>'
-                    + '<div class="member-line"><span>' + esc(fmtDate(s.updated_at || s.created_at)) + '</span></div>'
-                    + '<div class="member-line"><span>' + answers + '</span></div>'
-                    + '</div></div>';
-            }).join('');
         } catch (err) {
             document.getElementById('formResultMeta').textContent = err.message;
+        }
+    }
+
+    /**
+     * 提交明细按需加载。明细是「每人一条 × 全部答案」，是整个弹窗里最重的一个请求，
+     * 所以只在点了按钮时才拉；字段定义与是否匿名直接复用 formResultForm，
+     * 不再多请求一次 /api/forms/:id。
+     */
+    async function loadFormSubs() {
+        var btn = document.getElementById('formSubsBtn');
+        var host = document.getElementById('formSubsList');
+        if (!formResultForm) return;
+        btn.disabled = true;
+        var original = btn.textContent;
+        btn.textContent = '加载中…';
+        try {
+            var subsRes = await api('/api/forms/' + formResultId + '/submissions');
+            var list = (subsRes.data && subsRes.data.list) || [];
+            if (!list.length) {
+                host.innerHTML = stateHTML('还没有人提交');
+            } else {
+                var form = formResultForm;
+                var fields = form.fields || [];
+                host.innerHTML = list.map(function (s) {
+                    var who = form.anonymous ? '匿名' : (esc(s.name || '未知') + ' · ' + esc(s.student_id || ''));
+                    var answers = fields.map(function (f) {
+                        var v = s.answers[f.key];
+                        var text = Array.isArray(v) ? v.join('、') : (v == null || v === '' ? '—' : String(v));
+                        return esc(f.label) + '：' + esc(text);
+                    }).join('　');
+                    return '<div class="info-row member-row"><div class="member-main">'
+                        + '<div class="member-line"><span class="member-name">' + who + '</span></div>'
+                        + '<div class="member-line"><span>' + esc(fmtDate(s.updated_at || s.created_at)) + '</span></div>'
+                        + '<div class="member-line"><span>' + answers + '</span></div>'
+                        + '</div></div>';
+                }).join('');
+            }
+            btn.style.display = 'none';
+        } catch (err) {
+            host.innerHTML = stateHTML(err.message, true);
+        } finally {
+            btn.disabled = false;
+            btn.textContent = original;
         }
     }
 
@@ -1055,7 +1187,10 @@
     window.onFieldTypeChange = onFieldTypeChange;
     window.submitFormCreate = submitFormCreate;
     window.delForm = delForm;
+    window.openFormTime = openFormTime;
+    window.saveFormTime = saveFormTime;
     window.openFormResult = openFormResult;
+    window.loadFormSubs = loadFormSubs;
     window.copyPending = copyPending;
     window.exportForm = exportForm;
     })();

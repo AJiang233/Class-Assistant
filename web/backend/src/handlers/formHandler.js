@@ -10,6 +10,7 @@ import { NoticeModel } from '../models/noticeModel.js';
 import { success, error, jsonResponse } from '../utils/response.js';
 import { toLocalDateTime, parseLocalDateTime } from '../utils/datetime.js';
 import { pageLimit, pageOffset } from '../utils/query.js';
+import { loadRoleMap, isExcludedFromClass } from '../utils/audience.js';
 
 const FIELD_TYPES = ['text', 'textarea', 'radio', 'checkbox', 'number', 'date'];
 const EDIT_POLICIES = Object.values(EDIT_POLICY);
@@ -54,15 +55,20 @@ function parseRemindNames(raw) {
   return String(raw).split(',').map((x) => x.trim()).filter(Boolean);
 }
 
-function inMyRemindList(raw, user) {
+/**
+ * 我是否在这条内容的提醒对象里。空名单 = 全班，但「不计入班级管理」的人不算全班，
+ * 只有被明确勾选才通知；excluded 由调用方按最新职位权限算（见 utils/audience.js）。
+ */
+function inMyRemindList(raw, user, excluded) {
   const names = parseRemindNames(raw);
-  if (!names.length) return true;
+  if (!names.length) return !excluded;
   return names.includes(String(user.name)) || names.includes(String(user.id));
 }
 
-function rosterFor(users, raw) {
+/** 应交名单：空 = 全班减去「不计入班级管理」的人；excluded 是按最新职位权限判断的谓词 */
+function rosterFor(users, raw, excluded) {
   const names = parseRemindNames(raw);
-  if (!names.length) return users;
+  if (!names.length) return users.filter((u) => !excluded(u));
   return users.filter((u) => names.includes(String(u.name)) || names.includes(String(u.id)));
 }
 
@@ -351,11 +357,13 @@ export async function handleListMyForms(request, env, user) {
     const model = new FormModel(env.DB);
     const rows = await model.listMine(user.id);
     const now = Date.now();
+    // 空提醒对象 = 全班，但「不计入班级管理」的职位不算全班（与通知/活动同一口径）
+    const excluded = isExcludedFromClass(user.positions, await loadRoleMap(env));
 
     const pending = [];
     const editable = [];
     for (const row of rows) {
-      if (!inMyRemindList(row.remind_people, user)) continue;
+      if (!inMyRemindList(row.remind_people, user, excluded)) continue;
       // 已过截止的表单不再算待办：填不了，列出来只会误导（仍可通过链接打开看到已截止）
       if (isPastDeadline(row, now)) continue;
       const submitted = !!row.my_submitted_at;
@@ -530,7 +538,9 @@ export async function handleFormProgress(request, env, user, params) {
     const { form, model } = owned;
 
     const userModel = new UserModel(env.DB);
-    const roster = rosterFor(await userModel.list(), form.remind_people);
+    const roleMap = await loadRoleMap(env);
+    const roster = rosterFor(await userModel.list(), form.remind_people,
+      (u) => isExcludedFromClass(u.positions, roleMap));
     const submittedIds = new Set(await model.listSubmittedUserIds(form.id));
 
     const pending = roster.filter((u) => !submittedIds.has(u.id));

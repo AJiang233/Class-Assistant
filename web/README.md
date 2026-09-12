@@ -3,7 +3,7 @@
 「班级助理」项目的 Web 门户：**Cloudflare Pages 一体部署**（静态前端 + Functions 后端 + D1），纯 HTML/CSS/JS，登录后按职位提供不同权限。
 
 - 前端：`web/` 根目录静态文件 — 原生 HTML/CSS/JS，应用壳布局（左侧固定栏 + 右侧内容区 iframe 嵌入）
-- 后端：`backend/src/` — 经 `functions/api/[[path]].js` 接入 Pages Functions，JWT + PBKDF2 认证，通知/活动 CRUD、按职位鉴权，运行时零依赖
+- 后端：`backend/src/` — 经 `functions/api/[[path]].js` 接入 Pages Functions，JWT + PBKDF2 认证，通知 / 活动 / 表单 CRUD、按职位鉴权，运行时零依赖
 - 数据库：Cloudflare D1（SQLite）
 
 ---
@@ -20,18 +20,20 @@ web/                            # Cloudflare Pages 项目根目录（直接部�
 ├── activities.html             # 活动列表/详情（iframe 内容页）—— 发布/编辑/删除/提醒对象
 ├── academic.html               # 课表与学业（iframe 内容页）—— 教务课表 / 未排课程 / 学分达成
 ├── account.html                # 个人中心 —— 资料（联系方式自助修改）/ 个性化（主题）/ 日历订阅 / 修改密码 / 强制刷新 / 退出登录
-├── admin.html                  # 管理员面板 —— 左栏 添加通知·添加活动·管理成员，右栏 添加成员·管理职位·添加职位（折叠区块，按权限显示）
+├── admin.html                  # 管理员面板 —— 左栏 添加通知·添加活动·添加表单·管理表单，右栏 管理成员·添加成员·管理职位·添加职位（折叠区块，按权限显示）
+├── forms.html                  # 表单填写页（iframe 内容页）—— 由首页「待填表单」或通知里的「去填写」进入，不在导航中
 ├── assets/
 │   ├── css/style.css           # 共享样式（液态玻璃主题变量 + 组件 + 响应式）
 │   └── js/app.js               # API 封装 + 会话管理 + 权限判断 + 工具
 ├── backend/
 │   └── src/                    # 后端源码（被 functions 引入，同域运行）
 │       ├── index.js            # fetch 入口（CORS 预检 + 路由分发 + 404）
-│       ├── routes/             # 路由分发：auth / notices / activities / calendar / academic
-│       ├── handlers/           # 业务逻辑：认证 / 通知 / 活动 / 日历订阅 / 教务数据
-│       ├── models/             # D1 数据访问（users / notices / activities / roles / academic）
+│       ├── routes/             # 路由分发：auth / notices / activities / forms / calendar / academic
+│       ├── handlers/           # 业务逻辑：认证 / 通知 / 活动 / 表单 / 日历订阅 / 教务数据
+│       ├── models/             # D1 数据访问（users / notices / activities / roles / forms / academic）
 │       ├── middleware/         # CORS / JWT 认证 / 权限 / 日志
-│       └── utils/              # 统一响应 / PBKDF2 / JWT / 权限映射 / 时间处理 / iCalendar 生成 / 教务接口客户端 / CAS 代登录
+│       └── utils/              # 统一响应 / PBKDF2 / JWT / 权限映射 / 提醒对象可见性 / 时间处理 / iCalendar 生成 / 教务接口客户端 / CAS 代登录
+├── migrations/                 # 增量迁移（已有库按需执行；新库直接跑 schema.sql）
 ├── schema.sql                  # D1 表结构
 ├── wrangler.toml               # 本地开发绑定（DB / JWT_SECRET，生产绑定在 Pages 面板配置）
 ├── package.json                # wrangler devDependency + 脚本（dev / deploy / db）
@@ -44,14 +46,15 @@ web/                            # Cloudflare Pages 项目根目录（直接部�
 
 用户 `positions` 字段决定权限，**支持多个职位**（单值字符串或 JSON 数组，如 `["班长","团员"]`）。多职位时权限取**各职位权限的并集**。预设职位：
 
-| 职位 | 内容权限（发布/编辑/删除 通知·活动） | 管理权限（注册账号·成员管理·添加/管理职位） |
+| 职位 | 内容权限（发布/编辑/删除 通知·活动·表单） | 管理权限（注册账号·成员管理·添加/管理职位） |
 | --- | :---: | :---: |
 | 班长 / 团支书 | ✅ | ✅ |
 | 学习委员 | ✅ | ❌ |
 | 其它成员 | ❌（只读） | ❌ |
 
-- **自定义职位（增删需 `user:manage`）**：「添加职位」卡片可新建职位并勾选权限（可发布内容 / 可管理成员），存入 `roles` 表持久化；「管理职位」卡片列出默认职位（不可修改 / 删除）与自定义职位（可删除）。**职位列表对所有登录用户可读**，因此这两张卡片对任何可进入管理页的成员都正常显示；而**新增 / 删除职位需 `user:manage`（管理成员）权限**，无权限者点击提交会收到 403「没有操作权限」。无权限要求的自定义职位（如「团员」）直接写进 `positions` 即可，无需建 `roles`。注册 / 编辑成员时，可选项会自动包含**预设职位 + `roles` 表已定义的自定义职位 + 成员表中已在用的自定义职位**。
-- **按职位一键选择提醒对象**：发布 / 编辑 通知·活动时，提醒对象选择区顶部会按成员职位生成快捷标签，点击即全选该职位的成员（最终保存为成员姓名快照）。
+- **自定义职位（增删需 `user:manage`）**：「添加职位」卡片可新建职位并勾选权限（可发布内容 / 可管理成员 / 不计入班级管理），存入 `roles` 表持久化；「管理职位」卡片列出默认职位（不可修改 / 删除）与自定义职位（可删除）。**职位列表对所有登录用户可读**，因此这两张卡片对任何可进入管理页的成员都正常显示；而**新增 / 删除职位需 `user:manage`（管理成员）权限**，无权限者点击提交会收到 403「没有操作权限」。无权限要求的自定义职位（如「团员」）直接写进 `positions` 即可，无需建 `roles`。注册 / 编辑成员时，可选项会自动包含**预设职位 + `roles` 表已定义的自定义职位 + 成员表中已在用的自定义职位**。
+- **不计入班级管理（`class:exclude`，只能挂在自定义职位上）**：带该权限的人**不算「默认全班」的一员**——通知 / 活动 / 表单的提醒对象为空（默认全班）时，列表里看不到、安卓也不推送，只有把他**明确勾选**进提醒对象才通知；表单的「未交名单」同样不把他算作应交人员（但通过链接打开仍可提交）。判断都在服务端做（`utils/audience.js`），网页列表与安卓推送读的是同一接口，因此客户端不需要各自再算一遍。
+- **按职位一键选择提醒对象**：发布 / 编辑 通知·活动时，提醒对象选择区顶部会按成员职位生成快捷标签，点击即全选该职位的成员（最终保存为成员姓名快照）。点「不计入班级管理」职位的标签属于**明确勾选**，这些人会照常收到。
 - 登录 / `me` 接口会返回当前用户的 `permissions` 数组，前端据此显隐发布/编辑/删除/成员管理入口。
 - 读取（通知/活动列表、详情）对任意已登录用户开放。
 
@@ -130,7 +133,8 @@ web/                            # Cloudflare Pages 项目根目录（直接部�
 { "title":"班会通知", "content":"周六晚上 7 点开会",
   "publish_time":"2026-09-10 19:00:00",
   "expire_time":"2026-09-12 19:00:00",   // 选填，到期自动从列表隐藏
-  "remind_people":["张三","李四"] }        // 选填，提醒对象（存为 JSON 字符串）
+  "remind_people":["张三","李四"],         // 选填，提醒对象（存为 JSON 字符串）
+  "link":"/forms.html?id=1" }              // 选填，站内相对路径；列表会多一个「表单」徽章、详情多一个「去填写」按钮
 // 发布人 publisher 取当前登录用户名；source 默认 "manual"
 ```
 
@@ -161,6 +165,52 @@ web/                            # Cloudflare Pages 项目根目录（直接部�
 
 时间窗口按「天」比较、两端都含：通知为 `[publish_time, expire_time]`，活动为 `[start_time, end_time]`。
 不传 `date` 时以「今天」为目标日；结束时间为空时，通知视为永不失效，活动视为仅开始当天。
+
+### 表单接口（班委下发 / 同学填写）
+
+| 方法 | 路径 | 权限 | 说明 |
+| --- | --- | --- | --- |
+| POST | `/api/forms` | `content:write` | 创建表单（可选同时下发一条通知） |
+| GET | `/api/forms` | `content:write` | 表单列表（管理面板用，带提交数） |
+| GET | `/api/forms/mine` | 登录 | 我的表单：`pending`（待填）+ `editable`（已填且允许修改） |
+| GET | `/api/forms/:id` | 登录 | 表单详情 + 我的提交 + `canSubmit` / `submitBlockedReason` |
+| PUT | `/api/forms/:id` | `content:write` | 更新表单（只能改自己创建的；已有人提交则字段锁定） |
+| DELETE | `/api/forms/:id` | `content:write` | 删除表单（连同其全部提交） |
+| POST | `/api/forms/:id/submit` | 登录 | 提交 / 覆盖提交（每人每表一条，学号姓名取登录态） |
+| GET | `/api/forms/:id/submissions` | `content:write` | 提交明细（匿名表单不返回学号姓名） |
+| GET | `/api/forms/:id/progress` | `content:write` | 已交 / 未交名单（催交用） |
+| GET | `/api/forms/:id/export` | `content:write` | 导出 CSV（UTF-8 BOM，Excel 直接打开不乱码） |
+
+- **只能管理自己创建的表单**：`PUT` / `DELETE` / `submissions` / `progress` / `export` 除 `content:write` 外还校验 `creator_id === 当前用户`，否则返回 403——避免拿到别人的全班学号名单。
+- **学号 / 姓名由服务端从登录态注入**，请求体里的同名字段一律忽略（前端 `readonly` 挡不住伪造请求）。
+- **匿名表单**（`anonymous: true`）：只记「谁已交」，明细与 CSV 隐去学号姓名；内部仍按 `user_id` 去重，未交名单照常准确（弱匿名的固有边界）。
+- **字段锁定**：一旦有人提交，`fields` 不能再改（否则旧答案的 key 会悬空）；标题 / 说明 / 截止时间 / 允许修改仍可改。
+- **D1 无事务**：创建表单时若联动通知写入失败，会删掉刚建的表单回滚，不留半成品。
+- 字段类型 `text` / `textarea` / `radio` / `checkbox` / `number` / `date`；`radio` / `checkbox` 必须给 `options`（≥2 个）。上限：字段 50、选项 50、单值 2000 字符、答案总长 32KB。
+
+```jsonc
+// 创建 POST /api/forms（body，需 content:write）
+{ "title":"国庆聚餐报名", "description":"填写须知",
+  "fields":[{"key":"q1","label":"姓名","type":"text","required":true},
+            {"key":"q2","label":"口味","type":"radio","options":["午餐","晚餐"]}],
+  "edit_policy":"before_deadline",   // none（不可改）/ before_deadline（截止前可改）/ always（随时可改）
+  "anonymous":false,
+  "deadline":"2026-09-30 18:00:00",  // 选填，留空 = 长期开放
+  "remind_people":["张三","李四"],     // 选填，提交对象（空 = 全班，用于算未交名单）
+  "notice":true,                     // 选填，同时下发一条通知，「去填写」指向 forms.html?id=…
+  "notice_title":"请填写聚餐报名",     // 选填，通知标题（默认同表单标题）
+  "notice_content":"请尽快填写" }      // 选填，通知正文
+
+// 提交 POST /api/forms/:id/submit（body，需登录）
+{ "answers": { "q1":"张三", "q2":"午餐" } }   // 只保留字段定义内的 key，多余键忽略；必填项为空会被拒
+
+// 详情 GET /api/forms/:id → 200
+{ "success":true, "data":{
+    "form":{ "id":1, "title":"国庆聚餐报名", "fields":[...], "edit_policy":"before_deadline",
+             "anonymous":false, "status":"open", "deadline":"2026-09-30 18:00:00", "creator_name":"张三" },
+    "mySubmission":{ "answers":{...}, "created_at":"...", "updated_at":"..." },  // 未提交则为 null
+    "canSubmit":true, "submitBlockedReason":"", "isCreator":false } }
+```
 
 ### 日历订阅接口
 
@@ -295,6 +345,7 @@ CREATE TABLE notices (
   remind_people  TEXT,                      -- JSON 数组字符串（提醒对象）
   source         TEXT DEFAULT 'manual',      -- manual / crawler / webhook
   expire_time    DATETIME,                  -- 过期时间，到期自动隐藏
+  link           TEXT,                      -- 可选跳转（仅站内相对路径），如表单填写页
   created_at     DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -349,10 +400,41 @@ CREATE TABLE academic_mfa_sessions (        -- 多因子认证中间态（代登
   attempts      INTEGER DEFAULT 0,          -- 验证码试错计数，满 5 次 token 作废
   created_at    DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE forms (                        -- 表单：班委下发，同学填写
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  title          TEXT NOT NULL,
+  description    TEXT,
+  fields         TEXT NOT NULL,                    -- 字段定义 JSON 数组
+  edit_policy    TEXT DEFAULT 'before_deadline',   -- none / before_deadline / always
+  anonymous      INTEGER DEFAULT 0,                -- 1 = 匿名（展示与导出隐去学号姓名）
+  status         TEXT DEFAULT 'open',              -- open / closed
+  deadline       DATETIME,                         -- 截止时间（本地时间字符串）
+  creator_id     INTEGER NOT NULL,
+  creator_name   TEXT NOT NULL,
+  remind_people  TEXT,                             -- 应交名单 JSON 数组，空 = 全班
+  notice_id      INTEGER,                          -- 联动生成的通知 id
+  created_at     DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE form_submissions (             -- 表单提交：每人每表一条（允许修改时原地覆盖）
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  form_id     INTEGER NOT NULL,
+  user_id     INTEGER NOT NULL,
+  student_id  TEXT,     -- 服务端从登录态注入，不接受前端传参
+  name        TEXT,     -- 同上
+  answers     TEXT NOT NULL,                       -- {字段key: 值}
+  created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (form_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_form_submissions_form ON form_submissions(form_id);
 ```
 
 > 新库直接用 `schema.sql` 建表；已有库执行 `migrations/2026-09-11-security.sql`（清掉误写入的预置职位）、
-> `migrations/2026-09-12-mfa-attempts.sql`（MFA 验证码试错计数），以及历史迁移：
+> `migrations/2026-09-12-mfa-attempts.sql`（MFA 验证码试错计数）、`migrations/2026-09-12-forms.sql`
+> （表单 `forms` / `form_submissions` 两张表 + 通知 `link` 列），以及历史迁移：
 > `ALTER TABLE notices ADD COLUMN expire_time DATETIME;`、创建 `roles` 表，
 > 以及 `academic_bindings` / `academic_timetable` / `academic_credits` / `academic_mfa_sessions`。
 
@@ -363,11 +445,12 @@ CREATE TABLE academic_mfa_sessions (        -- 多因子认证中间态（代登
 - **应用壳布局**：`index.html` 为侧边栏 + 内容区（iframe 嵌入子页）；**小屏（≤768px）自动隐藏侧边栏、改为底部导航**（主页 / 通知 / 活动 / 课表 / 个人中心，共 5 项，符合底部导航 ≤5 项的规范），并针对手机做字号与间距密度适配
 - **移动端左右滑动切页**：小屏下可左右滑动切换「首页 → 通知 → 活动 → 课表学业 → 个人中心」（左滑前进 / 右滑后退，首尾不循环），新页面横向滑入入场；手势为 `passive`、不拦截滚动，且落在可横向滚动区域（如课表宽表）时只滚动、不切页；**课表页只可划入、不可划出**——在课表页左右滑无效，需用底部导航离开
 - **管理员入口**：桌面端固定在侧边栏；手机端底栏不再放（避免变成 6 项），改由「个人中心 → 管理员面板」卡片进入（仅手机端显示，按权限出现）
-- **班级主页**：日历（可「回到今天」，有活动的日期可点击）、当日通知与当日活动、点击条目弹出详情弹窗
+- **班级主页**：日历（可「回到今天」，有活动的日期可点击）、当日通知与当日活动、「待填表单」待办、点击条目弹出详情弹窗
 - **权限显隐**：`app.js` 提供 `canContentWrite()` / `canManageUsers()`（依据登录返回的 `permissions`），控制发布/编辑/删除与管理员入口的显示
-- **管理员面板**：`admin.html`，左栏「添加通知 / 添加活动 / 管理成员」、右栏「添加成员 / 管理职位 / 添加职位」六个默认折叠区块；成员卡片按 `user:manage` 显示，职位两张卡片对任何登录用户只读展示（增删在提交时由后端校验权限，无权限返回 403）；成员/职位编辑用弹窗，成员列表中的职务以徽章样式呈现
-- **通知页**：`content:write` 用户可发布/编辑/删除，并可用「查看过期」切到归档列表；
-- **发布/编辑表单**：统一弹窗形式；可选「提醒对象」（成员以标签多选）、通知可设「存活至」（到期自动隐藏）
+- **管理员面板**：`admin.html`，左栏「添加通知 / 添加活动 / 添加表单 / 管理表单」、右栏「管理成员 / 添加成员 / 管理职位 / 添加职位」八个默认折叠区块（按权限显示）；发布类卡片按 `content:write` 显示，成员卡片按 `user:manage` 显示，职位两张卡片对任何登录用户只读展示（增删在提交时由后端校验权限，无权限返回 403）；成员/职位编辑用弹窗，成员列表中的职务以徽章样式呈现
+- **通知页**：`content:write` 用户可发布/编辑/删除，并可用「查看过期」切到归档列表；带 `link` 的通知在列表显示「表单」徽章，详情里多一个「去填写」按钮
+- **表单**：`forms.html` 是填写页（从首页「待填表单」或通知里的「去填写」进入，不在导航里）；发布端在「添加表单」中编排字段（每行左选类型、右勾必填，选择类字段用逗号分隔选项，字段带前端序号）、按 `edit_policy` 控制提交后能否改、可匿名、可同时下发通知；「管理表单」每行可「修改时间」（截止时间 + 允许修改）、看「结果」（提交进度 + 未交名单，明细按需加载）、「删除」（二次确认，连带提交）
+- **发布/编辑弹窗**：统一弹窗形式；可选「提醒对象」（成员以标签多选，上方可按职位快捷选择，并支持搜索过滤）、通知可设「存活至」（到期自动隐藏）
 - **列表与详情**：列表行「标题 + 徽章」、元信息带图标（发布人 / 时间 / 地点），点击条目标题弹出详情弹窗
 - **个人中心**：资料（联系方式可自助修改，更新时间按北京时间显示）、个性化（跟随系统 / 浅色 / 深色 三选一）、日历订阅（可自定义提醒提前量/时间范围/是否含通知，并可重置密钥）、修改密码、强制刷新（清除本地缓存并重载，用于修复样式错乱）、退出登录（红色警示卡）
 - **课表与学业**：`academic.html` —— 课表按节次网格渲染（当前周高亮、非本周淡出）、未安排课程列表、学业达成学分看板（要求/已获/在修/还需 + 逐课程体系明细）；未绑定时提供三条绑定路径（App 一键 / 学号密码代登录 / 手动粘贴 Cookie 并附分步指引）；账号开了多因子认证时，学号密码代登录会自动进入第二步（下发验证码 → 回填 → 完成绑定，带 60 秒重发倒计时）
@@ -399,4 +482,5 @@ CREATE TABLE academic_mfa_sessions (        -- 多因子认证中间态（代登
   绑定强制校验「教务学号 = 当前门户学号」；落库的会话 Cookie 与 MFA 中间态使用 AES-GCM 封存
 - 系统预置职位（学生/班长/团支书/学习委员）不允许写入 `roles` 表覆盖全班权限
 - 内容写操作（发布/编辑/删除）与成员管理均按职位鉴权
+- **表单导出 CSV 防公式注入**：以 `= + - @` 开头的单元格会先加 `'` 中和（导出的是全班学号姓名，Excel 会当公式执行）
 - 前端所有用户输入经 `esc()` 转义，防止 XSS

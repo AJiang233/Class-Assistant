@@ -130,11 +130,15 @@ export class FormModel {
    * 避免导出与列表两条路径各写一遍导致漏改。
    */
   async listSubmissions(formId, anonymous) {
+    // created_at / updated_at 是 CURRENT_TIMESTAMP（UTC），而结果弹窗和导出的 CSV 都按北京时间看，
+    // 所以在这一层统一 +8 小时换算；展示层（admin.html）和导出层（handleExportForm）都不要再各转一次。
+    const timeCols = "datetime(created_at, '+8 hours') AS created_at, "
+      + "datetime(updated_at, '+8 hours') AS updated_at";
     const cols = anonymous
-      ? 'id, answers, created_at, updated_at'
-      : 'id, student_id, name, answers, created_at, updated_at';
+      ? `id, answers, ${timeCols}`
+      : `id, student_id, name, answers, ${timeCols}`;
     const result = await this.db.prepare(
-      `SELECT ${cols} FROM form_submissions WHERE form_id = ? ORDER BY created_at ASC`
+      `SELECT ${cols} FROM form_submissions WHERE form_id = ? ORDER BY form_submissions.created_at ASC`
     ).bind(formId).all();
     return result.results;
   }

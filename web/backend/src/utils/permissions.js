@@ -6,11 +6,16 @@
  *   - JSON 字符串数组，如 '["班长","学习委员"]'
  *
  * 权限点：
- *   - content:write   发布/取消 通知、活动
+ *   - content:write   发布/取消 通知、活动，创建与管理表单
  *   - user:manage     注册账号、管理班级成员（列表/删除/重置密码）、添加与管理自定义职位
+ *   - class:exclude   不计入班级管理：提醒对象为空（默认全班）时不算全班的一员，
+ *                     只有被明确勾选（提醒对象里写了姓名或用户 id）才通知
  *
  * 读取权限默认对所有已登录用户开放，无需额外权限。
  */
+
+/** 「不计入班级管理」权限码（见 utils/audience.js 的可见性过滤） */
+export const PERM_EXCLUDE = 'class:exclude';
 
 export const ROLE_PERMISSIONS = {
   '班长': ['content:write', 'user:manage'],
@@ -21,8 +26,28 @@ export const ROLE_PERMISSIONS = {
 /** 系统预置职位：不允许写进 roles 表覆盖全班权限 */
 export const RESERVED_ROLES = Object.freeze(['学生', '班长', '团支书', '学习委员']);
 
-/** 自定义职位只能拥有这两个权限点，禁止东拼出 admin 之类 */
-export const ALLOWED_PERMISSIONS = Object.freeze(['content:write', 'user:manage']);
+/** 自定义职位只能拥有这几个权限点，禁止东拼出 admin 之类 */
+export const ALLOWED_PERMISSIONS = Object.freeze(['content:write', 'user:manage', PERM_EXCLUDE]);
+
+/**
+ * 提醒对象是否等于「默认全班」：null / 空串 / [] 都算全班。
+ * 与前端 index.html 的 remindMe()、formHandler 的 parseRemindNames 同一口径。
+ * 坏 JSON 保守按「有名单」处理，避免把定向通知误判成全班。
+ */
+export function isEveryoneRemind(raw) {
+  if (raw == null) return true;
+  const s = String(raw).trim();
+  if (!s) return true;
+  if (s.charAt(0) === '[') {
+    try {
+      const arr = JSON.parse(s);
+      return !Array.isArray(arr) || arr.filter((x) => String(x).trim()).length === 0;
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
 
 export function isReservedRole(name) {
   return RESERVED_ROLES.includes(String(name || '').trim());

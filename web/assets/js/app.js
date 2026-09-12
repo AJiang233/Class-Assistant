@@ -167,8 +167,29 @@ function renderRemindBox(boxId, members, checkedNames) {
       + ' onchange="syncRemindQuick(\'' + boxId + '\')">' + esc(m.name) + '</label>';
   }).join('');
   box.innerHTML = (positions.length ? '<div class="remind-quick"><span class="remind-quick-label">按职位选择</span>' + quick + '</div>' : '')
-    + '<div class="remind-members">' + rows + '</div>';
+    + '<div style="margin-bottom:12px;"><input class="form-input" type="search" placeholder="搜索姓名 / 职务" autocomplete="off" oninput="filterRemindMembers(this)"></div>'
+    + '<div class="remind-members">' + rows + '</div>'
+    + '<div class="remind-empty" hidden style="font-size:0.85rem; opacity:.6;">没有匹配的成员</div>';
   syncRemindQuick(boxId);
+}
+
+/**
+ * 提醒对象里按姓名 / 职务过滤成员（做法与「管理成员」的搜索一致）。
+ * 只隐藏不删除：勾选状态留在 DOM 上，过滤期间不会把已勾的人丢掉；全被滤掉时显示空状态。
+ */
+function filterRemindMembers(input) {
+  const box = input.closest('.remind-box');
+  if (!box) return;
+  const q = input.value.trim().toLowerCase();
+  let shown = 0;
+  box.querySelectorAll('.remind-members .chip').forEach(function (chip) {
+    const text = (chip.textContent + ' ' + (chip.getAttribute('data-positions') || '')).toLowerCase();
+    const hit = !q || text.indexOf(q) >= 0;
+    chip.style.display = hit ? '' : 'none';
+    if (hit) shown++;
+  });
+  const empty = box.querySelector('.remind-empty');
+  if (empty) empty.hidden = shown > 0;
 }
 
 /** 能否发布/取消 通知、活动（权限由后端按职位+自定义职位计算） */

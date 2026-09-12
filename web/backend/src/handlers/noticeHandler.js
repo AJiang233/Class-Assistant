@@ -3,6 +3,7 @@ import { success, error, jsonResponse } from '../utils/response.js';
 import { toLocalDateTime } from '../utils/datetime.js';
 import { pageLimit, pageOffset } from '../utils/query.js';
 import { isSafeLink } from '../utils/link.js';
+import { filterByAudience } from '../utils/audience.js';
 
 /**
  * 发布通知（需登录）
@@ -52,9 +53,11 @@ export async function handleListNotices(request, env, user) {
     const date = url.searchParams.get('date') || null;
 
     const noticeModel = new NoticeModel(env.DB);
-    const list = scope === 'all'
+    const rows = scope === 'all'
       ? await noticeModel.listAll(limit, offset)
       : await noticeModel.list(limit, offset, date);
+    // 提醒对象为空的条目对「不计入班级管理」的人不可见（安卓推送读的也是这个接口）
+    const list = await filterByAudience(env, user.positions, rows);
 
     return jsonResponse(success({ list, total: list.length }));
   } catch (e) {
