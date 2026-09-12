@@ -2,6 +2,15 @@ name: Build Android APK
 
 on:
   workflow_dispatch:
+    inputs:
+      version_name:
+        description: '版本名，例如 1.0.0'
+        required: true
+        default: '1.0.0'
+      version_code:
+        description: '版本号（整数），例如 1'
+        required: true
+        default: '1'
 
 jobs:
   build:
@@ -23,12 +32,23 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x android/gradlew
 
+      - name: Inject version into build.gradle
+        run: |
+          sed -i "s/versionCode .*/versionCode ${{ github.event.inputs.version_code }}/" android/app/build.gradle
+          sed -i "s/versionName .*/versionName \"${{ github.event.inputs.version_name }}\"/" android/app/build.gradle
+          grep -E "versionCode|versionName" android/app/build.gradle
+
       - name: Build Debug APK
         run: ./gradlew assembleDebug
         working-directory: android
 
+      - name: Rename APK
+        run: |
+          mv android/app/build/outputs/apk/debug/app-debug.apk \
+             android/app/build/outputs/apk/debug/ClassAssistant-${{ github.event.inputs.version_name }}.apk
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: app-debug
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: ClassAssistant-${{ github.event.inputs.version_name }}
+          path: android/app/build/outputs/apk/debug/ClassAssistant-${{ github.event.inputs.version_name }}.apk
