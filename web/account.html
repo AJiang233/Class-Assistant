@@ -129,7 +129,7 @@
                             <svg class="collapse-arrow" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                         </button>
                         <div class="collapse-body">
-                            <p class="profile-sub" style="margin:0 0 14px;">页面样式错乱或显示异常时，清除本地缓存并重新加载整个应用。</p>
+                            <p class="profile-sub" style="margin:0 0 14px;">页面样式错乱或显示异常时，清除本地缓存并重新加载整个应用。如果没有效果请清除应用数据或检查更新。</p>
                             <button class="btn btn-outline btn-block" id="reloadBtn" type="button" onclick="forceRefresh()">清除缓存并刷新</button>
 
                             <p class="profile-sub" style="margin:20px 0 14px;">用最新一条真实活动 / 通知发一条测试推送，检查手机能否收到、点击能否跳到对应详情（仅安卓 App）。</p>
@@ -173,15 +173,18 @@
                         <button class="btn btn-danger btn-block" onclick="window.parent.logout()">退出登录</button>
                     </div>
 
-                    <!-- 关于软件：版本号从原生桥取（网页版没有桥，显示「网页版」）；下载指向 Actions 构建产物，仓库暂无 Releases -->
+                    <!-- 关于软件：版本号从原生桥取（网页版没有桥，显示「网页版」）；
+                         「检查更新」拿站点根目录的 version.json（version + url）与当前版本比较，
+                         读不到就只提示「检查更新失败」，不猜地址也不退回别的页面 -->
                     <div class="profile-card" id="aboutCard">
                         <h2 style="margin:0 0 8px;">关于软件</h2>
                         <div class="info-list">
                             <div class="info-row"><span class="k">版本号</span><span class="v" id="aboutVersion">—</span></div>
+                            <div class="info-row"><span class="k">检查更新</span><span class="v"><button class="btn btn-outline btn-sm" type="button" id="updateBtn" onclick="checkUpdate()">检查更新</button></span></div>
                             <div class="info-row"><span class="k">项目仓库</span><span class="v"><a href="https://github.com/AJiang233/Class-Assistant" target="_blank" rel="noopener">Class-Assistant</a></span></div>
-                            <div class="info-row"><span class="k">下载</span><span class="v"><a href="https://github.com/AJiang233/Class-Assistant/actions/workflows/build-android.yml" target="_blank" rel="noopener">安卓安装包（Actions 构建产物）</a></span></div>
-                            <div class="info-row"><span class="k">协作方</span><span class="v">AJiang233 · TsoiTZF · TidalStarNan</span></div>
+                            <div class="info-row"><span class="k">开发者</span><span class="v">AJiang233 · TsoiTZF · TidalStarNan</span></div>
                         </div>
+                        <p class="profile-sub" id="updateHint" style="margin:14px 0 0;"></p>
                     </div>
                 </div>
             </div>
@@ -352,17 +355,60 @@
     }
     window.testPush = testPush;
 
-    // ===== 关于软件：版本号 =====
+    // ===== 关于软件：版本号 + 检查更新 =====
     // App 内取原生版本号（原生桥回传 BuildConfig.VERSION_NAME）；网页版没有桥，显示「网页版」
+    var appVersion = '';
     (function loadAppVersion() {
-        var el = document.getElementById('aboutVersion');
-        if (!el) return;
-        var v = '';
         try {
-            if (window.CAHost && typeof CAHost.appVersion === 'function') v = CAHost.appVersion();
+            if (window.CAHost && typeof CAHost.appVersion === 'function') appVersion = CAHost.appVersion() || '';
         } catch (e) {}
-        el.textContent = v ? 'v' + v : '网页版';
+        var el = document.getElementById('aboutVersion');
+        if (el) el.textContent = appVersion ? 'v' + appVersion : '网页版';
     })();
+
+    /** 逐段按数字比较：0.10.0 > 0.9.0，直接比字符串会判反 */
+    function isNewer(latest, current) {
+        var a = String(latest).split('.'), b = String(current).split('.');
+        for (var i = 0; i < Math.max(a.length, b.length); i++) {
+            var x = parseInt(a[i], 10) || 0, y = parseInt(b[i], 10) || 0;
+            if (x !== y) return x > y;
+        }
+        return false;
+    }
+
+    // 「最新版本」写在站点根目录的 version.json（发版时改那里，与 CI 输入的 version_name 一致）；
+    // 带时间戳 + no-store 是绕开 Cloudflare 与 Service Worker 的缓存，否则检查更新永远看到旧值
+    async function checkUpdate() {
+        var btn = document.getElementById('updateBtn');
+        var hint = document.getElementById('updateHint');
+        var label = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = '检查中…';
+        hint.textContent = '';
+        try {
+            var res = await fetch('version.json?_=' + Date.now(), { cache: 'no-store' });
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            var data = (await res.json()) || {};
+            var latest = String(data.version || '').trim();
+            // 只认 version.json 里写的 url：json 读不到（网络失败 / 不是 JSON / 缺 version 或 url）
+            // 就一律算失败，不猜地址、也不退回 Actions 构建产物页 —— 那页不是版本下载入口
+            var link = String(data.url || '').trim();
+            if (!latest || !link) {
+                hint.textContent = '检查更新失败';
+            } else if (!appVersion) {
+                hint.innerHTML = '当前是网页版，网页不需要更新；安卓安装包见 <a href="' + esc(link) + '" target="_blank" rel="noopener">下载地址</a>。';
+            } else if (isNewer(latest, appVersion)) {
+                hint.innerHTML = '发现新版本 v' + esc(latest) + '，<a href="' + esc(link) + '" target="_blank" rel="noopener">前往下载</a>';
+            } else {
+                hint.textContent = '已是最新版本（v' + appVersion + '）。';
+            }
+        } catch (e) {
+            hint.textContent = '检查更新失败';
+        }
+        btn.disabled = false;
+        btn.textContent = label;
+    }
+    window.checkUpdate = checkUpdate;
 
     // ===== 加载我的资料 =====
     var currentContact = '';

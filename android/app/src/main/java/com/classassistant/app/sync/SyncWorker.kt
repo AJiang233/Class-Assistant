@@ -69,7 +69,6 @@ class SyncWorker(context: Context, params: WorkerParameters) : Worker(context, p
         }))
         Scheduler.rescheduleAlarms(ctx, sorted)
         notifyNewNotices(ctx, notices)
-        Store.markSynced(ctx)
         TodayWidgetProvider.refreshAll(ctx)
         return Result.success()
     }

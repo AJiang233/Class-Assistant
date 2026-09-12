@@ -16,7 +16,6 @@ object Store {
     private const val KEY_USER_ID = "user_id"
     private const val KEY_USER_NAME = "user_name"
     private const val KEY_LAST_NOTICE_TIME = "last_notice_time"
-    private const val KEY_LAST_SYNC_AT = "last_sync_at"
     private const val KEY_EVENTS = "events"
     private const val KEY_SCHEDULED = "scheduled_alarm_ids"
 
@@ -69,12 +68,6 @@ object Store {
 
     fun setLastNoticeTime(context: Context, value: Long) {
         sp(context).edit().putLong(KEY_LAST_NOTICE_TIME, value).apply()
-    }
-
-    fun lastSyncAt(context: Context): Long = sp(context).getLong(KEY_LAST_SYNC_AT, 0L)
-
-    fun markSynced(context: Context) {
-        sp(context).edit().putLong(KEY_LAST_SYNC_AT, System.currentTimeMillis()).apply()
     }
 
     // ===== 日程缓存（未来若干天的活动，按开始时间升序） =====

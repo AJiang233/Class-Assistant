@@ -2,8 +2,11 @@ package com.classassistant.app
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.content.ActivityNotFoundException
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.net.Uri
 import android.net.http.SslError
 import android.os.Build
 import android.os.Bundle
@@ -146,6 +149,22 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * App 已经在运行时点提醒通知：系统走 onNewIntent，onCreate 不会再执行，
+     * 少了这一段就会「App 被拉到前台，但停在原来的页面，不跳那条活动/通知」。
+     * setIntent 之后 getIntent()（以及 initialUrl()）才看得到这次的新 intent。
+     */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        // 教务登录中途点通知：不打断登录流程
+        if (academicLogin) return
+        // 只有带深链才跳。小组件的 PendingIntent 不带 extras，若不判断就会把用户
+        // 正在看的页面重载回主页。
+        if (intent.getStringExtra(Notifier.EXTRA_DEEP_LINK).isNullOrBlank()) return
+        binding.webView.loadUrl(initialUrl())
+    }
+
     private fun requestNotificationPermission() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
         val granted = ContextCompat.checkSelfPermission(
@@ -166,17 +185,29 @@ class MainActivity : AppCompatActivity() {
             settings.cacheMode = WebSettings.LOAD_DEFAULT
             settings.useWideViewPort = true
             settings.loadWithOverviewMode = true
+            // 多窗口默认就是关的，这行只是显式钉住：关着时 target="_blank"（以及 window.open）
+            // 会被当成顶层导航、在当前 WebView 里打开，于是下面 shouldOverrideUrlLoading 里的
+            // 外链判断能接住它、交给系统浏览器。真开了多窗口反而要 onCreateWindow，我们没实现，
+            // 那就又变成点了没反应。
+            settings.supportMultipleWindows = false
 
             addJavascriptInterface(HostBridge(), "CAHost")
 
             webViewClient = object : WebViewClient() {
-                // 仅允许站内/同源链接，拦截系统协议
+                // 站内与教务域留在 WebView，系统协议拦截，其余外链交给系统浏览器
                 override fun shouldOverrideUrlLoading(
                     view: WebView,
                     request: WebResourceRequest
                 ): Boolean {
                     val url = request.url
-                    return isSystemScheme(url)
+                    if (isSystemScheme(url)) return true
+                    // 只管主框架（子框架里的第三方链接不该被踢到浏览器）；
+                    // 教务登录期间一律不往外跳——认证过程会跨主机，跳走就把登录流程断了
+                    if (!academicLogin && request.isForMainFrame && isExternalLink(url)) {
+                        openInBrowser(url)
+                        return true
+                    }
+                    return false
                 }
 
                 override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
@@ -227,6 +258,36 @@ class MainActivity : AppCompatActivity() {
     private fun isSystemScheme(url: android.net.Uri): Boolean {
         val scheme = url.scheme?.lowercase() ?: return false
         return scheme == "tel" || scheme == "sms" || scheme == "mailto"
+    }
+
+    /**
+     * 留在 WebView 里加载的主机（含子域）：门户自己 + 教务系统主机。
+     * 只列具体主机，别自作聪明放宽到「顶级域」——按 takeLast(2) 取 szjw.njau.edu.cn 得到的是
+     * edu.cn，那样任何 *.edu.cn 都会被当成站内。教务登录会跳到同域别的主机（认证页 / SSO），
+     * 那边由 shouldOverrideUrlLoading 里的 academicLogin 判断兜住：登录流程中一律不往外跳。
+     */
+    private val inAppHosts: List<String> by lazy {
+        listOfNotNull(
+            Uri.parse(startUrl).host?.lowercase(),
+            Uri.parse(SCHOOL_ORIGIN).host?.lowercase()
+        )
+    }
+
+    /** 是否属于「该交给系统浏览器打开」的外链：http(s)，且不在站内 / 教务域内 */
+    private fun isExternalLink(url: Uri): Boolean {
+        val scheme = url.scheme?.lowercase() ?: return false
+        if (scheme != "http" && scheme != "https") return false
+        val host = url.host?.lowercase() ?: return false
+        return inAppHosts.none { host == it || host.endsWith(".$it") }
+    }
+
+    /** 外链交给系统浏览器；APK 下载也走这里，WebView 自己装不了应用。没有能处理的应用时给句提示，别静默无反应 */
+    private fun openInBrowser(url: Uri) {
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, url))
+        } catch (e: ActivityNotFoundException) {
+            Toast.makeText(this, "没有可以打开该链接的应用", Toast.LENGTH_SHORT).show()
+        }
     }
 
     /**

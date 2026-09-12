@@ -19,7 +19,7 @@ web/                            # Cloudflare Pages 项目根目录（直接部�
 ├── notices.html                # 通知列表/详情（iframe 内容页）—— 发布/编辑/删除/过期归档/提醒对象
 ├── activities.html             # 活动列表/详情（iframe 内容页）—— 发布/编辑/删除/提醒对象
 ├── academic.html               # 课表与学业（iframe 内容页）—— 教务课表 / 未排课程 / 学分达成
-├── account.html                # 个人中心 —— 资料（联系方式自助修改）/ 个性化（主题）/ 日历订阅 / 修改密码 / 强制刷新 / 退出登录
+├── account.html                # 个人中心 —— 资料（联系方式自助修改）/ 个性化（主题）/ 日历订阅 / 修改密码 / 强制刷新 / 关于软件（版本号 / 检查更新）/ 退出登录
 ├── admin.html                  # 管理员面板 —— 左栏 添加通知·添加活动·添加表单·管理表单，右栏 管理成员·添加成员·管理职位·添加职位（折叠区块，按权限显示）
 ├── forms.html                  # 表单填写页（iframe 内容页）—— 由首页「待填表单」或通知里的「去填写」进入，不在导航中
 ├── assets/
@@ -37,6 +37,7 @@ web/                            # Cloudflare Pages 项目根目录（直接部�
 ├── schema.sql                  # D1 表结构
 ├── wrangler.toml               # 本地开发绑定（DB / JWT_SECRET，生产绑定在 Pages 面板配置）
 ├── package.json                # wrangler devDependency + 脚本（dev / deploy / db）
+├── version.json                # 「关于软件 → 检查更新」的数据源：最新版本号 + APK 稳定直链（发版时手动更新）
 └── README.md
 ```
 
@@ -452,7 +453,7 @@ CREATE INDEX IF NOT EXISTS idx_form_submissions_form ON form_submissions(form_id
 - **表单**：`forms.html` 是填写页（从首页「待填表单」或通知里的「去填写」进入，不在导航里）；发布端在「添加表单」中编排字段（每行左选类型、右勾必填，选择类字段用逗号分隔选项，字段带前端序号）、按 `edit_policy` 控制提交后能否改、可匿名、可同时下发通知；「管理表单」每行可「修改时间」（截止时间 + 允许修改）、看「结果」（提交进度 + 未交名单，明细按需加载）、「删除」（二次确认，连带提交）
 - **发布/编辑弹窗**：统一弹窗形式；可选「提醒对象」（成员以标签多选，上方可按职位快捷选择，并支持搜索过滤）、通知可设「存活至」（到期自动隐藏）
 - **列表与详情**：列表行「标题 + 徽章」、元信息带图标（发布人 / 时间 / 地点），点击条目标题弹出详情弹窗
-- **个人中心**：资料（联系方式可自助修改，更新时间按北京时间显示）、个性化（跟随系统 / 浅色 / 深色 三选一）、日历订阅（可自定义提醒提前量/时间范围/是否含通知，并可重置密钥）、修改密码、强制刷新（清除本地缓存并重载，用于修复样式错乱）、退出登录（红色警示卡）
+- **个人中心**：资料（联系方式可自助修改，更新时间按北京时间显示）、个性化（跟随系统 / 浅色 / 深色 三选一）、日历订阅（可自定义提醒提前量/时间范围/是否含通知，并可重置密钥）、修改密码、强制刷新（清除本地缓存并重载，用于修复样式错乱）、关于软件（版本号 + 检查更新 + 项目仓库 + 协作方；App 内版本号取自原生桥，检查更新读站点根目录的 `version.json`）、退出登录（红色警示卡）
 - **课表与学业**：`academic.html` —— 课表按节次网格渲染（当前周高亮、非本周淡出）、未安排课程列表、学业达成学分看板（要求/已获/在修/还需 + 逐课程体系明细）；未绑定时提供三条绑定路径（App 一键 / 学号密码代登录 / 手动粘贴 Cookie 并附分步指引）；账号开了多因子认证时，学号密码代登录会自动进入第二步（下发验证码 → 回填 → 完成绑定，带 60 秒重发倒计时）
 - **API 封装**：`assets/js/app.js` 提供 `api(path, options)`，自动附带 `Bearer` token、401 自动回登录页
 - **主题**：`data-theme` 深浅色（液态玻璃风格），localStorage 记忆；未显式选择时跟随系统 `prefers-color-scheme`，应用壳与各 iframe 子页通过 `storage` 事件保持同步（侧边栏开关或「个性化」的改动会实时反映到另一侧）
@@ -469,6 +470,10 @@ CREATE INDEX IF NOT EXISTS idx_form_submissions_form ON form_submissions(form_id
 3. **一键建表**：新库 `npm run db:remote`；已有库可执行 `npm run db:migrate`（清掉误写入的预置职位名）、`npm run db:migrate:mfa`（MFA 试错计数），再按需补其它历史迁移
 4. **自定义域名**：Pages → Custom domains → 添加域名，在域名商把 CNAME 指向 `<项目名>.pages.dev`
 5. **部署**：`cd web; npm install; npm run deploy`（`wrangler pages deploy .`），或关联 git 仓库 push 自动构建
+6. **发版安卓 APK 后更新 `version.json`**：`build-android.yml` 注入 `version_name` 并产出 APK，发布 Release 后把 `version.json` 的 `version`（与该次 `version_name` 一致）与 `url` 改成该版本的稳定直链
+   `https://github.com/AJiang233/Class-Assistant/releases/download/<tag>/<文件名>`。
+   不要填 Release 页上 `release-assets.githubusercontent.com/...` 那种带签名的临时地址（几十分钟即过期）。
+   个人中心「关于软件 → 检查更新」只认这个文件：`version` / `url` 缺一或读不到，页面只提示「检查更新失败」，不会退回 Actions 构建产物页。
 
 > `/api/*` 由 `functions/api/[[path]].js` 接管，静态页面与后端同域，无需 CORS / 反向代理。
 
