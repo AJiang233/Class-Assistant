@@ -1,5 +1,5 @@
 {
   "_note": "「个人中心 → 关于软件 → 检查更新」读这里。version = 安卓 App 最新版本号，发版时与 build-android.yml 输入的 version_name 保持一致；url = 那个版本 APK 的直链，必须填（缺 version 或 url，页面只提示「检查更新失败」，不会退回别的地址）。注意：GitHub Release 页面上那种 release-assets.githubusercontent.com/... 的地址是带签名的临时地址（几十分钟就过期），不能写进来，要用 github.com/<owner>/<repo>/releases/download/<tag>/<文件名> 这种稳定地址。",
-  "version": "0.1.2",
-  "url": "https://github.com/AJiang233/Class-Assistant/releases/download/v0.1.2/ClassAssistant-0.1.2.apk"
+  "version": "0.1.4",
+  "url": "https://github.com/AJiang233/Class-Assistant/releases/download/v0.1.4/ClassAssistant-0.1.4.apk"
 }

@@ -189,7 +189,9 @@ class MainActivity : AppCompatActivity() {
             // 会被当成顶层导航、在当前 WebView 里打开，于是下面 shouldOverrideUrlLoading 里的
             // 外链判断能接住它、交给系统浏览器。真开了多窗口反而要 onCreateWindow，我们没实现，
             // 那就又变成点了没反应。
-            settings.supportMultipleWindows = false
+            // 只能写成 setXxx() 调用：WebSettings 没有 supportMultipleWindows 的 getter，
+            // Kotlin 合成不出属性，写成 settings.supportMultipleWindows = false 编译不过。
+            settings.setSupportMultipleWindows(false)
 
             addJavascriptInterface(HostBridge(), "CAHost")
 
