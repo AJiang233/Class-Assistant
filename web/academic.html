@@ -160,7 +160,9 @@
     <script src="assets/js/app.js"></script>
     <script>
     // ===== 状态 =====
-    var status = null;          // /api/academic/status 返回
+    // 注意：这个变量不能叫 status —— window.status 是遗留的 DOMString 属性，
+    // 顶层 var 会被它接管，赋对象会被强制转成 "[object Object]"，导致 bound 恒为 undefined
+    var bindStatus = null;      // /api/academic/status 返回
     var timetable = null;       // 课表数据
     var credits = null;         // 学分数据
     var activeTerm = '';        // 当前选中的学期
@@ -231,16 +233,16 @@
         setLoadingTip('正在查询教务绑定状态…');
         try {
             var res = await api('/api/academic/status');
-            status = res.data || {};
+            bindStatus = res.data || {};
         } catch (err) {
             showOnly('bindView');
             showFormError('bindError', err.message);
             return;
         }
-        if (!status.bound) { showOnly('bindView'); return; }
+        if (!bindStatus.bound) { showOnly('bindView'); return; }
         setLoadingTip('已绑定，正在拉取课表与学分…');
         showOnly('dataView');
-        if (status.status === 'expired') {
+        if (bindStatus.status === 'expired') {
             showNotice('教务登录态已过期，请重新绑定后查看最新数据。');
         }
         loadTimetable('', false);
