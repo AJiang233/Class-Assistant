@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import androidx.work.Constraints
 import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
@@ -20,6 +21,7 @@ import java.util.concurrent.TimeUnit
 object Scheduler {
 
     private const val SYNC_WORK_NAME = "class_assistant_sync"
+    private const val SYNC_ONCE_NAME = "class_assistant_sync_once"
     private const val WINDOW_MILLIS = 5L * 60 * 1000
 
     /** 活动开始前多久提醒 */
@@ -37,12 +39,16 @@ object Scheduler {
         )
     }
 
-    /** 立即同步一次（登录后 / 开机后调用） */
+    /** 立即同步一次（登录后 / 开机后 / 每次打开 App 调用） */
     fun syncNow(context: Context) {
-        WorkManager.getInstance(context).enqueue(
-            OneTimeWorkRequestBuilder<SyncWorker>()
-                .setConstraints(networkConstraints())
-                .build()
+        val request = OneTimeWorkRequestBuilder<SyncWorker>()
+            .setConstraints(networkConstraints())
+            .build()
+        // 唯一名 + KEEP：每次打开 App 都会调到这里，不加限制会堆起一串重复任务
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            SYNC_ONCE_NAME,
+            ExistingWorkPolicy.KEEP,
+            request
         )
     }
 
@@ -60,12 +66,14 @@ object Scheduler {
         val wanted = mutableSetOf<String>()
 
         for (event in events) {
+            if (event.startMillis <= now) continue // 已经开始的活动不再提醒
             val triggerAt = event.startMillis - REMIND_LEAD_MILLIS
-            if (triggerAt <= now) continue // 来不及提前提醒的就不排了
+            // 已经进入提前量窗口（例如活动是开始前半小时内才同步到的）：补排一次立即提醒。
+            // 这里以前是直接 continue 丢掉，导致这类活动永远不会响。
             wanted.add(event.id.toString())
             manager.setWindow(
                 AlarmManager.RTC_WAKEUP,
-                triggerAt,
+                if (triggerAt <= now) now else triggerAt,
                 WINDOW_MILLIS,
                 alarmIntent(context, event)
             )

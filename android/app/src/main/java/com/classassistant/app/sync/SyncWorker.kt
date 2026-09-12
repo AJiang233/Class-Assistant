@@ -20,8 +20,14 @@ class SyncWorker(context: Context, params: WorkerParameters) : Worker(context, p
         val token = Store.token(ctx) ?: return Result.success()
         Notifier.ensureChannels(ctx)
 
-        val activities = Api.getList("/api/activities?scope=all&limit=100", token) ?: return Result.retry()
-        val notices = Api.getList("/api/notices?limit=50", token) ?: return Result.retry()
+        // 401 单独处理：token 已失效，重试不会成功，清掉本地会话后收手
+        val activitiesRes = Api.get("/api/activities?scope=all&limit=100", token)
+        if (activitiesRes is Api.Res.Unauthorized) return logOut(ctx)
+        val noticesRes = Api.get("/api/notices?limit=50", token)
+        if (noticesRes is Api.Res.Unauthorized) return logOut(ctx)
+
+        val activities = activitiesRes.listOrNull() ?: return Result.retry()
+        val notices = noticesRes.listOrNull() ?: return Result.retry()
 
         val me = Api.decodeUser(token)
         if (me != null) Store.saveUser(ctx, me.first, me.second)
@@ -31,7 +37,6 @@ class SyncWorker(context: Context, params: WorkerParameters) : Worker(context, p
         val now = System.currentTimeMillis()
         val horizon = now + HORIZON_MILLIS
         val rows = mutableListOf<Event>()
-        val cached = mutableListOf<JSONObject>()
 
         for (row in activities) {
             val start = parseServerTime(row.optString("start_time")) ?: continue
@@ -47,12 +52,6 @@ class SyncWorker(context: Context, params: WorkerParameters) : Worker(context, p
             val title = row.optString("title").ifBlank { "班级活动" }
             val location = row.optString("location").orEmpty()
             rows.add(Event(id, title, start, location))
-            cached.add(JSONObject().apply {
-                put("id", id)
-                put("title", title)
-                put("start", start)
-                put("location", location)
-            })
         }
 
         val sorted = rows.sortedBy { it.startMillis }
@@ -101,6 +100,15 @@ class SyncWorker(context: Context, params: WorkerParameters) : Worker(context, p
             Notifier.notifyNotice(context, NOTICE_NOTIFICATION_ID, title, body)
         }
         if (newest > lastSeen) Store.setLastNoticeTime(context, newest)
+    }
+
+    /**
+     * token 已被服务端判为失效（401）。再重试也不会有结果，清掉本地会话后返回成功，
+     * 等用户在网页重新登录时由探针把新 token 推过来。
+     */
+    private fun logOut(context: Context): Result {
+        Store.clearSession(context)
+        return Result.success()
     }
 
     private companion object {

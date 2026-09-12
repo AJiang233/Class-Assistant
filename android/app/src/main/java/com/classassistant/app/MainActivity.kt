@@ -40,6 +40,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
     private val startUrl = "https://class.qxwkstudio.top"
 
+    /** 当前 WebView 主文档 URL，桥方法据此判断调用方是不是本应用页面 */
+    @Volatile
+    private var currentUrl: String? = null
+
     /** 是否允许下拉刷新（仅主页、无弹窗、且页面已置顶时允许；由页面内探针回传） */
     @Volatile
     private var pullRefreshReady = true
@@ -53,17 +57,33 @@ class MainActivity : AppCompatActivity() {
     /** WebView 原始 UA，教务登录结束后还原 */
     private var defaultUserAgent: String? = null
 
+    /**
+     * 桥只服务本应用页面。
+     * WebView 会导航到教务系统这类外部站点，而 addJavascriptInterface 挂上的对象
+     * 在那些页面里同样可调用 —— 不校验的话，外部页面可以改本地 token、
+     * 甚至触发教务绑定流程（拿到教务 Cookie 后上报到当前本地 token 名下）。
+     */
+    private fun fromAppPage(): Boolean {
+        val url = currentUrl ?: return false
+        return url == startUrl ||
+            url.startsWith("$startUrl/") ||
+            url.startsWith("$startUrl?") ||
+            url.startsWith("$startUrl#")
+    }
+
     /** 页面与原生之间的 JS 桥（桥方法运行在非 UI 线程，操作 UI 需切回主线程） */
     private inner class HostBridge {
 
         @JavascriptInterface
         fun setPullRefreshReady(ready: Boolean) {
+            if (!fromAppPage()) return
             pullRefreshReady = ready
         }
 
         /** 页面里的登录 token 变化时保存下来，并触发一次同步 */
         @JavascriptInterface
         fun setToken(token: String) {
+            if (!fromAppPage()) return
             val ctx = applicationContext
             if (token.isBlank()) {
                 // 网页里退出了登录，本地也清掉，避免继续用旧身份提醒
@@ -80,6 +100,7 @@ class MainActivity : AppCompatActivity() {
         /** 门户点「一键绑定教务系统」：打开教务登录页，登录完成后自动抓取 Cookie 上报 */
         @JavascriptInterface
         fun startAcademicLogin() {
+            if (!fromAppPage()) return
             runOnUiThread { beginAcademicLogin() }
         }
     }
@@ -98,7 +119,11 @@ class MainActivity : AppCompatActivity() {
         Notifier.ensureChannels(this)
         requestNotificationPermission()
         // 上次已登录过：先把周期同步挂上，进入页面后探针会把 token 再确认一次
-        if (Store.token(this) != null) Scheduler.ensurePeriodic(this)
+        if (Store.token(this) != null) {
+            Scheduler.ensurePeriodic(this)
+            // 打开就同步一次：周期任务在 Doze 下最坏要几小时才跑，只靠它会让临近开始的活动漏提醒
+            Scheduler.syncNow(this)
+        }
     }
 
     private fun requestNotificationPermission() {
@@ -135,6 +160,8 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
+                    // 桥的来源校验依赖这个值，必须在本页脚本执行之前更新
+                    currentUrl = url
                     binding.swipeRefresh.isRefreshing = true
                 }
 
@@ -211,10 +238,12 @@ class MainActivity : AppCompatActivity() {
         Thread {
             val body = JSONObject().put("cookies", cookies)
             val res = Api.postJson("/api/academic/bind", token, body)
-            val ok = res?.optBoolean("success") == true
+            val parsed = (res as? Api.Res.Ok)?.body
+            val ok = parsed?.optBoolean("success") == true
             val message = when {
                 ok -> "教务系统绑定成功"
-                res != null -> res.optString("error").takeIf { it.isNotBlank() } ?: "绑定失败，请重试"
+                parsed != null -> parsed.optString("error").takeIf { it.isNotBlank() } ?: "绑定失败，请重试"
+                res is Api.Res.Unauthorized -> "登录已过期，请重新登录后再绑定"
                 else -> "网络异常，绑定失败"
             }
             runOnUiThread {

@@ -32,11 +32,11 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x android/gradlew
 
-      - name: Inject version into build.gradle
+      - name: Inject version into build.gradle.kts
         run: |
-          sed -i "s/versionCode .*/versionCode ${{ github.event.inputs.version_code }}/" android/app/build.gradle
-          sed -i "s/versionName .*/versionName \"${{ github.event.inputs.version_name }}\"/" android/app/build.gradle
-          grep -E "versionCode|versionName" android/app/build.gradle
+          sed -i -E "s/versionCode = .*/versionCode = ${{ github.event.inputs.version_code }}/" android/app/build.gradle.kts
+          sed -i -E "s/versionName = .*/versionName = \"${{ github.event.inputs.version_name }}\"/" android/app/build.gradle.kts
+          grep -nE "versionCode|versionName" android/app/build.gradle.kts
 
       - name: Build Debug APK
         run: ./gradlew assembleDebug

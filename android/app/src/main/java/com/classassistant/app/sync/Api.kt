@@ -15,56 +15,65 @@ object Api {
 
     private const val BASE = "https://class.qxwkstudio.top"
 
-    /** 取 data.list；请求失败返回 null（用于区分「失败」与「确实没有数据」） */
-    fun getList(path: String, token: String): List<JSONObject>? {
-        val root = get(path, token) ?: return null
-        val arr = root.optJSONObject("data")?.optJSONArray("list") ?: return emptyList()
-        return (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }
-    }
+    /**
+     * 请求结果。必须把「登录已失效」和「网络/服务异常」分开：
+     * 前者重试多少次都不会成功，调用方应当清掉本地会话并停止重试。
+     */
+    sealed class Res {
+        class Ok(val body: JSONObject) : Res()
+        object Unauthorized : Res()
+        object Failed : Res()
 
-    fun get(path: String, token: String): JSONObject? {
-        var conn: HttpURLConnection? = null
-        return try {
-            conn = (URL(BASE + path).openConnection() as HttpURLConnection).apply {
-                requestMethod = "GET"
-                connectTimeout = 15000
-                readTimeout = 15000
-                setRequestProperty("Authorization", "Bearer $token")
-                setRequestProperty("Accept", "application/json")
-            }
-            val code = conn.responseCode
-            val stream = if (code in 200..299) conn.inputStream else conn.errorStream
-            val text = stream?.bufferedReader()?.use(BufferedReader::readText)
-            if (code !in 200..299 || text.isNullOrBlank()) null else JSONObject(text)
-        } catch (e: Exception) {
-            null
-        } finally {
-            conn?.disconnect()
+        /** Ok 时取 data.list；非 Ok 返回 null（用于区分「失败」与「确实没有数据」） */
+        fun listOrNull(): List<JSONObject>? {
+            val root = (this as? Ok)?.body ?: return null
+            val arr = root.optJSONObject("data")?.optJSONArray("list") ?: return emptyList()
+            return (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }
         }
     }
 
-    /** POST JSON（用于把教务系统 Cookie 上报后端）；网络异常返回 null，业务失败返回后端的错误体 */
-    fun postJson(path: String, token: String, body: JSONObject): JSONObject? {
-        var conn: HttpURLConnection? = null
+    fun get(path: String, token: String): Res = request("GET", path, token, null)
+
+    /** POST JSON（用于把教务系统 Cookie 上报后端） */
+    fun postJson(path: String, token: String, body: JSONObject): Res =
+        request("POST", path, token, body)
+
+    private fun request(method: String, path: String, token: String, body: JSONObject?): Res {
         return try {
-            conn = (URL(BASE + path).openConnection() as HttpURLConnection).apply {
-                requestMethod = "POST"
-                connectTimeout = 20000
-                readTimeout = 20000
-                doOutput = true
-                setRequestProperty("Authorization", "Bearer $token")
-                setRequestProperty("Content-Type", "application/json; charset=utf-8")
-                setRequestProperty("Accept", "application/json")
+            val conn = URL(BASE + path).openConnection() as HttpURLConnection
+            try {
+                conn.requestMethod = method
+                conn.connectTimeout = 15000
+                conn.readTimeout = 20000
+                conn.setRequestProperty("Authorization", "Bearer $token")
+                conn.setRequestProperty("Accept", "application/json")
+                if (body != null) {
+                    conn.doOutput = true
+                    conn.setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                }
+                body?.let { payload ->
+                    conn.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
+                }
+
+                val code = conn.responseCode
+                val stream = if (code in 200..299) conn.inputStream else conn.errorStream
+                val text = stream?.bufferedReader()?.use(BufferedReader::readText)
+                val parsed = if (text.isNullOrBlank()) null else try {
+                    JSONObject(text)
+                } catch (e: Exception) {
+                    null
+                }
+                when {
+                    // 401 = 登录态失效，单独上报，避免调用方无限重试
+                    code == 401 -> Res.Unauthorized
+                    parsed == null -> Res.Failed
+                    else -> Res.Ok(parsed)
+                }
+            } finally {
+                conn.disconnect()
             }
-            conn.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
-            val code = conn.responseCode
-            val stream = if (code in 200..299) conn.inputStream else conn.errorStream
-            val text = stream?.bufferedReader()?.use(BufferedReader::readText)
-            if (text.isNullOrBlank()) null else JSONObject(text)
         } catch (e: Exception) {
-            null
-        } finally {
-            conn?.disconnect()
+            Res.Failed
         }
     }
 

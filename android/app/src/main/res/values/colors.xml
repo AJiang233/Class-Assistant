@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="accent">#4F46E5</color>
+    <!-- 应用图标自适应图标的背景层，取自图标砖块的平均色（前景层几乎把它完全盖住） -->
+    <color name="ic_launcher_background">#9EAFF6</color>
     <!-- 网页底色（与 style.css 的底色变量一致），用于系统状态栏 / 导航栏配色 -->
     <color name="window_bg_light">#F2F2F7</color>
     <color name="window_bg_dark">#07070C</color>
