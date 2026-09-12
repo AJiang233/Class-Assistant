@@ -3,7 +3,34 @@ import { RoleModel } from '../models/roleModel.js';
 import { hashPassword, verifyPassword } from '../utils/crypto.js';
 import { sign } from '../utils/jwt.js';
 import { success, error, jsonResponse } from '../utils/response.js';
-import { parsePositions, getPermissions, buildRoleMap } from '../utils/permissions.js';
+import {
+  parsePositions,
+  getPermissions,
+  buildRoleMap,
+  isReservedRole,
+  sanitizePermissions,
+  assertCustomRoleName
+} from '../utils/permissions.js';
+
+const PASSWORD_MIN = 6;
+const PASSWORD_MAX = 72;
+
+function publicUser(user, permissions) {
+  return {
+    id: user.id,
+    student_id: user.student_id,
+    name: user.name,
+    positions: user.positions,
+    contact: user.contact,
+    update_time: user.update_time,
+    permissions
+  };
+}
+
+function jwtExpiresIn(env) {
+  const n = parseInt(env && env.JWT_EXPIRES_IN, 10);
+  return Number.isFinite(n) && n > 0 ? n : 604800;
+}
 
 /**
  * 计算某用户的权限集合（含自定义职位，来自 roles 表）
@@ -30,14 +57,25 @@ export async function handleRegister(request, env) {
     if (!student_id || !name || !password) {
       return jsonResponse(error('学号、姓名、密码为必填字段', 'MISSING_FIELDS'), 400);
     }
+    if (String(password).length < PASSWORD_MIN || String(password).length > PASSWORD_MAX) {
+      return jsonResponse(error(`密码长度须为 ${PASSWORD_MIN}–${PASSWORD_MAX} 位`, 'WEAK_PASSWORD'), 400);
+    }
 
-    // 若注册了自定义职位且指定了权限，则先把该职位写入 roles 表
-    // role_name 指定该自定义职位的名称；兼容旧客户端：未传 role_name 时回退到字符串形式的 positions
+    // 自定义职位且指定了权限时，先在 roles 表登记该职位。
+    // role_name 指定职位名；兼容旧客户端：未传 role_name 时回退到字符串形式的 positions。
+    // 系统预置名一旦被写进 roles 表，全班同名职位都会被提权，这里必须挡住。
     if (role_permissions && Array.isArray(role_permissions) && role_permissions.length) {
       const customName = role_name || (typeof positions === 'string' ? positions : '');
       if (customName) {
+        if (isReservedRole(customName)) {
+          return jsonResponse(error('不能把系统预置职位当自定义职位写入权限表', 'RESERVED_ROLE'), 400);
+        }
+        const named = assertCustomRoleName(customName);
+        if (!named.ok) {
+          return jsonResponse(error(named.message, named.code), 400);
+        }
         const roleModel = new RoleModel(env.DB);
-        await roleModel.upsert(customName, JSON.stringify(role_permissions));
+        await roleModel.upsert(named.name, JSON.stringify(sanitizePermissions(role_permissions)));
       }
     }
 
@@ -84,6 +122,9 @@ export async function handleLogin(request, env) {
     if (!student_id || !password) {
       return jsonResponse(error('学号和密码为必填字段', 'MISSING_FIELDS'), 400);
     }
+    if (!env.JWT_SECRET) {
+      return jsonResponse(error('服务端未配置 JWT_SECRET', 'SERVER_MISCONFIGURED'), 500);
+    }
 
     const userModel = new UserModel(env.DB);
     const user = await userModel.findByStudentId(student_id);
@@ -100,24 +141,21 @@ export async function handleLogin(request, env) {
       return jsonResponse(error('学号或密码错误', 'INVALID_CREDENTIALS'), 401);
     }
 
-    // 生成 JWT
     const token = await sign(
-      { id: user.id, student_id: user.student_id, name: user.name },
-      env.JWT_SECRET
+      {
+        id: user.id,
+        student_id: user.student_id,
+        name: user.name
+      },
+      env.JWT_SECRET,
+      jwtExpiresIn(env)
     );
 
     const permissions = await computePermissions(env, user.positions);
 
     return jsonResponse(success({
       token,
-      user: {
-        id: user.id,
-        student_id: user.student_id,
-        name: user.name,
-        positions: user.positions,
-        contact: user.contact,
-        permissions
-      }
+      user: publicUser(user, permissions)
     }));
   } catch (e) {
     console.error('登录失败:', e);
@@ -139,7 +177,7 @@ export async function handleMe(request, env, userPayload) {
 
     const permissions = await computePermissions(env, user.positions);
 
-    return jsonResponse(success({ ...user, permissions }));
+    return jsonResponse(success(publicUser(user, permissions)));
   } catch (e) {
     console.error('获取用户信息失败:', e);
     return jsonResponse(error('获取用户信息失败', 'FETCH_USER_FAILED'), 500);
@@ -188,8 +226,8 @@ export async function handleChangePassword(request, env, user) {
     if (!old_password || !new_password) {
       return jsonResponse(error('旧密码、新密码为必填字段', 'MISSING_FIELDS'), 400);
     }
-    if (new_password.length < 6) {
-      return jsonResponse(error('新密码长度至少 6 位', 'WEAK_PASSWORD'), 400);
+    if (new_password.length < PASSWORD_MIN || new_password.length > PASSWORD_MAX) {
+      return jsonResponse(error(`新密码长度须为 ${PASSWORD_MIN}–${PASSWORD_MAX} 位`, 'WEAK_PASSWORD'), 400);
     }
 
     const userModel = new UserModel(env.DB);
@@ -272,6 +310,20 @@ export async function handleUpdateUser(request, env, user, params) {
       return jsonResponse(error('没有可更新的字段', 'MISSING_FIELDS'), 400);
     }
 
+    // 职位名与注册同规则：预置名可以写（那是正常任职），自定义名不能冒用预置名、不能超长
+    let positionsValue;
+    if (positions !== undefined) {
+      const list = Array.isArray(positions) ? positions : [positions];
+      for (const p of list) {
+        if (isReservedRole(p)) continue;
+        const named = assertCustomRoleName(p);
+        if (!named.ok) {
+          return jsonResponse(error(named.message, named.code), 400);
+        }
+      }
+      positionsValue = Array.isArray(positions) ? JSON.stringify(positions) : positions;
+    }
+
     const userModel = new UserModel(env.DB);
     const existing = await userModel.findById(id);
     if (!existing) {
@@ -280,7 +332,7 @@ export async function handleUpdateUser(request, env, user, params) {
 
     const data = {};
     if (name !== undefined) data.name = name;
-    if (positions !== undefined) data.positions = Array.isArray(positions) ? JSON.stringify(positions) : positions;
+    if (positions !== undefined) data.positions = positionsValue;
     if (contact !== undefined) data.contact = contact;
     if (password !== undefined && password !== null && password !== '') {
       const pwd = String(password);
@@ -330,18 +382,26 @@ export async function handleListRoles(request, env, user) {
 
 /**
  * 新增/更新自定义职位（需 user:manage 权限；同名则更新权限）
+ * 与注册时同一套校验：预置职位名不能写进 roles 表，权限只保留白名单
  */
 export async function handleCreateRole(request, env, user) {
   try {
     const body = await request.json();
-    const name = String(body.name == null ? '' : body.name).trim();
-    if (!name) {
+    const rawName = String(body.name == null ? '' : body.name).trim();
+    if (!rawName) {
       return jsonResponse(error('职位名称不能为空', 'MISSING_FIELDS'), 400);
+    }
+    if (isReservedRole(rawName)) {
+      return jsonResponse(error('不能把系统预置职位当自定义职位写入权限表', 'RESERVED_ROLE'), 400);
+    }
+    const named = assertCustomRoleName(rawName);
+    if (!named.ok) {
+      return jsonResponse(error(named.message, named.code), 400);
     }
     const permissions = Array.isArray(body.permissions) ? body.permissions.filter(Boolean) : [];
 
     const roleModel = new RoleModel(env.DB);
-    await roleModel.upsert(name, JSON.stringify(permissions));
+    await roleModel.upsert(named.name, JSON.stringify(sanitizePermissions(permissions)));
 
     return jsonResponse(success({ message: '添加成功' }), 201);
   } catch (e) {

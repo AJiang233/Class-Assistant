@@ -1,6 +1,7 @@
 import { ActivityModel } from '../models/activityModel.js';
 import { success, error, jsonResponse } from '../utils/response.js';
 import { toLocalDateTime } from '../utils/datetime.js';
+import { pageLimit, pageOffset } from '../utils/query.js';
 
 /**
  * 发布活动（需登录）
@@ -38,8 +39,8 @@ export async function handleCreateActivity(request, env, user) {
 export async function handleListActivities(request, env, user) {
   try {
     const url = new URL(request.url);
-    const limit = parseInt(url.searchParams.get('limit')) || 50;
-    const offset = parseInt(url.searchParams.get('offset')) || 0;
+    const limit = pageLimit(url);
+    const offset = pageOffset(url);
     // scope=all 返回全部活动（含已结束/未开始的），用于按「进行中/即将开始/已结束」分类
     const scope = url.searchParams.get('scope') || 'active';
     // date（YYYY-MM-DD）可选：只返回时间窗口覆盖该日的活动，用于主页按日历选中日期展示

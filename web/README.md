@@ -321,7 +321,7 @@ CREATE TABLE academic_bindings (            -- 教务系统绑定（每用户一
   student_no    TEXT,
   real_name     TEXT,
   school_uid    TEXT,                       -- 教务用户 id（各接口的 xsid / xsxxid）
-  cookies       TEXT NOT NULL,              -- 教务域会话 Cookie
+  cookies       TEXT NOT NULL,              -- 教务会话 Cookie（AES-GCM 密文）
   status        TEXT DEFAULT 'ok',          -- ok / expired
   bound_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
   checked_at    DATETIME
@@ -349,8 +349,9 @@ CREATE TABLE academic_mfa_sessions (        -- 多因子认证中间态（代登
 );
 ```
 
-> 新库直接用 `schema.sql` 建表；已有库需执行迁移：`ALTER TABLE notices ADD COLUMN expire_time DATETIME;`、
-> 创建 `roles` 表，以及创建上表 `academic_bindings` / `academic_timetable` / `academic_credits` / `academic_mfa_sessions`。
+> 新库直接用 `schema.sql` 建表；已有库执行 `migrations/2026-09-11-security.sql`（清掉误写入的预置职位），
+> 以及历史迁移：`ALTER TABLE notices ADD COLUMN expire_time DATETIME;`、创建 `roles` 表，
+> 以及 `academic_bindings` / `academic_timetable` / `academic_credits` / `academic_mfa_sessions`。
 
 ---
 
@@ -378,8 +379,8 @@ CREATE TABLE academic_mfa_sessions (        -- 多因子认证中间态（代登
 1. **创建 Pages 项目**：构建根目录设为 `web/`（或本地 `npm run deploy`）
 2. **绑定资源（Settings → Functions）**：
    - **D1 database bindings**：变量名 `DB` → 选择 `class-assistant` 数据库
-   - **Environment variables**：`JWT_SECRET`（强随机值，如 `openssl rand -hex 32`）
-3. **一键建表**：新库 `npm run db:remote`；已有库执行上文迁移 SQL
+   - **Environment variables（Secrets）**：`JWT_SECRET`、`COOKIE_SECRET`（各自 `openssl rand -hex 32`，不要写进仓库）
+3. **一键建表**：新库 `npm run db:remote`；已有库可执行 `npm run db:migrate`（清掉误写入的预置职位名），再按需补其它历史迁移
 4. **自定义域名**：Pages → Custom domains → 添加域名，在域名商把 CNAME 指向 `<项目名>.pages.dev`
 5. **部署**：`cd web; npm install; npm run deploy`（`wrangler pages deploy .`），或关联 git 仓库 push 自动构建
 
@@ -390,8 +391,9 @@ CREATE TABLE academic_mfa_sessions (        -- 多因子认证中间态（代登
 ## 安全说明
 
 - 密码使用 Web Crypto PBKDF2（10 万次迭代 + 随机盐），不存明文
-- JWT 密钥存放于 Pages 环境变量 `JWT_SECRET`，生产请使用强随机值
+- JWT / 教务 Cookie 密钥只放 Pages Secrets 或本地 `.dev.vars`，**不要写进 `wrangler.toml`**
 - **教务代登录**：学号密码只在单次请求内存里用于换取会话，**不落库、不打日志、不返回前端**；
-  服务端只保留教务域的会话 Cookie；多因子验证码同样不落库（中间态只存 CAS 会话与流程参数，10 分钟过期）
+  绑定强制校验「教务学号 = 当前门户学号」；落库的会话 Cookie 与 MFA 中间态使用 AES-GCM 封存
+- 系统预置职位（学生/班长/团支书/学习委员）不允许写入 `roles` 表覆盖全班权限
 - 内容写操作（发布/编辑/删除）与成员管理均按职位鉴权
 - 前端所有用户输入经 `esc()` 转义，防止 XSS

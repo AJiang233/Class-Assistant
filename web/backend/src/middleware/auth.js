@@ -30,75 +30,64 @@ export async function authenticate(request, secret) {
   return { valid: true, user: payload };
 }
 
+function jsonError(status, message, code) {
+  return new Response(JSON.stringify({
+    success: false,
+    error: message,
+    code
+  }), {
+    status,
+    headers: { 'Content-Type': 'application/json' }
+  });
+}
+
+async function loadFreshUser(request, env) {
+  if (!env.JWT_SECRET) {
+    return { error: jsonError(500, '服务端未配置 JWT_SECRET', 'SERVER_MISCONFIGURED') };
+  }
+  const authResult = await authenticate(request, env.JWT_SECRET);
+  if (!authResult.valid) {
+    return { error: jsonError(401, '未登录或登录已过期', 'UNAUTHORIZED') };
+  }
+
+  const userModel = new UserModel(env.DB);
+  const fresh = await userModel.findById(authResult.user.id);
+  if (!fresh) {
+    return { error: jsonError(401, '未登录或登录已过期', 'UNAUTHORIZED') };
+  }
+  return { user: fresh };
+}
+
 /**
  * 需要认证的路由包装器
- * 包装后的 handler 签名：handler(request, env, ctx, user)
+ * handler 签名统一为 (request, env, user)，user 为数据库里的最新资料。
  */
 export function withAuth(handler) {
   return async (request, env, ctx) => {
-    const authResult = await authenticate(request, env.JWT_SECRET);
-    if (!authResult.valid) {
-      return new Response(JSON.stringify({
-        success: false,
-        error: '未登录或登录已过期',
-        code: 'UNAUTHORIZED'
-      }), {
-        status: 401,
-        headers: { 'Content-Type': 'application/json' }
-      });
-    }
-    return handler(request, env, authResult.user);
+    const loaded = await loadFreshUser(request, env);
+    if (loaded.error) return loaded.error;
+    return handler(request, env, loaded.user);
   };
 }
 
 /**
  * 需要指定权限的路由包装器
  * 先验证登录，再按最新用户职位检查权限，无权限返回 403
- * 包装后的 handler 签名：handler(request, env, ctx, user) —— 传入的是最新用户信息（含 positions）
+ * handler 签名统一为 (request, env, user)，传入的是最新用户信息（含 positions）
  */
 export function withPermission(perm) {
   return (handler) => async (request, env, ctx) => {
-    const authResult = await authenticate(request, env.JWT_SECRET);
-    if (!authResult.valid) {
-      return new Response(JSON.stringify({
-        success: false,
-        error: '未登录或登录已过期',
-        code: 'UNAUTHORIZED'
-      }), {
-        status: 401,
-        headers: { 'Content-Type': 'application/json' }
-      });
-    }
-
-    // 用最新用户数据判断权限，保证职位变更即时生效
-    const userModel = new UserModel(env.DB);
-    const fresh = await userModel.findById(authResult.user.id);
-    if (!fresh) {
-      return new Response(JSON.stringify({
-        success: false,
-        error: '用户不存在',
-        code: 'USER_NOT_FOUND'
-      }), {
-        status: 404,
-        headers: { 'Content-Type': 'application/json' }
-      });
-    }
+    const loaded = await loadFreshUser(request, env);
+    if (loaded.error) return loaded.error;
 
     // 加载自定义职位权限（roles 表），让自定义职位也能参与鉴权
     const roleModel = new RoleModel(env.DB);
     const customMap = buildRoleMap(await roleModel.list());
 
-    if (!hasPermission(fresh.positions, perm, customMap)) {
-      return new Response(JSON.stringify({
-        success: false,
-        error: '没有操作权限',
-        code: 'FORBIDDEN'
-      }), {
-        status: 403,
-        headers: { 'Content-Type': 'application/json' }
-      });
+    if (!hasPermission(loaded.user.positions, perm, customMap)) {
+      return jsonError(403, '没有操作权限', 'FORBIDDEN');
     }
 
-    return handler(request, env, fresh);
+    return handler(request, env, loaded.user);
   };
 }

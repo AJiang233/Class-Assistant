@@ -1,3 +1,8 @@
+import { openCookies } from '../utils/cookieVault.js';
+
+/** 验证码尝试次数上限：超过即作废 token，需重新走学号密码登录 */
+export const MFA_MAX_ATTEMPTS = 5;
+
 /**
  * 教务数据模型
  * 表结构：
@@ -49,6 +54,13 @@ export class AcademicModel {
     return this.db.prepare(
       `UPDATE academic_bindings SET status = 'ok', checked_at = CURRENT_TIMESTAMP WHERE user_id = ?`
     ).bind(userId).run();
+  }
+
+  /** 仅更新 Cookie 密文（明文旧记录读出后回写时用） */
+  async saveCookies(userId, cookies) {
+    return this.db.prepare(
+      `UPDATE academic_bindings SET cookies = ?, checked_at = CURRENT_TIMESTAMP WHERE user_id = ?`
+    ).bind(cookies, userId).run();
   }
 
   /** 解绑并清空该用户的教务缓存 */
@@ -106,28 +118,50 @@ export class AcademicModel {
   /** 覆盖写入中间态（state 里只有 Cookie 罐与 reAuthParams，不含密码） */
   async saveMfaSession(userId, token, state) {
     return this.db.prepare(
-      `INSERT INTO academic_mfa_sessions (token, user_id, state, created_at)
-       VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+      `INSERT INTO academic_mfa_sessions (token, user_id, state, attempts, created_at)
+       VALUES (?, ?, ?, 0, CURRENT_TIMESTAMP)
        ON CONFLICT(token) DO UPDATE SET
          user_id = excluded.user_id,
          state = excluded.state,
+         attempts = 0,
          created_at = CURRENT_TIMESTAMP`
     ).bind(token, userId, state).run();
   }
 
-  /** 取中间态：只认本人的、且未过期的；过期即删并返回 null */
-  async getMfaSession(userId, token, ttlMs) {
+  /**
+   * 取中间态：只认本人的、未过期、未超尝试上限的；过期/超限即删并返回 null。
+   * state 解不开（密钥缺失/密文损坏）按「会话无效」处理，删掉并返回 null，
+   * 不把内部异常直接抛成 500。
+   */
+  async getMfaSession(userId, token, ttlMs, env) {
     const row = await this.db.prepare(
-      `SELECT state, created_at FROM academic_mfa_sessions WHERE token = ? AND user_id = ?`
+      `SELECT state, attempts, created_at FROM academic_mfa_sessions WHERE token = ? AND user_id = ?`
     ).bind(token, userId).first();
     if (!row) return null;
 
-    const created = Date.parse(String(row.created_at).replace(' ', 'T') + 'Z');
-    if (!created || Date.now() - created > ttlMs) {
+    const expired = (() => {
+      const created = Date.parse(String(row.created_at).replace(' ', 'T') + 'Z');
+      return !created || Date.now() - created > ttlMs;
+    })();
+    if (expired || (row.attempts || 0) >= MFA_MAX_ATTEMPTS) {
       await this.deleteMfaSession(token);
       return null;
     }
-    return JSON.parse(row.state);
+    try {
+      const raw = await openCookies(env, row.state);
+      return JSON.parse(raw);
+    } catch {
+      // 密文损坏或密钥轮换后解不开：中间态已无意义，清掉让用户重新登录
+      await this.deleteMfaSession(token);
+      return null;
+    }
+  }
+
+  /** 验证码每错一次记一笔，超上限后 getMfaSession 直接作废 */
+  async bumpMfaAttempts(token) {
+    return this.db.prepare(
+      `UPDATE academic_mfa_sessions SET attempts = attempts + 1 WHERE token = ?`
+    ).bind(token).run();
   }
 
   async deleteMfaSession(token) {

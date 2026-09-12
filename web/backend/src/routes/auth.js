@@ -71,7 +71,7 @@ export async function authRoutes(request, env, ctx) {
   const roleMatch = path.match(/^\/api\/auth\/roles\/(\d+)$/);
   if (roleMatch && method === 'DELETE') {
     const params = { id: roleMatch[1] };
-    return withPermission('user:manage')((req, env, c, user) =>
+    return withPermission('user:manage')((req, env, user) =>
       handleDeleteRole(req, env, user, params)
     )(request, env, ctx);
   }
@@ -82,13 +82,13 @@ export async function authRoutes(request, env, ctx) {
     const params = { id: match[1] };
 
     if (method === 'PUT') {
-      return withPermission('user:manage')((req, env, c, user) =>
+      return withPermission('user:manage')((req, env, user) =>
         handleUpdateUser(req, env, user, params)
       )(request, env, ctx);
     }
 
     if (method === 'DELETE') {
-      return withPermission('user:manage')((req, env, c, user) =>
+      return withPermission('user:manage')((req, env, user) =>
         handleDeleteUser(req, env, user, params)
       )(request, env, ctx);
     }
