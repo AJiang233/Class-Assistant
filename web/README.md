@@ -226,7 +226,8 @@ web/                            # Cloudflare Pages 项目根目录（直接部�
   `workflow/sso/login` → `szjw/api/login/sso/cas/DEF_CAS/callback`（**换会话**）→ `szjw/`
 - **多因子认证只支持短信/邮箱验证码**，且提交时固定 `skipTmpReAuth=false`（页面上的「仅本次登录」）。
   选「信任此设备」时 CAS 要登记设备指纹，服务端代登录场景会静默失败，表现为提交回「认证成功」
-  但随后 `/login` 又被要求二次验证、流程永远走不完
+  但随后 `/login` 又被要求二次验证、流程永远走不完；
+  验证码每错一次记一笔 `attempts`，满 5 次（`MFA_MAX_ATTEMPTS`）即作废中间态，须重新走学号密码登录
 
 ```jsonc
 // GET /api/academic/timetable → 200
@@ -345,12 +346,14 @@ CREATE TABLE academic_mfa_sessions (        -- 多因子认证中间态（代登
   token         TEXT PRIMARY KEY,
   user_id       INTEGER NOT NULL,
   state         TEXT NOT NULL,              -- CAS Cookie 罐 + reAuthParams（不含密码）
+  attempts      INTEGER DEFAULT 0,          -- 验证码试错计数，满 5 次 token 作废
   created_at    DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 ```
 
-> 新库直接用 `schema.sql` 建表；已有库执行 `migrations/2026-09-11-security.sql`（清掉误写入的预置职位），
-> 以及历史迁移：`ALTER TABLE notices ADD COLUMN expire_time DATETIME;`、创建 `roles` 表，
+> 新库直接用 `schema.sql` 建表；已有库执行 `migrations/2026-09-11-security.sql`（清掉误写入的预置职位）、
+> `migrations/2026-09-12-mfa-attempts.sql`（MFA 验证码试错计数），以及历史迁移：
+> `ALTER TABLE notices ADD COLUMN expire_time DATETIME;`、创建 `roles` 表，
 > 以及 `academic_bindings` / `academic_timetable` / `academic_credits` / `academic_mfa_sessions`。
 
 ---
@@ -380,7 +383,7 @@ CREATE TABLE academic_mfa_sessions (        -- 多因子认证中间态（代登
 2. **绑定资源（Settings → Functions）**：
    - **D1 database bindings**：变量名 `DB` → 选择 `class-assistant` 数据库
    - **Environment variables（Secrets）**：`JWT_SECRET`、`COOKIE_SECRET`（各自 `openssl rand -hex 32`，不要写进仓库）
-3. **一键建表**：新库 `npm run db:remote`；已有库可执行 `npm run db:migrate`（清掉误写入的预置职位名），再按需补其它历史迁移
+3. **一键建表**：新库 `npm run db:remote`；已有库可执行 `npm run db:migrate`（清掉误写入的预置职位名）、`npm run db:migrate:mfa`（MFA 试错计数），再按需补其它历史迁移
 4. **自定义域名**：Pages → Custom domains → 添加域名，在域名商把 CNAME 指向 `<项目名>.pages.dev`
 5. **部署**：`cd web; npm install; npm run deploy`（`wrangler pages deploy .`），或关联 git 仓库 push 自动构建
 

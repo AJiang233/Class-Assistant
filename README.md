@@ -2,7 +2,7 @@
 
 一个面向「班长」角色的 AI 助理系统：把转发通知、活动提醒、同学答疑、材料催收等机械化的班级事务，逐步交给 AI 与自动化流程完成。
 
-目前状态：**Web 门户与安卓端已可用**（账号体系 / 通知与活动管理 / 移动端适配 / 系统日历订阅 / 安卓本地提醒与桌面小组件），Agent / 爬虫 / 知识库 / 调度等模块在逐步建设中。
+目前状态：**Web 门户与安卓端已可用**（账号体系 / 通知与活动管理 / 移动端适配 / 系统日历订阅 / 安卓本地提醒与桌面小组件），并已完成一轮安全加固；Go 常驻调度进程已跑通封存自检骨架，Agent / 爬虫 / 知识库等模块在逐步建设中。
 
 ## 项目背景
 
@@ -24,8 +24,10 @@
 | --- | --- |
 | 门户网站（已完成） | Cloudflare Pages（静态前端 + Functions 后端 + D1 数据库） |
 | 鉴权 / 权限 | JWT（HS256）+ PBKDF2 密码哈希；按职位 + 自定义职位分级权限 |
+| 测试 | Web：Node 原生 `node --test`（`web/backend/test/`）；Go：标准库 `testing`（`internal/` 下各包单测） |
 | 移动端（已完成） | Android：Kotlin + WebView 套壳，WorkManager 定期同步 + AlarmManager 到点提醒 + AppWidget 桌面小组件 |
 | 多端提醒（已完成） | 日历订阅 `.ics`（iOS / 鸿蒙 / Android / 桌面通用，无需安装 App） |
+| 常驻调度（骨架已跑通） | Go 1.22 进程（`cmd/scheduler` + `internal/`）：与 Worker 共用 Cookie 封存 / 学号比对 / 职位白名单 / 限流规则 |
 | Agent 编排 | OpenClaw（规划中） |
 | 消息通道 | 微信本地 API（企业微信 / 个人微信方案待定） |
 | 知识库 | 向量数据库 + RAG（规划中） |
@@ -38,9 +40,10 @@ class-assistant/
 ├── agent/          # Agent 编排与提示词（规划中）
 ├── crawler/        # 通知抓取（复用根模块 internal，尚未接真实群）
 ├── rag/            # 向量化与检索（规划中）
-├── scheduler/      # Go 常驻调度：封存自检 / Cookie 罐 / 学号比对
-├── cmd/scheduler/  # 调度进程入口
+├── scheduler/      # 调度进程说明（代码在 cmd/scheduler + internal）
+├── cmd/scheduler/  # 调度进程入口（run / once / vault-seal / vault-open / student-id）
 ├── internal/       # 与 Worker 对齐的 Go 规则（vault / identity / roles / ratelimit）
+├── go.mod          # Go 模块（go 1.22，模块路径 github.com/AJiang233/Class-Assistant）
 ├── web/            # Cloudflare Pages 门户（前端 + Functions 后端 + D1，已上线）
 └── android/        # 安卓端（Kotlin，WebView + 本地提醒 + 桌面小组件）
 ```
@@ -54,6 +57,8 @@ class-assistant/
 - **界面体验**：液态玻璃设计（浅色 / 深色双主题）、响应式布局（小屏隐藏侧栏、改为底部导航，并针对手机做字号密度适配）、班级主页（日历 + 当日通知/活动 + 详情弹窗）、折叠式管理员面板（左栏发布内容 / 右栏管理成员）、个人中心强制刷新（清缓存重载，修复样式错乱）
 - **日历订阅**：一键生成 `.ics` 订阅链接，可自定义「提前提醒时间 / 包含过去与未来的范围 / 是否包含班级通知」，并支持重置密钥
 - **课表与学业**：绑定教务系统后展示个人课表（节次网格、当前周高亮）、未安排课程与学业达成学分看板；数据经后端代理抓取并缓存进 D1。绑定有三条路径：App 内一键绑定、学号 + 密码代登录（复刻金智 CAS，密码用完即弃）、手动粘贴 Cookie
+- **安全加固**：登录 / 注册 / 改密统一校验密码长度（6–72 位）；系统预置职位（学生 / 班长 / 团支书 / 学习委员）不允许写入 `roles` 表（否则等于给全班提权），自定义职位只接受 `content:write` / `user:manage` 两个白名单权限点；教务绑定强制「教务学号 = 门户学号」；多因子验证码错满 5 次即作废本次中间态；教务会话 Cookie 与 MFA 中间态均 AES-GCM 封存
+- **测试与迁移**：`cd web && npm test`（Node 原生 `node --test`，覆盖鉴权与权限边界）；表结构见 `schema.sql`，增量变更见 `migrations/`，脚本为 `npm run db:migrate` / `db:migrate:mfa`
 
 ### 安卓端（`android/`）
 
@@ -63,6 +68,15 @@ class-assistant/
 - **桌面小组件**：显示今日活动
 - **教务绑定**：门户内一键打开教务登录页（固定桌面 UA，规避教务系统的手机端兼容问题），登录后由原生读出会话 Cookie 上报后端
 - 构建：`cd android && ./gradlew assembleDebug`（产物在 `app/build/outputs/apk/debug/`）
+
+### 常驻调度进程（`cmd/scheduler` + `internal/`）
+
+门户继续跑在 Cloudflare Functions 上；Go 常驻进程只承接「必须一直活着」的事：轮询、抓取、对外限流。
+
+- **与 Worker 共用同一套规则**：Cookie 封存格式 `v1.<iv>.<ciphertext>`（AES-256-GCM；密钥取 `COOKIE_SECRET`，缺省回退 `JWT_SECRET` 派生，解密时两个都试，避免后加密钥把旧记录锁死），与 `cookieVault.js` 交叉验证；学号比对、预置职位白名单、权限白名单与 `permissions.js` 同源，不另起一套
+- **当前只做封存自检**：`run` 每小时验一次「能封能解」，确认进程活着、密钥没配坏。课表 / 通知的真实轮询抓取还没接进来，跑它不会替任何人拉数据
+- 命令：`go test ./...`、`go run ./cmd/scheduler once`（跑一轮自检后退出，给 CI / 手工验证）、`go run ./cmd/scheduler run`（长期运行）；封存类命令读环境变量 `COOKIE_SECRET` / `JWT_SECRET`，与 Pages Secrets 同一套
+- 细节见 `scheduler/README.md`
 
 ### 规划中
 
@@ -74,18 +88,22 @@ class-assistant/
 
 | 贡献者 | 主要工作 |
 | --- | --- |
-| AJiang233 | 后端 API / 鉴权与权限体系 / 通知与活动数据模型、安卓端（WebView 套壳、下拉刷新、本地提醒、桌面小组件）、日历订阅（后端与前端）、文档 |
-| TidalStarNan | 架构迁移到 Cloudflare Pages（`functions/` 接管 `/api/*`）、液态玻璃 UI 改版、班级主页与管理员页面改版、移动端页面优化、D1 数据库调整 |
+| AJiang233 | 后端 API / 鉴权与权限体系 / 通知与活动数据模型、安卓端（WebView 套壳、下拉刷新、本地提醒、桌面小组件、日历订阅）、CAS 代登录的 Cookie 罐（按域 + Path 存取）与会话换取判定、课表页错误分支兜底、前端 API 超时兜底、文档 |
+| TsoiTZF | Go 常驻调度（`cmd/scheduler` + `internal/`：Cookie 封存 / 学号比对 / 职位白名单 / 进程内限流，密文格式与 Worker 交叉验证）、安全审查与加固（教务越权、自定义职位提权、密码长度、MFA 次数上限） |
+| TidalStarNan | 架构迁移到 Cloudflare Pages（`functions/` 接管 `/api/*`）、Web 前端主体开发与移动端布局适配修复（班级主页 / 通知 / 活动 / 账号 / 管理员页面 / 弹窗）、安卓端 GitHub Actions 打包（APK 构建与版本号注入） |
 
 ## Roadmap
 
 - [x] 日历 / 待办 + 网站 + 账号体系（Web 基础功能已完成）
 - [x] 移动端：安卓 WebView 应用 + 本地提醒 + 桌面小组件
 - [x] 多端提醒：系统日历订阅（iOS / 鸿蒙 / 桌面通用）
+- [x] 安全加固：鉴权与提权防护 / 教务越权 / MFA 次数上限
+- [x] Go 常驻调度骨架：封存自检 + 与 Worker 对齐的规则（`internal/`）
+- [ ] 调度进程接入真实轮询抓取（`crawler/` 复用 `internal/`）
 - [ ] 确定微信消息通道方案
 - [ ] 通知抓取 + 归档 + 人工确认转发（MVP）
 - [ ] RAG 知识库 + 群内答疑
 
 ## 说明
 
-本项目用于个人学习与班级服务，请遵守各平台使用条款，并注意保护同学的个人隐私信息。教务绑定只允许本人学号，会话 Cookie 加密落库；生产环境的 `JWT_SECRET` / `COOKIE_SECRET` 必须配成 Secrets，不要写进仓库。
+本项目用于个人学习与班级服务，请遵守各平台使用条款，并注意保护同学的个人隐私信息。教务绑定只允许本人学号，会话 Cookie 加密落库；生产环境的 `JWT_SECRET` / `COOKIE_SECRET` 必须配成 Secrets，不要写进仓库（Pages Secrets 配一次即可，Go 调度进程读同名环境变量）；本地开发复制 `web/.dev.vars.example` 为 `web/.dev.vars`。
