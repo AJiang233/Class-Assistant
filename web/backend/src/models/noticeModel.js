@@ -8,15 +8,16 @@ export class NoticeModel {
   }
 
   /**
-   * 创建通知
+   * 创建通知，返回新 id（表单联动下发时要回写 forms.notice_id）
    */
   async create(data) {
-    const { title, content, publish_time, publisher, remind_people = null, source = 'manual', expire_time = null } = data;
-    const result = await this.db.prepare(
-      `INSERT INTO notices (title, content, publish_time, publisher, remind_people, source, expire_time)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).bind(title, content, publish_time, publisher, remind_people, source, expire_time).run();
-    return result;
+    const { title, content, publish_time, publisher, remind_people = null, source = 'manual', expire_time = null, link = null } = data;
+    const row = await this.db.prepare(
+      `INSERT INTO notices (title, content, publish_time, publisher, remind_people, source, expire_time, link)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       RETURNING id`
+    ).bind(title, content, publish_time, publisher, remind_people, source, expire_time, link).first();
+    return row ? row.id : null;
   }
 
   /**
@@ -29,7 +30,7 @@ export class NoticeModel {
    */
   async list(limit = 50, offset = 0, date = null) {
     const day = date ? '?' : "substr(datetime('now', '+8 hours'), 1, 10)";
-    const sql = `SELECT id, title, content, publish_time, publisher, remind_people, source, expire_time, created_at
+    const sql = `SELECT id, title, content, publish_time, publisher, remind_people, source, expire_time, link, created_at
          FROM notices
          WHERE (publish_time IS NULL OR publish_time = '' OR substr(publish_time, 1, 10) <= ${day})
            AND (expire_time IS NULL OR expire_time = '' OR substr(expire_time, 1, 10) >= ${day})
@@ -45,7 +46,7 @@ export class NoticeModel {
    */
   async listAll(limit = 50, offset = 0) {
     const result = await this.db.prepare(
-      `SELECT id, title, content, publish_time, publisher, remind_people, source, expire_time, created_at
+      `SELECT id, title, content, publish_time, publisher, remind_people, source, expire_time, link, created_at
        FROM notices
        ORDER BY publish_time DESC
        LIMIT ? OFFSET ?`
@@ -58,7 +59,7 @@ export class NoticeModel {
    */
   async findById(id) {
     const result = await this.db.prepare(
-      `SELECT id, title, content, publish_time, publisher, remind_people, source, expire_time, created_at
+      `SELECT id, title, content, publish_time, publisher, remind_people, source, expire_time, link, created_at
        FROM notices WHERE id = ?`
     ).bind(id).first();
     return result;
@@ -77,6 +78,7 @@ export class NoticeModel {
     if (data.publisher !== undefined) { fields.push('publisher = ?'); values.push(data.publisher); }
     if (data.remind_people !== undefined) { fields.push('remind_people = ?'); values.push(data.remind_people); }
     if (data.expire_time !== undefined) { fields.push('expire_time = ?'); values.push(data.expire_time); }
+    if (data.link !== undefined) { fields.push('link = ?'); values.push(data.link); }
 
     if (fields.length === 0) return { success: true };
 

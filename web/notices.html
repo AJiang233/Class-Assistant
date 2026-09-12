@@ -149,11 +149,15 @@
 
     function rowHTML(n) {
         var pub = n.publisher ? '<span>' + icon('user') + esc(n.publisher) + '</span>' : '';
+        // 带跳转的通知（如表单填写页）在列表上给个标记；行本身是 button，
+        // 里面不能再塞可点元素，实际入口放在详情弹窗
+        var formBadge = n.link ? '<span class="badge badge-form">表单</span>' : '';
         return '<button type="button" class="list-row" onclick="showDetail(' + n.id + ')">'
             + '<div class="list-row-main">'
             + '<div class="list-row-title">'
             + '<span class="list-row-name">' + esc(n.title) + '</span>'
             + '<span class="badge badge-' + esc(n.source || 'manual') + '">' + esc(sourceName(n.source)) + '</span>'
+            + formBadge
             + '</div>'
             + '<div class="list-row-meta">'
             + pub
@@ -255,12 +259,17 @@
                   + '<button type="button" class="btn btn-danger" onclick="deleteNotice(' + n.id + ')">删除</button>'
                   + '</div>'
                 : '';
+            // 站内跳转用 target="_top"：通知页是嵌在主页 iframe 里的，跳外层才不会被套住
+            var formBtn = n.link
+                ? '<a class="btn btn-primary btn-block" style="margin-top:12px;" href="' + esc(n.link) + '" target="_top">去填写</a>'
+                : '';
             card.innerHTML =
                 '<div class="detail-head"><div class="detail-title">' + esc(n.title) + '</div>' + badge + '</div>'
                 + '<div class="detail-meta">' + meta + '</div>'
                 + '<div class="detail-body">' + esc(n.content || '暂无通知内容') + '</div>'
                 + byline
                 + remindLine
+                + formBtn
                 + actBtns;
         } catch (err) {
             card.innerHTML = stateHTML(err.message, true);

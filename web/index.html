@@ -131,6 +131,12 @@
                                 </div>
                                 <div class="list" id="activityList"></div>
                             </div>
+                            <div class="section-block">
+                                <div class="section-head">
+                                    <h2 class="section-title">待填表单</h2>
+                                </div>
+                                <div class="list" id="formList"></div>
+                            </div>
                         </div>
                     </div>
                     </div>
@@ -245,6 +251,7 @@
             renderCalendar();
             document.getElementById('noticeList').innerHTML = stateHTML('登录后查看班级通知');
             document.getElementById('activityList').innerHTML = stateHTML('登录后查看班级活动');
+            document.getElementById('formList').innerHTML = stateHTML('登录后查看待填表单');
         }
         // 支持 ?view=xxx 直达（App 内绑定教务系统后会跳回课表页）
         var target = 'home';
@@ -556,6 +563,7 @@
         renderCalendar();
         loadActivities(activeDate);
         loadNotices(activeDate);
+        loadForms();
     }
 
     // 当前账户是否在提醒名单内：remind_people 为空视为「全班」（提醒所有人）
@@ -589,11 +597,13 @@
             list.sort(function (a, b) { return String(b.publish_time || '').localeCompare(String(a.publish_time || '')); });
             el.innerHTML = list.map(function (n) {
                 var pub = n.publisher ? '<span>' + icon('user') + esc(n.publisher) + '</span>' : '';
+                var formBadge = n.link ? '<span class="badge badge-form">表单</span>' : '';
                 return '<button type="button" class="list-row" onclick="showNoticeDetail(' + n.id + ')">'
                     + '<div class="list-row-main">'
                     + '<div class="list-row-title">'
                     + '<span class="list-row-name">' + esc(n.title) + '</span>'
                     + '<span class="badge badge-' + esc(n.source || 'manual') + '">' + esc(sourceName(n.source)) + '</span>'
+                    + formBadge
                     + '</div>'
                     + '<div class="list-row-meta">'
                     + pub
@@ -606,6 +616,42 @@
         } catch (err) {
             el.innerHTML = stateHTML(err.message, true);
         }
+    }
+
+    // ===== 待填表单（首页待办；没有独立导航入口，靠这里与通知里的按钮进入） =====
+    async function loadForms() {
+        var el = document.getElementById('formList');
+        el.innerHTML = skeletonHTML(2);
+        try {
+            var res = await api('/api/forms/mine');
+            var pending = (res.data && res.data.pending) || [];
+            var editable = (res.data && res.data.editable) || [];
+            if (!pending.length && !editable.length) { el.innerHTML = stateHTML('暂无待填表单'); return; }
+            el.innerHTML = pending.map(function (f) { return formRowHTML(f, false); }).join('')
+                + editable.map(function (f) { return formRowHTML(f, true); }).join('');
+        } catch (err) {
+            el.innerHTML = stateHTML(err.message, true);
+        }
+    }
+
+    /** 表单待办条目：待填 / 已提交可修改 */
+    function formRowHTML(f, submitted) {
+        var meta = '';
+        if (f.deadline) meta += '<span>' + icon('clock') + esc(fmtDate(f.deadline)) + '</span>';
+        if (f.creator_name) meta += '<span>' + icon('user') + esc(f.creator_name) + '</span>';
+        var badge = submitted
+            ? '<span class="badge badge-manual">已提交 · 可修改</span>'
+            : '<span class="badge badge-form">待填写</span>';
+        return '<a class="list-row" href="forms.html?id=' + encodeURIComponent(f.id) + '">'
+            + '<div class="list-row-main">'
+            + '<div class="list-row-title">'
+            + '<span class="list-row-name">' + esc(f.title) + '</span>'
+            + badge
+            + '</div>'
+            + '<div class="list-row-meta">' + meta + '</div>'
+            + '</div>'
+            + '<svg class="list-row-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>'
+            + '</a>';
     }
 
     async function loadActivities(date) {
@@ -701,7 +747,8 @@
                 + '<div class="detail-meta">' + meta + '</div>'
                 + '<div class="detail-body">' + esc(n.content || '暂无通知内容') + '</div>'
                 + byline
-                + remindLine;
+                + remindLine
+                + (n.link ? '<a class="btn btn-primary btn-block" style="margin-top:12px;" href="' + esc(n.link) + '">去填写</a>' : '');
         } catch (err) {
             card.innerHTML = stateHTML(err.message, true);
         }

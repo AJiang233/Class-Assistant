@@ -2,6 +2,7 @@ import { NoticeModel } from '../models/noticeModel.js';
 import { success, error, jsonResponse } from '../utils/response.js';
 import { toLocalDateTime } from '../utils/datetime.js';
 import { pageLimit, pageOffset } from '../utils/query.js';
+import { isSafeLink } from '../utils/link.js';
 
 /**
  * 发布通知（需登录）
@@ -9,10 +10,13 @@ import { pageLimit, pageOffset } from '../utils/query.js';
 export async function handleCreateNotice(request, env, user) {
   try {
     const body = await request.json();
-    const { title, content, publish_time, remind_people = null, expire_time = null } = body;
+    const { title, content, publish_time, remind_people = null, expire_time = null, link = null } = body;
 
     if (!title || !content || !publish_time) {
       return jsonResponse(error('标题、内容、发布时间为必填字段', 'MISSING_FIELDS'), 400);
+    }
+    if (!isSafeLink(link)) {
+      return jsonResponse(error('跳转地址只能是站内路径', 'INVALID_LINK'), 400);
     }
 
     const noticeModel = new NoticeModel(env.DB);
@@ -23,7 +27,8 @@ export async function handleCreateNotice(request, env, user) {
       publisher: user.name,
       remind_people: remind_people ? JSON.stringify(remind_people) : null,
       source: 'manual',
-      expire_time: toLocalDateTime(expire_time)
+      expire_time: toLocalDateTime(expire_time),
+      link: link ? String(link).trim() : null
     });
 
     return jsonResponse(success({ message: '通知发布成功' }), 201);
@@ -124,6 +129,12 @@ export async function handleUpdateNotice(request, env, user, params) {
     const payload = { ...rest };
     if (publish_time !== undefined) payload.publish_time = toLocalDateTime(publish_time);
     if (expire_time !== undefined) payload.expire_time = toLocalDateTime(expire_time);
+    if (payload.link !== undefined) {
+      if (!isSafeLink(payload.link)) {
+        return jsonResponse(error('跳转地址只能是站内路径', 'INVALID_LINK'), 400);
+      }
+      payload.link = payload.link ? String(payload.link).trim() : null;
+    }
     if (payload.remind_people !== undefined && payload.remind_people !== null) {
       payload.remind_people = Array.isArray(payload.remind_people) ? JSON.stringify(payload.remind_people) : payload.remind_people;
     }

@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>填写表单 - 班级助理</title>
+    <meta name="description" content="班级助理：填写班委下发的表单。">
+    <meta name="color-scheme" content="light dark">
+    <meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#07070c" media="(prefers-color-scheme: dark)">
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%232196f3'/%3E%3Cpath d='M16 24h32v18H26l-10 8z' fill='none' stroke='%23fff' stroke-width='3' stroke-linejoin='round'/%3E%3Cpath d='M24 30h16M24 34h10' stroke='%23fff' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
+    <link rel="stylesheet" href="assets/css/style.css">
+    <script>
+    /* 主题切换：localStorage('theme') 优先，其次跟随系统 prefers-color-scheme；同步写入 <html> 的 data-theme 防闪烁 */
+    (function () {
+        var KEY = 'theme';
+        var root = document.documentElement;
+        var mq = window.matchMedia('(prefers-color-scheme: dark)');
+        function system() { return mq.matches ? 'dark' : 'light'; }
+        function stored() { try { var v = localStorage.getItem(KEY); return (v === 'dark' || v === 'light') ? v : null; } catch (e) { return null; } }
+        function apply(t) { root.setAttribute('data-theme', t); }
+        function current() { return stored() || system(); }
+        apply(current());
+        function bind() {
+            if (mq.addEventListener) mq.addEventListener('change', function (e) { if (!stored()) apply(e.matches ? 'dark' : 'light'); });
+            else if (mq.addListener) mq.addListener(function (e) { if (!stored()) apply(e.matches ? 'dark' : 'light'); });
+            window.addEventListener('storage', function (e) { if (e.key === KEY) apply(current()); });
+        }
+        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind); else bind();
+    })();
+    </script>
+</head>
+<body>
+    <div class="main">
+        <div class="container">
+            <div id="loadingView">
+                <div class="page-head">
+                    <h1 class="page-title">表单</h1>
+                    <p class="page-desc" id="loadingTip">正在加载表单…</p>
+                </div>
+                <div id="skeletonHost"></div>
+            </div>
+
+            <div id="formView" style="display:none;">
+                <div class="page-head">
+                    <h1 class="page-title" id="formTitle"></h1>
+                    <p class="page-desc" id="formDesc"></p>
+                    <p class="page-desc" id="formMeta"></p>
+                </div>
+                <div id="formCard"></div>
+                <div class="form-error" id="formError"></div>
+                <button type="button" class="btn btn-primary btn-block" id="submitBtn">提交</button>
+                <button type="button" class="btn btn-outline btn-block" id="backBtn" style="margin-top:10px;">返回首页</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="assets/js/app.js"></script>
+    <script>
+    (function () {
+    // 注意：顶层变量不要用 status / name / top / length 等 window 属性同名，
+    // 会被 window 上的遗留属性接管（课表页踩过 window.status 的坑）。
+    var formData = null;      // 表单定义
+    var myAnswers = {};       // 我的提交内容
+    var canSubmitNow = false; // 是否还能提交/修改
+
+    if (!requireAuth()) return;
+
+    var formId = new URLSearchParams(location.search).get('id') || '';
+    var submitBtn = document.getElementById('submitBtn');
+    var errorBox = document.getElementById('formError');
+
+    document.getElementById('backBtn').addEventListener('click', function () {
+        location.href = 'index.html';
+    });
+
+    function showError(msg) {
+        errorBox.textContent = msg;
+        errorBox.classList.add('show');
+    }
+
+    function clearError() {
+        errorBox.textContent = '';
+        errorBox.classList.remove('show');
+    }
+
+    function fieldHTML(f) {
+        var label = '<label class="form-label" for="f_' + f.key + '">' + esc(f.label) + (f.required ? ' *' : '') + '</label>';
+        var body;
+
+        if (f.type === 'textarea') {
+            body = '<textarea class="form-input" id="f_' + f.key + '" rows="3" placeholder="' + esc(f.placeholder || '') + '"></textarea>';
+        } else if (f.type === 'radio') {
+            // 用原生 select：与课表页学期选择同一套 .form-input 样式，移动端也顺手
+            body = '<select class="form-input" id="f_' + f.key + '"><option value="">请选择</option>'
+                + (f.options || []).map(function (o) { return '<option value="' + esc(o) + '">' + esc(o) + '</option>'; }).join('')
+                + '</select>';
+        } else if (f.type === 'checkbox') {
+            body = '<div class="pos-picker">' + (f.options || []).map(function (o) {
+                return '<label class="chip"><input type="checkbox" data-key="' + f.key + '" value="' + esc(o) + '">' + esc(o) + '</label>';
+            }).join('') + '</div>';
+        } else if (f.type === 'number') {
+            body = '<input class="form-input" type="number" inputmode="decimal" id="f_' + f.key + '" placeholder="' + esc(f.placeholder || '') + '" autocomplete="off">';
+        } else if (f.type === 'date') {
+            body = '<input class="form-input" type="date" id="f_' + f.key + '">';
+        } else {
+            body = '<input class="form-input" type="text" id="f_' + f.key + '" placeholder="' + esc(f.placeholder || '') + '" autocomplete="off">';
+        }
+        return '<div class="form-field">' + label + body + '</div>';
+    }
+
+    function renderForm() {
+        document.getElementById('formTitle').textContent = formData.title;
+        document.getElementById('formDesc').textContent = formData.description || '';
+
+        var meta = ['发布人 ' + (formData.creator_name || '未知')];
+        if (formData.deadline) meta.push('截止 ' + fmtDate(formData.deadline));
+        if (formData.anonymous) meta.push('匿名提交');
+        if (formData.edit_policy === 'none') meta.push('提交后不可修改');
+        document.getElementById('formMeta').textContent = meta.join(' · ');
+
+        document.getElementById('formCard').innerHTML = (formData.fields || []).map(fieldHTML).join('');
+        fillAnswers();
+        applySubmitState();
+    }
+
+    function fillAnswers() {
+        (formData.fields || []).forEach(function (f) {
+            var value = myAnswers[f.key];
+            if (f.type === 'checkbox') {
+                var picked = Array.isArray(value) ? value : [];
+                document.querySelectorAll('#formCard input[data-key="' + f.key + '"]').forEach(function (el) {
+                    el.checked = picked.indexOf(el.value) >= 0;
+                });
+            } else if (f.type === 'radio') {
+                var sel = document.getElementById('f_' + f.key);
+                if (sel) sel.value = value == null ? '' : String(value);
+            } else {
+                var el = document.getElementById('f_' + f.key);
+                if (el) el.value = value == null ? '' : String(value);
+            }
+        });
+    }
+
+    function collectAnswers() {
+        var out = {};
+        (formData.fields || []).forEach(function (f) {
+            if (f.type === 'checkbox') {
+                var picked = [];
+                document.querySelectorAll('#formCard input[data-key="' + f.key + '"]:checked').forEach(function (el) {
+                    picked.push(el.value);
+                });
+                out[f.key] = picked;
+            } else if (f.type === 'radio') {
+                var sel = document.getElementById('f_' + f.key);
+                out[f.key] = sel ? sel.value : '';
+            } else {
+                var el = document.getElementById('f_' + f.key);
+                out[f.key] = el ? el.value : '';
+            }
+        });
+        return out;
+    }
+
+    function applySubmitState() {
+        var submitted = !!formData.mySubmissionAt;
+        if (canSubmitNow) {
+            submitBtn.disabled = false;
+            submitBtn.textContent = submitted ? '保存修改' : '提交';
+            return;
+        }
+        submitBtn.disabled = true;
+        submitBtn.textContent = submitted ? '已提交（不可修改）' : '不可提交';
+    }
+
+    function render(submittedAt, blockedReason) {
+        formData.mySubmissionAt = submittedAt || '';
+        canSubmitNow = !blockedReason;
+        document.getElementById('loadingView').style.display = 'none';
+        document.getElementById('formView').style.display = 'block';
+        renderForm();
+        if (blockedReason) showError(blockedReason);
+    }
+
+    async function loadForm() {
+        if (!formId) {
+            document.getElementById('loadingTip').textContent = '缺少表单参数，请从首页待办或通知里的入口进入。';
+            return;
+        }
+        document.getElementById('skeletonHost').innerHTML = skeletonHTML(3);
+        try {
+            var res = await api('/api/forms/' + encodeURIComponent(formId));
+            var payload = res.data || {};
+            formData = payload.form || {};
+            formData.fields = formData.fields || [];
+            myAnswers = (payload.mySubmission && payload.mySubmission.answers) || {};
+            render(
+                payload.mySubmission ? (payload.mySubmission.updated_at || payload.mySubmission.created_at) : '',
+                payload.canSubmit ? '' : (payload.submitBlockedReason || '当前不可提交')
+            );
+        } catch (err) {
+            document.getElementById('skeletonHost').innerHTML = stateHTML(err.message, true);
+            document.getElementById('loadingTip').textContent = '加载失败';
+        }
+    }
+
+    submitBtn.addEventListener('click', async function () {
+        clearError();
+        if (!canSubmitNow) return;
+        submitBtn.disabled = true;
+        var original = submitBtn.textContent;
+        submitBtn.textContent = '提交中…';
+        try {
+            await api('/api/forms/' + encodeURIComponent(formId) + '/submit', {
+                method: 'POST',
+                body: JSON.stringify({ answers: collectAnswers() })
+            });
+            // 重新拉一次，拿到最新的提交时间与是否还可修改
+            var res = await api('/api/forms/' + encodeURIComponent(formId));
+            var payload = res.data || {};
+            myAnswers = (payload.mySubmission && payload.mySubmission.answers) || myAnswers;
+            render(
+                payload.mySubmission ? (payload.mySubmission.updated_at || payload.mySubmission.created_at) : '',
+                payload.canSubmit ? '' : (payload.submitBlockedReason || '当前不可提交')
+            );
+            submitBtn.textContent = '已提交';
+        } catch (err) {
+            showError(err.message);
+            submitBtn.textContent = original;
+            submitBtn.disabled = false;
+        }
+    });
+
+    loadForm();
+    })();
+    </script>
+</body>
+</html>

@@ -3,6 +3,7 @@ import { noticeRoutes } from './routes/notices.js';
 import { activityRoutes } from './routes/activities.js';
 import { calendarRoutes } from './routes/calendar.js';
 import { academicRoutes } from './routes/academic.js';
+import { formRoutes } from './routes/forms.js';
 import { handleCors, corsResponse } from './middleware/cors.js';
 import { logger } from './middleware/logger.js';
 
@@ -40,6 +41,10 @@ export default {
 
     // 教务系统路由
     response = await academicRoutes(request, env, ctx);
+    if (response) return addCors(response, request);
+
+    // 表单路由
+    response = await formRoutes(request, env, ctx);
     if (response) return addCors(response, request);
 
     // 404

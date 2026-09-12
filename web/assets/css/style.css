@@ -460,6 +460,8 @@ body {
 @media (hover: hover) { .list-row:hover { background: var(--accent-soft); } }
 /* 行内按压：改背景 + 内阴影（不用 scale，避免被容器圆角裁切） */
 .list-row:active { background: var(--accent-soft); box-shadow: inset 0 0 0 999px rgba(120, 120, 128, 0.06); }
+/* 表单待办条目用 <a> 做整行链接：清掉浏览器默认的链接色与下划线 */
+a.list-row { color: inherit; text-decoration: none; }
 
 .list-row-main { flex: 1; min-width: 0; }
 .list-row-title {
@@ -498,6 +500,7 @@ body {
 .badge-manual { background: var(--accent-soft); color: var(--accent); border-color: color-mix(in srgb, var(--accent) 26%, transparent); }
 .badge-crawler { background: var(--success-soft); color: var(--success); border-color: color-mix(in srgb, var(--success) 30%, transparent); }
 .badge-danger { background: var(--danger-soft); color: var(--danger); border-color: color-mix(in srgb, var(--danger) 30%, transparent); }
+.badge-form { background: var(--success-soft); color: var(--success); border-color: color-mix(in srgb, var(--success) 30%, transparent); }
 
 /* ═══════════════════════════════════════════════════════════════════
    10 · 详情内容
