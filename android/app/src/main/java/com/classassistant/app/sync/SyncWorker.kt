@@ -36,11 +36,15 @@ class SyncWorker(context: Context, params: WorkerParameters) : Worker(context, p
 
         val now = System.currentTimeMillis()
         val horizon = now + HORIZON_MILLIS
+        // 缓存下限取「今天 00:00」而不是「现在」：小工具只读这份缓存，标题又叫「今日活动」，
+        // 所以一条今天已经开始（甚至已经结束）的活动也必须留着，否则正在进行的活动
+        // 会显示成「今日暂无安排」。提醒不受影响 —— rescheduleAlarms 自己会跳过已开始的活动。
+        val earliest = startOfToday(now)
         val rows = mutableListOf<Event>()
 
         for (row in activities) {
             val start = parseServerTime(row.optString("start_time")) ?: continue
-            if (start < now - 60_000L || start > horizon) continue
+            if (start < earliest || start > horizon) continue
             // remind_people 为空按「全班」处理；否则只提醒名单里的人
             val people = Api.parsePeople(row.opt("remind_people"))
             val mine = people.isEmpty() ||
@@ -106,12 +110,25 @@ class SyncWorker(context: Context, params: WorkerParameters) : Worker(context, p
      * 等用户在网页重新登录时由探针把新 token 推过来。
      */
     private fun logOut(context: Context): Result {
-        Store.clearSession(context)
+        logOutSession(context)
         return Result.success()
     }
 
     companion object {
         const val HORIZON_MILLIS = 7L * 24 * 60 * 60 * 1000
+
+        /**
+         * 退出登录（网页里退出 → 探针回传空 token，或服务端判 401）：取消已排闹钟、
+         * 清掉同步缓存与凭据、重绘小组件。两处调用点必须共用这一份 —— 少做一步就会留下
+         * 上一个账号的活动显示，或让旧闹钟继续响。
+         */
+        fun logOutSession(context: Context) {
+            // 顺序要紧：rescheduleAlarms 是照着 scheduled_alarm_ids 里的记录逐个取消的，
+            // 若先把存储清了，这些 id 就丢了，闹钟会留在系统里继续响。
+            Scheduler.rescheduleAlarms(context, emptyList())
+            Store.clearSession(context)
+            TodayWidgetProvider.refreshAll(context)
+        }
 
         /**
          * 个人页「推送通知测试」用：拉最新一条真实活动 / 通知，按其 id 与深链发一条本地通知，

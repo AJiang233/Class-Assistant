@@ -2,7 +2,7 @@ import { ActivityModel } from '../models/activityModel.js';
 import { success, error, jsonResponse } from '../utils/response.js';
 import { toLocalDateTime } from '../utils/datetime.js';
 import { pageLimit, pageOffset } from '../utils/query.js';
-import { filterByAudience } from '../utils/audience.js';
+import { listByAudience } from '../utils/audience.js';
 
 /**
  * 发布活动（需登录）
@@ -48,11 +48,10 @@ export async function handleListActivities(request, env, user) {
     const date = url.searchParams.get('date') || null;
 
     const activityModel = new ActivityModel(env.DB);
-    const rows = scope === 'all'
-      ? await activityModel.listAll(limit, offset)
-      : await activityModel.list(limit, offset, date);
     // 提醒对象为空的条目对「不计入班级管理」的人不可见（安卓推送读的也是这个接口）
-    const list = await filterByAudience(env, user.positions, rows);
+    const list = await listByAudience(env, user.positions,
+      (l, o) => (scope === 'all' ? activityModel.listAll(l, o) : activityModel.list(l, o, date)),
+      limit, offset);
 
     return jsonResponse(success({ list, total: list.length }));
   } catch (e) {

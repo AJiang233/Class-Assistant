@@ -49,8 +49,17 @@ object Store {
 
     fun userName(context: Context): String? = sp(context).getString(KEY_USER_NAME, null)
 
+    /**
+     * 退出登录：清凭据 + 同步缓存。
+     * events 不清的话，小组件会继续显示上一个账号当天的活动；last_notice_time 不清的话，
+     * 换账号后首次同步会把历史通知当新的逐条补推（「首次同步只记基线」那一支进不去）。
+     * 注意：取消提醒闹钟与重绘小组件不在这里做，退出登录请统一走 SyncWorker.logOutSession()。
+     */
     fun clearSession(context: Context) {
-        sp(context).edit().remove(KEY_TOKEN).remove(KEY_USER_ID).remove(KEY_USER_NAME).apply()
+        sp(context).edit()
+            .remove(KEY_TOKEN).remove(KEY_USER_ID).remove(KEY_USER_NAME)
+            .remove(KEY_EVENTS).remove(KEY_LAST_NOTICE_TIME).remove(KEY_SCHEDULED)
+            .apply()
     }
 
     // ===== 同步状态 =====

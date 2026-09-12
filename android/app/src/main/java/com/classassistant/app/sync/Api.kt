@@ -24,10 +24,14 @@ object Api {
         object Unauthorized : Res()
         object Failed : Res()
 
-        /** Ok 时取 data.list；非 Ok 返回 null（用于区分「失败」与「确实没有数据」） */
+        /**
+         * Ok 时取 data.list；取不到就返回 null，调用方据此判失败并保留旧数据。
+         * 真正的「没有数据」是 data.list = []（后端 success({ list: [] })），会正常返回空列表，
+         * 不会被误判成失败 —— 只有响应结构不对（连 data.list 都没有）才算失败。
+         */
         fun listOrNull(): List<JSONObject>? {
             val root = (this as? Ok)?.body ?: return null
-            val arr = root.optJSONObject("data")?.optJSONArray("list") ?: return emptyList()
+            val arr = root.optJSONObject("data")?.optJSONArray("list") ?: return null
             return (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }
         }
     }
@@ -66,6 +70,10 @@ object Api {
                 when {
                     // 401 = 登录态失效，单独上报，避免调用方无限重试
                     code == 401 -> Res.Unauthorized
+                    // 其它非 2xx（500/403/…）后端同样会带 JSON body，不能当成 Ok：
+                    // 那样会被当成一次「正常但无数据」的响应，调用方拿到空数据就把本地缓存覆盖了 ——
+                    // 一次 5xx 就把小组件清成「今日暂无安排」，还会取消所有提醒闹钟
+                    code !in 200..299 -> Res.Failed
                     parsed == null -> Res.Failed
                     else -> Res.Ok(parsed)
                 }

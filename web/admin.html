@@ -602,10 +602,13 @@
         if (!list || !list.length) return '无特殊权限';
         return list.map(function (k) { return PERM_LABELS[k] || k; }).join('、');
     }
+    // roles.permissions 是 JSON 字符串，解析统一放这里（列表渲染与编辑回填共用）
+    function permList(permissions) {
+        try { var p = JSON.parse(permissions); if (Array.isArray(p)) return p; } catch (e) {}
+        return [];
+    }
     function rolePermText(permissions) {
-        var arr = [];
-        try { var p = JSON.parse(permissions); if (Array.isArray(p)) arr = p; } catch (e) {}
-        return permLabels(arr);
+        return permLabels(permList(permissions));
     }
 
     // 渲染「管理职位」列表：默认职位置顶（不可修改 / 删除），其下为自定义职位
@@ -633,6 +636,7 @@
                 + '<div class="member-sub">' + esc(rolePermText(r.permissions)) + '</div>'
                 + '</div>'
                 + '<div class="member-actions">'
+                + '<button type="button" class="btn btn-outline" onclick="editRole(' + r.id + ')">编辑</button>'
                 + '<button type="button" class="btn btn-danger" onclick="delRole(' + r.id + ')">删除</button>'
                 + '</div>'
                 + '</div>';
@@ -678,6 +682,28 @@
             await api('/api/auth/roles/' + id, { method: 'DELETE' });
             loadRoles();
         } catch (err) { alert(err.message); }
+    }
+
+    /**
+     * 把已有职位的名称与权限回填到「添加职位」表单（同名提交 = 更新该职位权限）。
+     * 不回填的话，管理员只能凭记忆重勾，漏勾一个就把这个职位原有的权限清掉了。
+     */
+    function editRole(id) {
+        var r = (rolesCache || []).filter(function (x) { return x.id === id; })[0];
+        if (!r) { alert('未找到该职位'); return; }
+        var perms = permList(r.permissions);
+        document.getElementById('roleName').value = r.name;
+        document.getElementById('rolePermWrite').checked = perms.indexOf('content:write') >= 0;
+        document.getElementById('rolePermManage').checked = perms.indexOf('user:manage') >= 0;
+        document.getElementById('rolePermExclude').checked = perms.indexOf('class:exclude') >= 0;
+        var errBox = document.getElementById('roleError');
+        errBox.textContent = '正在编辑「' + r.name + '」，提交即更新其权限';
+        errBox.classList.add('show');
+        var card = document.getElementById('addRoleCard');
+        card.classList.add('open');
+        var head = card.querySelector('.collapse-head');
+        if (head) head.setAttribute('aria-expanded', 'true');
+        card.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
 
     // 编辑弹窗的职务选择器
@@ -879,7 +905,9 @@
     function fieldRowHTML() {
         var id = 'fld' + (++fieldSeq);
         return '<div class="info-row member-row" id="' + id + '">'
-            + '<div class="member-main">'
+            // flex:1 让字段内容 / 选项撑满整行：.member-main 默认没有 flex-grow，
+            // 不加的话 input 的 width:100% 只等于输入框固有宽度，看着是窄的
+            + '<div class="member-main" style="flex:1;">'
             + '<div class="member-line"><span class="member-name fld-title">字段</span></div>'
             + '<div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin:8px 0;">'
             + '<select class="form-input fld-type" style="width:auto;" onchange="onFieldTypeChange(this)">'
@@ -1102,7 +1130,8 @@
     async function loadFormSubs() {
         var btn = document.getElementById('formSubsBtn');
         var host = document.getElementById('formSubsList');
-        if (!formResultForm) return;
+        // 表单详情那一步失败时 formResultForm 为空，别静默返回——按钮点了没反应最像卡死
+        if (!formResultForm) { host.innerHTML = stateHTML('表单信息未加载，请关闭弹窗重开', true); return; }
         btn.disabled = true;
         var original = btn.textContent;
         btn.textContent = '加载中…';
@@ -1182,6 +1211,7 @@
     window.filterMembers = filterMembers;
     window.addRole = addRole;
     window.delRole = delRole;
+    window.editRole = editRole;
     window.addFieldRow = addFieldRow;
     window.removeFieldRow = removeFieldRow;
     window.onFieldTypeChange = onFieldTypeChange;

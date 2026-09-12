@@ -87,8 +87,9 @@ class MainActivity : AppCompatActivity() {
             if (!fromAppPage()) return
             val ctx = applicationContext
             if (token.isBlank()) {
-                // 网页里退出了登录，本地也清掉，避免继续用旧身份提醒
-                if (Store.token(ctx) != null) Store.clearSession(ctx)
+                // 网页里退出了登录：清本地会话，并取消闹钟、重绘小组件
+                // （只清凭据的话，小组件会继续显示上一个账号的活动、旧闹钟也还留着）
+                if (Store.token(ctx) != null) SyncWorker.logOutSession(ctx)
                 return
             }
             if (token == Store.token(ctx)) return

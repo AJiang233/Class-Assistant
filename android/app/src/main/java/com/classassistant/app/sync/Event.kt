@@ -41,3 +41,13 @@ fun isSameDay(a: Long, b: Long): Boolean {
     val f = SimpleDateFormat("yyyy-MM-dd", Locale.CHINA)
     return f.format(Date(a)) == f.format(Date(b))
 }
+
+/**
+ * 「今天 00:00」的毫秒时间戳（设备时区，与 parseServerTime / isSameDay 同一套时区口径）。
+ * 同步时用它当缓存下限：小工具标题是「今日活动」，所以今天已经开始的（甚至已经结束的）
+ * 活动都得留在缓存里，否则正在进行的活动会显示成「今日暂无安排」。
+ */
+fun startOfToday(now: Long = System.currentTimeMillis()): Long {
+    val day = SimpleDateFormat("yyyy-MM-dd", Locale.CHINA).format(Date(now))
+    return SimpleDateFormat("yyyy-MM-dd", Locale.CHINA).parse(day)?.time ?: now
+}

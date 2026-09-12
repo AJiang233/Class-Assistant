@@ -47,16 +47,21 @@ class TodayWidgetProvider : AppWidgetProvider() {
             val views = RemoteViews(context.packageName, R.layout.widget_today)
             val events = Store.events(context)
             val now = System.currentTimeMillis()
-            val today = ArrayList<String>()
+            // 同步缓存里保留了当天已经开始的（甚至已结束的）活动，直接取前 MAX_ROWS 条会被它们占满，
+            // 把真正要看的那条挤掉；所以先把「现在及以后」排在前面，还有空行才补当天更早的。
+            val upcoming = ArrayList<String>()
+            val earlier = ArrayList<String>()
 
             for (i in 0 until events.length()) {
                 val row = events.optJSONObject(i) ?: continue
                 val start = row.optLong("start", 0L)
                 if (start == 0L || !isSameDay(start, now)) continue
                 val title = row.optString("title").ifBlank { "班级活动" }
-                today.add("${formatClock(start)}  $title")
-                if (today.size >= MAX_ROWS) break
+                val line = "${formatClock(start)}  $title"
+                // 缓存按开始时间升序，两个列表各自都有序
+                (if (start >= now) upcoming else earlier).add(line)
             }
+            val today = (upcoming + earlier).take(MAX_ROWS)
 
             for (i in ROW_IDS.indices) {
                 if (i < today.size) {
