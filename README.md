@@ -36,9 +36,11 @@
 ```
 class-assistant/
 ├── agent/          # Agent 编排与提示词（规划中）
-├── crawler/        # 通知抓取与文档爬取（规划中）
+├── crawler/        # 通知抓取（复用根模块 internal，尚未接真实群）
 ├── rag/            # 向量化与检索（规划中）
-├── scheduler/      # 轮询、日历与提醒（规划中）
+├── scheduler/      # Go 常驻调度：封存自检 / Cookie 罐 / 学号比对
+├── cmd/scheduler/  # 调度进程入口
+├── internal/       # 与 Worker 对齐的 Go 规则（vault / identity / roles / ratelimit）
 ├── web/            # Cloudflare Pages 门户（前端 + Functions 后端 + D1，已上线）
 └── android/        # 安卓端（Kotlin，WebView + 本地提醒 + 桌面小组件）
 ```
@@ -86,4 +88,4 @@ class-assistant/
 
 ## 说明
 
-本项目用于个人学习与班级服务，请遵守各平台使用条款，并注意保护同学的个人隐私信息。
+本项目用于个人学习与班级服务，请遵守各平台使用条款，并注意保护同学的个人隐私信息。教务绑定只允许本人学号，会话 Cookie 加密落库；生产环境的 `JWT_SECRET` / `COOKIE_SECRET` 必须配成 Secrets，不要写进仓库。

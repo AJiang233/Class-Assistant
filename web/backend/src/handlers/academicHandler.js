@@ -9,6 +9,8 @@ import {
   mfaMethodLabel
 } from '../utils/casLogin.js';
 import { success, error, jsonResponse } from '../utils/response.js';
+import { sameStudentId } from '../utils/identity.js';
+import { sealCookies, openCookies, isSealed } from '../utils/cookieVault.js';
 
 /** 课表节次方案 id（教务默认方案） */
 const DEFAULT_KBJCMS_ID = 1;
@@ -24,6 +26,31 @@ function randomToken() {
   const bytes = new Uint8Array(24);
   crypto.getRandomValues(bytes);
   return Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/** 读出教务 Cookie；旧明文记录顺手封存回去 */
+async function readBindingCookies(env, model, binding) {
+  const plain = await openCookies(env, binding.cookies);
+  if (plain && !isSealed(binding.cookies)) {
+    await model.saveCookies(binding.user_id, await sealCookies(env, plain));
+  }
+  return plain;
+}
+
+async function schoolClientFromBinding(env, model, binding) {
+  let cookies;
+  try {
+    cookies = await readBindingCookies(env, model, binding);
+  } catch (e) {
+    // 密文损坏 / 密钥轮换后解不开：与登录态过期区分开，便于排查是密钥问题而非教务问题
+    console.error('教务会话解密失败:', e);
+    await model.markExpired(binding.user_id);
+    return { failure: { message: '教务会话无法解密，请重新绑定', code: 'ACADEMIC_DECRYPT_FAILED', status: 400 } };
+  }
+  if (!cookies) {
+    return { failure: { message: '教务登录态已失效，请重新绑定', code: 'ACADEMIC_EXPIRED', status: 400 } };
+  }
+  return { client: new SchoolClient(cookies) };
 }
 
 // ===== 通用工具 =====
@@ -245,13 +272,30 @@ async function bindWithCookies(env, user, cookies) {
   if (!info || !info.id) {
     return { failure: { message: '教务返回的用户信息异常，请重新登录教务系统', code: 'ACADEMIC_INVALID', status: 400 } };
   }
+  if (!sameStudentId(user.student_id, info.userAccount)) {
+    return {
+      failure: {
+        message: `教务返回学号 ${info.userAccount || '空'}，与当前账号 ${user.student_id} 不一致，只能绑定本人`,
+        code: 'ACADEMIC_IDENTITY_MISMATCH',
+        status: 403
+      }
+    };
+  }
+
+  let sealed;
+  try {
+    sealed = await sealCookies(env, cookies);
+  } catch (e) {
+    console.error('教务会话封存失败:', e);
+    return { failure: { message: '服务端未配置教务会话加密密钥', code: 'VAULT_NOT_CONFIGURED', status: 500 } };
+  }
 
   const model = new AcademicModel(env.DB);
   await model.saveBinding(user.id, {
     student_no: info.userAccount || '',
     real_name: info.userNameZh || '',
     school_uid: info.id,
-    cookies
+    cookies: sealed
   });
 
   return {
@@ -285,10 +329,14 @@ export async function handleAcademicBind(request, env, user) {
  */
 export async function handleAcademicPasswordLogin(request, env, user) {
   const body = await request.json().catch(() => ({}));
-  const studentId = String(body.student_id || '').trim();
+  const studentId = String(user.student_id || '').trim();
   const password = String(body.password || '');
   if (!studentId || !password) {
     return jsonResponse(error('请填写学号与密码', 'MISSING_CREDENTIALS'), 400);
+  }
+  const claimed = String(body.student_id || '').trim();
+  if (claimed && !sameStudentId(claimed, studentId)) {
+    return jsonResponse(error('只能绑定自己的教务账号', 'ACADEMIC_IDENTITY_MISMATCH'), 403);
   }
 
   let session;
@@ -315,7 +363,14 @@ export async function handleAcademicPasswordLogin(request, env, user) {
     const model = new AcademicModel(env.DB);
     await model.purgeExpiredMfaSessions(MFA_TTL);
     const token = randomToken();
-    await model.saveMfaSession(user.id, token, JSON.stringify(session.state));
+    let sealedState;
+    try {
+      sealedState = await sealCookies(env, JSON.stringify(session.state));
+    } catch (e) {
+      console.error('MFA 中间态封存失败:', e);
+      return jsonResponse(error('服务端未配置教务会话加密密钥', 'VAULT_NOT_CONFIGURED'), 500);
+    }
+    await model.saveMfaSession(user.id, token, sealedState);
     return jsonResponse(success({
       mfaRequired: true,
       token,
@@ -337,7 +392,7 @@ export async function handleAcademicPasswordLogin(request, env, user) {
 async function loadMfaState(env, user, token) {
   if (!token) return { failure: { message: '缺少认证会话', code: 'MISSING_TOKEN', status: 400 } };
   const model = new AcademicModel(env.DB);
-  const state = await model.getMfaSession(user.id, token, MFA_TTL);
+  const state = await model.getMfaSession(user.id, token, MFA_TTL, env);
   if (!state) {
     return { failure: { message: '认证会话已过期，请重新输入学号密码', code: 'MFA_EXPIRED', status: 400 } };
   }
@@ -376,8 +431,11 @@ export async function handleAcademicMfaVerify(request, env, user) {
   try {
     session = await verifyMfaCode(loaded.state, code);
   } catch (e) {
-    // 验证码错误时保留中间态，让用户直接重试
-    if (e instanceof CasError) return jsonResponse(error(e.message, e.code), 400);
+    // 验证码错误时保留中间态，让用户直接重试；但记一次尝试，超限后中间态作废
+    if (e instanceof CasError) {
+      await loaded.model.bumpMfaAttempts(String(body.token || ''));
+      return jsonResponse(error(e.message, e.code), 400);
+    }
     return jsonResponse(error(`多因子认证失败：${e.message}`, 'MFA_ERROR'), 502);
   }
 
@@ -436,7 +494,11 @@ export async function handleAcademicTimetable(request, env, user) {
   if (!binding) return jsonResponse(error('尚未绑定教务系统', 'NOT_BOUND'), 400);
 
   const cachedTerms = await model.listTimetableTerms(user.id);
-  const client = new SchoolClient(binding.cookies);
+  const opened = await schoolClientFromBinding(env, model, binding);
+  if (opened.failure) {
+    return jsonResponse(error(opened.failure.message, opened.failure.code), opened.failure.status);
+  }
+  const client = opened.client;
 
   // 1. 取学期列表（顺带校验登录态是否还有效），教务不可达时退回本地缓存
   let terms = null;
@@ -532,7 +594,11 @@ export async function handleAcademicCredits(request, env, user) {
     }));
   }
 
-  const client = new SchoolClient(binding.cookies);
+  const opened = await schoolClientFromBinding(env, model, binding);
+  if (opened.failure) {
+    return jsonResponse(error(opened.failure.message, opened.failure.code), opened.failure.status);
+  }
+  const client = opened.client;
   try {
     const plan = await client.studentPlan(binding.school_uid || '');
     const pyfaid = plan && (plan.zxjhid || plan.pyfaid);

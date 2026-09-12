@@ -18,5 +18,6 @@ database_id = "6444f4bb-5197-4a53-a12b-264410e99f81"
 [vars]
 # JWT 过期时间（秒），默认 7 天
 JWT_EXPIRES_IN = "604800"
-# JWT 签名密钥（生产环境务必更换为强随机值）
-JWT_SECRET = "change-me-to-a-strong-random-secret"
+# JWT_SECRET / COOKIE_SECRET 不进仓库。
+# 本地：复制 .dev.vars.example 为 .dev.vars
+# 生产：Pages → Settings → Environment variables（Secrets）

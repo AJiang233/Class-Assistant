@@ -50,7 +50,7 @@ CREATE TABLE IF NOT EXISTS academic_bindings (
   student_no    TEXT,                      -- 教务学号
   real_name     TEXT,                      -- 教务姓名
   school_uid    TEXT,                      -- 教务用户 id（即各接口的 xsid / xsxxid）
-  cookies       TEXT NOT NULL,             -- 教务域下的会话 Cookie 串
+  cookies       TEXT NOT NULL,             -- 教务会话 Cookie（AES-GCM 密文，旧明文记录读时兼容）
   status        TEXT DEFAULT 'ok',         -- ok / expired
   bound_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
   checked_at    DATETIME                   -- 最近一次成功校验/抓取时间
@@ -76,6 +76,7 @@ CREATE TABLE IF NOT EXISTS academic_credits (
 CREATE TABLE IF NOT EXISTS academic_mfa_sessions (
   token         TEXT PRIMARY KEY,          -- 一次性令牌，前端持有并回传
   user_id       INTEGER NOT NULL,
-  state         TEXT NOT NULL,             -- CAS Cookie 罐 + reAuthParams（不含密码）
+  state         TEXT NOT NULL,             -- CAS Cookie 罐 + reAuthParams（AES-GCM 密文，不含密码）
+  attempts      INTEGER DEFAULT 0,         -- 验证码试错计数，满 5 次 token 作废
   created_at    DATETIME DEFAULT CURRENT_TIMESTAMP
 );
