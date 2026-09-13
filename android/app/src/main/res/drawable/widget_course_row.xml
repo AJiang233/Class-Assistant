@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 课表小组件里每一条课程的底：浅靛蓝圆角条。颜色与网页的 accent（#4F46E5）同色系，
+     深浅色环境下都当「一张白卡片上的彩色标签」用 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/widget_chip" />
+    <corners android:radius="8dp" />
+</shape>

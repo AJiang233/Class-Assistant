@@ -21,16 +21,29 @@ object OfflineCache {
 
     /**
      * 列表形状的条目单独加前缀，详情回退时只需列这一批文件（见 findItem），
-     * 不必把课表、表单这些也读一遍再丢掉。
+     * 不必把课表、表单这些也读一遍再丢掉。其余前缀见 Shape。
      */
     private const val LIST_PREFIX = "L_"
-    private const val OTHER_PREFIX = "X_"
 
     /**
      * 条目数上限。缓存键含查询串，`?date=YYYY-MM-DD` 这类会随用户翻日历慢慢堆积，
-     * 所以要有个头；正常用到的形状也就十几条。
+     * 所以要有个头；正常用到的形状也就十几条。离线壳那十一条不参与淘汰（见 prune）。
      */
     private const val MAX_FILES = 60
+
+    /**
+     * 缓存条目的三种形状，决定文件名前缀（读取时三个前缀都试一遍，形状只影响淘汰顺序）：
+     *   SHELL  页面与静态资源（离线壳）。**永不淘汰** —— 一共就十一条，而它们是「断网时 App 能不能打开」
+     *          的全部依据；和快照混在一起按时间淘汰的话，用户翻日历攒够一屏快照就能把它们挤掉，
+     *          那个「杀进程重开后打不开」的问题就会悄悄回来。
+     *   LIST   列表接口，详情回退的唯一数据源
+     *   OTHER  单份快照（课表、学分、表单、翻日历产生的 ?date=…），最容易把上限顶满，先淘汰它们
+     */
+    enum class Shape(val prefix: String) {
+        SHELL("S_"),
+        LIST("L_"),
+        OTHER("X_")
+    }
 
     /** 超过这个大小的响应不缓存（正常接口都在几十 KB 量级，超了说明形状不对，别把磁盘当垃圾桶） */
     private const val MAX_BODY_CHARS = 512 * 1024
@@ -38,11 +51,11 @@ object OfflineCache {
     private fun dir(context: Context): File = File(context.applicationContext.filesDir, DIR)
 
     /** 文件名取 key 的 SHA-1：key 里带 `?` `&` `=`，不能直接当文件名 */
-    private fun fileFor(context: Context, key: String, listShaped: Boolean): File {
+    private fun fileFor(context: Context, key: String, shape: Shape): File {
         val digest = MessageDigest.getInstance("SHA-1")
             .digest(key.toByteArray(Charsets.UTF_8))
             .joinToString("") { "%02x".format(it) }
-        return File(dir(context), (if (listShaped) LIST_PREFIX else OTHER_PREFIX) + digest + ".json")
+        return File(dir(context), shape.prefix + digest + ".json")
     }
 
     private fun bodyOf(file: File): String? = try {
@@ -53,20 +66,20 @@ object OfflineCache {
 
     /** 按 URL 精确取一份缓存；没有或文件坏了都返回 null（调用方据此决定是否放行网络） */
     fun read(context: Context, key: String): String? {
-        // 同一个 key 只可能落在其中一种前缀下（形状由请求路径决定），两个都试一下最省事
-        for (listShaped in listOf(false, true)) {
-            val f = fileFor(context, key, listShaped)
+        // 同一个 key 只可能落在其中一种前缀下（形状由请求路径决定），三个都试一下最省事
+        for (shape in Shape.values()) {
+            val f = fileFor(context, key, shape)
             if (f.exists()) return bodyOf(f)
         }
         return null
     }
 
-    fun write(context: Context, key: String, body: String, listShaped: Boolean) {
+    fun write(context: Context, key: String, body: String, shape: Shape) {
         if (body.length > MAX_BODY_CHARS) return
         try {
             val d = dir(context)
             if (!d.exists() && !d.mkdirs()) return
-            fileFor(context, key, listShaped)
+            fileFor(context, key, shape)
                 .writeText(JSONObject().put("key", key).put("body", body).toString())
             prune(d)
         } catch (e: Exception) {
@@ -75,17 +88,26 @@ object OfflineCache {
     }
 
     /**
-     * 超上限就按最久未更新淘汰。
-     * 先淘汰非列表条目（课表、表单这类单份快照），列表条目排最后 ——
-     * 它们是详情回退的唯一数据源，而最容易把上限顶满的是翻日历产生的 `?date=…` 快照。
+     * 淘汰决策：超过 max 时该删哪些（返回文件名）。
+     * 顺序是先非列表条目、再列表条目（各自最旧的先走），**离线壳一条都不动**。
+     *
+     * 拎成纯函数是为了能测（见 OfflineCacheTest）：「壳永不淘汰」这条一旦坏掉，
+     * 表现是「断网时 App 打不开」而不是某个看得见的报错，只能靠测试钉住。
      */
+    internal fun evictionPlan(files: List<Pair<String, Long>>, max: Int): List<String> {
+        if (files.size <= max) return emptyList()
+        val (lists, others) = files
+            .filterNot { it.first.startsWith(Shape.SHELL.prefix) }
+            .partition { it.first.startsWith(Shape.LIST.prefix) }
+        return (others.sortedBy { it.second } + lists.sortedBy { it.second })
+            .take(files.size - max)
+            .map { it.first }
+    }
+
     private fun prune(d: File) {
         val all = d.listFiles() ?: return
-        if (all.size <= MAX_FILES) return
-        val (lists, others) = all.partition { it.name.startsWith(LIST_PREFIX) }
-        (others.sortedBy { it.lastModified() } + lists.sortedBy { it.lastModified() })
-            .take(all.size - MAX_FILES)
-            .forEach { it.delete() }
+        evictionPlan(all.map { it.name to it.lastModified() }, MAX_FILES)
+            .forEach { File(d, it).delete() }
     }
 
     /**

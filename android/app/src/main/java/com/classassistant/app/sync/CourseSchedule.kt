@@ -181,6 +181,21 @@ fun courseEndAt(dayStart: Long, course: Course): Long? {
     return startAt + duration * 60_000L
 }
 
+/**
+ * 这节课「上到百分之几」：正在上返回 0..100；还没开始 / 已经下课 / 时间串坏掉都返回 null。
+ *
+ * 单独提出来是为了能测。小组件那层只能靠肉眼看，而进度算错不会崩 ——
+ * 只会静静地画错那条分界线（跨零点那节课最容易翻在这里），所以宁可留个纯函数钉住它。
+ */
+fun courseProgress(dayStart: Long, course: Course, now: Long): Int? {
+    val startAt = courseStartAt(dayStart, course.start) ?: return null
+    val endAt = courseEndAt(dayStart, course) ?: return null
+    // 下课那一刻不算「正在上」：那节课已经上完了，该走「变灰」而不是「进度 100%」
+    if (now < startAt || now >= endAt) return null
+    val span = (endAt - startAt).coerceAtLeast(1L)
+    return (((now - startAt) * 100) / span).toInt().coerceIn(0, 100)
+}
+
 /** "09:50" → 一天中的第几分钟；格式不对返回 null */
 fun minuteOfDay(hhmm: String?): Int? {
     val text = hhmm?.trim().orEmpty()

@@ -161,6 +161,42 @@ class CourseScheduleTest {
         assertNull(courseStartAt(t("2026-09-14 00:00:00"), "25:00"))
     }
 
+    // ===== 进行中那节课的进度（小组件上那条「一半深一半浅」的分界线）=====
+
+    /** 空指针 / 除零这类错在小组件上不会崩，只会画错一条线，所以边界全钉住 */
+    @Test
+    fun `课时进行到一半给 50`() {
+        val day = t("2026-09-16 00:00:00")   // 2026-09-16 周三
+        val c = course("高数", 3, "08:00", "10:00")
+        assertEquals(0, courseProgress(day, c, t("2026-09-16 08:00:00")))    // 刚上课
+        assertEquals(50, courseProgress(day, c, t("2026-09-16 09:00:00")))
+        assertEquals(99, courseProgress(day, c, t("2026-09-16 09:59:00")))
+    }
+
+    @Test
+    fun `还没开始和已经下课都不给进度`() {
+        val day = t("2026-09-16 00:00:00")
+        val c = course("高数", 3, "08:00", "10:00")
+        assertNull(courseProgress(day, c, t("2026-09-16 07:59:00")))
+        // 下课那一刻就算下课：该走「变灰」，不是「100% 还在上」
+        assertNull(courseProgress(day, c, t("2026-09-16 10:00:00")))
+        assertNull(courseProgress(day, c, t("2026-09-16 12:00:00")))
+    }
+
+    @Test
+    fun `跨零点的那节课进度按真实时长算`() {
+        val day = t("2026-09-16 00:00:00")
+        val c = course("晚课", 3, "23:00", "00:30")
+        // 23:30 时上了 30 分钟，全程 90 分钟 → 33%
+        assertEquals(33, courseProgress(day, c, t("2026-09-16 23:30:00")))
+    }
+
+    @Test
+    fun `时间串坏掉时不给进度`() {
+        val day = t("2026-09-16 00:00:00")
+        assertNull(courseProgress(day, course("怪课", 3, "八点", "十点"), t("2026-09-16 08:00:00")))
+    }
+
     // ===== 闹钟编号 =====
 
     /**

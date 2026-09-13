@@ -10,4 +10,8 @@
          所以这两个颜色必须以资源形式存在，代码与布局取同一份 -->
     <color name="widget_row_text">#4b4b55</color>
     <color name="widget_row_text_done">#9a9aa5</color>
+
+    <!-- 课表小组件：一条课程一个浅靛蓝圆角底；正在上的那条，上过的部分用更深的靛蓝盖住 -->
+    <color name="widget_chip">#E9EAFF</color>
+    <color name="widget_chip_fill">#B4B9FF</color>
 </resources>

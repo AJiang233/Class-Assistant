@@ -15,6 +15,7 @@ import com.classassistant.app.notify.Notifier
 import com.classassistant.app.sync.Course
 import com.classassistant.app.sync.CourseBoardKind
 import com.classassistant.app.sync.courseEndAt
+import com.classassistant.app.sync.courseProgress
 import com.classassistant.app.sync.decideBoard
 import com.classassistant.app.sync.formatMonthDay
 import com.classassistant.app.sync.parseTimetableJson
@@ -43,16 +44,21 @@ class CoursesWidgetProvider : AppWidgetProvider() {
 
     companion object {
 
-        private const val MAX_ROWS = 4
-
         /** 点组件打开课表页用的 requestCode。必须区别于今日活动组件的 0，理由见 render() 里的注释 */
         private const val REQUEST_OPEN_ACADEMIC = 1
 
-        private val ROW_IDS = intArrayOf(
-            R.id.courses_row_1,
-            R.id.courses_row_2,
-            R.id.courses_row_3,
-            R.id.courses_row_4
+        // 三个数组按下标对应同一条课程（容器 / 文字 / 进度条）。
+        // 行数直接取数组长度，别在旁边再写一个数字 —— 两边不一致时最后一行会被吞掉。
+        private val ROWS = intArrayOf(
+            R.id.courses_row_1, R.id.courses_row_2, R.id.courses_row_3, R.id.courses_row_4
+        )
+        private val ROW_TEXTS = intArrayOf(
+            R.id.courses_row_1_text, R.id.courses_row_2_text,
+            R.id.courses_row_3_text, R.id.courses_row_4_text
+        )
+        private val ROW_PROGRESS = intArrayOf(
+            R.id.courses_row_1_progress, R.id.courses_row_2_progress,
+            R.id.courses_row_3_progress, R.id.courses_row_4_progress
         )
 
         /** 同步完成、换天、改设置之后刷新所有课表小组件实例 */
@@ -90,21 +96,34 @@ class CoursesWidgetProvider : AppWidgetProvider() {
             }
             views.setTextViewText(R.id.courses_widget_title, title)
 
-            val shown = board.courses.take(MAX_ROWS)
-            for (i in ROW_IDS.indices) {
+            val shown = board.courses.take(ROWS.size)
+            for (i in ROWS.indices) {
                 val course = shown.getOrNull(i)
                 if (course == null) {
-                    views.setViewVisibility(ROW_IDS[i], View.GONE)
+                    views.setViewVisibility(ROWS[i], View.GONE)
                     continue
                 }
-                views.setViewVisibility(ROW_IDS[i], View.VISIBLE)
-                views.setTextViewText(ROW_IDS[i], rowText(course))
-                // 今天这屏里已经上完的课变灰：一眼能看出「还剩哪几节」
+                views.setViewVisibility(ROWS[i], View.VISIBLE)
+                views.setTextViewText(ROW_TEXTS[i], rowText(course))
+
+                // 正在上的那一节：进度条铺出「上到哪儿了」，文字同时换成强调色。
+                // 宽度交给 ProgressBar 的 level 去画（RemoteViews 设不了任意宽度），
+                // 于是「上到一半」本身就是那条一半深、一半浅的分界线。
+                val percent = courseProgress(board.dayStart, course, now)
+                views.setViewVisibility(ROW_PROGRESS[i], if (percent != null) View.VISIBLE else View.GONE)
+                if (percent != null) views.setProgressBar(ROW_PROGRESS[i], 100, percent, false)
+
                 val end = courseEndAt(board.dayStart, course)
-                val done = end != null && end <= now
                 views.setTextColor(
-                    ROW_IDS[i],
-                    context.getColor(if (done) R.color.widget_row_text_done else R.color.widget_row_text)
+                    ROW_TEXTS[i],
+                    context.getColor(
+                        when {
+                            percent != null -> R.color.accent
+                            // 今天这屏里已经上完的课变灰：一眼能看出「还剩哪几节」
+                            end != null && end <= now -> R.color.widget_row_text_done
+                            else -> R.color.widget_row_text
+                        }
+                    )
                 )
             }
 

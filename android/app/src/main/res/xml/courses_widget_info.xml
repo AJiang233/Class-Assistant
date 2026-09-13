@@ -4,7 +4,7 @@
      内容变化则由同步成功后主动刷新（见 CoursesWidgetProvider.refreshAll） -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     android:minWidth="180dp"
-    android:minHeight="140dp"
+    android:minHeight="170dp"
     android:updatePeriodMillis="1800000"
     android:initialLayout="@layout/widget_courses"
     android:resizeMode="horizontal|vertical"

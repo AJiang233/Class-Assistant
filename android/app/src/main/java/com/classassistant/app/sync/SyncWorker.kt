@@ -98,7 +98,12 @@ class SyncWorker(context: Context, params: WorkerParameters) : Worker(context, p
         val body = (res as? Api.Res.Ok)?.body?.toString() ?: return
         val pathOnly = path.substringBefore("?")
         if (!OfflineApi.isCacheablePath(pathOnly)) return
-        OfflineCache.write(ctx, path, body, listShaped = OfflineApi.isListPath(pathOnly))
+        OfflineCache.write(
+            ctx,
+            path,
+            body,
+            if (OfflineApi.isListPath(pathOnly)) OfflineCache.Shape.LIST else OfflineCache.Shape.OTHER
+        )
     }
 
     /**

@@ -18,4 +18,37 @@
         <item name="android:maxLines">1</item>
         <item name="android:ellipsize">end</item>
     </style>
+
+    <!-- 课表小组件：一条课程 = 一个浅色圆角条（FrameLayout 自带底），
+         进度条压在上面盖出「上到一半」的效果，文字再压在最上层 -->
+    <style name="WidgetCourseRow">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">28dp</item>
+        <item name="android:layout_marginTop">5dp</item>
+        <item name="android:background">@drawable/widget_course_row</item>
+    </style>
+
+    <!-- minHeight/maxHeight 必须显式写：框架的 progressBarStyleHorizontal 把高度夹在 16dip，
+         不覆盖的话进度条只有半条高，跟底下的圆角条对不上 -->
+    <style name="WidgetCourseProgress" parent="@android:style/Widget.ProgressBar.Horizontal">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">match_parent</item>
+        <item name="android:minHeight">0dp</item>
+        <item name="android:maxHeight">1000dp</item>
+        <item name="android:max">100</item>
+        <item name="android:progressDrawable">@drawable/widget_course_progress</item>
+        <item name="android:visibility">gone</item>
+    </style>
+
+    <style name="WidgetCourseText">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_gravity">center_vertical</item>
+        <item name="android:paddingLeft">10dp</item>
+        <item name="android:paddingRight">10dp</item>
+        <item name="android:textColor">@color/widget_row_text</item>
+        <item name="android:textSize">12sp</item>
+        <item name="android:maxLines">1</item>
+        <item name="android:ellipsize">end</item>
+    </style>
 </resources>

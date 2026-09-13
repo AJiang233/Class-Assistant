@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 课表小组件。结构与 widget_today.xml 保持一致（同样的圆角背景、标题 + 若干行 + 空态），
-     只是行数给到 4 —— 一天四五节课是常态，3 行会把最后一节切掉 -->
+<!-- 课表小组件。每条课程是一个「条」：FrameLayout 自带浅靛蓝圆角底，进行中的那条把
+     ProgressBar 显示出来盖住已上的部分，文字压在最上层。行数给到 4 —— 一天四五节课是常态 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/courses_widget_root"
     android:layout_width="match_parent"
@@ -20,21 +20,57 @@
         android:maxLines="1"
         android:ellipsize="end" />
 
-    <TextView
+    <FrameLayout
         android:id="@+id/courses_row_1"
-        style="@style/WidgetRow" />
+        style="@style/WidgetCourseRow">
 
-    <TextView
+        <ProgressBar
+            android:id="@+id/courses_row_1_progress"
+            style="@style/WidgetCourseProgress" />
+
+        <TextView
+            android:id="@+id/courses_row_1_text"
+            style="@style/WidgetCourseText" />
+    </FrameLayout>
+
+    <FrameLayout
         android:id="@+id/courses_row_2"
-        style="@style/WidgetRow" />
+        style="@style/WidgetCourseRow">
 
-    <TextView
+        <ProgressBar
+            android:id="@+id/courses_row_2_progress"
+            style="@style/WidgetCourseProgress" />
+
+        <TextView
+            android:id="@+id/courses_row_2_text"
+            style="@style/WidgetCourseText" />
+    </FrameLayout>
+
+    <FrameLayout
         android:id="@+id/courses_row_3"
-        style="@style/WidgetRow" />
+        style="@style/WidgetCourseRow">
 
-    <TextView
+        <ProgressBar
+            android:id="@+id/courses_row_3_progress"
+            style="@style/WidgetCourseProgress" />
+
+        <TextView
+            android:id="@+id/courses_row_3_text"
+            style="@style/WidgetCourseText" />
+    </FrameLayout>
+
+    <FrameLayout
         android:id="@+id/courses_row_4"
-        style="@style/WidgetRow" />
+        style="@style/WidgetCourseRow">
+
+        <ProgressBar
+            android:id="@+id/courses_row_4_progress"
+            style="@style/WidgetCourseProgress" />
+
+        <TextView
+            android:id="@+id/courses_row_4_text"
+            style="@style/WidgetCourseText" />
+    </FrameLayout>
 
     <TextView
         android:id="@+id/courses_widget_empty"
