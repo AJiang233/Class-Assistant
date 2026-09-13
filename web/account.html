@@ -168,9 +168,10 @@
                             <p class="profile-sub" style="margin:0 0 14px;">页面样式错乱或显示异常时，清除本地缓存并重新加载整个应用。如果没有效果请清除应用数据或检查更新。</p>
                             <button class="btn btn-outline btn-block" id="reloadBtn" type="button" onclick="forceRefresh()">清除缓存并刷新</button>
 
-                            <!-- 本机通知开关状态 + 上次同步时间。App 壳专属（数据来自 CAHost.appStatus()），
-                                 网页版没有这个桥，这一行留空不显示；详见 refreshAppStatus()。 -->
-                            <p class="profile-sub" id="appStatusLine" style="margin:20px 0 0;"></p>
+                            <!-- 本机通知开关状态。App 壳专属（数据来自 CAHost.appStatus()），
+                                 网页版没有这个桥，这一行留空不显示；详见 refreshAppStatus()。
+                                 同一次桥调用还取回「上次同步时间」，那个显示在资料卡的「更新时间」下面。 -->
+                            <p class="profile-sub" id="appNotifyLine" style="margin:20px 0 0;"></p>
 
                             <p class="profile-sub" style="margin:20px 0 14px;">用最新一条真实活动 / 通知发一条测试推送，检查手机能否收到、点击能否跳到对应详情（需安装安卓 / 鸿蒙 App）。</p>
                             <!-- 一行两个按钮：.btn-row 默认三列，这里改两列 -->
@@ -613,9 +614,10 @@
     // 数据来自 App 壳的 CAHost.appStatus()，它返回一个 JSON 字符串：
     //   {"notifications":true,"lastSyncAt":1789300000000}
     // 用字符串传是刻意的 —— 桥的返回值类型在各端解释不完全一致，字符串最稳；
-    // 而且两个值一次取回，省掉一次桥调用。网页版没有这个桥 → 整行不显示。
-    // 通知开关这一项最要紧：被系统关掉后，App 里所有本地提醒都会被静默丢弃，
-    // 用户在这一页看到的「已发送」其实是假的，所以这里要说清而不是留白。
+    // 而且两个值一次取回，省掉一次桥调用。网页版没有这个桥 → 两处都不显示。
+    // 两个值落在两个位置：上次同步贴着资料卡的「更新时间」（都在回答「这份数据什么时候新鲜过」），
+    // 通知开关留在「开发功能」的推送按钮上面 —— 被系统关掉后本地提醒会被静默丢弃，
+    // 用户点测试没反应时看的就是那儿，得把真实原因说清而不是留白。
     function formatSyncTime(ms) {
         var d = new Date(ms);
         var p = function (n) { return (n < 10 ? '0' : '') + n; };
@@ -629,26 +631,30 @@
         return (d.getMonth() + 1) + '-' + d.getDate() + ' ' + clock;
     }
 
+    function readAppStatus() {
+        if (!window.CAHost || typeof CAHost.appStatus !== 'function') return null;
+        try { return JSON.parse(CAHost.appStatus() || '') || null; } catch (e) { return null; }
+    }
+
     function refreshAppStatus() {
-        var el = notifyEl('appStatusLine');
-        if (!el) return;
-        el.textContent = '';
-        if (!window.CAHost || typeof CAHost.appStatus !== 'function') return;
-        var info = null;
-        try { info = JSON.parse(CAHost.appStatus() || ''); } catch (e) { info = null; }
-        if (!info) return;
-        var parts = [];
-        parts.push(info.notifications
-            ? '本机通知：已开启'
-            : '本机通知：未开启，收不到任何提醒。请到「系统设置 → 通知」里允许「班级助理」发通知');
-        // lastSyncAt 为 0 = 这台设备还一次都没成功同步过
-        parts.push(info.lastSyncAt ? '上次同步：' + formatSyncTime(info.lastSyncAt) : '上次同步：还没有成功同步过');
-        el.textContent = parts.join('　·　');
+        var info = readAppStatus();
+        // 资料卡里那行默认 hidden（没有桥的网页版就整行不出现）
+        var row = notifyEl('appSyncRow');
+        var val = notifyEl('appSyncValue');
+        if (row) row.hidden = !info;
+        if (val) val.textContent = (info && info.lastSyncAt) ? formatSyncTime(info.lastSyncAt) : '还没有成功同步过';
+        // lastSyncAt 为 0 = 这台设备一次都没成功同步过（App 每次拉完数据才写）
+        var line = notifyEl('appNotifyLine');
+        if (line) {
+            line.textContent = !info ? '' : (info.notifications
+                ? '本机通知：已开启'
+                : '本机通知：未开启，收不到任何提醒。请到「系统设置 → 通知」里允许「班级助理」发通知');
+        }
     }
     refreshAppStatus();
 
-    // 展开这一节时重取一次：页面是打开后停留很久的，上次同步时间会过期；
-    // 而用户点开这一节，通常正是要排查「为什么没收到提醒」。
+    // 重取一次的两个时机：展开「开发功能」时（用户正是来排查「为什么没收到提醒」，而页面打开后
+    // 数据会变旧），以及资料卡重绘之后（loadProfile 会重建 DOM，那行元素是新的）。
     var devHead = document.querySelector('#devCard .collapse-head');
     if (devHead) devHead.addEventListener('click', function () { setTimeout(refreshAppStatus, 0); });
 
@@ -760,7 +766,13 @@
                 + '<button type="button" class="btn btn-outline btn-sm" onclick="openContactEdit()">修改</button>'
                 + '</span></div>'
                 + '<div class="info-row"><span class="k">更新时间</span><span class="v">' + esc(fmtUpdateTime(u.update_time)) + '</span></div>'
+                // 「上次同步」= App 壳本地同步到服务端数据的时间？不是 —— 是 App 上次成功拉完数据的时间
+                //（安卓 WorkManager / 鸿蒙 workScheduler，由桥 CAHost.appStatus() 读回）。
+                // 只在 App 里有意义，网页版没有这个桥，整行 hidden 不出现；值由 refreshAppStatus() 填。
+                + '<div class="info-row" id="appSyncRow" hidden><span class="k">上次同步</span><span class="v" id="appSyncValue"></span></div>'
                 + '</div>';
+            // 上面这段是新造的 DOM，行内元素要重新取值
+            refreshAppStatus();
         } catch (err) {
             card.innerHTML = stateHTML(err.message, true);
         }
