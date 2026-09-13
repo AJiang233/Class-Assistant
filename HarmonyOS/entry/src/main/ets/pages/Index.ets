@@ -1,0 +1,317 @@
+import web_webview from '@ohos.web.webview';
+import { webview } from '@kit.ArkWeb';
+import { BusinessError } from '@ohos.base';
+import promptAction from '@ohos.promptAction';
+import emitter from '@ohos.events.emitter';
+import common from '@ohos.app.ability.common';
+import notificationManager from '@ohos.notificationManager';
+import { Constants, BridgeEvents } from '../common/Constants';
+import { SystemBar } from '../common/SystemBar';
+import { Store } from '../data/Store';
+import { Api } from '../net/Api';
+import { SyncService } from '../sync/SyncService';
+import { Scheduler } from '../sync/Scheduler';
+import { ReminderService } from '../remind/ReminderService';
+import { WidgetUpdater } from '../widget/WidgetUpdater';
+import { PROBE_JS } from './ProbeJs';
+
+interface ReadyData {
+  ready: boolean;
+}
+
+interface TokenData {
+  token: string;
+}
+
+interface ThemeData {
+  dark: boolean;
+}
+
+/**
+ * 页面与网页之间的 JS 桥（CAHost）。
+ * 桥方法可能在非 UI 线程被调用，因此只通过 emitter 投递给页面处理，
+ * 不直接操作 UI 状态。
+ */
+class HostBridge {
+  setPullRefreshReady(ready: boolean): void {
+    emitter.emit({ eventId: BridgeEvents.PULL_READY }, { data: { ready: ready } });
+  }
+
+  setToken(token: string): void {
+    emitter.emit({ eventId: BridgeEvents.TOKEN }, { data: { token: token } });
+  }
+
+  startAcademicLogin(): void {
+    emitter.emit({ eventId: BridgeEvents.ACADEMIC_START }, { data: {} });
+  }
+
+  setTheme(dark: boolean): void {
+    emitter.emit({ eventId: BridgeEvents.THEME }, { data: { dark: dark } });
+  }
+}
+
+/**
+ * 班级助理 — Web 套壳主页。
+ * 加载 https://class.qxwkstudio.top，支持登录态持久化、下拉刷新、返回回退，
+ * 登录后触发本地到点提醒（活动/通知）与桌面卡片；
+ * 另负责「绑定教务系统」：桌面 UA 打开教务登录页，登录完成后读 Cookie 上报后端。
+ */
+@Entry
+@Component
+struct Index {
+  private controller: web_webview.WebviewController = new web_webview.WebviewController();
+  private host: HostBridge = new HostBridge();
+  @State progress: number = 0;
+  @State pullReady: boolean = true;
+  @State isRefreshing: boolean = false;
+  @State userAgent: string = '';
+  private defaultUserAgent: string = '';
+  private academicLogin: boolean = false;
+  private bindingInProgress: boolean = false;
+  private context: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
+
+  aboutToAppear(): void {
+    const uiContext: common.UIAbilityContext = this.context;
+    SystemBar.apply(uiContext, SystemBar.isSystemDark(uiContext));
+
+    emitter.on({ eventId: BridgeEvents.PULL_READY }, (eventData: emitter.EventData): void => {
+      const data = eventData.data as ReadyData;
+      this.pullReady = data.ready;
+    });
+    emitter.on({ eventId: BridgeEvents.TOKEN }, (eventData: emitter.EventData): void => {
+      const data = eventData.data as TokenData;
+      this.handleToken(data.token);
+    });
+    emitter.on({ eventId: BridgeEvents.ACADEMIC_START }, (): void => {
+      this.beginAcademicLogin();
+    });
+    emitter.on({ eventId: BridgeEvents.THEME }, (eventData: emitter.EventData): void => {
+      const data = eventData.data as ThemeData;
+      SystemBar.apply(this.context, data.dark);
+    });
+  }
+
+  aboutToDisappear(): void {
+    emitter.off(BridgeEvents.PULL_READY);
+    emitter.off(BridgeEvents.TOKEN);
+    emitter.off(BridgeEvents.ACADEMIC_START);
+    emitter.off(BridgeEvents.THEME);
+  }
+
+  /** 网页里的登录 token 变化时保存下来，并触发一次同步 */
+  private async handleToken(token: string): Promise<void> {
+    if (token.length === 0) {
+      // 网页里退出了登录，本地也清掉，避免继续用旧身份提醒
+      if ((await Store.getToken()).length > 0) {
+        await Store.clearSession();
+        await ReminderService.cancelAll();
+        await WidgetUpdater.refreshAll(this.context);
+      }
+      return;
+    }
+    if (token === await Store.getToken()) {
+      return;
+    }
+    await Store.saveToken(token);
+    const me = Api.decodeUser(token);
+    if (me !== null) {
+      await Store.saveUser(me.id, me.name);
+    }
+    try {
+      await notificationManager.requestEnableNotification(this.context);
+    } catch (e) {
+      // 用户拒绝通知不影响主流程
+    }
+    Scheduler.ensurePeriodic();
+    SyncService.run(this.context);
+  }
+
+  /**
+   * 进入教务系统登录：教务对手机 UA 有兼容问题，整个过程固定桌面 UA。
+   * 登录成功后由 onPageEnd 触发 Cookie 上报，再回到门户。
+   */
+  private beginAcademicLogin(): void {
+    if (this.academicLogin) {
+      return;
+    }
+    Store.getToken().then((token: string): void => {
+      if (token.length === 0) {
+        promptAction.showToast({ message: '请先登录班级助理', duration: 3000 });
+        return;
+      }
+      this.academicLogin = true;
+      this.bindingInProgress = false;
+      this.userAgent = Constants.DESKTOP_UA;
+      promptAction.showToast({ message: '请登录教务系统，登录完成后会自动返回', duration: 4000 });
+      // UA 属性在下一次加载时生效，稍后再发起跳转
+      setTimeout((): void => {
+        this.controller.loadUrl(Constants.SCHOOL_ORIGIN);
+      }, 50);
+    });
+  }
+
+  /** 读取教务域下的会话 Cookie（含 HttpOnly），交给后端代拉课表与学分 */
+  private uploadAcademicCookies(): void {
+    if (this.bindingInProgress) {
+      return;
+    }
+    webview.WebCookieManager.fetchCookie(Constants.SCHOOL_ORIGIN,
+      (err: BusinessError, cookies: string): void => {
+        if (err) {
+          return;
+        }
+        if (cookies === undefined || cookies === null || cookies.length === 0) {
+          return;
+        }
+        this.bindingInProgress = true;
+        this.doBind(cookies);
+      });
+  }
+
+  private async doBind(cookies: string): Promise<void> {
+    const token: string = await Store.getToken();
+    if (token.length === 0) {
+      this.finishAcademicLogin(false);
+      return;
+    }
+    const reply = await Api.postBind('/api/academic/bind', token, cookies);
+    let ok: boolean = false;
+    let message: string;
+    if (reply === null) {
+      message = '网络异常，绑定失败';
+    } else if (reply.success === true) {
+      ok = true;
+      message = '教务系统绑定成功';
+    } else {
+      message = reply.error !== undefined && reply.error.length > 0 ? reply.error : '绑定失败，请重试';
+    }
+    promptAction.showToast({ message: message, duration: 3500 });
+    this.finishAcademicLogin(ok);
+  }
+
+  /** 结束教务登录流程：还原 UA 并回到门户（成功则直接落到课表页） */
+  private finishAcademicLogin(success: boolean): void {
+    this.academicLogin = false;
+    this.bindingInProgress = false;
+    this.userAgent = '';
+    const target: string = success ? Constants.START_URL + '/?view=academic' : Constants.START_URL;
+    setTimeout((): void => {
+      this.controller.loadUrl(target);
+    }, 50);
+  }
+
+  /** 物理返回 / 侧滑返回：教务中途返回 = 放弃绑定；否则网页内回退 */
+  onBackPress(): boolean {
+    if (this.academicLogin) {
+      this.finishAcademicLogin(false);
+      return true;
+    }
+    if (this.controller.accessBackward()) {
+      this.controller.backward();
+      return true;
+    }
+    return false;
+  }
+
+  private currentRequestUrl(event?: OnPageEndEvent): string {
+    if (event === undefined || event === null) {
+      return '';
+    }
+    try {
+      return event.url;
+    } catch (e) {
+      return '';
+    }
+  }
+
+  private isSystemScheme(url: string): boolean {
+    const index: number = url.indexOf(':');
+    if (index <= 0) {
+      return false;
+    }
+    const scheme: string = url.substring(0, index).toLowerCase();
+    return scheme === 'tel' || scheme === 'sms' || scheme === 'mailto';
+  }
+
+  build() {
+    Stack({ alignContent: Alignment.TopStart }) {
+      Refresh({ refreshing: $$this.isRefreshing, offset: 36 }) {
+        Web({ src: Constants.START_URL, controller: this.controller })
+          .width('100%')
+          .height('100%')
+          .javaScriptAccess(true)
+          .domStorageAccess(true)
+          .databaseAccess(true)
+          .imageAccess(true)
+          .mediaPlayGestureAccess(false)
+          .userAgent(this.userAgent.length > 0 ? this.userAgent : this.defaultUserAgent)
+          .javaScriptProxy({
+            object: this.host,
+            name: 'CAHost',
+            methodList: ['setPullRefreshReady', 'setToken', 'startAcademicLogin', 'setTheme'],
+            controller: this.controller
+          })
+          .onControllerAttached(() => {
+            try {
+              this.defaultUserAgent = this.controller.getUserAgent();
+            } catch (e) {
+              this.defaultUserAgent = '';
+            }
+          })
+          .onPageBegin(() => {
+            this.isRefreshing = true;
+          })
+          .onPageEnd((event?: OnPageEndEvent) => {
+            this.isRefreshing = false;
+            this.progress = 100;
+            const url: string = this.currentRequestUrl(event);
+            if (this.academicLogin) {
+              // 教务登录流程中：回到教务域即视为登录完成，读取 Cookie 上报；
+              // 且不能注入探针——探针在教务页找不到本应用 token 会回传空串清掉登录态
+              if (url.startsWith(Constants.SCHOOL_ORIGIN)) {
+                this.uploadAcademicCookies();
+              }
+              return;
+            }
+            // 安装滚动状态探针（脚本内部幂等，重复注入无副作用）
+            this.controller.runJavaScript(PROBE_JS);
+          })
+          .onProgressChange((event?: OnProgressChangeEvent) => {
+            if (event !== undefined && event !== null) {
+              this.progress = event.newProgress;
+            }
+          })
+          .onLoadIntercept((event?: OnLoadInterceptEvent): boolean => {
+            if (event === undefined || event === null ||
+              event.data === undefined || event.data === null) {
+              return false;
+            }
+            try {
+              return this.isSystemScheme(event.data.getRequestUrl());
+            } catch (e) {
+              return false;
+            }
+          })
+      }
+      .onRefreshing(() => {
+        // 只有「主页 + 无弹窗 + 已置顶」时才刷新，其余手势交还给页面滚动
+        if (!this.pullReady) {
+          this.isRefreshing = false;
+          return;
+        }
+        this.controller.refresh();
+      })
+
+      if (this.progress > 0 && this.progress < 100) {
+        Progress({ value: this.progress, total: 100, type: ProgressType.Linear })
+          .width('100%')
+          .height(2)
+          .color($r('app.color.brand_blue'))
+          .backgroundColor(Color.Transparent)
+      }
+    }
+    .width('100%')
+    .height('100%')
+    .backgroundColor($r('app.color.start_window_background'))
+  }
+}
