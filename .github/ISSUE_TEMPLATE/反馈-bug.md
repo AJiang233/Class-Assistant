@@ -3,7 +3,8 @@ name: 反馈 Bug
 about: 提交一个 Bug，帮助我们定位和修复问题
 title: Bug：（请简要总结内容）
 labels: 未分类
-assignees: TidalStarNan
+assignees: ''
+type: Bug
 
 ---
 
