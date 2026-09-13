@@ -30,6 +30,7 @@ export interface NoticeRow {
   title: string;
   content: string;
   publish_time: string;
+  remind_people?: string | string[] | null;
 }
 
 /**

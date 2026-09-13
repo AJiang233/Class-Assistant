@@ -110,12 +110,7 @@ export class SyncService {
       if (start === 0 || start < earliest || start > horizon) {
         continue;
       }
-      // remind_people 为空按「全班」处理；否则只提醒名单里的人
-      const people: string[] = Api.parsePeople(row.remind_people);
-      const mine: boolean = people.length === 0 ||
-        (meName.length > 0 && people.indexOf(meName) >= 0) ||
-        (meId.length > 0 && people.indexOf(meId) >= 0);
-      if (!mine) {
+      if (!SyncService.isMine(row.remind_people, meId, meName)) {
         continue;
       }
       const title: string = row.title.length > 0 ? row.title : '班级活动';
@@ -136,7 +131,7 @@ export class SyncService {
     }
     await Store.saveEvents(data);
     await ReminderService.reschedule(rows);
-    await SyncService.notifyNewNotices(notices.list);
+    await SyncService.notifyNewNotices(notices.list, meId, meName);
     await SyncService.notifyNewTodos(todoList);
     await WidgetUpdater.refreshAll(context);
     await Store.setLastSyncTime(Date.now());
@@ -154,11 +149,32 @@ export class SyncService {
     await WidgetUpdater.refreshAll(context);
   }
 
-  /** 同步时发现比上次更新更晚的通知，逐条提醒一次 */
-  private static async notifyNewNotices(rows: NoticeRow[]): Promise<void> {
+  /**
+   * 这条活动 / 通知该不该提醒当前用户：remind_people 为空按「全班」处理，否则只提醒名单里的人
+   * （名单里存的是姓名或用户 id，见 Api.parsePeople）。
+   *
+   * 活动、通知两条路都走这一份判定 —— 只在活动那边写一遍的话，通知就会「没被点名也弹」，
+   * 与网页列表的 remindMe()、服务端「推给谁」的口径都不一致（见后端 utils/audience.js）。
+   * 待填表单不走这里：/api/forms/mine 服务端已按提醒对象滤过，客户端再滤一遍是白做。
+   */
+  private static isMine(raw: string | string[] | null | undefined, meId: string, meName: string): boolean {
+    const people: string[] = Api.parsePeople(raw);
+    if (people.length === 0) {
+      return true;
+    }
+    return (meName.length > 0 && people.indexOf(meName) >= 0) ||
+      (meId.length > 0 && people.indexOf(meId) >= 0);
+  }
+
+  /** 同步时发现比上次更新更晚的通知，逐条提醒一次（只提醒提醒对象里的，见 isMine） */
+  private static async notifyNewNotices(rows: NoticeRow[], meId: string, meName: string): Promise<void> {
+    // 先按提醒对象筛一道再算基线：last_notice_time 记的必须是「我该看到的」最新时间，
+    // 否则会拿别人的通知时间当基线，回头真点名我的那条反倒被当成旧的漏掉。
+    const mine: NoticeRow[] = rows.filter((row: NoticeRow): boolean =>
+      SyncService.isMine(row.remind_people, meId, meName));
     let newest: number = 0;
-    for (let i = 0; i < rows.length; i++) {
-      const t: number = parseServerTime(rows[i].publish_time);
+    for (let i = 0; i < mine.length; i++) {
+      const t: number = parseServerTime(mine[i].publish_time);
       if (t > newest) {
         newest = t;
       }
@@ -174,8 +190,8 @@ export class SyncService {
     }
 
     // 每条新通知单独发一条、各带自己的深链（网页侧读 ?view=notices&id= 后落到该条），互不覆盖
-    for (let i = 0; i < rows.length; i++) {
-      const row: NoticeRow = rows[i];
+    for (let i = 0; i < mine.length; i++) {
+      const row: NoticeRow = mine[i];
       const t: number = parseServerTime(row.publish_time);
       const id: number = SyncService.idOf(row.id);
       if (t <= lastSeen || id === 0) {

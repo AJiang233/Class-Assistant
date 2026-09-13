@@ -50,12 +50,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : Worker(context, p
         for (row in activities) {
             val start = parseServerTime(row.optString("start_time")) ?: continue
             if (start < earliest || start > horizon) continue
-            // remind_people 为空按「全班」处理；否则只提醒名单里的人
-            val people = Api.parsePeople(row.opt("remind_people"))
-            val mine = people.isEmpty() ||
-                (meName.isNotBlank() && people.contains(meName)) ||
-                (meId.isNotBlank() && people.contains(meId))
-            if (!mine) continue
+            if (!isMine(row, meId, meName)) continue
             val id = row.optInt("id", 0)
             if (id == 0) continue
             val title = row.optString("title").ifBlank { "班级活动" }
@@ -73,7 +68,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : Worker(context, p
             }
         }))
         Scheduler.rescheduleAlarms(ctx, sorted)
-        notifyNewNotices(ctx, notices)
+        notifyNewNotices(ctx, notices, meId, meName)
         notifyNewTodos(ctx, todos)
         TodayWidgetProvider.refreshAll(ctx)
         // 只有整轮拉完才记「上次同步」：失败时这个时间不前进，回前台同步的节流就不会
@@ -82,9 +77,27 @@ class SyncWorker(context: Context, params: WorkerParameters) : Worker(context, p
         return Result.success()
     }
 
-    /** 同步时发现比上次更新更晚的通知，逐条提醒一次 */
-    private fun notifyNewNotices(context: Context, rows: List<JSONObject>) {
-        val times = rows.mapNotNull { parseServerTime(it.optString("publish_time")) }
+    /**
+     * 这条活动 / 通知该不该提醒当前用户：remind_people 为空按「全班」处理，否则只提醒名单里的人
+     * （名单里存的是姓名或用户 id，见 Api.parsePeople）。
+     *
+     * 活动、通知两条路都走这一份判定 —— 只在活动那边写一遍的话，通知就会「没被点名也弹」，
+     * 与网页列表的 remindMe()、服务端「推给谁」的口径都不一致（见后端 utils/audience.js）。
+     * 待填表单不走这里：/api/forms/mine 服务端已按提醒对象滤过，客户端再滤一遍是白做。
+     */
+    private fun isMine(row: JSONObject, meId: String, meName: String): Boolean {
+        val people = Api.parsePeople(row.opt("remind_people"))
+        if (people.isEmpty()) return true
+        return (meName.isNotBlank() && people.contains(meName)) ||
+            (meId.isNotBlank() && people.contains(meId))
+    }
+
+    /** 同步时发现比上次更新更晚的通知，逐条提醒一次（只提醒提醒对象里的，见 isMine） */
+    private fun notifyNewNotices(context: Context, rows: List<JSONObject>, meId: String, meName: String) {
+        // 先按提醒对象筛一道再算基线：lastNoticeTime 记的必须是「我该看到的」最新时间，
+        // 否则会拿别人的通知时间当基线，回头真点名我的那条反倒被当成旧的漏掉。
+        val mine = rows.filter { isMine(it, meId, meName) }
+        val times = mine.mapNotNull { parseServerTime(it.optString("publish_time")) }
         val newest = times.maxOrNull() ?: return
         val lastSeen = Store.lastNoticeTime(context)
 
@@ -94,7 +107,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : Worker(context, p
             return
         }
 
-        val fresh = rows.filter { row ->
+        val fresh = mine.filter { row ->
             val t = parseServerTime(row.optString("publish_time"))
             t != null && t > lastSeen
         }
