@@ -59,7 +59,7 @@ function loadSW(fetchImpl) {
 
   // sw.js 是纯脚本，用 Function 注入沙箱全局
   new Function('self', 'caches', 'fetch', SOURCE)(self, caches, fetchImpl);
-  return { handlers, stores, deletedCaches, state };
+  return { handlers, stores, deletedCaches, state, self };
 }
 
 /** 构造一个 fetch 事件，并捕获 respondWith 的 promise */
@@ -158,4 +158,118 @@ test('激活时清掉旧版本缓存，并接管页面', async () => {
   assert.deepEqual(sw.deletedCaches.sort(), ['ca-shell-v0', 'some-other-cache']);
   assert.equal(sw.stores.has('ca-shell-v1'), false, '当前版本缓存不应被清掉（activate 只删旧的）');
   assert.equal(sw.state.claimed, true);
+});
+
+// ===== 推送 =====
+
+/** 装上假的 registration.showNotification，返回收集到的通知数组 */
+function captureNotifications(sw) {
+  const shown = [];
+  sw.self.registration = {
+    async showNotification(title, options) { shown.push({ title, options }); }
+  };
+  return shown;
+}
+
+test('收到推送必须立刻展示通知（Safari 不允许隐形推送，否则权限会被撤销）', async () => {
+  const sw = loadSW(async () => ok('x'));
+  const shown = captureNotifications(sw);
+
+  const waits = [];
+  sw.handlers.push({
+    data: { json: () => ({ title: '班级通知', body: '明天交表', url: '/?view=notices&id=3' }) },
+    waitUntil(p) { waits.push(p); }
+  });
+  await Promise.all(waits);
+
+  assert.equal(shown.length, 1);
+  assert.equal(shown[0].title, '班级通知');
+  assert.equal(shown[0].options.body, '明天交表');
+  assert.equal(shown[0].options.data.url, '/?view=notices&id=3');
+});
+
+test('载荷解析失败也要弹兜底通知，不能静默丢弃', async () => {
+  const sw = loadSW(async () => ok('x'));
+  const shown = captureNotifications(sw);
+
+  const waits = [];
+  sw.handlers.push({
+    data: { json() { throw new Error('坏载荷'); } },
+    waitUntil(p) { waits.push(p); }
+  });
+  await Promise.all(waits);
+
+  assert.equal(shown.length, 1);
+  assert.equal(shown[0].title, '班级助理');
+  assert.equal(shown[0].options.data.url, '/');
+});
+
+test('点通知：已有同源窗口时导航并聚焦，不再新开', async () => {
+  const sw = loadSW(async () => ok('x'));
+  const navigated = [];
+  const focused = [];
+  const opened = [];
+  sw.self.clients = {
+    async matchAll() {
+      return [{
+        url: ORIGIN + '/',
+        async navigate(u) { navigated.push(u); },
+        async focus() { focused.push(1); }
+      }];
+    },
+    async openWindow(u) { opened.push(u); }
+  };
+
+  let closed = 0;
+  const waits = [];
+  sw.handlers.notificationclick({
+    notification: { close() { closed++; }, data: { url: '/?view=notices&id=3' } },
+    waitUntil(p) { waits.push(p); }
+  });
+  await Promise.all(waits);
+
+  assert.equal(closed, 1);
+  assert.deepEqual(navigated, [ORIGIN + '/?view=notices&id=3']);
+  assert.equal(focused.length, 1);
+  assert.deepEqual(opened, []);
+});
+
+test('点通知：没有打开的窗口时新开一个', async () => {
+  const sw = loadSW(async () => ok('x'));
+  const opened = [];
+  sw.self.clients = {
+    async matchAll() { return []; },
+    async openWindow(u) { opened.push(u); }
+  };
+
+  const waits = [];
+  sw.handlers.notificationclick({
+    notification: { close() {}, data: { url: '/?view=activities&id=8' } },
+    waitUntil(p) { waits.push(p); }
+  });
+  await Promise.all(waits);
+
+  assert.deepEqual(opened, [ORIGIN + '/?view=activities&id=8']);
+});
+
+test('点通知：跨域窗口不会被导航', async () => {
+  const sw = loadSW(async () => ok('x'));
+  const navigated = [];
+  const opened = [];
+  sw.self.clients = {
+    async matchAll() {
+      return [{ url: 'https://other.test/page', async navigate(u) { navigated.push(u); }, async focus() {} }];
+    },
+    async openWindow(u) { opened.push(u); }
+  };
+
+  const waits = [];
+  sw.handlers.notificationclick({
+    notification: { close() {}, data: { url: '/?view=notices' } },
+    waitUntil(p) { waits.push(p); }
+  });
+  await Promise.all(waits);
+
+  assert.deepEqual(navigated, []);
+  assert.deepEqual(opened, [ORIGIN + '/?view=notices']);
 });

@@ -89,3 +89,60 @@ self.addEventListener('fetch', function (event) {
     }
   })());
 });
+
+/**
+ * 收到推送。
+ *
+ * Safari 不允许「隐形推送」：收到推送必须立刻 showNotification，否则系统会撤销通知权限。
+ * 所以这里没有「不展示」的分支 —— 载荷解析失败也要弹一条兜底文案。
+ */
+self.addEventListener('push', function (event) {
+  let data = {};
+  try {
+    if (event.data) data = event.data.json() || {};
+  } catch (e) {
+    data = {};
+  }
+
+  const options = {
+    body: data.body || '有一条新消息，打开应用查看',
+    icon: '/assets/icons/icon-192.png',
+    badge: '/assets/icons/icon-192.png',
+    data: { url: data.url || '/' }
+  };
+  if (data.tag) options.tag = data.tag;
+
+  event.waitUntil(self.registration.showNotification(data.title || '班级助理', options));
+});
+
+/** 点通知：优先把已打开的窗口导航过去并聚焦，没有就新开一个 */
+self.addEventListener('notificationclick', function (event) {
+  event.notification.close();
+  const url = (event.notification.data && event.notification.data.url) || '/';
+
+  event.waitUntil((async function () {
+    let target = url;
+    try {
+      target = new URL(url, self.location.origin).href;
+    } catch (e) { /* 用原始值兜底 */ }
+
+    const list = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const client of list) {
+      let sameOrigin = false;
+      try {
+        sameOrigin = new URL(client.url).origin === self.location.origin;
+      } catch (e) { /* client.url 为空时跳过 */ }
+      if (!sameOrigin) continue;
+
+      if (typeof client.navigate === 'function') {
+        try { await client.navigate(target); } catch (e) { /* Safari 可能不支持，退回 focus */ }
+      }
+      if (typeof client.focus === 'function') {
+        try { await client.focus(); return; } catch (e) { /* 继续试下一个窗口 */ }
+      }
+    }
+
+    if (self.clients.openWindow) await self.clients.openWindow(target);
+  })());
+});
+
