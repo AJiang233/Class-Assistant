@@ -171,7 +171,8 @@ manifest 声明 `foregroundServiceType="dataSync|specialUse"`（`specialUse` 的
 - [x] `HostBridge`：状态读取与操作（电池优化 / 待机桶 / 服务在跑 / 跳设置 / 开关）
 - [x] Web：个人中心「后台通知」卡片
 - [x] 单测 + 构建
-- [ ] 真机验证（见第九节，卡在装机方式上）
+- [x] 真机验证（CI 出正式签名 0.2.4 覆盖升级，结果见第九节）
+- [x] 深 Doze 兜底闹钟（`SyncAlarmReceiver`，真机验出来的缺口）
 - [x] README
 
 ---
@@ -185,7 +186,8 @@ manifest 声明 `foregroundServiceType="dataSync|specialUse"`（`specialUse` 的
 | `sync/SyncRunner.kt` | 新增。从 `SyncWorker` 抽出的同步逻辑 + `pickFresh` 判定 + `logOutSession` / `pushTestNotification` |
 | `sync/SyncWorker.kt` | 变薄壳，只把 `SyncRunner` 的结果翻译成 WorkManager 的说法 |
 | `sync/BackgroundSyncService.kt` | 新增。前台服务，3 分钟一轮（`deep = false`），`START_STICKY` |
-| `sync/BackgroundMode.kt` | 新增。开关、启停、免电池优化与待机档读取、厂商入口表 |
+| `sync/BackgroundMode.kt` | 新增。开关、启停、免电池优化与待机档读取、厂商入口表、深 Doze 兜底闹钟 |
+| `sync/SyncAlarmReceiver.kt` | 新增。深 Doze 兜底：被闹钟叫醒时跑一轮（只在 `isDeviceIdleMode` 时真干活） |
 | `notify/Notifier.kt` | 新增 `CHANNEL_BACKGROUND`（`IMPORTANCE_MIN`）+ `ongoingNotification()` |
 | `data/Store.kt` | 新增 `backgroundAlwaysOn`（默认开，不随退出登录清） |
 | `MainActivity.kt` | 桥方法 ×5（状态 / 开关 / 申请免电池优化 / 电池设置 / 自启动设置）+ 设置页跳转助手 |
@@ -238,9 +240,25 @@ manifest 声明 `foregroundServiceType="dataSync|specialUse"`（`specialUse` 的
 
 这正好从实证角度支持了第 6 节「A 与 B 必须配套」那条结论，而且暴露出**当前实现还缺一块**：
 即便用户开了免电池优化白名单（网络通了），只要 CPU 睡着，进程内的定时器还是不会跑。
-要让「手机放在桌上也能在几分钟内收到」，还差一个**能唤醒 CPU 的原生闹钟**
-（`AlarmManager.setAndAllowWhileIdle`，Doze 下允许、但被限流到约 9 分钟一次，且不精确），
-由它发广播、接收器里直接跑一轮同步（广播接收器不需要前台服务，绕开 FGS 启动限制）。
-这一块尚未实现 —— 见下面的待办。
+要让「手机放在桌上也能在几分钟内收到」，还差一个**能唤醒 CPU 的原生闹钟**。
+
+### 补齐：深 Doze 兜底闹钟（同日实现）
+
+`sync/SyncAlarmReceiver.kt` + `BackgroundMode.scheduleDozeWake`：
+
+- `AlarmManager.setAndAllowWhileIdle`，间隔 9 分钟。Doze 下允许触发、但被系统限流到约 9 分钟一次，
+  所以**深 Doze 里最快就是 9 分钟**，做不到前台服务那 3 分钟。
+- 用不精确的那种而不是 `setExactAndAllowWhileIdle`：精确闹钟在 Android 12+ 要单独申请
+  「闹钟与提醒」特殊权限（默认拒绝），为一条后台同步把用户拉去授权页不值得；而且 Doze 下两种都被限流，精确也快不了。
+- 接收器里**先判断 `PowerManager.isDeviceIdleMode`**：不在深 Doze 就直接返回。
+  定时器那时是准的，闹钟再插一脚纯属白耗请求 —— 这条判断让这个机制在 Doze 外几乎零成本。
+- 接收器直接跑同步（`goAsync()` + 后台线程），**不去拉前台服务**：
+  Android 12+ 禁止从后台启动前台服务，而不精确的闹钟不在豁免名单里（只有精确闹钟才算），拉服务会被拒。
+- 闹钟由服务启动时起头，之后每轮自己续上；关掉开关时连同服务一起撤销。
+- 另给 `SyncRunner.run` 加了一次性闸门（`AtomicBoolean`）：两条触发链撞上时直接跳过，
+  免得白跑一轮请求、基线还被两边各写一次。
+
+于是「手机放着不动」这条链变成：**白名单（用户点一下，网络）+ 闹钟（代码，CPU）**，缺一条都不行。
+
 
 

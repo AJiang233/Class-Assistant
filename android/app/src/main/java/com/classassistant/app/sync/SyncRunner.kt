@@ -6,6 +6,7 @@ import com.classassistant.app.data.Store
 import com.classassistant.app.notify.Notifier
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * 一轮同步的真实逻辑：拉取活动 / 通知 / 待填表单 → 更新本地缓存 → 重排提醒闹钟 →
@@ -21,6 +22,15 @@ object SyncRunner {
     enum class Outcome { Done, Retry }
 
     /**
+     * 同一时刻只跑一轮。
+     *
+     * 现在有两条触发链（服务里的 3 分钟定时器、深 Doze 的兜底闹钟），时机可能撞上。
+     * 撞上本身不危险 —— 同一条通知的 id 相同，后发的覆盖先发的 —— 但会白跑一轮网络请求，
+     * 而基线也会被两边各写一次。加个闸门最省事：撞上了就直接跳过，反正另一条正在做同一件事。
+     */
+    private val running = AtomicBoolean(false)
+
+    /**
      * 跑一轮。
      *
      * @param deep 是否连**离线缓存预热**一起做（那 5 个接口）。前台服务每 3 分钟来一发，
@@ -28,6 +38,15 @@ object SyncRunner {
      *   15 分钟的周期任务 —— 否则一个班几十号人一天能把 Cloudflare 的免费额度啃穿。
      */
     fun run(context: Context, deep: Boolean = true): Outcome {
+        if (!running.compareAndSet(false, true)) return Outcome.Done
+        return try {
+            runOnce(context, deep)
+        } finally {
+            running.set(false)
+        }
+    }
+
+    private fun runOnce(context: Context, deep: Boolean): Outcome {
         val token = Store.token(context) ?: return Outcome.Done
         Notifier.ensureChannels(context)
 

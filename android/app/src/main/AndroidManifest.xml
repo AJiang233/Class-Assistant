@@ -53,6 +53,11 @@
                 android:value="持续在后台拉取班级通知与活动，好让新通知尽快提醒到人" />
         </service>
 
+        <!-- 深 Doze 兜底：进程内的定时器叫不醒睡着的 CPU，只能靠这个闹钟（见 SyncAlarmReceiver） -->
+        <receiver
+            android:name=".sync.SyncAlarmReceiver"
+            android:exported="false" />
+
         <!-- 活动到点提醒：由 AlarmManager 触发 -->
         <receiver
             android:name=".notify.AlarmReceiver"

@@ -1,5 +1,7 @@
 package com.classassistant.app.sync
 
+import android.app.AlarmManager
+import android.app.PendingIntent
 import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Intent
@@ -28,6 +30,15 @@ object BackgroundMode {
      * 要调大这个值之前先看一眼方案文档第六节的那笔账。
      */
     const val INTERVAL_MINUTES = 3L
+
+    /**
+     * 深 Doze 兜底闹钟的间隔。比前台服务那 3 分钟宽，理由见 [scheduleDozeWake]。
+     * 9 分钟也是系统在 Doze 里对 `setAndAllowWhileIdle` 的限流下限，再短没用。
+     */
+    private const val DOZE_WAKE_MINUTES = 9L
+
+    /** 只用于「深 Doze 唤醒」这一个闹钟，与 Scheduler 里那几个（991 零点、活动用 event.id）错开 */
+    private const val DOZE_WAKE_REQUEST_CODE = 992
 
     fun isEnabled(context: Context): Boolean = Store.backgroundAlwaysOn(context)
 
@@ -67,7 +78,48 @@ object BackgroundMode {
 
     private fun stop(context: Context) {
         context.stopService(Intent(context, BackgroundSyncService::class.java))
+        // 服务停了，深 Doze 那个闹钟也要撤掉：留着它会在深 Doze 里醒来跑一轮，
+        // 而用户刚刚明确说了不要后台常驻
+        cancelDozeWake(context)
     }
+
+    /**
+     * 排一个「深 Doze 里把我们叫醒」的闹钟（见 [SyncAlarmReceiver] 里为什么非它不可）。
+     *
+     * 用 `setAndAllowWhileIdle` 而不是 `setExactAndAllowWhileIdle`：
+     *   - 精确闹钟在 Android 12+ 要单独申请「闹钟与提醒」特殊权限，默认是拒绝的，
+     *     为一条后台同步把用户拉去授权页不值得；
+     *   - 而且 Doze 下**两种都被限流到约 9 分钟一次**，精确也快不了。
+     * 直接 `set` 或 `setWindow` 不行：它们会被 Doze 一路推迟到维护窗口。
+     *
+     * 间隔取 [DOZE_WAKE_MINUTES]（比前台服务那 3 分钟宽）：这条链路的定位是**深 Doze 兜底**，
+     * 不在 Doze 时接收器自己会跳过（定时器那时是准的），所以放长一点纯粹是为了少几次无用唤醒。
+     *
+     * 重复调用只是覆盖同一个 PendingIntent，不会堆闹钟。
+     */
+    fun scheduleDozeWake(context: Context) {
+        val manager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
+        manager.setAndAllowWhileIdle(
+            AlarmManager.RTC_WAKEUP,
+            System.currentTimeMillis() + DOZE_WAKE_MINUTES * 60_000L,
+            dozeWakeIntent(context)
+        )
+    }
+
+    fun cancelDozeWake(context: Context) {
+        val manager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
+        manager.cancel(dozeWakeIntent(context))
+    }
+
+    /** 取消与设置必须用同一个 requestCode + action，否则撤不掉（PendingIntent 的相等判定不看 extras） */
+    private fun dozeWakeIntent(context: Context): PendingIntent = PendingIntent.getBroadcast(
+        context,
+        DOZE_WAKE_REQUEST_CODE,
+        Intent(context, SyncAlarmReceiver::class.java).apply {
+            action = SyncAlarmReceiver.ACTION_DOZE_WAKE
+        },
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+    )
 
     /**
      * 该不该允许通知绕过电池优化 —— 也就是「有没有进白名单」。全版本公开 API，可信。
