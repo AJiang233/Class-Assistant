@@ -295,8 +295,41 @@ const UA_ANDROID = 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 
 const UA_HARMONY = 'Mozilla/5.0 (Phone; OpenHarmony 5.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36 ArkWeb/4.1.6.1';
 const UA_PC_CHROME = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
-/** 在沙箱里跑真实的 app.js，只取判定用得到的几个函数 */
-function loadApp({ ua, standalone = false, maxTouchPoints = 0, inShell = false }) {
+const DISPLAY_MODES = ['standalone', 'minimal-ui', 'fullscreen', 'window-controls-overlay'];
+
+/** 造一个「窗口」：matchMedia 只对 display-mode 系列作答 */
+function fakeWindow({ ua, maxTouchPoints, standalone, document, localStorage, cahost = false }) {
+  const noop = () => {};
+  const win = {
+    document,
+    localStorage,
+    addEventListener: noop,
+    navigator: {
+      userAgent: ua,
+      maxTouchPoints,
+      standalone,
+      serviceWorker: { register: () => Promise.resolve() }
+    },
+    matchMedia(query) {
+      const q = String(query);
+      return {
+        matches: standalone && DISPLAY_MODES.some((m) => q.indexOf('(display-mode: ' + m + ')') === 0),
+        addEventListener: noop,
+        addListener: noop
+      };
+    }
+  };
+  // 安卓壳与鸿蒙壳注入的都是 CAHost
+  if (cahost) win.CAHost = {};
+  return win;
+}
+
+/**
+ * 在沙箱里跑真实的 app.js，只取判定用得到的函数。
+ * inIframe 用来模拟「个人页被装在 iframe 里」：此时 iframe 自己问出来的
+ * display-mode / navigator.standalone 可能与顶层不一致，这正是出过 bug 的地方。
+ */
+function loadApp({ ua, standalone = false, maxTouchPoints = 0, inShell = false, inIframe = false, topStandalone = false }) {
   const noop = () => {};
   const card = { hidden: false, querySelector: () => null };
   const document = {
@@ -307,26 +340,21 @@ function loadApp({ ua, standalone = false, maxTouchPoints = 0, inShell = false }
     createElement: () => ({ style: {}, setAttribute: noop, appendChild: noop }),
     body: { appendChild: noop }
   };
-  const navigator = { userAgent: ua, maxTouchPoints, serviceWorker: { register: () => Promise.resolve() } };
-  const win = {
-    location: { href: ORIGIN + '/' },
-    matchMedia: () => ({ matches: standalone, addEventListener: noop, addListener: noop }),
-    addEventListener: noop,
-    navigator,
-    localStorage: { getItem: () => null, setItem: noop },
-    document
-  };
-  // 安卓壳与鸿蒙壳注入的都是 CAHost
-  if (inShell) win.CAHost = {};
+  const localStorage = { getItem: () => null, setItem: noop };
+
+  const win = fakeWindow({ ua, maxTouchPoints, standalone, document, localStorage, cahost: inShell });
+  win.location = { href: ORIGIN + '/' };
+  win.top = inIframe
+    ? fakeWindow({ ua, maxTouchPoints, standalone: topStandalone, document, localStorage })
+    : win;
   win.self = win;
   win.window = win;
-  win.top = win;
 
   const sandbox = {
     window: win,
     document,
-    navigator,
-    localStorage: win.localStorage,
+    navigator: win.navigator,
+    localStorage,
     location: win.location,
     fetch: async () => new Response('{}', { status: 200 }),
     console,
@@ -355,7 +383,12 @@ const INSTALL_CASES = [
   ['鸿蒙 App 壳（CAHost）→ 不给', { ua: UA_HARMONY, inShell: true }, false],
   ['Windows Chrome → 给引导', { ua: UA_PC_CHROME }, true],
   ['Mac Safari（同样 UA 但无触点）→ 给引导', { ua: UA_MAC_SAFARI }, true],
-  ['PC 上已装的独立窗口 → 不给', { ua: UA_PC_CHROME, standalone: true }, false]
+  ['PC 上已装的独立窗口 → 不给', { ua: UA_PC_CHROME, standalone: true }, false],
+  // 已装的 App 里打开个人页：个人页在 iframe 里，iframe 自己的 display-mode 未必反映顶层，
+  // 所以必须以顶层为准 —— 否则装好了还会再推一次安装（线上出过这个 bug）
+  ['已装 App 内打开个人页（顶层是 standalone，iframe 自身不是）→ 不给', { ua: UA_IPHONE, inIframe: true, standalone: false, topStandalone: true }, false],
+  ['PC 已装 App 内打开个人页 → 不给', { ua: UA_PC_CHROME, inIframe: true, standalone: false, topStandalone: true }, false],
+  ['普通浏览器里的个人页（都不是 standalone）→ 给引导', { ua: UA_PC_CHROME, inIframe: true, standalone: false, topStandalone: false }, true]
 ];
 
 for (const [name, opts, want] of INSTALL_CASES) {

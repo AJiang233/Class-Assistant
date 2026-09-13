@@ -195,13 +195,37 @@ function filterRemindMembers(input) {
 /* ===== PWA：安装到桌面 =====
    安装入口在个人页（account.html）的「安装到桌面」卡片里，不再挂主页横幅。
    只有 iOS 与 PC 需要它 —— 安卓与鸿蒙都已有原生 App，装网页版只会让人困惑。
-   个人页跑在 iframe 里，而 beforeinstallprompt 只在顶层窗口触发，
-   所以安装事件统一存在顶层窗口上，卡片从顶层取。 */
+   个人页跑在 iframe 里，而 beforeinstallprompt 只在顶层窗口触发、
+   display-mode / navigator.standalone 也以顶层为准（iframe 内未必反映真实状态），
+   所以「是否已安装」与安装事件都统一读写顶层窗口。 */
 
-/** 是否已以「已安装应用」方式运行（从主屏图标启动 / 独立窗口） */
+/** display-mode 只要不是 browser，就说明是以应用方式在跑 */
+const APP_DISPLAY_MODES = ['standalone', 'minimal-ui', 'fullscreen', 'window-controls-overlay'];
+
+/** 这个窗口看起来是不是「已安装的应用窗口」 */
+function looksInstalled(win) {
+  try {
+    const installed = APP_DISPLAY_MODES.some(function (mode) {
+      return win.matchMedia && win.matchMedia('(display-mode: ' + mode + ')').matches;
+    });
+    if (installed) return true;
+    // iOS 专用：加到主屏后为 true
+    return !!(win.navigator && win.navigator.standalone === true);
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
+ * 是否已以「已安装应用」方式运行（从主屏图标启动 / 独立窗口）。
+ *
+ * 必须先看顶层窗口：个人页在 iframe 里，iframe 自己问 display-mode / navigator.standalone
+ * 可能答「不是」，于是装好的 App 里点开个人页又会被推一次安装 —— 就是这个坑。
+ */
 function isStandaloneMode() {
-  return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)
-    || window.navigator.standalone === true;
+  const host = installHostWindow();
+  if (host === window) return looksInstalled(window);
+  return looksInstalled(host) || looksInstalled(window);
 }
 
 /** 是否 iOS / iPadOS（只有 Safari 分享菜单能加主屏，无法用代码触发安装） */
