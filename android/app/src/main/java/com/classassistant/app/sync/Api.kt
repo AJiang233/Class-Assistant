@@ -34,6 +34,13 @@ object Api {
             val arr = root.optJSONObject("data")?.optJSONArray("list") ?: return null
             return (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }
         }
+
+        /**
+         * Ok 时取整个 data 对象。给「不是 data.list 形状」的接口用 ——
+         * 比如 /api/forms/mine 回的是 data.pending / data.editable 两个数组。
+         * 取不到返回 null，调用方据此判失败。
+         */
+        fun dataOrNull(): JSONObject? = (this as? Ok)?.body?.optJSONObject("data")
     }
 
     fun get(path: String, token: String): Res = request("GET", path, token, null)

@@ -32,6 +32,18 @@ export interface NoticeRow {
   publish_time: string;
 }
 
+/**
+ * 待填表单行（只声明同步用到的字段）。对应网页侧的 /api/forms/mine → data.pending。
+ * 名字用 Todo 而不是 Form：本端 Form 已经是 ArkTS 桌面卡片（WidgetUpdater / EntryFormAbility），
+ * 与班委下发的「表单」是两件事。
+ */
+export interface TodoRow {
+  id?: number;
+  title: string;
+  /** 下发时刻，与通知的 publish_time 同一口径（服务端本地时间串），用来判「这条提醒过没有」 */
+  created_at?: string;
+}
+
 /** 列表请求结果：401 重试没意义（要清本地会话），必须与「其它失败」分开 */
 export enum ApiStatus {
   OK = 0,
@@ -69,6 +81,17 @@ interface NoticeListReply {
 
 interface NoticeListData {
   list?: NoticeRow[];
+}
+
+/** /api/forms/mine 回的是 data.pending / data.editable 两个数组，没有 data.list */
+interface TodoListReply {
+  success: boolean;
+  data?: TodoListData;
+  error?: string;
+}
+
+interface TodoListData {
+  pending?: TodoRow[];
 }
 
 export interface UserInfo {
@@ -147,6 +170,26 @@ export class Api {
         return { status: ApiStatus.OK, list: [] };
       }
       return { status: ApiStatus.OK, list: root.data.list };
+    } catch (e) {
+      return { status: ApiStatus.FAILED, list: [] };
+    }
+  }
+
+  /**
+   * 取 data.pending（待填表单）；已填可改的 data.editable 不用提醒，不取。
+   * 失败/无数据的处理与 getNotices 同一套：请求失败是 FAILED，成功但字段缺失算空列表。
+   */
+  static async getMyTodos(path: string, token: string): Promise<ListResult<TodoRow>> {
+    const reply: RawReply = await Api.getRaw(path, token, 15000);
+    if (reply.status !== ApiStatus.OK) {
+      return { status: reply.status, list: [] };
+    }
+    try {
+      const root = JSON.parse(reply.text) as TodoListReply;
+      if (root.data === undefined || root.data === null || root.data.pending === undefined) {
+        return { status: ApiStatus.OK, list: [] };
+      }
+      return { status: ApiStatus.OK, list: root.data.pending };
     } catch (e) {
       return { status: ApiStatus.FAILED, list: [] };
     }

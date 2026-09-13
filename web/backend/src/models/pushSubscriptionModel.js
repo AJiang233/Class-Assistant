@@ -2,6 +2,24 @@
  * Web Push 订阅数据模型
  * 表结构：push_subscriptions (id, user_id, endpoint, p256dh, auth, ua, created_at, last_ok_at)
  */
+
+/**
+ * 单条 SQL 最多能绑多少个参数。
+ *
+ * D1 的硬上限是 100，与套餐无关 —— 超了直接报错，不是慢一点。一次班级通知的收件人
+ * 很容易几百台设备（一人多机），所以凡是用 `IN (...)` 拼参数的地方都必须分批。
+ * 取 50 是留一倍余量：以后要往同一条语句里再加参数不至于立刻越界。
+ * ponytail: 50 这个数是刻意选的，不是随手写的；别再改回「一把梭」。
+ */
+const MAX_BIND_PARAMS = 50;
+
+/** 把数组切成每段最多 size 个；空数组返回 []，调用方各自短路 */
+function chunk(list, size = MAX_BIND_PARAMS) {
+  const out = [];
+  for (let i = 0; i < list.length; i += size) out.push(list.slice(i, i + size));
+  return out;
+}
+
 export class PushSubscriptionModel {
   constructor(db) {
     this.db = db;
@@ -48,23 +66,30 @@ export class PushSubscriptionModel {
   async listByUsers(userIds) {
     const ids = (userIds || []).filter((id) => Number.isInteger(id) || /^\d+$/.test(String(id)));
     if (!ids.length) return [];
-    const placeholders = ids.map(() => '?').join(',');
-    const result = await this.db.prepare(
-      `SELECT id, user_id, endpoint, p256dh, auth
-         FROM push_subscriptions
-        WHERE user_id IN (${placeholders})`
-    ).bind(...ids.map(Number)).all();
-    return result.results;
+    const rows = [];
+    // 分批：班级人数 * 人均设备数很容易超过 50/100 个绑定参数
+    for (const part of chunk(ids.map(Number))) {
+      const placeholders = part.map(() => '?').join(',');
+      const result = await this.db.prepare(
+        `SELECT id, user_id, endpoint, p256dh, auth
+           FROM push_subscriptions
+          WHERE user_id IN (${placeholders})`
+      ).bind(...part).all();
+      rows.push(...result.results);
+    }
+    return rows;
   }
 
   /** 端点已死（404/410）：立即删行，后续不再尝试 */
   async removeByEndpoints(endpoints) {
     const list = (endpoints || []).filter(Boolean);
     if (!list.length) return 0;
-    const placeholders = list.map(() => '?').join(',');
-    await this.db.prepare(
-      `DELETE FROM push_subscriptions WHERE endpoint IN (${placeholders})`
-    ).bind(...list).run();
+    for (const part of chunk(list)) {
+      const placeholders = part.map(() => '?').join(',');
+      await this.db.prepare(
+        `DELETE FROM push_subscriptions WHERE endpoint IN (${placeholders})`
+      ).bind(...part).run();
+    }
     return list.length;
   }
 
@@ -72,10 +97,12 @@ export class PushSubscriptionModel {
   async markOk(endpoints) {
     const list = (endpoints || []).filter(Boolean);
     if (!list.length) return;
-    const placeholders = list.map(() => '?').join(',');
-    await this.db.prepare(
-      `UPDATE push_subscriptions SET last_ok_at = CURRENT_TIMESTAMP
-        WHERE endpoint IN (${placeholders})`
-    ).bind(...list).run();
+    for (const part of chunk(list)) {
+      const placeholders = part.map(() => '?').join(',');
+      await this.db.prepare(
+        `UPDATE push_subscriptions SET last_ok_at = CURRENT_TIMESTAMP
+          WHERE endpoint IN (${placeholders})`
+      ).bind(...part).run();
+    }
   }
 }

@@ -20,9 +20,12 @@ export class NoticeService {
   }
 
   /**
-   * 新通知提醒：一条通知发一条系统通知，各带自己的深链（点通知落到该条详情），互不覆盖。
-   * notificationId 必须用 NOTICE_ID_BASE + 通知 id —— 与活动提醒的 id（直接用活动 id）拉开距离，
-   * 否则两个列表里 id 相同的记录会互相顶掉，与安卓端 SyncWorker.notifyNewNotices 同号。
+   * 新通知 / 新待填表单提醒：一条内容发一条系统通知，各带自己的深链（点通知落到该条详情），互不覆盖。
+   * 两者共用 CONTENT_INFORMATION 槽位 —— 表单本来就是「班委发的通知」的一种措辞，
+   * 单独开槽位只会让用户在系统设置里多一个开关要管。
+   * notificationId 必须用 NOTICE_ID_BASE + 通知 id（表单则是 Constants.TODO_ID_BASE + 表单 id）——
+   * 与活动提醒的 id（直接用活动 id）拉开距离，否则两个列表里 id 相同的记录会互相顶掉，
+   * 与安卓端 SyncWorker.notifyNewNotices / notifyNewTodos 同号。
    */
   static async publishNotice(notificationId: number, title: string, body: string, deepLink: string): Promise<void> {
     await NoticeService.send(notificationId, notificationManager.SlotType.CONTENT_INFORMATION,

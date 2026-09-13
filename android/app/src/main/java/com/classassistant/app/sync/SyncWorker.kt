@@ -10,7 +10,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * 后台同步：拉取活动与通知 → 更新本地缓存 → 重排提醒闹钟 → 对新通知逐条发提醒。
+ * 后台同步：拉取活动 / 通知 / 待填表单 → 更新本地缓存 → 重排提醒闹钟 → 对新通知与新表单逐条发提醒。
  * 未登录（没有 token）时直接跳过，等用户在网页里登录后由 MainActivity 触发。
  */
 class SyncWorker(context: Context, params: WorkerParameters) : Worker(context, params) {
@@ -25,9 +25,14 @@ class SyncWorker(context: Context, params: WorkerParameters) : Worker(context, p
         if (activitiesRes is Api.Res.Unauthorized) return logOut(ctx)
         val noticesRes = Api.get("/api/notices?limit=50", token)
         if (noticesRes is Api.Res.Unauthorized) return logOut(ctx)
+        val todosRes = Api.get("/api/forms/mine", token)
+        if (todosRes is Api.Res.Unauthorized) return logOut(ctx)
 
         val activities = activitiesRes.listOrNull() ?: return Result.retry()
         val notices = noticesRes.listOrNull() ?: return Result.retry()
+        // 表单拉不到（网络抖动 / 5xx）不拖垮整轮：活动与通知才是主线，
+        // 少提醒一条表单待办，比「活动闹钟也一起不排了」轻得多，所以这里按空处理继续往下走。
+        val todos = todosRes.dataOrNull()?.optJSONArray("pending")
 
         val me = Api.decodeUser(token)
         if (me != null) Store.saveUser(ctx, me.first, me.second)
@@ -69,7 +74,11 @@ class SyncWorker(context: Context, params: WorkerParameters) : Worker(context, p
         }))
         Scheduler.rescheduleAlarms(ctx, sorted)
         notifyNewNotices(ctx, notices)
+        notifyNewTodos(ctx, todos)
         TodayWidgetProvider.refreshAll(ctx)
+        // 只有整轮拉完才记「上次同步」：失败时这个时间不前进，回前台同步的节流就不会
+        // 把重试挡住（见 Scheduler.syncNow），个人页显示的也是真拉到过数据的时间
+        Store.setLastSyncAt(ctx, System.currentTimeMillis())
         return Result.success()
     }
 
@@ -105,6 +114,47 @@ class SyncWorker(context: Context, params: WorkerParameters) : Worker(context, p
     }
 
     /**
+     * 同步时发现比上次更新更晚的待填表单，逐条提醒一次。
+     *
+     * 与 notifyNewNotices 同一套「首次同步只记基线」的逻辑：装机时把当前所有待填表单一起推
+     * 不是提醒，是刷屏。判新用 created_at（服务端下发时刻），口径与通知的 publish_time 一致。
+     * 表单在 App 里没有列表页，点通知直接开网页的填写页（forms.html?id=…），
+     * 与 Web Push 那条 url 是同一个落地页；通知 id 另开一段号，避免与通知/活动互相顶掉。
+     */
+    private fun notifyNewTodos(context: Context, rows: JSONArray?) {
+        if (rows == null) return
+
+        val items = mutableListOf<Triple<Int, Long, String>>() // id, created_at, title
+        for (i in 0 until rows.length()) {
+            val row = rows.optJSONObject(i) ?: continue
+            val id = row.optInt("id", 0)
+            val time = parseServerTime(row.optString("created_at")) ?: continue
+            if (id == 0) continue
+            items.add(Triple(id, time, row.optString("title").ifBlank { "待填表单" }))
+        }
+        val newest = items.maxOfOrNull { it.second } ?: return
+        val lastSeen = Store.lastTodoTime(context)
+
+        if (lastSeen == 0L) {
+            // 首次同步只记录基线，避免装机时把历史表单全推一遍
+            Store.setLastTodoTime(context, newest)
+            return
+        }
+
+        for ((id, time, title) in items) {
+            if (time <= lastSeen) continue
+            Notifier.notifyNotice(
+                context,
+                FORM_ID_BASE + id,
+                "新表单：$title",
+                "待填表单，点击打开填写",
+                "forms.html?id=$id"
+            )
+        }
+        if (newest > lastSeen) Store.setLastTodoTime(context, newest)
+    }
+
+    /**
      * token 已被服务端判为失效（401）。再重试也不会有结果，清掉本地会话后返回成功，
      * 等用户在网页重新登录时由探针把新 token 推过来。
      */
@@ -137,6 +187,12 @@ class SyncWorker(context: Context, params: WorkerParameters) : Worker(context, p
          */
         fun pushTestNotification(context: Context, kind: String): String {
             val token = Store.token(context) ?: return "请先登录后再测试推送"
+            // 通知权限被关掉时，下面 notify() 抛的 SecurityException 会被静默吞掉，
+            // 这一页却回一句「已推送」—— 用户去通知栏找不到东西，只会以为推送坏了。
+            // 所以先查一次权限，把真实原因说出来（个人页那一行状态显示的是同一件事）。
+            if (!Notifier.notificationsEnabled(context)) {
+                return "通知权限未开启，收不到提醒。请到「系统设置 → 通知」里允许「班级助理」发通知"
+            }
             val res = when (kind) {
                 "activity" -> Api.get("/api/activities?scope=all&limit=1", token)
                 "notice" -> Api.get("/api/notices?scope=all&limit=1", token)
@@ -179,5 +235,12 @@ class SyncWorker(context: Context, params: WorkerParameters) : Worker(context, p
          * 否则两个列表里 id 相同的记录会互相顶掉。
          */
         const val NOTICE_ID_BASE = 100_000
+
+        /**
+         * 待填表单的通知 id 基数，理由同上：表单 id 与通知 id 各从 1 开始，
+         * 不加偏移的话「通知 3」和「表单 3」会共用同一个通知 id，后发的把先发的顶掉。
+         * 三段各自留足 10 万空间，与鸿蒙端 Constants.TODO_ID_BASE 保持同值。
+         */
+        const val FORM_ID_BASE = 200_000
     }
 }

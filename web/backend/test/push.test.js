@@ -201,6 +201,39 @@ describe('推送发送', () => {
       assert.equal(called, 0);
     } finally { globalThis.fetch = orig; }
   });
+
+  /**
+   * 一次班级通知可能几十上百台设备。全部并起来会撞 Worker 对同一主机的并发连接配额，
+   * 所以投递必须分批推进 —— 这里用「同时在飞的请求数」把它钉住。
+   */
+  it('设备多时按批投递，同时在飞的请求不超过 6 个', async () => {
+    const users = Array.from({ length: 20 }, (_, i) => ({ id: i + 1, name: 'u' + (i + 1), positions: '学生' }));
+    const subs = users.map((u) => ({
+      id: u.id, user_id: u.id, endpoint: 'https://push.example/' + u.id, p256dh: P256DH, auth: AUTH
+    }));
+    const db = fakeDb({ users, subs });
+
+    let inFlight = 0;
+    let peak = 0;
+    let done = 0;
+    const orig = globalThis.fetch;
+    globalThis.fetch = async () => {
+      inFlight++;
+      peak = Math.max(peak, inFlight);
+      await new Promise((r) => setTimeout(r, 1));
+      inFlight--;
+      done++;
+      return new Response('', { status: 201 });
+    };
+    try {
+      await pushToRemindAudience({ DB: db, ...VAPID }, null, null, { title: 't', body: 'b', url: '/' });
+    } finally { globalThis.fetch = orig; }
+
+    assert.equal(done, 20, '每台设备都该收到');
+    assert.ok(peak <= 6, '同时在飞的请求不应超过 6，实际 ' + peak);
+    assert.ok(peak > 1, '不该退化成一个一个串行发');
+    assert.ok(db.state.subs.every((s) => s.last_ok_at === 'now'), '全部投递成功都该记上时间');
+  });
 });
 
 describe('订阅接口', () => {
@@ -319,5 +352,39 @@ describe('订阅表读写', () => {
   it('removeByEndpoints 对空数组短路', async () => {
     const model = new PushSubscriptionModel({ prepare() { throw new Error('不该查库'); } });
     assert.equal(await model.removeByEndpoints([]), 0);
+  });
+
+  /**
+   * D1 单条语句的绑定参数上限是 100（与套餐无关，超了直接报错）。
+   * 一个班几十上百人、一人多机，`IN (...)` 必须分批，否则发布通知时整批投递静默失败。
+   */
+  it('收件人/端点超过上限时分批查询，且结果合并、每批不超过 50 个参数', async () => {
+    const widths = [];
+    const db = {
+      prepare() {
+        const stmt = {
+          _args: [],
+          bind(...args) { stmt._args = args; return stmt; },
+          async all() {
+            widths.push(stmt._args.length);
+            return { results: stmt._args.map((v) => ({ user_id: v, endpoint: 'e' + v })) };
+          },
+          async run() { widths.push(stmt._args.length); return {}; }
+        };
+        return stmt;
+      }
+    };
+    const model = new PushSubscriptionModel(db);
+    const ids = Array.from({ length: 120 }, (_, i) => i + 1);
+
+    const rows = await model.listByUsers(ids);
+    assert.equal(rows.length, 120, '分批结果要合并，不能只返回最后一批');
+    assert.ok(widths.every((n) => n <= 50), '单条 SQL 不超过 50 个绑定参数：' + widths.join(','));
+    assert.ok(widths.length >= 3, '120 个 id 至少该分成 3 批');
+
+    const eps = Array.from({ length: 120 }, (_, i) => 'e' + i);
+    assert.equal(await model.removeByEndpoints(eps), 120);
+    await model.markOk(eps);
+    assert.ok(widths.every((n) => n <= 50), '删行/记成功同样要分批：' + widths.join(','));
   });
 });

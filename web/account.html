@@ -71,7 +71,7 @@
                              .btn-row 默认三列会在只有 1~2 个按钮时留空档，这里改成按可见数量平分整行。
                              外层保留 id="notifyCard"：App 壳（安卓 / 鸿蒙）靠它整节撤掉，见 refreshNotify()。 -->
                         <div id="notifyCard" style="margin-top:24px; padding-top:22px; border-top:1px solid var(--separator);">
-                            <label class="form-label">通知</label>
+                            <label class="form-label">Web 端通知</label>
                             <p class="profile-sub" id="notifyStatus" style="margin:0 0 14px;">正在检查本机是否支持通知…</p>
                             <div class="btn-row" style="grid-template-columns:none; grid-auto-flow:column; grid-auto-columns:minmax(0,1fr);">
                                 <button class="btn btn-primary" id="notifyEnableBtn" type="button" onclick="enablePush()" hidden>开启通知</button>
@@ -167,6 +167,10 @@
                         <div class="collapse-body">
                             <p class="profile-sub" style="margin:0 0 14px;">页面样式错乱或显示异常时，清除本地缓存并重新加载整个应用。如果没有效果请清除应用数据或检查更新。</p>
                             <button class="btn btn-outline btn-block" id="reloadBtn" type="button" onclick="forceRefresh()">清除缓存并刷新</button>
+
+                            <!-- 本机通知开关状态 + 上次同步时间。App 壳专属（数据来自 CAHost.appStatus()），
+                                 网页版没有这个桥，这一行留空不显示；详见 refreshAppStatus()。 -->
+                            <p class="profile-sub" id="appStatusLine" style="margin:20px 0 0;"></p>
 
                             <p class="profile-sub" style="margin:20px 0 14px;">用最新一条真实活动 / 通知发一条测试推送，检查手机能否收到、点击能否跳到对应详情（需安装安卓 / 鸿蒙 App）。</p>
                             <!-- 一行两个按钮：.btn-row 默认三列，这里改两列 -->
@@ -604,6 +608,49 @@
         }, 0);
     }
     window.testPush = testPush;
+
+    // ===== 本机状态：通知有没有被系统关掉 + 上次同步时间 =====
+    // 数据来自 App 壳的 CAHost.appStatus()，它返回一个 JSON 字符串：
+    //   {"notifications":true,"lastSyncAt":1789300000000}
+    // 用字符串传是刻意的 —— 桥的返回值类型在各端解释不完全一致，字符串最稳；
+    // 而且两个值一次取回，省掉一次桥调用。网页版没有这个桥 → 整行不显示。
+    // 通知开关这一项最要紧：被系统关掉后，App 里所有本地提醒都会被静默丢弃，
+    // 用户在这一页看到的「已发送」其实是假的，所以这里要说清而不是留白。
+    function formatSyncTime(ms) {
+        var d = new Date(ms);
+        var p = function (n) { return (n < 10 ? '0' : '') + n; };
+        var clock = p(d.getHours()) + ':' + p(d.getMinutes());
+        var today = new Date();
+        function sameDay(a, b) {
+            return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+        }
+        if (sameDay(d, today)) return '今天 ' + clock;
+        if (sameDay(d, new Date(today.getTime() - 24 * 3600 * 1000))) return '昨天 ' + clock;
+        return (d.getMonth() + 1) + '-' + d.getDate() + ' ' + clock;
+    }
+
+    function refreshAppStatus() {
+        var el = notifyEl('appStatusLine');
+        if (!el) return;
+        el.textContent = '';
+        if (!window.CAHost || typeof CAHost.appStatus !== 'function') return;
+        var info = null;
+        try { info = JSON.parse(CAHost.appStatus() || ''); } catch (e) { info = null; }
+        if (!info) return;
+        var parts = [];
+        parts.push(info.notifications
+            ? '本机通知：已开启'
+            : '本机通知：未开启，收不到任何提醒。请到「系统设置 → 通知」里允许「班级助理」发通知');
+        // lastSyncAt 为 0 = 这台设备还一次都没成功同步过
+        parts.push(info.lastSyncAt ? '上次同步：' + formatSyncTime(info.lastSyncAt) : '上次同步：还没有成功同步过');
+        el.textContent = parts.join('　·　');
+    }
+    refreshAppStatus();
+
+    // 展开这一节时重取一次：页面是打开后停留很久的，上次同步时间会过期；
+    // 而用户点开这一节，通常正是要排查「为什么没收到提醒」。
+    var devHead = document.querySelector('#devCard .collapse-head');
+    if (devHead) devHead.addEventListener('click', function () { setTimeout(refreshAppStatus, 0); });
 
     // ===== 关于软件：版本号 + 检查更新 =====
     // App 内取原生版本号（安卓回传 BuildConfig.VERSION_NAME，鸿蒙回传 app.json5 的 versionName）；

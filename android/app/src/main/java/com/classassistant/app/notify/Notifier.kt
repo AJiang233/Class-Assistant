@@ -22,6 +22,15 @@ object Notifier {
     /** 点通知要直达的页面深链（?view=…&id=…），MainActivity 启动时拼到站点地址后面 */
     const val EXTRA_DEEP_LINK = "ca_deep_link"
 
+    /**
+     * 系统里「本应用能不能发通知」。Android 13+ 是用户在权限弹窗里选的，
+     * 更早的版本是通知渠道被关掉 —— areNotificationsEnabled() 两类都覆盖。
+     * 关掉之后 notify() 会抛 SecurityException（见下面 send 的 catch），也就是所有本地提醒
+     * 都被默默丢掉；个人页要能把这件事说出来（见 HostBridge.appStatus），所以单独查一次。
+     */
+    fun notificationsEnabled(context: Context): Boolean =
+        NotificationManagerCompat.from(context).areNotificationsEnabled()
+
     fun ensureChannels(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val manager = context.getSystemService(NotificationManager::class.java) ?: return
@@ -98,7 +107,8 @@ object Notifier {
         try {
             NotificationManagerCompat.from(context).notify(id, notification)
         } catch (e: SecurityException) {
-            // 用户未授予通知权限，静默跳过
+            // 用户未授予通知权限，静默跳过。这条提醒就这么没了 —— 个人页会显示
+            // 「本机通知：未开启」把原因指出来（见 Notifier.notificationsEnabled / HostBridge.appStatus）
         }
     }
 }

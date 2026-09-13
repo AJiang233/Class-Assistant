@@ -27,6 +27,12 @@ interface ThemeData {
   dark: boolean;
 }
 
+/** CAHost.appStatus() 回给网页的 JSON 结构，契约见 web/account.html 的 refreshAppStatus() */
+interface AppStatus {
+  notifications: boolean;
+  lastSyncAt: number;
+}
+
 /** 从常量地址里取主机名（地址都写死在 Constants 里，不为此引地址解析库） */
 function hostOf(origin: string): string {
   return origin.replace(/^https?:\/\//, '').split('/')[0].toLowerCase();
@@ -112,6 +118,34 @@ class HostBridge {
   }
 
   /**
+   * 个人页「开发功能」那一行状态：本机通知开没开 + 上次同步时间，对应安卓端 HostBridge.appStatus。
+   *
+   * 返回 JSON 字符串而不是两个布尔/长整型参数 —— 桥的返回值类型在各端解释不完全一致，
+   * 字符串最稳，而且一次取回省掉一次桥调用。契约见 web/account.html 的 refreshAppStatus()：
+   *   {"notifications":true,"lastSyncAt":1789300000000}
+   * lastSyncAt 为 0 表示这台设备一次都没成功同步过（由 SyncService 写入，见 Store.getLastSyncTimeSync）。
+   * 通知开关这一项最要紧：关掉后 NoticeService.send 里 publish 的异常被静默吞掉，
+   * 个人页再显示「已发送」就是骗人，所以这里如实报出来。
+   */
+  appStatus(): string {
+    if (!this.fromAppPage()) {
+      return '';
+    }
+    let enabled: boolean = false;
+    try {
+      enabled = notificationManager.isNotificationEnabledSync();
+    } catch (e) {
+      // 查询本身失败时保守报「未开启」：让用户去系统设置确认，总好过谎报已开启
+      enabled = false;
+    }
+    const status: AppStatus = {
+      notifications: enabled,
+      lastSyncAt: Store.getLastSyncTimeSync()
+    };
+    return JSON.stringify(status);
+  }
+
+  /**
    * 个人页「推送通知测试」：用最新一条真实活动 / 通知发一条本地通知，让用户自查推送是否可达、
    * 点通知能否跳到对应详情。kind 为 "activity" / "notice"。
    * 桥方法必须同步返回，而拉数据要发网络请求，所以这里只能同步做一件事：本地没 token 时
@@ -124,6 +158,16 @@ class HostBridge {
     }
     if (Store.getTokenSync().length === 0) {
       return '请先登录后再测试推送';
+    }
+    // 通知权限被关掉时，NoticeService.send 里 publish 的异常会被静默吞掉，
+    // 网页那边只能显示「已发送」—— 用户去通知栏找不到东西，只会以为推送坏了。
+    // 所以同步查一次权限，把真实原因说出来（与安卓端 SyncWorker.pushTestNotification 同一句话）。
+    try {
+      if (!notificationManager.isNotificationEnabledSync()) {
+        return '通知权限未开启，收不到提醒。请到「系统设置 → 通知」里允许「班级助理」发通知';
+      }
+    } catch (e) {
+      // 查询本身失败就不拦，照常尝试推送
     }
     SyncService.pushTestNotification(kind);
     return '';
