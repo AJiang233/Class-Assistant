@@ -228,7 +228,7 @@ manifest 声明 `foregroundServiceType="dataSync|specialUse"`（`specialUse` 的
 | 个人中心卡片 | ✅ 三项状态如实：「运行中；还没允许后台运行 —— 手机放着不动时系统会掐掉网络；系统把它当「活跃应用」」 |
 | 开关 | ✅ 关掉 → 服务与通知一起消失；再打开 → 服务回来 |
 | 厂商入口 | ✅ 在这台机器上真的跳到了 `com.miui.securitycenter/com.miui.permcenter.autostart.AutoStartManagementActivity`（表里第一条就命中了） |
-| **深 Doze** | ❌ **一轮都没有**。`dumpsys deviceidle force-idle` 后 `mState=IDLE`，服务记录仍在（没被杀），但计时器不跑；`unforce` + 唤醒后立刻补上一轮 |
+| **深 Doze** | ❌ **一轮都没有**（此时还没有兜底闹钟）。`dumpsys deviceidle force-idle` 后 `mState=IDLE`，服务记录仍在（没被杀），但计时器不跑；`unforce` + 唤醒后立刻补上一轮 |
 
 ### 深 Doze 那条是这次验证最有价值的发现
 
@@ -259,6 +259,47 @@ manifest 声明 `foregroundServiceType="dataSync|specialUse"`（`specialUse` 的
   免得白跑一轮请求、基线还被两边各写一次。
 
 于是「手机放着不动」这条链变成：**白名单（用户点一下，网络）+ 闹钟（代码，CPU）**，缺一条都不行。
+
+### 第二轮机验（0.2.5）
+
+装 0.2.5（同一套 CI 流程）后分两块验：
+
+**① 端到端：新通知真的会弹出来 —— 通过**
+
+用 `wrangler d1 execute --remote --file=...` 往生产库插一条**只点名本人**的测试通知（验完即删，别人的列表里看不到），
+然后什么都不做，等应用自己发现它：
+
+| 时刻 | 事件 |
+|---|---|
+| 04:05:39 | 插入通知（`publish_time = datetime('now')`，`remind_people = '["刘科江"]'`） |
+| 04:10:19 之前 | 通知栏出现它：`pkg=com.classassistant.app id=100007 channel=class_notice_v2 importance=4 flags=AUTO_CANCEL` |
+
+`id=100007` 正是 `NOTICE_ID_BASE + 7`，`importance=4` 是 HIGH（会弹横幅），渠道也对。
+**3 分钟那一轮真的发现了新内容并弹了出来**，`pickFresh` 那套基线判定在真机上也对。
+
+> 中间差点误判成 bug：先插的第 6 条一直没弹。实际是我随后跑了一次 `am force-stop` ——
+> **强停应用会连它的通知一起清掉**，第 6 条其实弹过了。这一条值得记着，以后别自己制造假故障。
+
+**② 深 Doze 的闹钟 —— 部分通过，还有一个没查清的疑点**
+
+| 场景 | 结果 |
+|---|---|
+| 不在 Doze（屏幕亮着） | ✅ 闹钟到点投递成功，日志有「闹钟到了，但设备不在深 Doze」，接收器按预期跳过（定时器此刻是准的） |
+| `force-idle` 深 Doze | ⚠️ **闹钟排上了、到点却凭空消失**：没有接收器日志、没有续排、`dumpsys alarm` 里也没了；全程开着 `adb logcat *:V` 落盘，**没有任何一行 AlarmManager 提到我们这个包**，Alarm Stats 里也没有我们的 uid —— 说明它不是在投递时失败，而像是被撤掉了 |
+
+同一条 `setAndAllowWhileIdle` 在 Doze 外能投递、在 `force-idle` 下消失，所以**先怀疑是 `force-idle` 这个人为状态的特殊性**
+（它是 adb 强制的 IDLE，和自然进 Doze 未必等价），但**没有证据**，不能就这么下结论。
+
+因此补了两处（都已提交，等下一轮验）：
+- 接收器入口**无条件**打一行日志（`闹钟到了：action=… 深Doze=…`）。原来只在「不在 Doze」那一支有日志，
+  于是「投递了但什么都没干」和「压根没投递」在日志里长得一模一样 —— 这次就吃了这个亏。
+- `scheduleDozeWake` 从 `if (!loopStarted)` 里挪出来，**每次 `onStartCommand` 都续排一次**。
+  原来只在服务首次启动时排一次，闹钟一旦被系统撤掉就再也没人补上。
+
+下一步要确认的：让设备**自然**进入 Doze（不 `force-idle`，即关屏静置半小时以上）再看一次闹钟投递；
+若仍然消失，就得换机制 —— 候选是 `setExactAndAllowWhileIdle`（要引导用户开「闹钟与提醒」特殊权限），
+或者干脆承认「深 Doze 期间不保证」，把力气花在「用户拿起手机那一刻立刻补上」这条已经成立的路径上。
+
 
 
 

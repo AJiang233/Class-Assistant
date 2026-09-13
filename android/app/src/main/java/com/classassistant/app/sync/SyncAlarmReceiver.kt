@@ -29,6 +29,9 @@ import com.classassistant.app.data.Store
 class SyncAlarmReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
+        // 这一层没有别的可观测点：闹钟来了没有、来了有没有干活，全靠这一行（adb logcat -s CABackground）。
+        // 放在所有判断之前 —— 「闹钟到点但什么都没发生」正是最难查的那种情况。
+        Log.i(TAG, "闹钟到了：action=${intent.action} 深Doze=${isDeviceIdle(context)}")
         if (intent.action != ACTION_DOZE_WAKE) return
 
         // 先把下一轮排上：这一轮无论成败（甚至下面直接 return）都不能把链条断掉

@@ -60,11 +60,11 @@ class BackgroundSyncService : Service() {
                 BackgroundMode.INTERVAL_MINUTES,
                 TimeUnit.MINUTES
             )
-            // 上面那个定时器叫不醒睡着的 CPU（深 Doze 会把 CPU 一起挂起），
-            // 所以另排一个「深 Doze 兜底」的闹钟。它自己每轮会重新排，这里只负责起头 ——
-            // 覆盖了「打开 App / 登录 / 开机 / 覆盖安装」四条进入路径（它们都会走到这里）
-            BackgroundMode.scheduleDozeWake(this)
         }
+        // 上面那个定时器叫不醒睡着的 CPU（深 Doze 会把 CPU 一起挂起），所以另排一个「深 Doze 兜底」的闹钟。
+        // 放在 loopStarted 判断**外面**：闹钟有可能被系统撤掉（实测遇过一次，闹钟凭空消失且没有任何日志），
+        // 而 onStartCommand 是唯一一个「反正会被调到」的位置 —— 每次进来都续排一次，重复排只是覆盖。
+        BackgroundMode.scheduleDozeWake(this)
         // 被系统按内存回收后让系统重建它；ROM 的「一键清理」是强停，这条救不回来（见类注释）
         return START_STICKY
     }
