@@ -300,6 +300,17 @@ manifest 声明 `foregroundServiceType="dataSync|specialUse"`（`specialUse` 的
 若仍然消失，就得换机制 —— 候选是 `setExactAndAllowWhileIdle`（要引导用户开「闹钟与提醒」特殊权限），
 或者干脆承认「深 Doze 期间不保证」，把力气花在「用户拿起手机那一刻立刻补上」这条已经成立的路径上。
 
+### 发布
+
+- **v0.2.6**（`versionCode 206`，tag 指向 `16656ee`）：APK
+  `https://github.com/AJiang233/Class-Assistant/releases/download/v0.2.6/ClassAssistant-0.2.6.apk`
+- `web/version.json` 的 `android` 段已同步指向它（否则「个人中心 → 关于软件 → 检查更新」读不到）
+- release 说明里**如实写了已知问题**（深 Doze 未查清、划掉任务卡片会失效、自启动状态读不到、到点提醒不受影响），
+  口径是「让同学知道遇到什么该反馈」，不是宣传
+- 0.2.4 / 0.2.5 是内部验证构建（未发布），所以对外是从 0.2.3 直接到 0.2.6
+- 顺带产出一份给鸿蒙协作者的交接文档：`HarmonyOS/ANDROID-PARITY.md`
+
+
 
 
 
