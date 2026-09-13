@@ -129,7 +129,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         /**
-         * 网页据此读 version.json 里自己那段（android / ios / harmony）。
+         * 网页据此读 version.json 里自己那段（android / harmony）。
          * 纯网页版没有这个桥，也就不会去读任何一段。
          */
         @JavascriptInterface

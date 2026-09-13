@@ -37,7 +37,7 @@ web/                            # Cloudflare Pages 项目根目录（直接部�
 ├── schema.sql                  # D1 表结构
 ├── wrangler.toml               # 本地开发绑定（DB / JWT_SECRET，生产绑定在 Pages 面板配置）
 ├── package.json                # wrangler devDependency + 脚本（dev / deploy / db）
-├── version.json                # 「关于软件 → 检查更新」的数据源：按端分段（android / ios / harmony）的最新版本号 + 安装包稳定直链（发版时更新对应那段）
+├── version.json                # 「关于软件 → 检查更新」的数据源：按端分段（android / harmony）的最新版本号 + 安装包稳定直链（发版时更新对应那段）
 └── README.md
 ```
 
@@ -470,7 +470,7 @@ CREATE INDEX IF NOT EXISTS idx_form_submissions_form ON form_submissions(form_id
 3. **一键建表**：新库 `npm run db:remote`；已有库可执行 `npm run db:migrate`（清掉误写入的预置职位名）、`npm run db:migrate:mfa`（MFA 试错计数），再按需补其它历史迁移
 4. **自定义域名**：Pages → Custom domains → 添加域名，在域名商把 CNAME 指向 `<项目名>.pages.dev`
 5. **部署**：`cd web; npm install; npm run deploy`（`wrangler pages deploy .`），或关联 git 仓库 push 自动构建
-6. **发版后更新 `version.json` 对应那段**：`version.json` 按端分成 `android` / `ios` / `harmony` 三段，页面先问原生桥 `CAHost.platform()` 自己是什么端、只读自己那段（纯网页版没有桥，一段都不读）。
+6. **发版后更新 `version.json` 对应那段**：`version.json` 按端分成 `android` / `harmony` 两段，页面先问原生桥 `CAHost.platform()` 自己是什么端、只读自己那段（纯网页版没有桥，一段都不读）。
    `build-android.yml` 注入 `version_name` 并产出 APK，发布 Release 后把 `android` 段的 `version`（与该次 `version_name` 一致）与 `url` 改成该版本的稳定直链
    `https://github.com/AJiang233/Class-Assistant/releases/download/<tag>/<文件名>`。
    不要填 Release 页上 `release-assets.githubusercontent.com/...` 那种带签名的临时地址（几十分钟即过期）。
