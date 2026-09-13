@@ -25,10 +25,16 @@
 
       代价说清楚：这几个主机上的流量可能以明文传输（含教务会话 Cookie），
       这是校方服务器只提供 http 造成的，客户端没法单方面改成 https。
+
+      每个 <domain> 都必须显式写 includeSubdomains="false"。它与不写等价（只匹配主机本身、
+      不含子域），但不写会被 lint 判成 Fatal：NetworkSecurityConfig 规则报
+      「Missing includeSubdomains attribute」，lintVitalRelease 一挂，release 构建就出不来。
+      别为了让 lint 闭嘴改成 "true" —— 那正好把明文放行扩到这几个主机的全部子域，
+      与上面「逐个点名」的取舍正好相反。
     -->
     <domain-config cleartextTrafficPermitted="true">
-        <domain>authserver.njau.edu.cn</domain>
-        <domain>workflow.njau.edu.cn</domain>
-        <domain>szjw.njau.edu.cn</domain>
+        <domain includeSubdomains="false">authserver.njau.edu.cn</domain>
+        <domain includeSubdomains="false">workflow.njau.edu.cn</domain>
+        <domain includeSubdomains="false">szjw.njau.edu.cn</domain>
     </domain-config>
 </network-security-config>
