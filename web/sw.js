@@ -75,7 +75,12 @@ self.addEventListener('fetch', function (event) {
 
   event.respondWith((async function () {
     try {
-      const fresh = await fetch(request);
+      // cache: 'no-cache' 是必须的，不是可选的优化：
+      // 本域名的 CDN 会把 /assets/*、/sw.js 的 Cache-Control 改写成 max-age=14400（4 小时），
+      // 而 fetch(request) 默认吃浏览器的 HTTP 缓存 —— 那样这里的「network-first」会退化成
+      // 「拿最多 4 小时前的旧 CSS/JS」，出现「新页面结构 + 旧样式」。
+      // 带上 no-cache 强制回源校验：没变就是 304，代价很小。
+      const fresh = await fetch(request, { cache: 'no-cache' });
       if (cacheable(request, fresh)) {
         const cache = await caches.open(CACHE);
         cache.put(request, fresh.clone());

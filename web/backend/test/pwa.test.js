@@ -101,6 +101,16 @@ test('联网时页面走网络，并写入缓存', async () => {
   assert.ok(sw.stores.get('ca-shell-v1').has(ORIGIN + '/index.html'));
 });
 
+test('同源请求强制回源校验，不吃浏览器 HTTP 缓存', async () => {
+  // 本域名的 CDN 会把 /assets/*、/sw.js 的 Cache-Control 改写成 max-age=14400，
+  // 不带 cache: 'no-cache' 的话「network-first」会退化成拿最多 4 小时前的旧文件。
+  const inits = [];
+  const sw = loadSW(async (request, init) => { inits.push(init); return ok('fresh'); });
+  await fire(sw.handlers.fetch, new Request(ORIGIN + '/assets/css/style.css')).promise;
+  assert.equal(inits.length, 1);
+  assert.equal(inits[0] && inits[0].cache, 'no-cache');
+});
+
 test('失败响应（500）不写入缓存', async () => {
   const sw = loadSW(async () => new Response('boom', { status: 500 }));
   const got = fire(sw.handlers.fetch, new Request(ORIGIN + '/index.html'));
