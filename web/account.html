@@ -380,15 +380,6 @@
     }
     /** 本机是否具备收推送的前提（不含服务端是否配置） */
     function detectPushCapability() {
-        // 原生壳（安卓 / 鸿蒙 App）自带推送通道，网页这套 Push API 在 WebView 里点不通，
-        // 与其给一个必然失败的按钮，不如直接说明
-        if (inNativeShell()) {
-            return {
-                ok: false,
-                status: '当前在 App 内，通知由 App 直接推送。',
-                hint: '不需要在这里开启，班级通知会由 App 自己送达。'
-            };
-        }
         if (!('serviceWorker' in navigator) || !('Notification' in window)) {
             return { ok: false, status: '此浏览器不支持通知。', hint: '班级消息请在群里查看。' };
         }
@@ -447,7 +438,9 @@
         // 「本机没有可用的推送通道」并提 iOS 16.4 —— 对着一个明明能收通知的 App 用户说这话是错的。
         // 所以直接在 App 里撤掉整张卡片（App 自己的通知测试在下面「开发功能」里，走 CAHost）。
         // 这段必须在第一个 await 之前：放在后面的话卡片会先画出来再消失。
-        if (window.CAHost && typeof window.CAHost.platform === 'function') {
+        // 判定复用 app.js 的 inNativeShell()（只看有没有 CAHost 桥），
+        // 这样没带 CAHost.platform 的旧版 App 也能被兜住。
+        if (inNativeShell()) {
             var appCard = notifyEl('notifyCard');
             if (appCard) appCard.remove();
             return;
