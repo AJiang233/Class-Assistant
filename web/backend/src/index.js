@@ -4,6 +4,7 @@ import { activityRoutes } from './routes/activities.js';
 import { calendarRoutes } from './routes/calendar.js';
 import { academicRoutes } from './routes/academic.js';
 import { formRoutes } from './routes/forms.js';
+import { pushRoutes } from './routes/push.js';
 import { handleCors, corsResponse } from './middleware/cors.js';
 import { logger } from './middleware/logger.js';
 
@@ -45,6 +46,10 @@ export default {
 
     // 表单路由
     response = await formRoutes(request, env, ctx);
+    if (response) return addCors(response, request);
+
+    // Web Push 路由
+    response = await pushRoutes(request, env, ctx);
     if (response) return addCors(response, request);
 
     // 404

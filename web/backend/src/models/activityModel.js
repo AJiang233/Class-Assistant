@@ -12,11 +12,12 @@ export class ActivityModel {
    */
   async create(data) {
     const { title, content = '', location = '', start_time, end_time = '', publisher, remind_people = null } = data;
-    const result = await this.db.prepare(
+    const row = await this.db.prepare(
       `INSERT INTO activities (title, content, location, start_time, end_time, publisher, remind_people)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).bind(title, content, location, start_time, end_time, publisher, remind_people).run();
-    return result;
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       RETURNING id`
+    ).bind(title, content, location, start_time, end_time, publisher, remind_people).first();
+    return row ? row.id : null;
   }
 
   /**

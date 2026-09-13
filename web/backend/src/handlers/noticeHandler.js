@@ -4,11 +4,12 @@ import { toLocalDateTime } from '../utils/datetime.js';
 import { pageLimit, pageOffset } from '../utils/query.js';
 import { isSafeLink } from '../utils/link.js';
 import { listByAudience } from '../utils/audience.js';
+import { pushToRemindAudience } from '../utils/push.js';
 
 /**
  * 发布通知（需登录）
  */
-export async function handleCreateNotice(request, env, user) {
+export async function handleCreateNotice(request, env, user, ctx) {
   try {
     const body = await request.json();
     const { title, content, publish_time, remind_people = null, expire_time = null, link = null } = body;
@@ -20,16 +21,26 @@ export async function handleCreateNotice(request, env, user) {
       return jsonResponse(error('跳转地址只能是站内路径', 'INVALID_LINK'), 400);
     }
 
+    const remind = remind_people ? JSON.stringify(remind_people) : null;
     const noticeModel = new NoticeModel(env.DB);
-    await noticeModel.create({
+    const noticeId = await noticeModel.create({
       title,
       content,
       publish_time: toLocalDateTime(publish_time),
       publisher: user.name,
-      remind_people: remind_people ? JSON.stringify(remind_people) : null,
+      remind_people: remind,
       source: 'manual',
       expire_time: toLocalDateTime(expire_time),
       link: link ? String(link).trim() : null
+    });
+
+    // 推送：收件人与通知列表同一判定（utils/audience.js），发送在 waitUntil 里不拖慢响应
+    await pushToRemindAudience(env, ctx, remind, {
+      title: String(title),
+      body: excerpt(content),
+      url: noticeId ? '/?view=notices&id=' + noticeId : '/?view=notices',
+      tag: noticeId ? 'notice-' + noticeId : undefined,
+      excludeUserId: user.id
     });
 
     return jsonResponse(success({ message: '通知发布成功' }), 201);
@@ -37,6 +48,12 @@ export async function handleCreateNotice(request, env, user) {
     console.error('发布通知失败:', e);
     return jsonResponse(error('发布通知失败', 'CREATE_NOTICE_FAILED'), 500);
   }
+}
+
+/** 通知正文在锁屏上只显示一两行，截一段就够，避免整段长文塞进推送 */
+function excerpt(text, max = 80) {
+  const s = String(text == null ? '' : text).replace(/\s+/g, ' ').trim();
+  return s.length > max ? s.slice(0, max) + '…' : s;
 }
 
 /**
