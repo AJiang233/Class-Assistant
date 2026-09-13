@@ -2,7 +2,7 @@
 
 一个面向「班长」角色的 AI 助理系统：把转发通知、活动提醒、同学答疑、材料催收等机械化的班级事务，逐步交给 AI 与自动化流程完成。
 
-目前状态：**Web 门户与安卓端已可用**（账号体系 / 通知与活动管理 / 移动端适配 / 系统日历订阅 / 安卓本地提醒与桌面小组件），并已完成一轮安全加固；Go 常驻调度进程已跑通封存自检骨架，Agent / 爬虫 / 知识库等模块在逐步建设中。
+目前状态：**Web 门户与安卓端、鸿蒙端已可用**（账号体系 / 通知与活动管理 / 移动端适配 / 系统日历订阅 / 安卓与鸿蒙的本地提醒、桌面小组件），并已完成一轮安全加固；Go 常驻调度进程已跑通封存自检骨架，Agent / 爬虫 / 知识库等模块在逐步建设中。
 
 ## 项目背景
 
@@ -13,10 +13,10 @@
 - 通知抓取与归档：轮询班级工作群，拉取新通知并结构化归档（规划中）
 - 智能转发：根据通知内容判断是否需要转发到班级群，并支持人工复核（规划中）
 - 知识库问答：爬取学生手册、教务处文件等归档进 RAG，群内 @ 助手即可答疑（规划中）
-- 日程与提醒：✅ 已落地两条路径 —— 系统日历订阅（全平台通用）、安卓本地到点提醒
+- 日程与提醒：✅ 已落地两条路径 —— 系统日历订阅（全平台通用）、安卓 / 鸿蒙本地到点提醒
 - 个性化门户：✅ Cloudflare 网站 + 账号体系，按职位/角色展示内容与权限
 - 教务数据同步：✅ 同步个人课表与学业达成（学分看板）；绑定支持 App 一键、学号密码代登录、手动粘贴 Cookie 三条路径
-- 移动端：✅ 安卓原生套壳（WebView + 本地提醒 + 桌面小组件）；iOS / 鸿蒙通过 Web + 系统日历订阅覆盖
+- 移动端：✅ 安卓原生套壳（WebView + 本地提醒 + 桌面小组件）、鸿蒙原生套壳（ArkWeb + 系统提醒 + 服务卡片）；iOS 通过 Web + 系统日历订阅覆盖
 
 ## 技术架构
 
@@ -24,8 +24,9 @@
 | --- | --- |
 | 门户网站（已完成） | Cloudflare Pages（静态前端 + Functions 后端 + D1 数据库） |
 | 鉴权 / 权限 | JWT（HS256）+ PBKDF2 密码哈希；按职位 + 自定义职位分级权限 |
-| 测试 | Web：Node 原生 `node --test`（`web/backend/test/`）；Go：标准库 `testing`（`internal/` 下各包单测） |
-| 移动端（已完成） | Android：Kotlin + WebView 套壳，WorkManager 定期同步 + AlarmManager 到点提醒 + AppWidget 桌面小组件 |
+| 测试 | Web：Node 原生 `node --test`（`web/backend/test/`）；Go：标准库 `testing`（`internal/` 下各包单测）；移动端暂无自动化测试（安卓改动靠 CI 构建校验，鸿蒙需用 DevEco 手动构建） |
+| 移动端 — 安卓（已完成） | Kotlin + WebView 套壳，WorkManager 定期同步 + AlarmManager 到点提醒 + AppWidget 桌面小组件 |
+| 移动端 — 鸿蒙（已完成） | ArkTS + ArkWeb 套壳，workScheduler 周期同步 + reminderAgentManager 到点提醒 + 服务卡片（Form） |
 | 多端提醒（已完成） | 日历订阅 `.ics`（iOS / 鸿蒙 / Android / 桌面通用，无需安装 App） |
 | 常驻调度（骨架已跑通） | Go 1.22 进程（`cmd/scheduler` + `internal/`）：与 Worker 共用 Cookie 封存 / 学号比对 / 职位白名单 / 限流规则 |
 | Agent 编排 | OpenClaw（规划中） |
@@ -45,7 +46,8 @@ class-assistant/
 ├── internal/       # 与 Worker 对齐的 Go 规则（vault / identity / roles / ratelimit）
 ├── go.mod          # Go 模块（go 1.22，模块路径 github.com/AJiang233/Class-Assistant）
 ├── web/            # Cloudflare Pages 门户（前端 + Functions 后端 + D1，已上线）
-└── android/        # 安卓端（Kotlin，WebView + 本地提醒 + 桌面小组件）
+├── android/        # 安卓端（Kotlin，WebView + 本地提醒 + 桌面小组件）
+└── HarmonyOS/      # 鸿蒙端（ArkTS，ArkWeb + 系统提醒 + 服务卡片）
 ```
 
 ## 当前状态
@@ -54,7 +56,7 @@ class-assistant/
 
 - **账号与权限**：学号 + 密码登录（PBKDF2 加盐哈希）、JWT 鉴权；班长/团支书/学习委员等预设职位 + 自定义职位权限，支持一人多职位（权限取并集）；成员管理、修改密码、个人资料（联系方式）自助修改
 - **内容管理**：通知与活动的发布 / 编辑 / 删除（统一弹窗表单）、通知过期自动隐藏与归档查看、提醒对象选择（支持按职位一键全选，如「通知所有团员」）
-- **界面体验**：液态玻璃设计（浅色 / 深色双主题）、响应式布局（小屏隐藏侧栏、改为底部导航，并针对手机做字号密度适配）、班级主页（日历 + 当日通知/活动 + 详情弹窗）、折叠式管理员面板（左栏发布内容 / 右栏管理成员）、个人中心强制刷新（清缓存重载，修复样式错乱）与「关于软件」卡片（版本号 / 检查更新 / 项目仓库 /开发者）
+- **界面体验**：液态玻璃设计（浅色 / 深色双主题）、响应式布局（小屏隐藏侧栏、改为底部导航，并针对手机做字号密度适配）、班级主页（日历 + 当日通知/活动 + 详情弹窗）、折叠式管理员面板（左栏发布内容 / 右栏管理成员）、个人中心强制刷新（清缓存重载，修复样式错乱）与「关于软件」卡片（版本号 / 检查更新 / 项目仓库 / 开发者）
 - **日历订阅**：一键生成 `.ics` 订阅链接，可自定义「提前提醒时间 / 包含过去与未来的范围 / 是否包含班级通知」，并支持重置密钥
 - **课表与学业**：绑定教务系统后展示个人课表（节次网格、当前周高亮）、未安排课程与学业达成学分看板；数据经后端代理抓取并缓存进 D1。绑定有三条路径：App 内一键绑定、学号 + 密码代登录（复刻金智 CAS，密码用完即弃）、手动粘贴 Cookie
 - **安全加固**：登录 / 注册 / 改密统一校验密码长度（6–72 位）；系统预置职位（学生 / 班长 / 团支书 / 学习委员）不允许写入 `roles` 表（否则等于给全班提权），自定义职位只接受 `content:write` / `user:manage` 两个白名单权限点；教务绑定强制「教务学号 = 门户学号」；多因子验证码错满 5 次即作废本次中间态；教务会话 Cookie 与 MFA 中间态均 AES-GCM 封存
@@ -72,6 +74,18 @@ class-assistant/
 - 签名：正式 keystore 不进仓库（`.gitignore` 挡了 `*.jks` / `*.keystore`），只以 base64 存在仓库 Secrets：`KEYSTORE_BASE64`（keystore 的 base64）、`KEYSTORE_PASSWORD`、`KEY_ALIAS`、`KEY_PASSWORD`；密钥与口令务必另行备份，丢了就只能改包名、让所有人重装一次
 - 生成 keystore：`keytool -genkeypair -v -keystore release.jks -alias class-assistant -keyalg RSA -keysize 2048 -validity 10000`，再 `base64 -w0 release.jks`（PowerShell：`[Convert]::ToBase64String([IO.File]::ReadAllBytes("release.jks"))`）填进 `KEYSTORE_BASE64`
 - 发版：CI（`build-android.yml`）注入 `version_name`、从 Secrets 还原 keystore 后产出已签名的 release 包；发布 Release 后需同步更新 `web/version.json`（最新版本号 + APK 稳定直链），否则个人中心「检查更新」读不到，维护细节见 `web/README.md` 的部署一节
+
+### 鸿蒙端（`HarmonyOS/`）
+
+- **套壳与登录态**：ArkWeb 组件加载线上门户；网页 localStorage 里的 token 由注入脚本经 JS 桥 `CAHost` 回传到本地首选项，网页里退出登录会同步清掉本地凭据、已排提醒与卡片缓存
+- **下拉刷新**：门户是「固定外壳 + 内层滚动」结构，ArkWeb 组件拿不到真实滚动位置，改由页面内探针脚本判断「主页 + 无弹窗 + 已置顶」，再决定这次手势是刷新还是交还页面滚动
+- **系统栏配色**：状态栏 / 导航栏图标明暗跟随网页主题（探针回传页面底板明暗）
+- **本地提醒**：`workScheduler` 周期任务每小时后台同步（系统下限 30 分钟，需网络可用）；活动开始前 30 分钟用 `reminderAgentManager` 发布系统日历提醒，App 未打开或设备重启后仍能触发；同步发现新通知时聚合提醒一次。活动提醒与新通知分属两个通知槽位，可分别开关
+- **服务卡片**：名为「今日活动」，显示当天最多 3 条班级活动，支持 2×2 / 2×4 两种尺寸，点击直接打开 App；数据由同步任务写入本地缓存后推送，卡片渲染时不联网
+- **教务绑定**：与安卓同一条路径 —— 固定桌面 UA 打开教务登录页，登录完成后读教务域 Cookie 上报后端，成功则回到门户课表页
+- 适配 phone / tablet / 2in1；权限只申请 `INTERNET` / `GET_NETWORK_INFO` / `PUBLISH_AGENT_REMINDER`
+- 构建：用 DevEco Studio 打开 `HarmonyOS/` 目录构建（compatibleSdkVersion `5.0.0(12)`，runtimeOS HarmonyOS；仓库未带 hvigor wrapper 脚本，走 IDE 内置的 Hvigor）；签名材料由各开发者本地生成，`build-profile.json5` 的 `signingConfigs` 留空不入库
+- 与安卓端的差异：通知不带深链（点开只进 App），后台同步周期由系统调度，不保证准点
 
 ### 常驻调度进程（`cmd/scheduler` + `internal/`）
 
@@ -95,11 +109,13 @@ class-assistant/
 | AJiang233 | 后端 API / 鉴权与权限体系 / 通知与活动数据模型、安卓端（WebView 套壳、下拉刷新、本地提醒、桌面小组件、日历订阅）、CAS 代登录的 Cookie 罐（按域 + Path 存取）与会话换取判定、课表页错误分支兜底、前端 API 超时兜底、文档 |
 | TsoiTZF | Go 常驻调度（`cmd/scheduler` + `internal/`：Cookie 封存 / 学号比对 / 职位白名单 / 进程内限流，密文格式与 Worker 交叉验证）、安全审查与加固（教务越权、自定义职位提权、密码长度、MFA 次数上限） |
 | TidalStarNan | 架构迁移到 Cloudflare Pages（`functions/` 接管 `/api/*`）、Web 前端主体开发与移动端布局适配修复（班级主页 / 通知 / 活动 / 账号 / 管理员页面 / 弹窗）、安卓端 GitHub Actions 打包（APK 构建与版本号注入） |
+| juuuua | 鸿蒙端（ArkTS：ArkWeb 套壳与 `CAHost` JS 桥、workScheduler 后台同步、reminderAgentManager 到点提醒、服务卡片「今日活动」、教务绑定流程） |
 
 ## Roadmap
 
 - [x] 日历 / 待办 + 网站 + 账号体系（Web 基础功能已完成）
 - [x] 移动端：安卓 WebView 应用 + 本地提醒 + 桌面小组件
+- [x] 移动端：鸿蒙 ArkWeb 应用 + 系统提醒 + 服务卡片
 - [x] 多端提醒：系统日历订阅（iOS / 鸿蒙 / 桌面通用）
 - [x] 安全加固：鉴权与提权防护 / 教务越权 / MFA 次数上限
 - [x] Go 常驻调度骨架：封存自检 + 与 Worker 对齐的规则（`internal/`）
