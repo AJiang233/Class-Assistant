@@ -78,3 +78,13 @@ export function isSameDay(a: number, b: number): boolean {
     da.getMonth() === db.getMonth() &&
     da.getDate() === db.getDate();
 }
+
+/**
+ * 当天 00:00 的时间戳。
+ * 同步缓存的下限用它而不是「现在」：桌面卡片标题叫「今日活动」、只读这份缓存，
+ * 所以今天已经开始（甚至已经结束）的活动也得留在缓存里，否则正在进行的活动会显示成「今日暂无安排」。
+ */
+export function startOfToday(millis: number): number {
+  const d: Date = new Date(millis);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+}

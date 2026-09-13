@@ -73,19 +73,21 @@ class-assistant/
 - 构建：`cd android && ./gradlew assembleDebug`（产物在 `app/build/outputs/apk/debug/`）
 - 签名：正式 keystore 不进仓库（`.gitignore` 挡了 `*.jks` / `*.keystore`），只以 base64 存在仓库 Secrets：`KEYSTORE_BASE64`（keystore 的 base64）、`KEYSTORE_PASSWORD`、`KEY_ALIAS`、`KEY_PASSWORD`；密钥与口令务必另行备份，丢了就只能改包名、让所有人重装一次
 - 生成 keystore：`keytool -genkeypair -v -keystore release.jks -alias class-assistant -keyalg RSA -keysize 2048 -validity 10000`，再 `base64 -w0 release.jks`（PowerShell：`[Convert]::ToBase64String([IO.File]::ReadAllBytes("release.jks"))`）填进 `KEYSTORE_BASE64`
-- 发版：CI（`build-android.yml`）注入 `version_name`、从 Secrets 还原 keystore 后产出已签名的 release 包；发布 Release 后需同步更新 `web/version.json`（最新版本号 + APK 稳定直链），否则个人中心「检查更新」读不到，维护细节见 `web/README.md` 的部署一节
+- 发版：CI（`build-android.yml`）注入 `version_name`、从 Secrets 还原 keystore 后产出已签名的 release 包；发布 Release 后需同步更新 `web/version.json` 的 `android` 段（版本号 + APK 稳定直链），否则个人中心「检查更新」读不到，维护细节见 `web/README.md` 的部署一节
 
 ### 鸿蒙端（`HarmonyOS/`）
 
 - **套壳与登录态**：ArkWeb 组件加载线上门户；网页 localStorage 里的 token 由注入脚本经 JS 桥 `CAHost` 回传到本地首选项，网页里退出登录会同步清掉本地凭据、已排提醒与卡片缓存
+- **JS 桥**：`CAHost` 与安卓端对齐 —— `setPullRefreshReady` / `setToken` / `startAcademicLogin` / `setTheme`，外加 `platform()`（网页据此读 `version.json` 自己那段）、`appVersion()`、`testNotification()`；所有桥方法都先校验调用方是本应用页面，教务系统这类外部站点调不动，避免外部页面改本地 token 或触发教务绑定
+- **通知深链**：点提醒 / 通知直达对应活动、通知详情（`?view=activities&id=` / `?view=notices&id=`），App 未打开（冷启动读启动 `want`）与已在运行（`onNewWant`，对应安卓端 `onNewIntent`）都生效；通知 id 与安卓端同规则 —— 通知用 `100000 + 通知 id`，活动提醒直接用活动 id
 - **下拉刷新**：门户是「固定外壳 + 内层滚动」结构，ArkWeb 组件拿不到真实滚动位置，改由页面内探针脚本判断「主页 + 无弹窗 + 已置顶」，再决定这次手势是刷新还是交还页面滚动
 - **系统栏配色**：状态栏 / 导航栏图标明暗跟随网页主题（探针回传页面底板明暗）
-- **本地提醒**：`workScheduler` 周期任务每小时后台同步（系统下限 30 分钟，需网络可用）；活动开始前 30 分钟用 `reminderAgentManager` 发布系统日历提醒，App 未打开或设备重启后仍能触发；同步发现新通知时聚合提醒一次。活动提醒与新通知分属两个通知槽位，可分别开关
-- **服务卡片**：名为「今日活动」，显示当天最多 3 条班级活动，支持 2×2 / 2×4 两种尺寸，点击直接打开 App；数据由同步任务写入本地缓存后推送，卡片渲染时不联网
+- **本地提醒**：`workScheduler` 周期任务每小时后台同步（系统下限 30 分钟，需网络可用）；活动开始前 30 分钟用 `reminderAgentManager` 发布系统日历提醒，App 未打开或设备重启后仍能触发；同步到「已经进入提前量窗口」的活动会补一条立即提醒；同步发现新通知时逐条提醒、各带自己的详情深链（不再聚合）。活动提醒与新通知分属两个通知槽位，可分别开关
+- **服务卡片**：名为「今日活动」，显示当天最多 3 条班级活动（「现在及以后」的排在前面，还空着才补当天更早的），支持 2×2 / 2×4 两种尺寸，点击直接打开 App；数据由同步任务写入本地缓存后推送，卡片渲染时不联网
 - **教务绑定**：与安卓同一条路径 —— 固定桌面 UA 打开教务登录页，登录完成后读教务域 Cookie 上报后端，成功则回到门户课表页
 - 适配 phone / tablet / 2in1；权限只申请 `INTERNET` / `GET_NETWORK_INFO` / `PUBLISH_AGENT_REMINDER`
 - 构建：用 DevEco Studio 打开 `HarmonyOS/` 目录构建（compatibleSdkVersion `5.0.0(12)`，runtimeOS HarmonyOS；仓库未带 hvigor wrapper 脚本，走 IDE 内置的 Hvigor）；签名材料由各开发者本地生成，`build-profile.json5` 的 `signingConfigs` 留空不入库
-- 与安卓端的差异：通知不带深链（点开只进 App），后台同步周期由系统调度，不保证准点
+- 与安卓端的差异：后台同步与提醒周期由系统调度（`workScheduler` / `reminderAgentManager`），不保证准点；其余行为（通知 id、深链拼法、缓存下限、卡片排序、退出登录清理）都已与安卓端对齐
 
 ### 常驻调度进程（`cmd/scheduler` + `internal/`）
 

@@ -1,18 +1,18 @@
 import web_webview from '@ohos.web.webview';
 import { webview } from '@kit.ArkWeb';
 import { BusinessError } from '@ohos.base';
+import bundleManager from '@ohos.bundle.bundleManager';
 import promptAction from '@ohos.promptAction';
 import emitter from '@ohos.events.emitter';
 import common from '@ohos.app.ability.common';
 import notificationManager from '@ohos.notificationManager';
 import { Constants, BridgeEvents } from '../common/Constants';
+import { DeepLink } from '../common/DeepLink';
 import { SystemBar } from '../common/SystemBar';
 import { Store } from '../data/Store';
 import { Api } from '../net/Api';
 import { SyncService } from '../sync/SyncService';
 import { Scheduler } from '../sync/Scheduler';
-import { ReminderService } from '../remind/ReminderService';
-import { WidgetUpdater } from '../widget/WidgetUpdater';
 import { PROBE_JS } from './ProbeJs';
 
 interface ReadyData {
@@ -33,20 +33,83 @@ interface ThemeData {
  * 不直接操作 UI 状态。
  */
 class HostBridge {
+  /**
+   * 当前 WebView 主文档 URL（由页面 onPageBegin 更新）。桥方法据此判断调用方是不是本应用页面。
+   * Web 会导航到教务系统这类外部站点，而 javaScriptProxy 挂上的 CAHost 在那些页面里同样可调用 ——
+   * 不校验的话，外部页面可以改本地 token、甚至触发教务绑定流程（拿到教务 Cookie 后
+   * 上报到当前本地 token 名下）。与安卓端 MainActivity.fromAppPage 同一套判断。
+   */
+  currentUrl: string = '';
+
+  private fromAppPage(): boolean {
+    const url: string = this.currentUrl;
+    return url === Constants.START_URL ||
+      url.startsWith(Constants.START_URL + '/') ||
+      url.startsWith(Constants.START_URL + '?') ||
+      url.startsWith(Constants.START_URL + '#');
+  }
+
   setPullRefreshReady(ready: boolean): void {
+    if (!this.fromAppPage()) {
+      return;
+    }
     emitter.emit({ eventId: BridgeEvents.PULL_READY }, { data: { ready: ready } });
   }
 
   setToken(token: string): void {
+    if (!this.fromAppPage()) {
+      return;
+    }
     emitter.emit({ eventId: BridgeEvents.TOKEN }, { data: { token: token } });
   }
 
   startAcademicLogin(): void {
+    if (!this.fromAppPage()) {
+      return;
+    }
     emitter.emit({ eventId: BridgeEvents.ACADEMIC_START }, { data: {} });
   }
 
   setTheme(dark: boolean): void {
+    if (!this.fromAppPage()) {
+      return;
+    }
     emitter.emit({ eventId: BridgeEvents.THEME }, { data: { dark: dark } });
+  }
+
+  /** 网页据此读 version.json 里自己那段；没有桥（纯网页版）则不读任何一段 */
+  platform(): string {
+    if (!this.fromAppPage()) {
+      return '';
+    }
+    return Constants.PLATFORM;
+  }
+
+  /** 关于软件卡片显示的 App 版本号，对应安卓端 HostBridge.appVersion（BuildConfig.VERSION_NAME） */
+  appVersion(): string {
+    if (!this.fromAppPage()) {
+      return '';
+    }
+    try {
+      const info: bundleManager.BundleInfo =
+        bundleManager.getBundleInfoForSelfSync(bundleManager.BundleFlag.GET_BUNDLE_INFO_DEFAULT);
+      return info.versionName;
+    } catch (e) {
+      return '';
+    }
+  }
+
+  /**
+   * 个人页「推送通知测试」：用最新一条真实活动 / 通知发一条本地通知，让用户自查推送是否可达、
+   * 点通知能否跳到对应详情。kind 为 "activity" / "notice"。
+   * 桥方法必须同步返回，这里立刻给空串（网页那边会显示兜底提示），真正的请求与发送异步进行。
+   */
+  testNotification(kind: string): string {
+    if (!this.fromAppPage()) {
+      return '';
+    }
+    SyncService.pushTestNotification(kind);
+    return '';
   }
 }
 
@@ -65,6 +128,8 @@ struct Index {
   @State pullReady: boolean = true;
   @State isRefreshing: boolean = false;
   @State userAgent: string = '';
+  /** 起始地址：从通知/提醒点进来时是那条详情页，否则是主页 */
+  @State startSrc: string = Constants.START_URL;
   private defaultUserAgent: string = '';
   private academicLogin: boolean = false;
   private bindingInProgress: boolean = false;
@@ -73,6 +138,12 @@ struct Index {
   aboutToAppear(): void {
     const uiContext: common.UIAbilityContext = this.context;
     SystemBar.apply(uiContext, SystemBar.isSystemDark(uiContext));
+
+    // 冷启动带进来的深链（EntryAbility.onCreate 存的）只取一次，作为首屏地址
+    const pending: string = DeepLink.consume();
+    if (pending.length > 0) {
+      this.startSrc = DeepLink.toUrl(pending);
+    }
 
     emitter.on({ eventId: BridgeEvents.PULL_READY }, (eventData: emitter.EventData): void => {
       const data = eventData.data as ReadyData;
@@ -89,6 +160,9 @@ struct Index {
       const data = eventData.data as ThemeData;
       SystemBar.apply(this.context, data.dark);
     });
+    emitter.on({ eventId: BridgeEvents.DEEP_LINK }, (): void => {
+      this.applyDeepLink();
+    });
   }
 
   aboutToDisappear(): void {
@@ -96,6 +170,20 @@ struct Index {
     emitter.off(BridgeEvents.TOKEN);
     emitter.off(BridgeEvents.ACADEMIC_START);
     emitter.off(BridgeEvents.THEME);
+    emitter.off(BridgeEvents.DEEP_LINK);
+  }
+
+  /** App 已在运行时点通知/提醒：跳到对应详情页 */
+  private applyDeepLink(): void {
+    if (this.academicLogin) {
+      // 教务登录中途点通知：不打断登录流程（对应安卓端 onNewIntent 的判断）
+      return;
+    }
+    const deep: string = DeepLink.consume();
+    if (deep.length === 0) {
+      return;
+    }
+    this.controller.loadUrl(DeepLink.toUrl(deep));
   }
 
   /** 网页里的登录 token 变化时保存下来，并触发一次同步 */
@@ -103,9 +191,7 @@ struct Index {
     if (token.length === 0) {
       // 网页里退出了登录，本地也清掉，避免继续用旧身份提醒
       if ((await Store.getToken()).length > 0) {
-        await Store.clearSession();
-        await ReminderService.cancelAll();
-        await WidgetUpdater.refreshAll(this.context);
+        await SyncService.logOutSession(this.context);
       }
       return;
     }
@@ -236,7 +322,7 @@ struct Index {
   build() {
     Stack({ alignContent: Alignment.TopStart }) {
       Refresh({ refreshing: $$this.isRefreshing, offset: 36 }) {
-        Web({ src: Constants.START_URL, controller: this.controller })
+        Web({ src: this.startSrc, controller: this.controller })
           .width('100%')
           .height('100%')
           .javaScriptAccess(true)
@@ -248,7 +334,8 @@ struct Index {
           .javaScriptProxy({
             object: this.host,
             name: 'CAHost',
-            methodList: ['setPullRefreshReady', 'setToken', 'startAcademicLogin', 'setTheme'],
+            methodList: ['setPullRefreshReady', 'setToken', 'startAcademicLogin', 'setTheme',
+              'platform', 'appVersion', 'testNotification'],
             controller: this.controller
           })
           .onControllerAttached(() => {
@@ -258,8 +345,12 @@ struct Index {
               this.defaultUserAgent = '';
             }
           })
-          .onPageBegin(() => {
+          .onPageBegin((event?: OnPageBeginEvent) => {
             this.isRefreshing = true;
+            // 桥的来源校验依赖这个值，必须在本页脚本执行之前更新（只在主 frame 触发）
+            if (event !== undefined && event !== null) {
+              this.host.currentUrl = event.url;
+            }
           })
           .onPageEnd((event?: OnPageEndEvent) => {
             this.isRefreshing = false;

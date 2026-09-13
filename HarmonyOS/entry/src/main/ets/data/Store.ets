@@ -13,7 +13,6 @@ export class Store {
   private static readonly KEY_USER_ID: string = 'user_id';
   private static readonly KEY_USER_NAME: string = 'user_name';
   private static readonly KEY_LAST_NOTICE_TIME: string = 'last_notice_time';
-  private static readonly KEY_LAST_SYNC_AT: string = 'last_sync_at';
   private static readonly KEY_EVENTS: string = 'events';
   private static readonly KEY_FORM_IDS: string = 'form_ids';
   private static readonly KEY_REMINDER_MAP: string = 'reminder_map';
@@ -70,11 +69,21 @@ export class Store {
     return Store.getString(Store.KEY_USER_NAME);
   }
 
+  /**
+   * 退出登录：清凭据 + 同步缓存。
+   * events 不清的话，桌面卡片会继续显示上一个账号当天的活动；last_notice_time 不清的话，
+   * 换账号后首次同步会把历史通知当新的逐条补推（「首次同步只记基线」那一支进不去）；
+   * reminder_map 是已排提醒的账本，留着会被下一个账号拿去取消不存在的提醒。
+   * 注意：取消提醒与重绘卡片不在这里做 —— 退出登录请统一走 SyncService.logOutSession()。
+   */
   static async clearSession(): Promise<void> {
     const sp = Store.sp();
     await sp.delete(Store.KEY_TOKEN);
     await sp.delete(Store.KEY_USER_ID);
     await sp.delete(Store.KEY_USER_NAME);
+    await sp.delete(Store.KEY_EVENTS);
+    await sp.delete(Store.KEY_LAST_NOTICE_TIME);
+    await sp.delete(Store.KEY_REMINDER_MAP);
     await sp.flush();
   }
 
@@ -87,16 +96,6 @@ export class Store {
 
   static async setLastNoticeTime(value: number): Promise<void> {
     await Store.sp().put(Store.KEY_LAST_NOTICE_TIME, value);
-    await Store.sp().flush();
-  }
-
-  static async getLastSyncAt(): Promise<number> {
-    const value = await Store.sp().get(Store.KEY_LAST_SYNC_AT, 0);
-    return value as number;
-  }
-
-  static async markSynced(): Promise<void> {
-    await Store.sp().put(Store.KEY_LAST_SYNC_AT, Date.now());
     await Store.sp().flush();
   }
 
