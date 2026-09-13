@@ -298,6 +298,25 @@
 - VAPID 密钥对已生成并写入 Pages Secrets（项目 `class-assistant` 的 `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT`；私钥未落仓库、未打印，`VAPID_SUBJECT` 用的是 `mailto:lkjlkjlkj123456789@163.com`，需要改随时可换）
 - 远程 D1 已执行 `2026-09-13-push.sql`，`push_subscriptions` 表与 `idx_push_subs_user` 索引已确认存在
 
+### 上线后发现并修复：CDN 覆盖了 `_headers`
+
+上生产后实测发现，本域名的 CDN 会把「默认可缓存扩展名」（`.js` / `.css` / `.png`）的 `Cache-Control` 改写掉：
+
+| 路径 | `_headers` 写的 | 线上实际 |
+|---|---|---|
+| `/sw.js` | `no-cache` | `max-age=14400` |
+| `/assets/*` | `public, max-age=0, must-revalidate` | `public, max-age=14400, must-revalidate` |
+| `/manifest.json`、`/*.html`、`/` | — | 原样生效（`.json` / `.html` 不在那类扩展名里） |
+
+推测是该域名的 **Browser Cache TTL = 4 小时**。后果：HTML 每次校验拿到的都是新的，但 `/assets/*` 最多可能旧 4 小时 →「新页面结构 + 旧样式」。**这是本次改动之前就存在的**（老的 `/assets/*` 规则同样被改写），不是新增问题。
+
+选择「不动 CDN 设置，在代码层解决」：
+
+- `sw.js` 的 fetch 改成 `fetch(request, { cache: 'no-cache' })`，强制回源校验（未变即 304，代价很小），让 network-first 名副其实
+- `app.js` 注册 SW 时加 `updateViaCache: 'none'`，`sw.js` 脚本本身也不吃 HTTP 缓存
+
+边界（如实记录）：首次访问、SW 还没接管的用户仍受 CDN 的 4 小时影响；要彻底解决得把该域名的 Browser Cache TTL 改为 Respect Existing Headers。
+
 ### 上线前仍要做
 
 1. 合并部署后真机复核 AC-2、AC-3、AC-6~AC-9、AC-10~AC-13、AC-15~AC-17

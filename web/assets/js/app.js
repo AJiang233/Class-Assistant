@@ -274,7 +274,9 @@ else refreshInstallHint();
    注册失败只意味着没有离线与推送，页面本身照常可用，所以只提示不抛错。 */
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', function () {
-    navigator.serviceWorker.register('sw.js').catch(function (e) {
+    // updateViaCache: 'none' —— 连 sw.js 脚本本身也不走 HTTP 缓存。
+    // 本域名的 CDN 会把 sw.js 的 Cache-Control 改写成 4 小时，不显式声明的话更新会被拖住。
+    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).catch(function (e) {
       console.warn('Service Worker 注册失败：', e);
     });
   });
