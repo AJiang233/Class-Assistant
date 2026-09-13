@@ -151,7 +151,8 @@ export class SyncService {
    * 个人页「推送通知测试」用：拉最新一条真实活动 / 通知，按其 id 与深链发一条本地通知，
    * 让用户自查推送是否可达、点通知能否跳到对应详情。kind 为 "activity" / "notice"。
    * 复用真实 id：和正式提醒同号，重复点会覆盖而不是叠一堆，深链也一致。
-   * 不返回提示文案 —— 桥方法必须同步返回，网页那边会显示兜底提示（对应安卓端 pushTestNotification 的有损简化）。
+   * 这里只管发、不返回结果：「本地没登录」这一分支由桥（Index.HostBridge.testNotification）用同步接口挡掉
+   * 并回一句提示，其余结果网页显示兜底文案 —— 对比安卓端能同步阻塞拿回完整提示，是有损的。
    */
   static async pushTestNotification(kind: string): Promise<void> {
     const token: string = await Store.getToken();

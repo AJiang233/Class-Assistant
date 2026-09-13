@@ -27,6 +27,18 @@ interface ThemeData {
   dark: boolean;
 }
 
+/** 从常量地址里取主机名（地址都写死在 Constants 里，不为此引地址解析库） */
+function hostOf(origin: string): string {
+  return origin.replace(/^https?:\/\//, '').split('/')[0].toLowerCase();
+}
+
+/**
+ * 留在应用内加载的主机（含子域）：门户自己 + 教务系统。从 Constants 派生，避免两处地址漂移。
+ * 与安卓端 MainActivity.inAppHosts 是同一份名单 —— 别自作聪明放宽到顶级域：
+ * 按后缀截 szjw.njau.edu.cn 得到的是 edu.cn，那样任何 *.edu.cn 都会被当成站内。
+ */
+const IN_APP_HOSTS: string[] = [hostOf(Constants.START_URL), hostOf(Constants.SCHOOL_ORIGIN)];
+
 /**
  * 页面与网页之间的 JS 桥（CAHost）。
  * 桥方法可能在非 UI 线程被调用，因此只通过 emitter 投递给页面处理，
@@ -102,11 +114,16 @@ class HostBridge {
   /**
    * 个人页「推送通知测试」：用最新一条真实活动 / 通知发一条本地通知，让用户自查推送是否可达、
    * 点通知能否跳到对应详情。kind 为 "activity" / "notice"。
-   * 桥方法必须同步返回，这里立刻给空串（网页那边会显示兜底提示），真正的请求与发送异步进行。
+   * 桥方法必须同步返回，而拉数据要发网络请求，所以这里只能同步做一件事：本地没 token 时
+   * 直接给出提示（这是最常见的失败分支，与安卓端 SyncWorker.pushTestNotification 同一句话）。
+   * 其余结果一律返回空串，网页那边显示兜底文案 —— 对比安卓端能同步阻塞拿回完整结果，这是有损的。
    */
   testNotification(kind: string): string {
     if (!this.fromAppPage()) {
       return '';
+    }
+    if (Store.getTokenSync().length === 0) {
+      return '请先登录后再测试推送';
     }
     SyncService.pushTestNotification(kind);
     return '';
@@ -310,6 +327,10 @@ struct Index {
     }
   }
 
+  /**
+   * 拦截系统协议（拨号 / 短信 / 邮件等）：ArkWeb 自己加载不了，直接拦下不加载。
+   * 与安卓端 isSystemScheme 同语义 —— 两端一样只是「拦掉」，不代转给系统，行为保持一致。
+   */
   private isSystemScheme(url: string): boolean {
     const index: number = url.indexOf(':');
     if (index <= 0) {
@@ -317,6 +338,52 @@ struct Index {
     }
     const scheme: string = url.substring(0, index).toLowerCase();
     return scheme === 'tel' || scheme === 'sms' || scheme === 'mailto';
+  }
+
+  /**
+   * 该交给系统浏览器打开的站外链接：http(s)，且不在门户 / 教务域内（含子域）。
+   * 对应安卓端 MainActivity.isExternalLink。
+   */
+  private isExternalLink(url: string): boolean {
+    const lower: string = url.toLowerCase();
+    if (!lower.startsWith('http://') && !lower.startsWith('https://')) {
+      return false;
+    }
+    let host: string = lower.replace(/^https?:\/\//, '');
+    const slash: number = host.indexOf('/');
+    if (slash >= 0) {
+      host = host.substring(0, slash);
+    }
+    const colon: number = host.indexOf(':');
+    if (colon >= 0) {
+      host = host.substring(0, colon);
+    }
+    if (host.length === 0) {
+      return false;
+    }
+    for (let i = 0; i < IN_APP_HOSTS.length; i++) {
+      const known: string = IN_APP_HOSTS[i];
+      if (host === known || host.endsWith('.' + known)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * 站外链接交给系统浏览器；APK 下载也走这里 —— ArkWeb 自己装不了应用。
+   * 没有能处理的应用时给句提示，别静默无反应（对应安卓端 openInBrowser）。
+   */
+  private openInBrowser(url: string): void {
+    this.context.startAbility({
+      action: 'ohos.want.action.viewData',
+      entities: ['entity.system.browsable'],
+      uri: url
+    }, (err: BusinessError): void => {
+      if (err) {
+        promptAction.showToast({ message: '没有可以打开该链接的应用', duration: 3000 });
+      }
+    });
   }
 
   build() {
@@ -378,7 +445,17 @@ struct Index {
               return false;
             }
             try {
-              return this.isSystemScheme(event.data.getRequestUrl());
+              const url: string = event.data.getRequestUrl();
+              if (this.isSystemScheme(url)) {
+                return true;
+              }
+              // 只管主框架（子框架里的第三方链接不该被踢到浏览器）；教务登录期间一律不往外跳 ——
+              // 认证过程会跨主机，跳走就把登录流程断了。与安卓端 shouldOverrideUrlLoading 同一套判断。
+              if (!this.academicLogin && event.data.isMainFrame() && this.isExternalLink(url)) {
+                this.openInBrowser(url);
+                return true;
+              }
+              return false;
             } catch (e) {
               return false;
             }
