@@ -10,7 +10,8 @@ import { NoticeModel } from '../models/noticeModel.js';
 import { success, error, jsonResponse } from '../utils/response.js';
 import { toLocalDateTime, parseLocalDateTime } from '../utils/datetime.js';
 import { pageLimit, pageOffset } from '../utils/query.js';
-import { loadRoleMap, isExcludedFromClass } from '../utils/audience.js';
+import { loadRoleMap, isExcludedFromClass, parseRemindNames } from '../utils/audience.js';
+import { pushToRemindAudience } from '../utils/push.js';
 
 const FIELD_TYPES = ['text', 'textarea', 'radio', 'checkbox', 'number', 'date'];
 const EDIT_POLICIES = Object.values(EDIT_POLICY);
@@ -47,12 +48,10 @@ function nowLocalDateTime() {
     `${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}`;
 }
 
-/** 应交名单：remind_people 为空 = 全班；与首页 remindMe() 同一口径（按姓名，也接受存 id） */
-function parseRemindNames(raw) {
-  if (!raw) return [];
-  const parsed = parseJson(String(raw), null);
-  if (Array.isArray(parsed)) return parsed.map((x) => String(x).trim()).filter(Boolean);
-  return String(raw).split(',').map((x) => x.trim()).filter(Boolean);
+/** 锁屏只显示一两行，推送正文截一段即可 */
+function excerptText(text, max = 80) {
+  const s = String(text == null ? '' : text).replace(/\s+/g, ' ').trim();
+  return s.length > max ? s.slice(0, max) + '…' : s;
 }
 
 /**
@@ -271,7 +270,7 @@ export function buildCsv(header, rows) {
  * 创建表单；body.notice 为真时同时下发一条通知，link 指向填写页。
  * D1 没有事务：通知写失败就把刚建的表单删掉，不留半成品。
  */
-export async function handleCreateForm(request, env, user) {
+export async function handleCreateForm(request, env, user, ctx) {
   try {
     const body = await request.json().catch(() => ({}));
 
@@ -310,13 +309,16 @@ export async function handleCreateForm(request, env, user) {
     });
     if (!formId) return jsonResponse(error('创建表单失败', 'CREATE_FORM_FAILED'), 500);
 
+    let linkedNotice = null;
     if (body.notice) {
       try {
         const noticeModel = new NoticeModel(env.DB);
+        const noticeTitle = String(body.notice_title || title).trim().slice(0, MAX_TITLE_LEN) || title;
+        const noticeContent = String(body.notice_content == null ? '' : body.notice_content).trim().slice(0, MAX_DESC_LEN)
+          || `请填写表单《${title}》`;
         const noticeId = await noticeModel.create({
-          title: String(body.notice_title || title).trim().slice(0, MAX_TITLE_LEN) || title,
-          content: String(body.notice_content == null ? '' : body.notice_content).trim().slice(0, MAX_DESC_LEN)
-            || `请填写表单《${title}》`,
+          title: noticeTitle,
+          content: noticeContent,
           publish_time: toLocalDateTime(body.notice_publish_time) || nowLocalDateTime(),
           publisher: user.name,
           remind_people: remind,
@@ -324,12 +326,26 @@ export async function handleCreateForm(request, env, user) {
           link: `/forms.html?id=${formId}`
         });
         if (noticeId) await model.update(formId, { notice_id: noticeId });
+        linkedNotice = { title: noticeTitle, content: noticeContent };
       } catch (e) {
         console.error('表单下发通知失败，回滚表单:', e);
         await model.remove(formId);
         return jsonResponse(error('下发通知失败，表单未创建', 'NOTICE_LINK_FAILED'), 500);
       }
     }
+
+    // 推送：一次下发只推一条 —— 联动通知时用通知的措辞，否则直接推表单本身，
+    // 否则「建表单 + 发通知」会让同一个人收到两条。收件人口径与表单待办一致。
+    const pushed = linkedNotice
+      ? { title: linkedNotice.title, body: excerptText(linkedNotice.content) }
+      : { title: `新表单：${title}`, body: excerptText(body.description) || '请及时填写' };
+    await pushToRemindAudience(env, ctx, remind, {
+      title: pushed.title,
+      body: pushed.body,
+      url: `/forms.html?id=${formId}`,
+      tag: `form-${formId}`,
+      excludeUserId: user.id
+    });
 
     return jsonResponse(success({ message: '表单已创建', id: formId }), 201);
   } catch (e) {

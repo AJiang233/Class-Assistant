@@ -986,6 +986,18 @@ input[type="checkbox"]:disabled { opacity: 0.5; cursor: not-allowed; }
 }
 .beta-banner svg { width: 17px; height: 17px; flex-shrink: 0; }
 
+/* 安装到主屏引导：沿用 beta-banner 外观，文字撑开，右侧依次是「安装」与关闭 */
+.install-hint-text { flex: 1; min-width: 0; font-weight: 500; }
+.install-hint-action { flex-shrink: 0; }
+.install-hint-close {
+  flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; padding: 0;
+  border: 0; border-radius: 8px; background: none;
+  color: inherit; opacity: 0.6; cursor: pointer;
+}
+.install-hint-close:hover { opacity: 1; }
+
 /* ═══════════════════════════════════════════════════════════════════
    18 · 应用壳
    ═══════════════════════════════════════════════════════════════════ */

@@ -60,20 +60,21 @@ async function loadFreshUser(request, env) {
 
 /**
  * 需要认证的路由包装器
- * handler 签名统一为 (request, env, user)，user 为数据库里的最新资料。
+ * handler 签名统一为 (request, env, user, ctx)，user 为数据库里的最新资料。
+ * ctx 透传是为了让 handler 能用 ctx.waitUntil（推送这类不该拖慢响应的收尾工作）。
  */
 export function withAuth(handler) {
   return async (request, env, ctx) => {
     const loaded = await loadFreshUser(request, env);
     if (loaded.error) return loaded.error;
-    return handler(request, env, loaded.user);
+    return handler(request, env, loaded.user, ctx);
   };
 }
 
 /**
  * 需要指定权限的路由包装器
  * 先验证登录，再按最新用户职位检查权限，无权限返回 403
- * handler 签名统一为 (request, env, user)，传入的是最新用户信息（含 positions）
+ * handler 签名统一为 (request, env, user, ctx)，传入的是最新用户信息（含 positions）
  */
 export function withPermission(perm) {
   return (handler) => async (request, env, ctx) => {
@@ -88,6 +89,6 @@ export function withPermission(perm) {
       return jsonError(403, '没有操作权限', 'FORBIDDEN');
     }
 
-    return handler(request, env, loaded.user);
+    return handler(request, env, loaded.user, ctx);
   };
 }

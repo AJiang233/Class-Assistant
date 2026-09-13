@@ -3,11 +3,12 @@ import { success, error, jsonResponse } from '../utils/response.js';
 import { toLocalDateTime } from '../utils/datetime.js';
 import { pageLimit, pageOffset } from '../utils/query.js';
 import { listByAudience } from '../utils/audience.js';
+import { pushToRemindAudience } from '../utils/push.js';
 
 /**
  * 发布活动（需登录）
  */
-export async function handleCreateActivity(request, env, user) {
+export async function handleCreateActivity(request, env, user, ctx) {
   try {
     const body = await request.json();
     const { title, content = '', location = '', start_time, end_time = '', remind_people = null } = body;
@@ -16,15 +17,25 @@ export async function handleCreateActivity(request, env, user) {
       return jsonResponse(error('标题、开始时间为必填字段', 'MISSING_FIELDS'), 400);
     }
 
+    const remind = remind_people ? JSON.stringify(remind_people) : null;
     const activityModel = new ActivityModel(env.DB);
-    await activityModel.create({
+    const activityId = await activityModel.create({
       title,
       content,
       location,
       start_time: toLocalDateTime(start_time),
       end_time: toLocalDateTime(end_time),
       publisher: user.name,
-      remind_people: remind_people ? JSON.stringify(remind_people) : null
+      remind_people: remind
+    });
+
+    // 推送：收件人与活动列表同一判定（utils/audience.js），发送在 waitUntil 里不拖慢响应
+    await pushToRemindAudience(env, ctx, remind, {
+      title: String(title),
+      body: activityBody(content, location, start_time),
+      url: activityId ? '/?view=activities&id=' + activityId : '/?view=activities',
+      tag: activityId ? 'activity-' + activityId : undefined,
+      excludeUserId: user.id
     });
 
     return jsonResponse(success({ message: '活动发布成功' }), 201);
@@ -32,6 +43,15 @@ export async function handleCreateActivity(request, env, user) {
     console.error('发布活动失败:', e);
     return jsonResponse(error('发布活动失败', 'CREATE_ACTIVITY_FAILED'), 500);
   }
+}
+
+/** 锁屏上给一行「时间 + 地点」，比正文更实用 */
+function activityBody(content, location, startTime) {
+  const time = String(startTime == null ? '' : startTime).replace('T', ' ').slice(0, 16);
+  const parts = [time, location ? String(location).trim() : ''].filter(Boolean);
+  const head = parts.join(' · ');
+  const text = head || String(content || '').replace(/\s+/g, ' ').trim();
+  return text.length > 80 ? text.slice(0, 80) + '…' : text;
 }
 
 /**
