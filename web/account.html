@@ -76,9 +76,27 @@
                             <div class="btn-row" style="grid-template-columns:none; grid-auto-flow:column; grid-auto-columns:minmax(0,1fr);">
                                 <button class="btn btn-primary" id="notifyEnableBtn" type="button" onclick="enablePush()" hidden>开启通知</button>
                                 <button class="btn btn-outline" id="notifyTestBtn" type="button" onclick="testPushSelf()" hidden>发送测试通知</button>
-                                <button class="btn btn-outline" id="notifyDisableBtn" type="button" onclick="disablePush()" hidden>关闭通知</button>
+                                <button class="btn btn-danger" id="notifyDisableBtn" type="button" onclick="disablePush()" hidden>关闭通知</button>
                             </div>
                             <p class="profile-sub" id="notifyHint" style="margin:14px 0 0;"></p>
+                        </div>
+
+                        <!-- App 端通知：只有装了安卓 / 鸿蒙 App 才有意义 —— 网页自己发不了系统通知，
+                             这两个测试按钮靠 App 壳注入的 CAHost 桥去触发原生通知，网页版（含 PWA）
+                             没有这个桥，所以整块默认 hidden，有桥时才由 refreshAppStatus() 放出来，
+                             不再像以前那样在网页版留一堆点了没反应的按钮。
+                             原先属于「开发功能」卡，那张卡已删（清缓存刷新一并不用了）。 -->
+                        <div id="appPushBlock" hidden style="margin-top:24px; padding-top:22px; border-top:1px solid var(--separator);">
+                            <label class="form-label">App 端通知</label>
+                            <!-- 本机通知开关状态：通知被系统关掉时本地提醒会被静默丢弃，用户点测试
+                                 没反应，得在这儿把真实原因说清而不是留白。无桥时这行也是空的。 -->
+                            <p class="profile-sub" id="appNotifyLine" style="margin:0 0 14px;"></p>
+                            <p class="profile-sub" style="margin:0 0 14px;">用最新一条真实活动 / 通知发一条测试推送，检查手机能否收到、点击能否跳到对应详情。</p>
+                            <div class="btn-row" style="grid-template-columns:repeat(2, minmax(0,1fr));">
+                                <button class="btn btn-outline" id="testActivityBtn" type="button" onclick="testPush('activity')">活动推送测试</button>
+                                <button class="btn btn-outline" id="testNoticeBtn" type="button" onclick="testPush('notice')">通知推送测试</button>
+                            </div>
+                            <p class="profile-sub" id="pushHint" style="margin:14px 0 0;"></p>
                         </div>
 
                         <!-- 课程提醒：仅 App 壳。提醒要到点弹出，网页版没有这个能力（本地排期靠原生的
@@ -106,63 +124,69 @@
                         </div>
                     </div>
 
-                    <!-- 日历订阅（所有登录用户） -->
-                    <div class="profile-card" id="calCard">
-                        <h2 style="margin:0 0 8px;">日历订阅</h2>
-                        <p class="profile-sub" style="margin:0 0 16px;">订阅后，班级日程会自动同步到手机系统日历（iOS / 安卓 / 鸿蒙通用，订阅后无需再打开本页）。下面的选项会写进订阅链接，改完重新复制即可。</p>
-                        <div class="form-error" id="calError"></div>
+                    <!-- 日历订阅（所有登录用户）。默认折叠（结构同 #pwdCard / 原 #devCard，见 toggleCollapse）：
+                         这是一次性设置，配好链接后基本不再改，常驻展开会把下面的卡片一路挤下去。 -->
+                    <div class="profile-card collapse" id="calCard">
+                        <button type="button" class="collapse-head" onclick="toggleCollapse('calCard')" aria-expanded="false">
+                            <h2>日历订阅</h2>
+                            <svg class="collapse-arrow" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                        </button>
+                        <div class="collapse-body">
+                            <p class="profile-sub" style="margin:0 0 16px;">订阅后，班级日程会自动同步到手机系统日历（iOS / 安卓 / 鸿蒙通用，订阅后无需再打开本页）。下面的选项会写进订阅链接，改完重新复制即可。</p>
+                            <div class="form-error" id="calError"></div>
 
-                        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:12px;">
-                            <div class="form-field" style="margin-bottom:0;">
-                                <label class="form-label" for="calRemind">提前提醒</label>
-                                <select class="form-input" id="calRemind">
-                                    <option value="0">不提醒</option>
-                                    <option value="5">5 分钟</option>
-                                    <option value="15">15 分钟</option>
-                                    <option value="30" selected>30 分钟</option>
-                                    <option value="60">1 小时</option>
-                                    <option value="1440">1 天</option>
-                                </select>
+                            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:12px;">
+                                <div class="form-field" style="margin-bottom:0;">
+                                    <label class="form-label" for="calRemind">提前提醒</label>
+                                    <select class="form-input" id="calRemind">
+                                        <option value="0">不提醒</option>
+                                        <option value="5">5 分钟</option>
+                                        <option value="15">15 分钟</option>
+                                        <option value="30" selected>30 分钟</option>
+                                        <option value="60">1 小时</option>
+                                        <option value="1440">1 天</option>
+                                    </select>
+                                </div>
+                                <div class="form-field" style="margin-bottom:0;">
+                                    <label class="form-label" for="calPast">包含过去</label>
+                                    <select class="form-input" id="calPast">
+                                        <option value="0">不包含</option>
+                                        <option value="7">最近 7 天</option>
+                                        <option value="30" selected>最近 30 天</option>
+                                        <option value="90">最近 90 天</option>
+                                    </select>
+                                </div>
+                                <div class="form-field" style="margin-bottom:0;">
+                                    <label class="form-label" for="calFuture">包含未来</label>
+                                    <select class="form-input" id="calFuture">
+                                        <option value="30">1 个月</option>
+                                        <option value="90">3 个月</option>
+                                        <option value="180">6 个月</option>
+                                        <option value="365" selected>1 年</option>
+                                        <option value="730">2 年</option>
+                                    </select>
+                                </div>
                             </div>
-                            <div class="form-field" style="margin-bottom:0;">
-                                <label class="form-label" for="calPast">包含过去</label>
-                                <select class="form-input" id="calPast">
-                                    <option value="0">不包含</option>
-                                    <option value="7">最近 7 天</option>
-                                    <option value="30" selected>最近 30 天</option>
-                                    <option value="90">最近 90 天</option>
-                                </select>
-                            </div>
-                            <div class="form-field" style="margin-bottom:0;">
-                                <label class="form-label" for="calFuture">包含未来</label>
-                                <select class="form-input" id="calFuture">
-                                    <option value="30">1 个月</option>
-                                    <option value="90">3 个月</option>
-                                    <option value="180">6 个月</option>
-                                    <option value="365" selected>1 年</option>
-                                    <option value="730">2 年</option>
-                                </select>
-                            </div>
-                        </div>
 
-                        <label style="display:flex; align-items:center; gap:8px; margin:12px 0 14px; font-size:0.9rem; color:var(--text-secondary); cursor:pointer;">
-                            <input type="checkbox" id="calNotices"> 把班级通知也加进日历（按发布当天全天显示）
-                        </label>
+                            <label style="display:flex; align-items:center; gap:8px; margin:12px 0 14px; font-size:0.9rem; color:var(--text-secondary); cursor:pointer;">
+                                <input type="checkbox" id="calNotices"> 把班级通知也加进日历（按发布当天全天显示）
+                            </label>
 
-                        <div class="form-field">
-                            <label class="form-label" for="calUrl">订阅链接</label>
-                            <input class="form-input" id="calUrl" type="text" readonly placeholder="正在获取订阅地址…">
+                            <div class="form-field">
+                                <label class="form-label" for="calUrl">订阅链接</label>
+                                <input class="form-input" id="calUrl" type="text" readonly placeholder="正在获取订阅地址…">
+                            </div>
+                            <div class="btn-row">
+                                <button class="btn btn-primary" id="calCopyBtn" type="button">复制链接</button>
+                                <a class="btn btn-outline" id="calOpenBtn" href="#" rel="noopener">打开订阅</a>
+                                <button class="btn btn-danger" id="calResetBtn" type="button">重置密钥</button>
+                            </div>
+                            <p class="profile-sub" style="margin:14px 0 0;">复制链接后，在手机日历里选择「添加订阅日历 / 从网址导入」粘贴即可；重置密钥会让旧链接立即失效（已订阅的设备需重新订阅）。</p>
                         </div>
-                        <div class="btn-row">
-                            <button class="btn btn-primary" id="calCopyBtn" type="button">复制链接</button>
-                            <a class="btn btn-outline" id="calOpenBtn" href="#" rel="noopener">打开订阅</a>
-                            <button class="btn btn-danger" id="calResetBtn" type="button">重置密钥</button>
-                        </div>
-                        <p class="profile-sub" style="margin:14px 0 0;">复制链接后，在手机日历里选择「添加订阅日历 / 从网址导入」粘贴即可；重置密钥会让旧链接立即失效（已订阅的设备需重新订阅）。</p>
                     </div>
                 </div>
 
-                <!-- 右列：管理员入口（仅手机端）+ 开发功能 + 修改密码 + 退出登录 + 关于 -->
+                <!-- 右列：管理员入口（仅手机端）+ 修改密码 + 退出登录 + 关于 -->
                 <div class="split-col">
                     <!-- 管理员面板入口（仅手机端；桌面端侧边栏已有该项） -->
                     <div class="profile-card only-mobile" id="adminEntryCard">
@@ -182,31 +206,6 @@
                     <!-- 通知一节已并入左列「偏好设置」卡片（原 #notifyCard 的位置），
                          这里不再单独成卡。 -->
 
-                    <!-- 开发功能：强制刷新 + 推送测试，默认折叠，避免日常误触 -->
-                    <div class="profile-card collapse" id="devCard">
-                        <button type="button" class="collapse-head" onclick="toggleCollapse('devCard')" aria-expanded="false">
-                            <h2>开发功能</h2>
-                            <svg class="collapse-arrow" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-                        </button>
-                        <div class="collapse-body">
-                            <p class="profile-sub" style="margin:0 0 14px;">页面样式错乱或显示异常时，清除本地缓存并重新加载整个应用。如果没有效果请清除应用数据或检查更新。</p>
-                            <button class="btn btn-outline btn-block" id="reloadBtn" type="button" onclick="forceRefresh()">清除缓存并刷新</button>
-
-                            <!-- 本机通知开关状态。App 壳专属（数据来自 CAHost.appStatus()），
-                                 网页版没有这个桥，这一行留空不显示；详见 refreshAppStatus()。
-                                 同一次桥调用还取回「上次同步时间」，那个显示在资料卡的「更新时间」下面。 -->
-                            <p class="profile-sub" id="appNotifyLine" style="margin:20px 0 0;"></p>
-
-                            <p class="profile-sub" style="margin:20px 0 14px;">用最新一条真实活动 / 通知发一条测试推送，检查手机能否收到、点击能否跳到对应详情（需安装安卓 / 鸿蒙 App）。</p>
-                            <!-- 一行两个按钮：.btn-row 默认三列，这里改两列 -->
-                            <div class="btn-row" style="grid-template-columns:repeat(2, minmax(0,1fr));">
-                                <button class="btn btn-outline" id="testActivityBtn" type="button" onclick="testPush('activity')">活动推送测试</button>
-                                <button class="btn btn-outline" id="testNoticeBtn" type="button" onclick="testPush('notice')">通知推送测试</button>
-                            </div>
-                            <p class="profile-sub" id="pushHint" style="margin:14px 0 0;"></p>
-                        </div>
-                    </div>
- 
                     <div class="profile-card collapse" id="pwdCard">
                         <button type="button" class="collapse-head" onclick="toggleCollapse('pwdCard')" aria-expanded="false">
                             <h2>修改密码</h2>
@@ -361,42 +360,6 @@
     window.closeContactEdit = closeContactEdit;
     window.saveContact = saveContact;
 
-    // ===== 强制刷新：清除缓存后重载整个应用（用于修复布局/样式异常） =====
-    async function forceRefresh() {
-        var btn = document.getElementById('reloadBtn');
-        if (btn) { btn.disabled = true; btn.textContent = '正在刷新…'; }
-        // 清 Cache Storage（PWA / Service Worker 缓存）
-        try {
-            if (window.caches && caches.keys) {
-                var keys = await caches.keys();
-                await Promise.all(keys.map(function (k) { return caches.delete(k); }));
-            }
-        } catch (e) {}
-        // 让 Service Worker 也去检查一次脚本更新（sw.js 本身是 no-cache，能拿到最新版）
-        try {
-            if (navigator.serviceWorker && navigator.serviceWorker.getRegistration) {
-                var reg = await navigator.serviceWorker.getRegistration();
-                if (reg && reg.update) await reg.update();
-            }
-        } catch (e) {}
-        // 清会话缓存（保留 localStorage：登录态与主题设置）
-        try { sessionStorage.clear(); } catch (e) {}
-        // 重载顶层窗口，并加时间戳绕过 HTTP 缓存
-        var target = window;
-        try { if (window.top && window.top !== window) target = window.top; } catch (e) {}
-        var next;
-        try {
-            var u = new URL(target.location.href);
-            u.searchParams.set('_r', Date.now());
-            next = u.toString();
-        } catch (e) {
-            var href = target.location.href.split('#')[0];
-            next = href + (href.indexOf('?') >= 0 ? '&' : '?') + '_r=' + Date.now();
-        }
-        target.location.replace(next);
-    }
-    window.forceRefresh = forceRefresh;
-
     // ===== 通知（Web Push）=====
     // 先做能力判定，再决定给不给按钮。iOS 只有「16.4+ 且已添加到主屏幕」的 PWA 才有推送：
     //  - 系统版本过低 → 放弃推送这一项，如实说明（其余功能不受影响），不给死按钮
@@ -472,7 +435,7 @@
         // 壳里的 WebView 有 serviceWorker / Notification 却没有 PushManager，卡片会显示
         // 「本机没有可用的推送通道」并提 iOS 16.4 —— 对着一个明明能收通知的 App 用户说这话是错的。
         // 所以直接在 App 里撤掉通知这一节（#notifyCard 现在是「偏好设置」卡片里的一个 div，
-        // 不是整张卡；App 自己的通知测试在下面「开发功能」里，走 CAHost）。
+        // 不是整张卡；App 自己的通知测试在同一个卡片下面的「App 端通知」块里，走 CAHost）。
         // 这段必须在第一个 await 之前：放在后面的话卡片会先画出来再消失。
         // 判定复用 app.js 的 inNativeShell()（只看有没有 CAHost 桥），
         // 这样没带 CAHost.platform 的旧版 App 也能被兜住。
@@ -639,21 +602,10 @@
     //   {"notifications":true,"lastSyncAt":1789300000000}
     // 用字符串传是刻意的 —— 桥的返回值类型在各端解释不完全一致，字符串最稳；
     // 而且两个值一次取回，省掉一次桥调用。网页版没有这个桥 → 两处都不显示。
-    // 两个值落在两个位置：上次同步贴着资料卡的「更新时间」（都在回答「这份数据什么时候新鲜过」），
-    // 通知开关留在「开发功能」的推送按钮上面 —— 被系统关掉后本地提醒会被静默丢弃，
+    // 两个值落在两个位置：上次同步时间贴着资料卡的「更新时间」（都在回答「这份数据什么时候新鲜过」，
+    // 所以时间写法也跟它共用 fmtBJTime —— 都是北京时间、YYYY-MM-DD HH:MM:SS，两行并排读着不打架），
+    // 通知开关留在「偏好设置 → App 端通知」的两个测试按钮上面 —— 被系统关掉后本地提醒会被静默丢弃，
     // 用户点测试没反应时看的就是那儿，得把真实原因说清而不是留白。
-    function formatSyncTime(ms) {
-        var d = new Date(ms);
-        var p = function (n) { return (n < 10 ? '0' : '') + n; };
-        var clock = p(d.getHours()) + ':' + p(d.getMinutes());
-        var today = new Date();
-        function sameDay(a, b) {
-            return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
-        }
-        if (sameDay(d, today)) return '今天 ' + clock;
-        if (sameDay(d, new Date(today.getTime() - 24 * 3600 * 1000))) return '昨天 ' + clock;
-        return (d.getMonth() + 1) + '-' + d.getDate() + ' ' + clock;
-    }
 
     function readAppStatus() {
         if (!window.CAHost || typeof CAHost.appStatus !== 'function') return null;
@@ -662,11 +614,15 @@
 
     function refreshAppStatus() {
         var info = readAppStatus();
+        // App 端通知整块（本机状态 + 两个测试按钮）默认 hidden：网页版没有桥，放出来点了也没反应，
+        // 只有装了安卓 / 鸿蒙 App 才由这里放开。
+        var block = notifyEl('appPushBlock');
+        if (block) block.hidden = !info;
         // 资料卡里那行默认 hidden（没有桥的网页版就整行不出现）
         var row = notifyEl('appSyncRow');
         var val = notifyEl('appSyncValue');
         if (row) row.hidden = !info;
-        if (val) val.textContent = (info && info.lastSyncAt) ? formatSyncTime(info.lastSyncAt) : '还没有成功同步过';
+        if (val) val.textContent = (info && info.lastSyncAt) ? fmtBJTime(info.lastSyncAt) : '还没有成功同步过';
         // lastSyncAt 为 0 = 这台设备一次都没成功同步过（App 每次拉完数据才写）
         var line = notifyEl('appNotifyLine');
         if (line) {
@@ -740,10 +696,12 @@
     window.saveCourseReminder = saveCourseReminder;
     refreshCourseCard();
 
-    // 重取一次的两个时机：展开「开发功能」时（用户正是来排查「为什么没收到提醒」，而页面打开后
-    // 数据会变旧），以及资料卡重绘之后（loadProfile 会重建 DOM，那行元素是新的）。
-    var devHead = document.querySelector('#devCard .collapse-head');
-    if (devHead) devHead.addEventListener('click', function () { setTimeout(refreshAppStatus, 0); });
+    // 重取一次的两个时机：页面重新可见时（用户去「系统设置 → 通知」改完开关再切回来，
+    // 而 WebView 不会自己重载这个页面，不重取就会一直显示旧状态），
+    // 以及资料卡重绘之后（loadProfile 会重建 DOM，那行元素是新的）。
+    document.addEventListener('visibilitychange', function () {
+        if (!document.hidden) refreshAppStatus();
+    });
 
     // ===== 关于软件：版本号 + 检查更新 =====
     // App 内取原生版本号（安卓回传 BuildConfig.VERSION_NAME，鸿蒙回传 app.json5 的 versionName）；
@@ -808,9 +766,9 @@
             } else if (!latest || !link) {
                 hint.textContent = '检查更新失败';
             } else if (isNewer(latest, appVersion)) {
-                hint.innerHTML = '发现新版本 v' + esc(latest) + '，<a href="' + esc(link) + '" target="_blank" rel="noopener">前往下载</a>';
+                hint.innerHTML = '发现新版本：v' + esc(latest) + '，<a href="' + esc(link) + '" target="_blank" rel="noopener">前往下载</a>';
             } else {
-                hint.textContent = '已是最新版本（v' + appVersion + '）。';
+                hint.textContent = '已是最新版本：v' + appVersion;
             }
         } catch (e) {
             hint.textContent = '检查更新失败';
@@ -822,11 +780,16 @@
 
     // ===== 加载我的资料 =====
     var currentContact = '';
-    /** 更新时间：后端存的是 UTC（CURRENT_TIMESTAMP），展示时转为北京时间（+8） */
-    function fmtUpdateTime(d) {
-        if (!d) return '时间未知';
-        var t = Date.parse(String(d).replace(' ', 'T') + 'Z');
-        if (isNaN(t)) return d;
+    /**
+     * 北京时间 `YYYY-MM-DD HH:MM:SS`，给资料卡的「更新时间」与「上次同步时间」共用 —— 两行挨着，
+     * 写法必须一致，所以别在这里按调用方分支。两种入参：
+     *   字符串 = 后端存的时间（UTC，形如 "2026-09-13 06:32:07"，必须拼上 Z 才按 UTC 解析）
+     *   数字   = 毫秒时间戳（App 壳经桥回传的 lastSyncAt，本身就是绝对时刻）
+     * 取到绝对时刻后统一 +8 小时、再按 UTC 字段读出来，得到的就是北京墙上时间。
+     */
+    function fmtBJTime(v) {
+        var t = typeof v === 'number' ? v : Date.parse(String(v).replace(' ', 'T') + 'Z');
+        if (isNaN(t)) return '时间未知';
         var bj = new Date(t + 8 * 3600 * 1000);
         var p = function (n) { return (n < 10 ? '0' : '') + n; };
         return bj.getUTCFullYear() + '-' + p(bj.getUTCMonth() + 1) + '-' + p(bj.getUTCDate())
@@ -854,11 +817,11 @@
                 + '<span id="contactValue">' + esc(u.contact || '未填写') + '</span>'
                 + '<button type="button" class="btn btn-outline btn-sm" onclick="openContactEdit()">修改</button>'
                 + '</span></div>'
-                + '<div class="info-row"><span class="k">更新时间</span><span class="v">' + esc(fmtUpdateTime(u.update_time)) + '</span></div>'
-                // 「上次同步」= App 壳本地同步到服务端数据的时间？不是 —— 是 App 上次成功拉完数据的时间
+                + '<div class="info-row"><span class="k">更新时间</span><span class="v">' + esc(fmtBJTime(u.update_time)) + '</span></div>'
+                // 「上次同步时间」不是「这份数据存进后端的时刻」，而是 App 上次成功拉完数据的时刻
                 //（安卓 WorkManager / 鸿蒙 workScheduler，由桥 CAHost.appStatus() 读回）。
                 // 只在 App 里有意义，网页版没有这个桥，整行 hidden 不出现；值由 refreshAppStatus() 填。
-                + '<div class="info-row" id="appSyncRow" hidden><span class="k">上次同步</span><span class="v" id="appSyncValue"></span></div>'
+                + '<div class="info-row" id="appSyncRow" hidden><span class="k">上次同步时间</span><span class="v" id="appSyncValue"></span></div>'
                 + '</div>';
             // 上面这段是新造的 DOM，行内元素要重新取值
             refreshAppStatus();
