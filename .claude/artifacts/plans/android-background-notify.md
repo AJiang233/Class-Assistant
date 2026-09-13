@@ -214,9 +214,33 @@ manifest 声明 `foregroundServiceType="dataSync|specialUse"`（`specialUse` 的
 
 ### 验证
 
-- 安卓单测 **27/27**（`SyncRunnerTest` 7 + `CourseScheduleTest` 17 + `OfflineCacheTest` 3），`assembleDebug` 通过
+- 安卓单测 **27/27**（`SyncRunnerTest` 7 + `CourseScheduleTest` 17 + `OfflineCacheTest` 3），`assembleDebug`、`lintDebug` 通过
 - Web 单测 **86/86**
-- **真机验证未做**：debug 包与线上 0.2.3 的签名不同，`adb install -r` 会失败，只能卸载重装 ——
-  那会清掉手机上已经登录的会话与离线缓存。要么走 CI 出一个正式签名的 0.2.4 覆盖升级（保留登录态，
-  顺带把个人中心那张卡片部署上去），要么接受重装后重新登录一次。待定。
+- 真机（Redmi 24117RK2CC / Android 16 / HyperOS V816）装 CI 出的正式签名 0.2.4（`adb install -r` 覆盖升级，登录态保留）：
+
+| 验收项 | 结果 |
+|---|---|
+| 服务挂起来 | ✅ `dumpsys` 里 `isForeground=true foregroundId=300000 types=0x40000000` —— **类型正是 `specialUse`**，版本分支选对了 |
+| 常驻通知 | ✅ `foregroundNoti=Notification(channel=background_running flags=ONGOING_EVENT\|NO_CLEAR\|FOREGROUND_SERVICE)`，通知栏可见、静默、点它进 App |
+| 3 分钟节奏 | ✅ 连续三轮 03:03:04 → 03:06:06 → 03:09:09（间隔 182 / 183 秒） |
+| 个人中心卡片 | ✅ 三项状态如实：「运行中；还没允许后台运行 —— 手机放着不动时系统会掐掉网络；系统把它当「活跃应用」」 |
+| 开关 | ✅ 关掉 → 服务与通知一起消失；再打开 → 服务回来 |
+| 厂商入口 | ✅ 在这台机器上真的跳到了 `com.miui.securitycenter/com.miui.permcenter.autostart.AutoStartManagementActivity`（表里第一条就命中了） |
+| **深 Doze** | ❌ **一轮都没有**。`dumpsys deviceidle force-idle` 后 `mState=IDLE`，服务记录仍在（没被杀），但计时器不跑；`unforce` + 唤醒后立刻补上一轮 |
+
+### 深 Doze 那条是这次验证最有价值的发现
+
+原因不神秘：**深 Doze 会把 CPU 一起挂起**，Java 的 `ScheduledExecutorService` 定时器是进程内的，没有任何办法把 CPU 叫醒 —— 它只能等下一次醒来继续。
+所以现实里的表现分两段：
+
+- 屏幕亮着、或手机在动（走路时不会进深 Doze）→ 3 分钟一轮正常
+- 手机搁在桌上不动、进了深 Doze → 轮询冻住，且**没进白名单的话连网络都不通**，那时任何机制都拉不到数据。用户拿起手机的那一刻，Doze 结束、立刻补上一轮
+
+这正好从实证角度支持了第 6 节「A 与 B 必须配套」那条结论，而且暴露出**当前实现还缺一块**：
+即便用户开了免电池优化白名单（网络通了），只要 CPU 睡着，进程内的定时器还是不会跑。
+要让「手机放在桌上也能在几分钟内收到」，还差一个**能唤醒 CPU 的原生闹钟**
+（`AlarmManager.setAndAllowWhileIdle`，Doze 下允许、但被限流到约 9 分钟一次，且不精确），
+由它发广播、接收器里直接跑一轮同步（广播接收器不需要前台服务，绕开 FGS 启动限制）。
+这一块尚未实现 —— 见下面的待办。
+
 
