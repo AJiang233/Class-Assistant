@@ -59,6 +59,12 @@ jobs:
           echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
           echo "CA_KEYSTORE_FILE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
 
+      - name: Unit tests
+        # 课表的日期逻辑（第几周 / 下一个有课的日子 / 闹钟编号）只有单测能兜住：
+        # 算错了不会崩，只会悄悄显示错的那一天。放在打包之前，红了就别发版。
+        run: ./gradlew testDebugUnitTest
+        working-directory: android
+
       - name: Build Release APK
         env:
           CA_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}

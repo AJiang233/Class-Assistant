@@ -65,4 +65,9 @@ dependencies {
     implementation("androidx.swiperefreshlayout:swiperefreshlayout:1.1.0")
     implementation("androidx.work:work-runtime-ktx:2.9.0")
     implementation("com.google.android.material:material:1.11.0")
+
+    // 课表的日期逻辑（第几周 / 下一个有课的日子 / 闹钟编号）是纯函数，直接用 JVM 单测钉住：
+    // 这类代码算错了不会崩，只会悄悄显示错的那一天。
+    // 命令：./gradlew testDebugUnitTest
+    testImplementation("junit:junit:4.13.2")
 }

@@ -54,6 +54,32 @@
                 android:name="android.appwidget.provider"
                 android:resource="@xml/today_widget_info" />
         </receiver>
+
+        <!-- 桌面小组件：课表 -->
+        <receiver
+            android:name=".widget.CoursesWidgetProvider"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/courses_widget_info" />
+        </receiver>
+
+        <!-- 小组件换天 / 系统时间变更 / 覆盖安装：刷新小组件并重排闹钟。
+             TIME_SET 与 TIMEZONE_CHANGED 属于系统「隐式广播豁免」名单，清单注册收得到；
+             DATE_CHANGED 不在名单里（静态接收器收不到），换天由 Scheduler 的零点闹钟负责。
+             exported 保持 true，与上面的 BootReceiver 一致：这三条都是受保护广播，只有系统能发。 -->
+        <receiver
+            android:name=".widget.WidgetRefreshReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
     </application>
 
 </manifest>

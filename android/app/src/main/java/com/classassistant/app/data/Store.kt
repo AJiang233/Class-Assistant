@@ -20,6 +20,13 @@ object Store {
     private const val KEY_LAST_SYNC_AT = "last_sync_at"
     private const val KEY_EVENTS = "events"
     private const val KEY_SCHEDULED = "scheduled_alarm_ids"
+    private const val KEY_TIMETABLE = "timetable"
+    private const val KEY_COURSE_LEAD = "course_remind_lead"
+    private const val KEY_COURSE_AT_START = "course_remind_at_start"
+    private const val KEY_COURSE_ALARMS = "scheduled_course_alarm_ids"
+
+    /** 课程提醒默认提前多少分钟；0 = 不提前提醒 */
+    const val DEFAULT_COURSE_LEAD = 15
 
     private var cached: SharedPreferences? = null
 
@@ -63,6 +70,10 @@ object Store {
             .remove(KEY_TOKEN).remove(KEY_USER_ID).remove(KEY_USER_NAME)
             .remove(KEY_EVENTS).remove(KEY_LAST_NOTICE_TIME).remove(KEY_LAST_TODO_TIME)
             .remove(KEY_LAST_SYNC_AT).remove(KEY_SCHEDULED)
+            // 课表缓存与课程提醒闹钟也一起清：留着的话换账号后小组件会显示别人的课，
+            // 旧闹钟还会继续按上一个账号的课表响。
+            // 但两个**设置值**（提前量 / 开课时提醒）不清 —— 那是这台设备的偏好，与账号无关。
+            .remove(KEY_TIMETABLE).remove(KEY_COURSE_ALARMS)
             .apply()
     }
 
@@ -121,5 +132,45 @@ object Store {
 
     fun saveScheduledAlarmIds(context: Context, ids: Set<String>) {
         sp(context).edit().putStringSet(KEY_SCHEDULED, ids).apply()
+    }
+
+    // ===== 课表缓存（课表小组件与课程提醒都读它） =====
+
+    /**
+     * 原样存 `/api/academic/timetable` 的响应体（含 success / data 两层）。
+     * 不在这儿拆成字段：解析集中放在 sync/CourseSchedule.parseTimetableJson，
+     * 存原文的好处是以后后端加字段不用动存储层，出错时还能回头看一眼原始响应。
+     */
+    fun timetableJson(context: Context): String? = sp(context).getString(KEY_TIMETABLE, null)
+
+    fun saveTimetableJson(context: Context, json: String) {
+        sp(context).edit().putString(KEY_TIMETABLE, json).apply()
+    }
+
+    // ===== 课程提醒设置（网页个人页经 CAHost 桥读写） =====
+
+    /** 提前多少分钟提醒；0 = 不提前提醒 */
+    fun courseRemindLead(context: Context): Int =
+        sp(context).getInt(KEY_COURSE_LEAD, DEFAULT_COURSE_LEAD)
+
+    fun setCourseRemindLead(context: Context, minutes: Int) {
+        sp(context).edit().putInt(KEY_COURSE_LEAD, minutes).apply()
+    }
+
+    /** 开课时是否再提醒一次 */
+    fun courseRemindAtStart(context: Context): Boolean =
+        sp(context).getBoolean(KEY_COURSE_AT_START, true)
+
+    fun setCourseRemindAtStart(context: Context, enabled: Boolean) {
+        sp(context).edit().putBoolean(KEY_COURSE_AT_START, enabled).apply()
+    }
+
+    // ===== 已排的课程提醒闹钟（与活动闹钟分开记，key 空间也不同） =====
+
+    fun scheduledCourseAlarms(context: Context): Set<String> =
+        sp(context).getStringSet(KEY_COURSE_ALARMS, emptySet()) ?: emptySet()
+
+    fun saveScheduledCourseAlarms(context: Context, ids: Set<String>) {
+        sp(context).edit().putStringSet(KEY_COURSE_ALARMS, ids).apply()
     }
 }

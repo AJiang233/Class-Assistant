@@ -15,5 +15,11 @@ class BootReceiver : BroadcastReceiver() {
         Scheduler.ensurePeriodic(context)
         // 开机后必须立刻重排闹钟，不能被回前台的 60 秒节流挡掉
         Scheduler.syncNow(context, force = true)
+        // 课程提醒只靠本地课表就能排，不必等上面那次同步的结果：
+        // 断网开机时同步拉不到东西，只等它等于「开机后一条课程提醒都没有」。
+        Scheduler.rescheduleCourseAlarms(context)
+        // 跨过一夜再开机是常态，小组件得先按当天刷一遍
+        Scheduler.refreshWidgets(context)
+        Scheduler.scheduleMidnightRefresh(context)
     }
 }

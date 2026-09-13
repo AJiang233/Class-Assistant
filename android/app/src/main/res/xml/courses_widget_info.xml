@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- updatePeriodMillis 与今日活动那个一样写 30 分钟（系统夹到的最小值）。
+     它只是兜底：真正的「换天」由 Scheduler.scheduleMidnightRefresh 的零点闹钟负责，
+     内容变化则由同步成功后主动刷新（见 CoursesWidgetProvider.refreshAll） -->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="180dp"
+    android:minHeight="140dp"
+    android:updatePeriodMillis="1800000"
+    android:initialLayout="@layout/widget_courses"
+    android:resizeMode="horizontal|vertical"
+    android:widgetCategory="home_screen"
+    android:description="@string/courses_widget_desc" />

@@ -31,6 +31,12 @@ object Notifier {
     /** 换到 v2 之后的老渠道 id：留着没用，还会继续在系统设置里占一条，让用户分不清该关哪个 */
     private const val CHANNEL_NOTICE_LEGACY = "class_notice"
 
+    /**
+     * 课程提醒单独一条渠道：上课提醒和班级活动/通知是两件事，学生想静音的可能只是其中一类。
+     * 新建的 id 不需要 v2 那套后缀 —— 只有「要改变一条已存在渠道的重要性」时才必须换新 id。
+     */
+    const val CHANNEL_COURSE = "course_reminder"
+
     /** 点通知要直达的页面深链（?view=…&id=…），MainActivity 启动时拼到站点地址后面 */
     const val EXTRA_DEEP_LINK = "ca_deep_link"
 
@@ -63,6 +69,14 @@ object Notifier {
         )
         // 删掉旧的 "class_notice"：不删就白留一条永远不弹横幅的渠道在设置里（幂等，不存在时是空操作）
         manager.deleteNotificationChannel(CHANNEL_NOTICE_LEGACY)
+        // 课程提醒
+        manager.createNotificationChannel(
+            NotificationChannel(
+                CHANNEL_COURSE,
+                context.getString(R.string.channel_course),
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply { description = context.getString(R.string.channel_course_desc) }
+        )
     }
 
     /** 活动到点提醒。notificationId 就是活动 id（Scheduler → AlarmReceiver 传的 event.id），
@@ -90,6 +104,14 @@ object Notifier {
         deepLink: String? = null
     ) {
         send(context, CHANNEL_NOTICE, notificationId, title, body, deepLink)
+    }
+
+    /**
+     * 上课提醒。落地页是网页的课表页 —— 课表没有「单节课详情」这种页面，
+     * 深链只能到列表；用户点进来看到的就是整周课表，够用。
+     */
+    fun notifyCourse(context: Context, notificationId: Int, title: String, body: String) {
+        send(context, CHANNEL_COURSE, notificationId, title, body, "?view=academic")
     }
 
     private fun send(

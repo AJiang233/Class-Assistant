@@ -61,6 +61,7 @@ class-assistant/
 - **课表与学业**：绑定教务系统后展示个人课表（节次网格、当前周高亮）、未安排课程与学业达成学分看板；数据经后端代理抓取并缓存进 D1。绑定有三条路径：App 内一键绑定、学号 + 密码代登录（复刻金智 CAS，密码用完即弃）、手动粘贴 Cookie
 - **安全加固**：登录 / 注册 / 改密统一校验密码长度（6–72 位）；系统预置职位（学生 / 班长 / 团支书 / 学习委员）不允许写入 `roles` 表（否则等于给全班提权），自定义职位只接受 `content:write` / `user:manage` 两个白名单权限点；教务绑定强制「教务学号 = 门户学号」；多因子验证码错满 5 次即作废本次中间态；教务会话 Cookie 与 MFA 中间态均 AES-GCM 封存
 - **测试与迁移**：`cd web && npm test`（Node 原生 `node --test`，覆盖鉴权与权限边界）；表结构见 `schema.sql`，增量变更见 `migrations/`，脚本为 `npm run db:migrate` / `db:migrate:mfa`
+- **离线**：页面壳由 Service Worker 缓存（`sw.js`，含预热的各页面与静态资源），断网也能打开；`/api/*` 刻意不走 Service Worker —— 数据与登录态必须走网络。App 里数据另有原生层兜底（见安卓端「离线可用」），浏览器里没有这一层，所以断网提示分两种文案（见 `web/README.md`）
 
 ### 安卓端（`android/`）
 
@@ -70,9 +71,13 @@ class-assistant/
 - **通知渠道**：两条都是「重要」级别，系统会以横幅（浮动通知）弹出 —— 活动提醒是 `activity_reminder`，通知与表单待办是 `class_notice_v2`。**id 里的 v2 不能去掉**：渠道重要性只在创建时生效，之后应用只能下调、不能上调（用户手动改的更是永远优先），老的 `class_notice`（默认级别，不弹横幅）改不动，只能换新 id 重建；建完顺手把老渠道删掉，否则系统设置里会永远多一条不弹横幅的渠道，用户分不清该关哪条。用户在系统设置里仍可单独把某条渠道调成静音 —— 这是他的最终权利，代码不跟它抢
 - **本机状态可在网页查**：个人中心经 JS 桥取「本机通知开没开 + 上次同步时间」——同步时间跟在资料卡的「更新时间」下面，通知开关留在「开发功能」的推送测试上面；通知被系统关掉时，推送测试不再回「已推送」而是直接说明原因（否则用户对着通知栏找不到东西，只会以为推送坏了）
 - **通知深链**：点提醒直达对应活动 / 通知详情，App 未打开（冷启动读启动 Intent）与已在运行（`onNewIntent`）都生效；表单在 App 里没有列表页，通知直接开网页填写页（`forms.html?id=`，与 Web Push 同一个落地页）
-- **桌面小组件**：显示今日活动
+- **离线可用**：断网时课表、通知、活动照常能看。原生层在 `WebViewClient.shouldInterceptRequest` 里接管本站 `/api/` 的只读请求（`sync/OfflineApi.kt`）：在线时自己拉一份（用本机 token，不依赖 WebView 的请求头）、顺手按 URL 存一份（`data/OfflineCache.kt`），断网就把上次的响应原样回给页面。单条详情的请求（`/api/notices/{id}`）从缓存过的列表里按 id 拼回来 —— 后端列表项与详情返回的是同一行数据，所以字段一个不少，也不必为每条详情单独存文件（否则文件数随「点开过多少条」无限涨）。后台同步每轮还会照 `OfflineApi.PREWARM` 预热一遍**网页真正请求的那几个 URL**，于是离线数据的新鲜度跟着同步走，而不是「上次打开那个页面时」。两条边界：写操作（POST / PUT / DELETE）一律不接管，断网就该失败；服务端**答了**（401 / 500 / `success:false`）时原样透传、绝不退回缓存，否则「登录态失效了」会被一份旧数据盖住，页面既不会提示重新绑定，用户也看不出自己看的是哪天的东西。退出登录时随 `Store.clearSession` 一起清空（否则换账号后断网能翻到上一个账号的课表）
+- **桌面小组件**：两个 —— 「今日活动」显示今天的班级活动；「课表」显示今天要上的课。课表组件今天还有课就显示今天（正在上的那节也算，已上完的整行变灰），今天的课上完了、或今天根本没课，就往前找**下一个真有课的日子**并在标题里标出来（「明日课程」/「周五 10-09 课程」）—— 跳过周末与单双周没课的日子，否则一到周末它就一片空白；没绑教务时说的是「还没同步到课表」而不是「今日无课」，这两种空态的区别写在 `CoursesWidgetProvider` 里
+- **小组件换天**：两个组件的内容都按**设备本地日期**算，但原来的刷新时机只有「后台同步成功」与 `updatePeriodMillis`（系统夹到最少 30 分钟，Doze 下更久）：过了零点没人叫它们，桌面就一直挂着昨天那一屏。现在按本机零点排一个 `RTC` 闹钟（`AlarmManager.RTC` 不唤醒设备，睡着就等醒来再刷）专门刷新这两个组件，接收方刷完自己再排下一次；系统时间/时区变更、覆盖安装、打开 App 时各补一次。`DATE_CHANGED` 特意没有注册 —— 它不在系统的隐式广播豁免名单里，清单注册的接收器收不到，换天只能靠零点闹钟，理由写在 `WidgetRefreshReceiver` 的注释里
+- **课程提醒**：按本地课表在上课前提醒，在「个人中心 → 偏好设置 → 课程提醒」里可设提前多久（不提醒 / 5~60 分钟，默认 15）与是否在开课时再提醒一次（默认开）。设置存在原生 SharedPreferences，网页只经 `CAHost` 读写，改完**立刻**重排闹钟、不用等下次后台同步（否则用户会以为没保存上）。闹钟只排未来 7 天、按「绝对日期 + 课程序号 + 类型」编号 —— 用「今天往后第几天」的话同一个闹钟每过一天就换号，天天被当成新闹钟取消重排；窗口给 1 分钟，比活动提醒的 5 分钟紧，上课时间是精确的。课程提醒单独一条通知渠道，可以和班级活动/通知分开静音
 - **教务绑定**：门户内一键打开教务登录页（固定桌面 UA，规避教务系统的手机端兼容问题），登录后由原生读出会话 Cookie 上报后端。教务系统的登录页至今是 **http**（安卓端打开 `https://szjw.njau.edu.cn`，门户自己会跳到 `http://szjw.njau.edu.cn/login/login.html`），所以 `res/xml/network_security_config.xml` 里给教务链路上的三个主机单独开了明文，其余仍全禁（`base-config` = false）—— 不开就是 `net::ERR_CLEARTEXT_NOT_PERMITTED`。**逐个点名、别改成 `njau.edu.cn` 通配**（见 `MainActivity.inAppHosts` 同款取舍），每个 `<domain>` 还必须显式写 `includeSubdomains="false"`（与不写等价，只匹配主机本身；缺了它 lint 的 `NetworkSecurityConfig` 规则判 **Fatal**，`lintVitalRelease` 会让整个 release 构建失败），别改成 `true` —— 那等于把明文放行扩到这几个主机的全部子域；代价是这几个主机上的流量可能以明文传输，这是校方服务器只提供 http 造成的，客户端没法单方面改成 https
 - 构建：`cd android && ./gradlew assembleDebug`（产物在 `app/build/outputs/apk/debug/`）
+- 测试：`cd android && ./gradlew testDebugUnitTest` —— 覆盖课表的日期逻辑（开学第几周、下一个有课的日子、跨零点下课、闹钟编号）。这类代码算错了不会崩，只会悄悄显示错的那一天，所以说不出错不等于对。CI 在打包前跑这一步（`build-android.yml`），红了就不发版
 - 签名：正式 keystore 不进仓库（`.gitignore` 挡了 `*.jks` / `*.keystore`），只以 base64 存在仓库 Secrets：`KEYSTORE_BASE64`（keystore 的 base64）、`KEYSTORE_PASSWORD`、`KEY_ALIAS`、`KEY_PASSWORD`；密钥与口令务必另行备份，丢了就只能改包名、让所有人重装一次
 - 生成 keystore：`keytool -genkeypair -v -keystore release.jks -alias class-assistant -keyalg RSA -keysize 2048 -validity 10000`，再 `base64 -w0 release.jks`（PowerShell：`[Convert]::ToBase64String([IO.File]::ReadAllBytes("release.jks"))`）填进 `KEYSTORE_BASE64`
 - 发版：CI（`build-android.yml`）注入 `version_name`、从 Secrets 还原 keystore 后产出已签名的 release 包；发布 Release 后需同步更新 `web/version.json` 的 `android` 段（版本号 + APK 稳定直链），否则个人中心「检查更新」读不到，维护细节见 `web/README.md` 的部署一节

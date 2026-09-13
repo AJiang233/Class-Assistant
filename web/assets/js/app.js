@@ -345,6 +345,38 @@ if ('serviceWorker' in navigator) {
   });
 }
 
+/* ===== 离线提示 =====
+   断网时两种情况不一样，不能共用一句话：
+     App 里 —— 原生层把 /api/ 的只读响应缓存下来回放（见 android 的 OfflineApi），
+              页面照常能看到课表、通知、活动，只是数据是上次同步的；
+     浏览器里 —— 没有这一层。页面壳还能从 Service Worker 缓存里打开，但数据是真的取不到。
+   注意 navigator.onLine 只管「有没有可用网络」，管不了「服务端是不是活着」，够用了。 */
+function renderOfflineNotice() {
+  var existing = document.getElementById('offlineNotice');
+  if (navigator.onLine) {
+    if (existing) existing.remove();
+    return;
+  }
+  if (existing) return;
+
+  // .main 在每个子页与主页视图里都有（主页视图是 index.html 自己渲染的，不是 iframe）
+  var host = document.querySelector('.main');
+  if (!host) return;
+
+  var el = document.createElement('div');
+  el.id = 'offlineNotice';
+  el.className = 'offline-notice';
+  el.textContent = inNativeShell()
+    ? '当前无网络，显示的是缓存数据'
+    : '当前无网络，部分内容可能无法加载';
+  host.insertBefore(el, host.firstChild);
+}
+
+window.addEventListener('online', renderOfflineNotice);
+window.addEventListener('offline', renderOfflineNotice);
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', renderOfflineNotice);
+else renderOfflineNotice();
+
 /** 能否发布/取消 通知、活动（权限由后端按职位+自定义职位计算） */
 function canContentWrite() {
   const u = getSession();

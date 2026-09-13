@@ -13,7 +13,8 @@ import java.net.URL
  */
 object Api {
 
-    private const val BASE = "https://class.qxwkstudio.top"
+    /** 站点根地址；OfflineApi 也用它来判「这条请求是不是本站接口」，别在两处各写一份 */
+    const val BASE = "https://class.qxwkstudio.top"
 
     /**
      * 请求结果。必须把「登录已失效」和「网络/服务异常」分开：

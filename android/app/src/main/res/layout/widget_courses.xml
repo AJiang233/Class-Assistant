@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 课表小组件。结构与 widget_today.xml 保持一致（同样的圆角背景、标题 + 若干行 + 空态），
+     只是行数给到 4 —— 一天四五节课是常态，3 行会把最后一节切掉 -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/courses_widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="14dp"
+    android:background="@drawable/widget_bg">
+
+    <TextView
+        android:id="@+id/courses_widget_title"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/courses_widget_title"
+        android:textColor="#111114"
+        android:textSize="13sp"
+        android:textStyle="bold"
+        android:maxLines="1"
+        android:ellipsize="end" />
+
+    <TextView
+        android:id="@+id/courses_row_1"
+        style="@style/WidgetRow" />
+
+    <TextView
+        android:id="@+id/courses_row_2"
+        style="@style/WidgetRow" />
+
+    <TextView
+        android:id="@+id/courses_row_3"
+        style="@style/WidgetRow" />
+
+    <TextView
+        android:id="@+id/courses_row_4"
+        style="@style/WidgetRow" />
+
+    <TextView
+        android:id="@+id/courses_widget_empty"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:textColor="#8d8d98"
+        android:textSize="13sp" />
+</LinearLayout>

@@ -992,6 +992,17 @@ input[type="checkbox"]:disabled { opacity: 0.5; cursor: not-allowed; }
 }
 .beta-banner svg { width: 17px; height: 17px; flex-shrink: 0; }
 
+/* 离线提示条（app.js 的 renderOfflineNotice 插入）：断网时出现在内容最上方，滚动时贴住顶部。
+   sticky 而不是 fixed —— 插在正常流里，不用给页面加占位内边距，也不会盖住底栏。
+   同样一句「没网」，在 App 里与浏览器里说的不是一回事（见 app.js），所以文案由那边给。 */
+.offline-notice {
+  position: sticky; top: 0; z-index: 90;
+  padding: 9px 15px; margin-bottom: 18px;
+  border-radius: var(--radius-md);
+  background: var(--danger-soft); color: var(--danger);
+  font-size: 0.85rem; font-weight: 600; line-height: 1.5;
+}
+
 /* ═══════════════════════════════════════════════════════════════════
    18 · 应用壳
    ═══════════════════════════════════════════════════════════════════ */

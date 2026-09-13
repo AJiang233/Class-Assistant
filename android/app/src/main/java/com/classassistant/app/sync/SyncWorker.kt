@@ -3,9 +3,9 @@ package com.classassistant.app.sync
 import android.content.Context
 import androidx.work.Worker
 import androidx.work.WorkerParameters
+import com.classassistant.app.data.OfflineCache
 import com.classassistant.app.data.Store
 import com.classassistant.app.notify.Notifier
-import com.classassistant.app.widget.TodayWidgetProvider
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -27,6 +27,11 @@ class SyncWorker(context: Context, params: WorkerParameters) : Worker(context, p
         if (noticesRes is Api.Res.Unauthorized) return logOut(ctx)
         val todosRes = Api.get("/api/forms/mine", token)
         if (todosRes is Api.Res.Unauthorized) return logOut(ctx)
+
+        // 这一轮拉到的响应顺手留给离线用（不额外发请求）
+        cacheResponse(ctx, "/api/activities?scope=all&limit=100", activitiesRes)
+        cacheResponse(ctx, "/api/notices?limit=50", noticesRes)
+        cacheResponse(ctx, "/api/forms/mine", todosRes)
 
         val activities = activitiesRes.listOrNull() ?: return Result.retry()
         val notices = noticesRes.listOrNull() ?: return Result.retry()
@@ -70,11 +75,64 @@ class SyncWorker(context: Context, params: WorkerParameters) : Worker(context, p
         Scheduler.rescheduleAlarms(ctx, sorted)
         notifyNewNotices(ctx, notices, meId, meName)
         notifyNewTodos(ctx, todos)
-        TodayWidgetProvider.refreshAll(ctx)
+        prewarmOfflineCache(ctx, token)
+        // 课表排期不依赖预热的结果：断网或教务没绑定时预热会失败，但设置改了、
+        // 或者滚动的 7 天窗口过期了，仍然要按本地缓存重排一次
+        Scheduler.rescheduleCourseAlarms(ctx)
+        // 放在预热之后：课表小组件要读到这一轮刚落地的那份课表
+        Scheduler.refreshWidgets(ctx)
         // 只有整轮拉完才记「上次同步」：失败时这个时间不前进，回前台同步的节流就不会
         // 把重试挡住（见 Scheduler.syncNow），个人页显示的也是真拉到过数据的时间
         Store.setLastSyncAt(ctx, System.currentTimeMillis())
         return Result.success()
+    }
+
+    /**
+     * 顺手把本次响应留一份给离线用。只在形状对得上时才写（见 OfflineApi 的白名单），
+     * 写失败/不符合形状都安静跳过 —— 离线缓存是锦上添花，不能影响同步本身。
+     *
+     * 注意这几条的 URL 与网页请求的不完全一样（同步取的是给提醒用的窗口），
+     * 所以它们主要给「详情回退」当数据源：断网点开某条通知时，是从这些列表缓存里按 id 找回来的。
+     */
+    private fun cacheResponse(ctx: Context, path: String, res: Api.Res) {
+        val body = (res as? Api.Res.Ok)?.body?.toString() ?: return
+        val pathOnly = path.substringBefore("?")
+        if (!OfflineApi.isCacheablePath(pathOnly)) return
+        OfflineCache.write(ctx, path, body, listShaped = OfflineApi.isListPath(pathOnly))
+    }
+
+    /**
+     * 预热离线缓存：把**网页会请求的**那几份 URL 也拉一遍存下来（清单见 OfflineApi.PREWARM），
+     * 这样即使某个页面用户很久没打开过，断网时照样有内容可看 ——
+     * 离线数据的新鲜度因此跟着后台同步走，而不是「上次打开那个页面时」。
+     *
+     * 课表那一份还顺带解析成本地课表（见 saveTimetable）：课表小组件与课程提醒都读它。
+     * 同一个响应只用一次，所以在这里一并处理，而不是再单独拉一遍。
+     *
+     * 逐条独立、失败即跳过：教务那三份在没绑定时本来就会失败，属正常情况，不该让整轮同步变红。
+     * 顺序上放在主流程之后、记 lastSyncAt 之前，所以这里慢了也只会推迟「上次同步」的显示。
+     */
+    private fun prewarmOfflineCache(ctx: Context, token: String) {
+        for (path in OfflineApi.PREWARM) {
+            val res = Api.get(path, token)
+            if (res is Api.Res.Unauthorized) return
+            cacheResponse(ctx, path, res)
+            if (path == OfflineApi.TIMETABLE_PATH) {
+                (res as? Api.Res.Ok)?.body?.let { saveTimetable(ctx, it) }
+            }
+        }
+    }
+
+    /**
+     * 把教务课表落到本地。
+     *
+     * **只认解析成功的那一份**，失败时保留上一次的课表：教务没绑定 / 登录态过期时后端回
+     * `success:false`，这时把本地课表清掉，小组件就会变成「还没同步到课表」、
+     * 课程提醒也全没了 —— 可用户的课表明明一学期都不怎么变，刚绑定过的人更是完全没理由被清。
+     */
+    private fun saveTimetable(ctx: Context, body: JSONObject) {
+        if (parseTimetable(body) == null) return
+        Store.saveTimetableJson(ctx, body.toString())
     }
 
     /**
@@ -188,8 +246,13 @@ class SyncWorker(context: Context, params: WorkerParameters) : Worker(context, p
             // 顺序要紧：rescheduleAlarms 是照着 scheduled_alarm_ids 里的记录逐个取消的，
             // 若先把存储清了，这些 id 就丢了，闹钟会留在系统里继续响。
             Scheduler.rescheduleAlarms(context, emptyList())
+            // 课程提醒闹钟同理，得赶在 clearSession 把它们从存储里抹掉之前取消
+            Scheduler.cancelCourseAlarms(context)
             Store.clearSession(context)
-            TodayWidgetProvider.refreshAll(context)
+            // 离线缓存也要清：留着的话换账号后断网能翻到上一个账号的通知与课表
+            OfflineCache.clear(context)
+            // 两个小组件都要重绘：不然退出登录后桌面还挂着上一个账号的活动与课程
+            Scheduler.refreshWidgets(context)
         }
 
         /**

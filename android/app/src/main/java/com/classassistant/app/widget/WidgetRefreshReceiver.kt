@@ -1,0 +1,45 @@
+package com.classassistant.app.widget
+
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import com.classassistant.app.sync.Scheduler
+
+/**
+ * 小组件的「换天」触发器。
+ *
+ * 两个小组件的内容都按**设备本地日期**算（今日活动 / 今日课程），但原本没有任何东西会在
+ * 零点叫它们一声：后台同步会被 Doze 推迟，updatePeriodMillis 最少也是 30 分钟 ——
+ * 于是第二天早上打开手机，桌面还挂着昨天那一屏，而 render() 里的日期过滤根本没机会重跑。
+ * 这里接管三类时机：
+ *
+ *   1. Scheduler.scheduleMidnightRefresh 排的本地零点闹钟（主力），刷完自己再排下一次
+ *   2. 系统时间被改 / 时区变了 —— RTC 闹钟按绝对毫秒存，时区一变「09:50 上课」的含义就变了，
+ *      所以这里连课程闹钟也一起重排
+ *   3. 应用被覆盖安装 —— 闹钟与 AllowedAlarms 都会被清掉，得重新排
+ *
+ * 特意**没有**注册 DATE_CHANGED：它不在系统的隐式广播豁免名单里，
+ * 清单注册的接收器收不到（Android 8 起隐式广播不再投递给静态接收器）。
+ * 换天只能靠上面的零点闹钟兜，这也是那边用闹钟而不是等系统广播的原因。
+ */
+class WidgetRefreshReceiver : BroadcastReceiver() {
+
+    override fun onReceive(context: Context, intent: Intent) {
+        when (intent.action) {
+            ACTION_MIDNIGHT,
+            Intent.ACTION_TIME_CHANGED,
+            Intent.ACTION_TIMEZONE_CHANGED,
+            Intent.ACTION_MY_PACKAGE_REPLACED -> {
+                Scheduler.refreshWidgets(context)
+                Scheduler.scheduleMidnightRefresh(context)
+                // 时间/时区变了，课程闹钟的绝对触发时刻要重算；覆盖安装后闹钟本来就没了，也得重排
+                Scheduler.rescheduleCourseAlarms(context)
+            }
+        }
+    }
+
+    companion object {
+        /** 自定义 action，由 Scheduler 用显式 Intent（点名组件）发过来，不需要进清单的 intent-filter */
+        const val ACTION_MIDNIGHT = "com.classassistant.app.action.MIDNIGHT_REFRESH"
+    }
+}

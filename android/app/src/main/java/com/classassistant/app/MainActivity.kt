@@ -3,6 +3,7 @@ package com.classassistant.app
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.ActivityNotFoundException
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
@@ -17,6 +18,7 @@ import android.webkit.JavascriptInterface
 import android.webkit.SslErrorHandler
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -28,8 +30,10 @@ import com.classassistant.app.data.Store
 import com.classassistant.app.databinding.ActivityMainBinding
 import com.classassistant.app.notify.Notifier
 import com.classassistant.app.sync.Api
+import com.classassistant.app.sync.OfflineApi
 import com.classassistant.app.sync.Scheduler
 import com.classassistant.app.sync.SyncWorker
+import com.classassistant.app.sync.parseTimetableJson
 import org.json.JSONObject
 
 /**
@@ -153,6 +157,40 @@ class MainActivity : AppCompatActivity() {
                 .put("lastSyncAt", Store.lastSyncAt(applicationContext))
                 .toString()
         }
+
+        /**
+         * 个人页「课程提醒」卡片读设置。返回值同样是 JSON 字符串，理由见 appStatus。
+         * 契约见 web/account.html 的 refreshCourseCard()：
+         *   {"lead":15,"atStart":true,"courseCount":23}
+         * courseCount 是给页面提示「本机还没同步到课表」用的 —— 用户打开了开关却什么都没发生，
+         * 得能分辨是「今天没课」还是「本机根本没有课表数据」。
+         */
+        @JavascriptInterface
+        fun courseReminderSettings(): String {
+            if (!fromAppPage()) return ""
+            return courseSettingsJson(applicationContext)
+        }
+
+        /**
+         * 个人页改完设置：存下来并**立即重排**闹钟。
+         * 不重排的话要等下一次后台同步（Doze 下可能几小时）才生效，用户会以为没保存上。
+         */
+        @JavascriptInterface
+        fun saveCourseReminderSettings(lead: Int, atStart: Boolean): String {
+            if (!fromAppPage()) return ""
+            val ctx = applicationContext
+            // 网页的下拉是可信来源，但桥是公开接口，这里仍按范围夹一次（0 = 不提前提醒）
+            Store.setCourseRemindLead(ctx, lead.coerceIn(0, 120))
+            Store.setCourseRemindAtStart(ctx, atStart)
+            Scheduler.rescheduleCourseAlarms(ctx)
+            return courseSettingsJson(ctx)
+        }
+
+        private fun courseSettingsJson(ctx: Context): String = JSONObject()
+            .put("lead", Store.courseRemindLead(ctx))
+            .put("atStart", Store.courseRemindAtStart(ctx))
+            .put("courseCount", parseTimetableJson(Store.timetableJson(ctx))?.courses?.size ?: 0)
+            .toString()
     }
 
     /** Android 13+ 发通知需要用户授权 */
@@ -172,6 +210,11 @@ class MainActivity : AppCompatActivity() {
         if (Store.token(this) != null) {
             Scheduler.ensurePeriodic(this)
         }
+        // 小组件的内容按**本地日期**算（今日活动 / 今日课程），而后台同步可能几小时没跑过。
+        // 打开 App 是最可靠的一次「对表」机会：隔夜回来、跨了零点，都在这里把小组件刷成当天该有的样子。
+        Scheduler.refreshWidgets(this)
+        // 顺手把下一次零点刷新排上（重复排只是覆盖，不会堆）
+        Scheduler.scheduleMidnightRefresh(this)
     }
 
     /**
@@ -235,6 +278,16 @@ class MainActivity : AppCompatActivity() {
             addJavascriptInterface(HostBridge(), "CAHost")
 
             webViewClient = object : WebViewClient() {
+                /**
+                 * 离线回退：本站 /api/ 的只读请求由 OfflineApi 接管（在线顺手存一份、断网给缓存）。
+                 * 其余请求返回 null，交给 WebView 原样走网络 —— 这一层不碰页面与静态资源，
+                 * 它们的离线能力由网页自己的 Service Worker 负责。
+                 */
+                override fun shouldInterceptRequest(
+                    view: WebView,
+                    request: WebResourceRequest
+                ): WebResourceResponse? = OfflineApi.intercept(applicationContext, request)
+
                 // 站内与教务域留在 WebView，系统协议拦截，其余外链交给系统浏览器
                 override fun shouldOverrideUrlLoading(
                     view: WebView,

@@ -80,6 +80,30 @@
                             </div>
                             <p class="profile-sub" id="notifyHint" style="margin:14px 0 0;"></p>
                         </div>
+
+                        <!-- 课程提醒：仅 App 壳。提醒要到点弹出，网页版没有这个能力（本地排期靠原生的
+                             AlarmManager），所以整块默认 hidden，由 refreshCourseCard() 判断有没有桥再显示。
+                             设置也存在原生侧（SharedPreferences），这边只做读写，见 CAHost.courseReminderSettings。 -->
+                        <div id="courseCard" style="margin-top:24px; padding-top:22px; border-top:1px solid var(--separator);" hidden>
+                            <label class="form-label">课程提醒</label>
+                            <p class="profile-sub" id="courseStatus" style="margin:0 0 14px;"></p>
+                            <div class="form-field" style="margin-bottom:14px;">
+                                <label class="form-label" for="courseLead">提前多久提醒</label>
+                                <select class="form-input" id="courseLead" onchange="saveCourseReminder()">
+                                    <option value="0">不提前提醒</option>
+                                    <option value="5">提前 5 分钟</option>
+                                    <option value="10">提前 10 分钟</option>
+                                    <option value="15">提前 15 分钟</option>
+                                    <option value="20">提前 20 分钟</option>
+                                    <option value="30">提前 30 分钟</option>
+                                    <option value="60">提前 60 分钟</option>
+                                </select>
+                            </div>
+                            <label style="display:flex; align-items:center; gap:8px; font-size:0.89rem; color:var(--text); cursor:pointer;">
+                                <input type="checkbox" id="courseAtStart" onchange="saveCourseReminder()"> 开课时再提醒一次
+                            </label>
+                            <p class="profile-sub" style="margin:14px 0 0;">提醒由手机本地排期，不需要联网；课表跟着后台同步自动更新。</p>
+                        </div>
                     </div>
 
                     <!-- 日历订阅（所有登录用户） -->
@@ -652,6 +676,69 @@
         }
     }
     refreshAppStatus();
+
+    // ===== 课程提醒（仅 App 壳）=====
+    // 上课提醒要到点弹出，网页版没有这个能力（本地排期靠原生的 AlarmManager），
+    // 设置也存在原生侧，这边只读写。桥返回 JSON 字符串：
+    //   {"lead":15,"atStart":true,"courseCount":23}
+    // courseCount 是为了分辨「今天没课」与「本机根本没有课表数据」——
+    // 用户把开关打开却什么都没发生，得能看出是哪一种，否则只会以为功能坏了。
+    var COURSE_LEAD_LABEL = {
+        0: '不提前提醒', 5: '提前 5 分钟', 10: '提前 10 分钟', 15: '提前 15 分钟',
+        20: '提前 20 分钟', 30: '提前 30 分钟', 60: '提前 60 分钟'
+    };
+
+    function readCourseSettings() {
+        if (!window.CAHost || typeof CAHost.courseReminderSettings !== 'function') return null;
+        try { return JSON.parse(CAHost.courseReminderSettings() || '') || null; } catch (e) { return null; }
+    }
+
+    function renderCourseStatus(info, saved) {
+        var el = document.getElementById('courseStatus');
+        if (!el) return;
+        if (!info) { el.textContent = ''; return; }
+        if (!info.courseCount) {
+            el.textContent = '本机还没有课表：先到「课表与学业」绑定教务系统，同步成功后这里才有可提醒的课。';
+            return;
+        }
+        var lead = COURSE_LEAD_LABEL[info.lead] || ('提前 ' + info.lead + ' 分钟');
+        el.textContent = (saved ? '已保存：' : '当前：') + lead
+            + (info.atStart ? '，开课时也提醒' : '，开课时不提醒')
+            + '。本机已同步到 ' + info.courseCount + ' 门课。';
+    }
+
+    function refreshCourseCard() {
+        var card = document.getElementById('courseCard');
+        if (!card) return;
+        var info = readCourseSettings();
+        if (!info) return;   // 网页版没有这个桥：整块保持隐藏，不给一个点了没反应的设置项
+        var leadSel = document.getElementById('courseLead');
+        var atStart = document.getElementById('courseAtStart');
+        if (leadSel) leadSel.value = String(info.lead);
+        if (atStart) atStart.checked = !!info.atStart;
+        card.hidden = false;
+        renderCourseStatus(info, false);
+    }
+
+    /** 改完即存（没有「保存」按钮）：原生侧会立刻重排闹钟，省一步操作 */
+    function saveCourseReminder() {
+        if (!window.CAHost || typeof CAHost.saveCourseReminderSettings !== 'function') return;
+        var leadSel = document.getElementById('courseLead');
+        var atStart = document.getElementById('courseAtStart');
+        var lead = parseInt(leadSel ? leadSel.value : '0', 10);
+        if (isNaN(lead)) lead = 0;
+        try {
+            var info = JSON.parse(
+                CAHost.saveCourseReminderSettings(lead, !!(atStart && atStart.checked)) || ''
+            ) || null;
+            renderCourseStatus(info, true);
+        } catch (e) {
+            // 存失败就退回「什么都没写」的状态，别让页面显示一个没生效的值
+            refreshCourseCard();
+        }
+    }
+    window.saveCourseReminder = saveCourseReminder;
+    refreshCourseCard();
 
     // 重取一次的两个时机：展开「开发功能」时（用户正是来排查「为什么没收到提醒」，而页面打开后
     // 数据会变旧），以及资料卡重绘之后（loadProfile 会重建 DOM，那行元素是新的）。

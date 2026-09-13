@@ -4,4 +4,10 @@
     <!-- 网页底色（与 style.css 的底色变量一致），用于系统状态栏 / 导航栏配色 -->
     <color name="window_bg_light">#F2F2F7</color>
     <color name="window_bg_dark">#07070C</color>
+
+    <!-- 桌面小组件文字。widget_today.xml 里是直接写死的十六进制，
+         课表小组件有一行要按「已上完」变灰（RemoteViews 里只能从代码 setTextColor），
+         所以这两个颜色必须以资源形式存在，代码与布局取同一份 -->
+    <color name="widget_row_text">#4b4b55</color>
+    <color name="widget_row_text_done">#9a9aa5</color>
 </resources>
