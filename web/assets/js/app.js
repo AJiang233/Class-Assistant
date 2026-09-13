@@ -192,6 +192,94 @@ function filterRemindMembers(input) {
   if (empty) empty.hidden = shown > 0;
 }
 
+/* ===== PWA：安装到主屏 ===== */
+
+const LS_INSTALL_HINT = 'installHintDismissed';
+
+/** 是否已以「已安装应用」方式运行（从主屏图标启动 / 安卓独立窗口） */
+function isStandalone() {
+  return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)
+    || window.navigator.standalone === true;
+}
+
+/** 是否 iOS / iPadOS（只有 Safari 分享菜单能加主屏，无法用代码触发安装） */
+function isIOSDevice() {
+  const ua = navigator.userAgent || '';
+  // iPadOS 13+ 的 UA 伪装成 Mac，用触点数一并识别
+  return /iPad|iPhone|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+}
+
+let deferredInstallPrompt = null;
+
+/* 安卓 Chrome 的安装事件先拦下，等用户点「安装」再弹，
+   避免浏览器自己弹一次、我们再弹一次 */
+window.addEventListener('beforeinstallprompt', function (e) {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  refreshInstallHint();
+});
+
+window.addEventListener('appinstalled', function () {
+  deferredInstallPrompt = null;
+  localStorage.setItem(LS_INSTALL_HINT, '1');
+  var hint = document.getElementById('installHint');
+  if (hint) hint.hidden = true;
+});
+
+/** 安装引导：iOS 给图文步骤，安卓给「安装」按钮，已安装或已关掉则不再提示。
+    页面里没有 #installHint 时静默跳过，所以放在 app.js 里对全部页面安全。 */
+function refreshInstallHint() {
+  var hint = document.getElementById('installHint');
+  if (!hint) return;
+  if (isStandalone() || localStorage.getItem(LS_INSTALL_HINT) === '1') {
+    hint.hidden = true;
+    return;
+  }
+  var text = hint.querySelector('.install-hint-text');
+  var btn = hint.querySelector('.install-hint-action');
+  if (isIOSDevice()) {
+    // iOS 无法用代码安装：明确说清怎么点，不做假的成功反馈
+    if (text) text.textContent = '加到主屏可全屏使用：点底部「分享」按钮 → 选「添加到主屏幕」';
+    if (btn) btn.hidden = true;
+    hint.hidden = false;
+  } else if (deferredInstallPrompt) {
+    if (text) text.textContent = '把「班级助理」装到桌面，打开更快';
+    if (btn) btn.hidden = false;
+    hint.hidden = false;
+  } else {
+    hint.hidden = true;
+  }
+}
+
+/** 关闭安装引导，之后不再提示 */
+function dismissInstallHint() {
+  localStorage.setItem(LS_INSTALL_HINT, '1');
+  var hint = document.getElementById('installHint');
+  if (hint) hint.hidden = true;
+}
+
+/** 触发浏览器原生安装流程（仅拿到 beforeinstallprompt 后可用，主要是安卓 Chrome/Edge） */
+function promptInstall() {
+  if (!deferredInstallPrompt) return;
+  deferredInstallPrompt.prompt();
+  deferredInstallPrompt.userChoice.then(function () {
+    deferredInstallPrompt = null;
+  });
+}
+
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', refreshInstallHint);
+else refreshInstallHint();
+
+/* 注册 Service Worker：提供离线壳，也是可安装与推送的前提。
+   注册失败只意味着没有离线与推送，页面本身照常可用，所以只提示不抛错。 */
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function () {
+    navigator.serviceWorker.register('sw.js').catch(function (e) {
+      console.warn('Service Worker 注册失败：', e);
+    });
+  });
+}
+
 /** 能否发布/取消 通知、活动（权限由后端按职位+自定义职位计算） */
 function canContentWrite() {
   const u = getSession();
