@@ -13,22 +13,56 @@
  * 注意：sw.js 由 _headers 声明为 no-cache，保证脚本本身不会被缓存住。
  */
 
-const CACHE = 'ca-shell-v1';
+const CACHE = 'ca-shell-v2';
 
-/** 首次安装时预热的应用壳，保证从主屏图标打开即离线可用（不依赖用户是否访问过某个页面） */
+/**
+ * 首次安装时预热的应用壳，保证从主屏图标打开即离线可用（不依赖用户是否访问过某个页面）。
+ *
+ * 写的是**规范地址**（去扩展名），不是 .html：站点把 /notices.html 308 跳到 /notices，
+ * 跟着这个跳转取回来的响应会带上 redirected 标记，而规范禁止把这种响应交给导航请求
+ * （页面与 iframe 的加载都算导航）—— 浏览器直接判成网络错误，用户看到的就是
+ * 「网页无法打开」。写规范地址压根不产生跳转，存下来的就是能用的那一份。
+ */
 const PRECACHE = [
   '/',
-  '/index.html',
-  '/notices.html',
-  '/activities.html',
-  '/academic.html',
-  '/forms.html',
-  '/admin.html',
-  '/account.html',
+  '/notices',
+  '/activities',
+  '/academic',
+  '/forms',
+  '/admin',
+  '/account',
   '/assets/css/style.css',
   '/assets/js/app.js',
   '/manifest.json'
 ];
+
+/**
+ * 规范地址：/notices.html → /notices，/index.html → /。
+ *
+ * 页面里的 iframe、链接、以及后端下发的表单链接写的都是 .html 写法（在线时靠站点的 308 纠正），
+ * 而缓存里存的是规范地址 —— 两边对不上就会「在线能打开、断网打不开」。所以离线回退时按规范地址再找一次。
+ */
+function canonical(url) {
+  const path = url.pathname === '/index' || url.pathname === '/index.html'
+    ? '/'
+    : url.pathname.replace(/\.html$/, '');
+  return new Request(url.origin + path + url.search);
+}
+
+/**
+ * 去掉 redirected 标记的副本。
+ *
+ * 这是上面那条规范限制的兜底：在线访问 /notices.html 时网络返回的是「跟过跳转」的响应，
+ * 原样塞进缓存的话，断网回放时又会踩同一个坑。所以落缓存前复制一份干净的。
+ */
+function plain(response) {
+  if (!response.redirected) return response;
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers
+  });
+}
 
 /** 只缓存同源 GET 的成功响应，避免把错误页或跨域响应塞进缓存 */
 function cacheable(request, response) {
@@ -83,12 +117,15 @@ self.addEventListener('fetch', function (event) {
       const fresh = await fetch(request, { cache: 'no-cache' });
       if (cacheable(request, fresh)) {
         const cache = await caches.open(CACHE);
-        cache.put(request, fresh.clone());
+        // 键归到规范地址、响应去掉跳转标记：缓存里始终是「能用于导航」的那一份
+        cache.put(canonical(new URL(request.url)), plain(fresh.clone()));
       }
       return fresh;
     } catch (err) {
-      // 断网：命中缓存就回退（离线壳），否则把网络错误如实抛回去
-      const cached = await caches.match(request);
+      // 断网：命中缓存就回退（离线壳），否则把网络错误如实抛回去。
+      // 按请求地址找不到就按规范地址再找一次（页面请求 .html、缓存里存的是去扩展名的那份）
+      const cached = await caches.match(request)
+        || await caches.match(canonical(new URL(request.url)));
       if (cached) return cached;
       throw err;
     }

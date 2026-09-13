@@ -75,6 +75,13 @@ function fire(handler, request) {
 
 const ok = (body) => new Response(body, { status: 200 });
 
+/** 造一个「跟过 308 跳转」的响应：redirected 为 true，其余与普通响应一致 */
+function followedRedirect(body) {
+  const res = new Response(body, { status: 200 });
+  Object.defineProperty(res, 'redirected', { value: true });
+  return res;
+}
+
 test('接口请求完全不拦截（断网时必须如实报错，不能拿旧数据糊弄）', () => {
   const sw = loadSW(async () => ok('x'));
   const got = fire(sw.handlers.fetch, new Request(ORIGIN + '/api/notices'));
@@ -99,7 +106,18 @@ test('联网时页面走网络，并写入缓存', async () => {
   assert.equal(got.called, true);
   const res = await got.promise;
   assert.equal(await res.text(), 'fresh');
-  assert.ok(sw.stores.get('ca-shell-v1').has(ORIGIN + '/index.html'));
+  // 键落到规范地址：/index.html 与 / 是同一份，写 .html 会让离线时按另一种写法取不到
+  assert.ok(sw.stores.get('ca-shell-v2').has(ORIGIN + '/'));
+});
+
+test('跟过跳转的响应落缓存前去掉 redirected 标记', async () => {
+  // 站点把 /notices.html 308 跳到 /notices。带 redirected 标记的响应被规范禁止用于
+  // 导航请求（页面/iframe 的加载），原样存下来断网回放时会直接变成「网页无法打开」。
+  const sw = loadSW(async () => followedRedirect('shell'));
+  await fire(sw.handlers.fetch, new Request(ORIGIN + '/notices.html')).promise;
+  const stored = sw.stores.get('ca-shell-v2').get(ORIGIN + '/notices');
+  assert.ok(stored, '应存在规范地址 /notices 下');
+  assert.equal(stored.redirected, false, '存下来的必须是能应答导航的那一份');
 });
 
 test('同源请求强制回源校验，不吃浏览器 HTTP 缓存', async () => {
@@ -117,7 +135,7 @@ test('失败响应（500）不写入缓存', async () => {
   const got = fire(sw.handlers.fetch, new Request(ORIGIN + '/index.html'));
   await got.promise;
   // 500 时压根不会 open 缓存，所以这里用可选链判断
-  assert.equal(sw.stores.get('ca-shell-v1')?.has(ORIGIN + '/index.html') ?? false, false);
+  assert.equal(sw.stores.get('ca-shell-v2')?.has(ORIGIN + '/') ?? false, false);
 });
 
 test('断网且缓存命中时回退到缓存（离线壳）', async () => {
@@ -135,6 +153,22 @@ test('断网且缓存命中时回退到缓存（离线壳）', async () => {
   assert.equal(await res.text(), 'v1');
 });
 
+test('断网时 .html 请求回退到规范地址的缓存', async () => {
+  // 页面里的 iframe 请求的正是 notices.html，而预热/落缓存存的是 /notices。
+  // 只按请求地址找缓存的话，这里会取不到 —— 现场就是「主页能开、点别的标签全打不开」。
+  let online = true;
+  const sw = loadSW(async () => {
+    if (!online) throw new TypeError('Failed to fetch');
+    return ok('shell');
+  });
+  await fire(sw.handlers.fetch, new Request(ORIGIN + '/notices')).promise;
+  online = false;
+
+  const got = fire(sw.handlers.fetch, new Request(ORIGIN + '/notices.html'));
+  const res = await got.promise;
+  assert.equal(await res.text(), 'shell');
+});
+
 test('断网且没有缓存时，如实抛出网络错误', async () => {
   const sw = loadSW(async () => { throw new TypeError('Failed to fetch'); });
   const got = fire(sw.handlers.fetch, new Request(ORIGIN + '/never-visited.html'));
@@ -143,31 +177,34 @@ test('断网且没有缓存时，如实抛出网络错误', async () => {
 
 test('安装时预热应用壳，且单个资源失败不影响整体', async () => {
   const sw = loadSW(async (path) => {
-    if (String(path).includes('admin.html')) throw new Error('该页临时取不到');
+    if (String(path) === '/admin') throw new Error('该页临时取不到');
     return ok('shell');
   });
   let installWork = null;
   sw.handlers.install({ waitUntil(p) { installWork = p; } });
   await installWork;
 
-  const entries = sw.stores.get('ca-shell-v1');
-  assert.ok(entries.size >= 10, '预热的资源数量应接近清单长度');
-  assert.ok(entries.has(ORIGIN + '/index.html'));
+  const entries = sw.stores.get('ca-shell-v2');
+  assert.ok(entries.size >= 9, '预热的资源数量应接近清单长度（10 条里故意失败 1 条）');
+  // 预热用规范地址：写成 .html 会让站点 308 跳转，存下来的响应带着 redirected 标记，
+  // 断网时交给导航请求会被浏览器判成网络错误 —— 也就是「断网后除主页都打不开」
+  assert.ok(entries.has(ORIGIN + '/notices'), '预热的是去扩展名的地址');
+  assert.equal(entries.has(ORIGIN + '/notices.html'), false);
   assert.ok(entries.has(ORIGIN + '/assets/js/app.js'));
-  assert.equal(entries.has(ORIGIN + '/admin.html'), false);
+  assert.equal(entries.has(ORIGIN + '/admin'), false);
   assert.equal(sw.state.skipped, true, '安装后应立即接管，避免用户停在旧版本');
 });
 
 test('激活时清掉旧版本缓存，并接管页面', async () => {
   const sw = loadSW(async () => ok('shell'));
-  sw.stores.set('ca-shell-v0', new Map());   // 模拟上一版遗留
+  sw.stores.set('ca-shell-v1', new Map());   // 模拟上一版遗留（键是 .html，正是这次修掉的）
   sw.stores.set('some-other-cache', new Map());
   let activateWork = null;
   sw.handlers.activate({ waitUntil(p) { activateWork = p; } });
   await activateWork;
 
-  assert.deepEqual(sw.deletedCaches.sort(), ['ca-shell-v0', 'some-other-cache']);
-  assert.equal(sw.stores.has('ca-shell-v1'), false, '当前版本缓存不应被清掉（activate 只删旧的）');
+  assert.deepEqual(sw.deletedCaches.sort(), ['ca-shell-v1', 'some-other-cache']);
+  assert.equal(sw.stores.has('ca-shell-v2'), false, '当前版本缓存不应被清掉（activate 只删旧的）');
   assert.equal(sw.state.claimed, true);
 });
 
