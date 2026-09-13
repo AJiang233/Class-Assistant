@@ -54,9 +54,22 @@ export default class EntryAbility extends UIAbility {
     Store.getToken().then((token: string): void => {
       if (token.length > 0) {
         Scheduler.ensurePeriodic();
-        SyncService.run(this.context);
       }
     });
+  }
+
+  /**
+   * 每次回到前台都同步一次（对应安卓端 MainActivity.onResume）。
+   *
+   * 原来只在 onWindowStageCreate 里同步：App 从后台切回来时它不会再跑，于是会出现
+   * 「用户明明开着 App，新通知却还躺在服务端」。冷启动 onCreate → onWindowStageCreate
+   * → onForeground 是紧挨着的，所以这一处也覆盖了原来那次「打开就同步」。
+   *
+   * 不会堆请求：60 秒节流与「上一轮没跑完就跳过」都在 SyncService.run 里。
+   * 背景是周期任务最小 30 分钟、还不保证准点（见 Scheduler），只靠它会让临近开始的活动漏提醒。
+   */
+  onForeground(): void {
+    SyncService.run(this.context);
   }
 
   onConfigurationUpdate(newConfig: Configuration): void {

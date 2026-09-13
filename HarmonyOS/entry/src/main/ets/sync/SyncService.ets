@@ -13,7 +13,42 @@ import { DeepLink } from '../common/DeepLink';
  * 未登录（没有 token）时直接跳过，等用户在网页里登录后由页面触发。
  */
 export class SyncService {
-  static async run(context: common.Context): Promise<void> {
+  /** 回前台同步的节流窗口（毫秒），与安卓端 Scheduler.SYNC_THROTTLE_MILLIS 同值 */
+  private static readonly SYNC_THROTTLE_MILLIS: number = 60 * 1000;
+
+  /**
+   * 正在跑的那一轮同步。回前台（EntryAbility.onForeground）与 30 分钟周期任务
+   * （SyncWorkAbility）可能几乎同时进来，没有它就会并发拉两轮相同请求。
+   * 安卓端靠「唯一任务名 + KEEP」达到同样效果，这边没有等价机制，只能自己挡一道。
+   */
+  private static running: boolean = false;
+
+  /**
+   * 同步入口：只负责节流与去重，真正干活在 sync()。
+   *
+   * 默认带 60 秒节流（对应安卓端 Scheduler.syncNow）：回前台触发得非常频繁
+   * （切一下应用、锁屏解锁都算），每次都拉一轮完整请求纯属白耗流量和电。
+   * 判据取「上次同步**完成**时间」而不是「上次触发时间」，所以同步一直失败时不会被
+   * 节流卡住 —— 下次回前台照常重试（这个时间由本轮拉完数据后写入，见 sync 末尾）。
+   *
+   * 登录成功、卡片手动刷新这类「必须马上拉到」的场景传 force = true 绕过节流。
+   */
+  static async run(context: common.Context, force: boolean = false): Promise<void> {
+    if (SyncService.running) {
+      return;
+    }
+    if (!force && Date.now() - Store.getLastSyncTimeSync() < SyncService.SYNC_THROTTLE_MILLIS) {
+      return;
+    }
+    SyncService.running = true;
+    try {
+      await SyncService.sync(context);
+    } finally {
+      SyncService.running = false;
+    }
+  }
+
+  private static async sync(context: common.Context): Promise<void> {
     await Store.init(context);
     const token: string = await Store.getToken();
     if (token.length === 0) {

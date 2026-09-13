@@ -270,7 +270,8 @@ struct Index {
       // 用户拒绝通知不影响主流程
     }
     Scheduler.ensurePeriodic();
-    SyncService.run(this.context);
+    // 刚换了登录凭据，这一次必须真拉：不能让它被回前台的 60 秒节流挡掉
+    SyncService.run(this.context, true);
   }
 
   /**
