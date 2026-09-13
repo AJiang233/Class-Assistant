@@ -192,12 +192,14 @@ function filterRemindMembers(input) {
   if (empty) empty.hidden = shown > 0;
 }
 
-/* ===== PWA：安装到主屏 ===== */
+/* ===== PWA：安装到桌面 =====
+   安装入口在个人页（account.html）的「安装到桌面」卡片里，不再挂主页横幅。
+   只有 iOS 与 PC 需要它 —— 安卓与鸿蒙都已有原生 App，装网页版只会让人困惑。
+   个人页跑在 iframe 里，而 beforeinstallprompt 只在顶层窗口触发，
+   所以安装事件统一存在顶层窗口上，卡片从顶层取。 */
 
-const LS_INSTALL_HINT = 'installHintDismissed';
-
-/** 是否已以「已安装应用」方式运行（从主屏图标启动 / 安卓独立窗口） */
-function isStandalone() {
+/** 是否已以「已安装应用」方式运行（从主屏图标启动 / 独立窗口） */
+function isStandaloneMode() {
   return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)
     || window.navigator.standalone === true;
 }
@@ -209,66 +211,103 @@ function isIOSDevice() {
   return /iPad|iPhone|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
 }
 
-let deferredInstallPrompt = null;
+/** 是否在原生壳里 —— 安卓 App 与鸿蒙 App 注入的是同名 CAHost 桥 */
+function inNativeShell() {
+  return !!window.CAHost;
+}
 
-/* 安卓 Chrome 的安装事件先拦下，等用户点「安装」再弹，
-   避免浏览器自己弹一次、我们再弹一次 */
+/** 是否 PC 桌面浏览器 */
+function isDesktopBrowser() {
+  const ua = navigator.userAgent || '';
+  // 认不出的移动端一律当移动端，宁可少提示也不要给安卓/鸿蒙用户推网页版安装
+  if (/Android|iPhone|iPad|iPod|HarmonyOS|OpenHarmony|ArkWeb|Windows Phone|Mobile/i.test(ua)) return false;
+  return !(/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);   // iPadOS 伪装的 Mac 不算 PC
+}
+
+/** 这台设备要不要显示安装入口 */
+function shouldOfferInstall() {
+  if (inNativeShell()) return false;      // 已经在原生 App 里了
+  if (isStandaloneMode()) return false;   // 已经装好了
+  if (isIOSDevice()) return true;
+  return isDesktopBrowser();
+}
+
+/** 安装事件只在顶层窗口触发；个人页在 iframe 里，统一读写顶层 */
+function installHostWindow() {
+  try {
+    if (window.top && window.top !== window) return window.top;
+  } catch (e) { /* 跨域时退回自身 */ }
+  return window;
+}
+
+function getDeferredInstallPrompt() {
+  const host = installHostWindow();
+  return (host && host.__deferredInstallPrompt) || null;
+}
+
+/* 拦下浏览器自己的安装提示，等用户点「安装」再弹，避免弹两次 */
 window.addEventListener('beforeinstallprompt', function (e) {
   e.preventDefault();
-  deferredInstallPrompt = e;
-  refreshInstallHint();
+  window.__deferredInstallPrompt = e;
+  renderInstallEntry();
+  // 个人页在 iframe 里收不到这个事件，主动让它重画一次
+  try {
+    const frame = document.getElementById('frameAccount');
+    if (frame && frame.contentWindow && frame.contentWindow.renderInstallEntry) {
+      frame.contentWindow.renderInstallEntry();
+    }
+  } catch (err) { /* 还没加载或跨域，忽略 */ }
 });
 
 window.addEventListener('appinstalled', function () {
-  deferredInstallPrompt = null;
-  localStorage.setItem(LS_INSTALL_HINT, '1');
-  var hint = document.getElementById('installHint');
-  if (hint) hint.hidden = true;
+  window.__deferredInstallPrompt = null;
+  renderInstallEntry();
 });
 
-/** 安装引导：iOS 给图文步骤，安卓给「安装」按钮，已安装或已关掉则不再提示。
-    页面里没有 #installHint 时静默跳过，所以放在 app.js 里对全部页面安全。 */
-function refreshInstallHint() {
-  var hint = document.getElementById('installHint');
-  if (!hint) return;
-  if (isStandalone() || localStorage.getItem(LS_INSTALL_HINT) === '1') {
-    hint.hidden = true;
+/**
+ * 渲染个人页的「安装到桌面」卡片：不需要就整块隐藏，而不是留一个点不动的按钮。
+ * 页面里没有 #installCard 时静默跳过，所以放在 app.js 里对全部页面安全。
+ */
+function renderInstallEntry() {
+  const card = document.getElementById('installCard');
+  if (!card) return;
+
+  if (!shouldOfferInstall()) {
+    card.hidden = true;
     return;
   }
-  var text = hint.querySelector('.install-hint-text');
-  var btn = hint.querySelector('.install-hint-action');
+
+  const text = card.querySelector('.install-entry-text');
+  const btn = card.querySelector('.install-entry-action');
+
   if (isIOSDevice()) {
-    // iOS 无法用代码安装：明确说清怎么点，不做假的成功反馈
-    if (text) text.textContent = '加到主屏可全屏使用：点底部「分享」按钮 → 选「添加到主屏幕」';
+    // iOS 无法用代码安装：说清怎么点，不做假的成功反馈
+    if (text) text.textContent = '加到主屏幕后可以全屏使用，也是 iPhone 收到班级通知的前提：点底部「分享」按钮 →「添加到主屏幕」。';
     if (btn) btn.hidden = true;
-    hint.hidden = false;
-  } else if (deferredInstallPrompt) {
-    if (text) text.textContent = '把「班级助理」装到桌面，打开更快';
+  } else if (getDeferredInstallPrompt()) {
+    if (text) text.textContent = '把「班级助理」装到桌面，打开更快，也能收到班级通知。';
     if (btn) btn.hidden = false;
-    hint.hidden = false;
   } else {
-    hint.hidden = true;
+    // 桌面浏览器没给安装事件（Safari / Firefox，或时机还没到）：只给地址栏提示，不放死按钮
+    if (text) text.textContent = '把「班级助理」装到桌面，打开更快，也能收到班级通知。Chrome / Edge 可点地址栏右侧的安装图标。';
+    if (btn) btn.hidden = true;
   }
+  card.hidden = false;
 }
 
-/** 关闭安装引导，之后不再提示 */
-function dismissInstallHint() {
-  localStorage.setItem(LS_INSTALL_HINT, '1');
-  var hint = document.getElementById('installHint');
-  if (hint) hint.hidden = true;
+/** 触发浏览器原生安装流程（仅拿到 beforeinstallprompt 后可用，主要是 Chrome / Edge） */
+async function installApp() {
+  const prompt = getDeferredInstallPrompt();
+  if (!prompt) return;
+  // 同一个事件只能 prompt 一次，先清掉再弹
+  try { installHostWindow().__deferredInstallPrompt = null; } catch (e) {}
+  prompt.prompt();
+  try { await prompt.userChoice; } catch (e) {}
+  renderInstallEntry();
 }
 
-/** 触发浏览器原生安装流程（仅拿到 beforeinstallprompt 后可用，主要是安卓 Chrome/Edge） */
-function promptInstall() {
-  if (!deferredInstallPrompt) return;
-  deferredInstallPrompt.prompt();
-  deferredInstallPrompt.userChoice.then(function () {
-    deferredInstallPrompt = null;
-  });
-}
-
-if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', refreshInstallHint);
-else refreshInstallHint();
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', renderInstallEntry);
+else renderInstallEntry();
 
 /* 注册 Service Worker：提供离线壳，也是可安装与推送的前提。
    注册失败只意味着没有离线与推送，页面本身照常可用，所以只提示不抛错。 */
