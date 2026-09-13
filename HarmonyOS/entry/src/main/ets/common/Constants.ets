@@ -27,6 +27,13 @@ export class Constants {
   static readonly NOTICE_ID_BASE: number = 100000;
 
   /**
+   * 待填表单的通知 id 基数。表单 id 与通知 id 各从 1 开始，不加偏移的话
+   * 「通知 3」和「表单 3」会共用同一个通知 id，后发的把先发的顶掉。
+   * 三段（表单 / 通知 / 活动）各自留足 10 万空间，与安卓端 SyncWorker.FORM_ID_BASE 保持同值。
+   */
+  static readonly TODO_ID_BASE: number = 200000;
+
+  /**
    * 通知/提醒带出去的目标页深链参数名。
    * 值必须与安卓端 Notifier.EXTRA_DEEP_LINK 一致 —— 这是跨端契约，
    * 网页靠 ?view=…&id=… 落到对应详情，改这里等于改两端。
@@ -38,8 +45,8 @@ export class Constants {
 
   /** workScheduler 后台同步任务 ID */
   static readonly SYNC_WORK_ID: number = 1;
-  /** 后台同步间隔（分钟，workScheduler 周期下限为 30 分钟） */
-  static readonly SYNC_INTERVAL_MINUTES: number = 60;
+  /** 后台同步间隔（分钟，workScheduler 周期下限为 30 分钟）—— 已经在下限上，不能再压 */
+  static readonly SYNC_INTERVAL_MINUTES: number = 30;
 
   static readonly BUNDLE_NAME: string = 'com.classassistant.app';
 

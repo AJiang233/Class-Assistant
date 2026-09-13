@@ -99,7 +99,8 @@ class MainActivity : AppCompatActivity() {
             Store.saveToken(ctx, token)
             Api.decodeUser(token)?.let { Store.saveUser(ctx, it.first, it.second) }
             Scheduler.ensurePeriodic(ctx)
-            Scheduler.syncNow(ctx)
+            // 刚换了登录凭据，这一次必须真拉：不能让它被回前台的 60 秒节流挡掉
+            Scheduler.syncNow(ctx, force = true)
         }
 
         /** 门户点「一键绑定教务系统」：打开教务登录页，登录完成后自动抓取 Cookie 上报 */
@@ -128,13 +129,29 @@ class MainActivity : AppCompatActivity() {
         }
 
         /**
-         * 网页据此读 version.json 里自己那段（android / ios / harmony）。
+         * 网页据此读 version.json 里自己那段（android / harmony）。
          * 纯网页版没有这个桥，也就不会去读任何一段。
          */
         @JavascriptInterface
         fun platform(): String {
             if (!fromAppPage()) return ""
             return "android"
+        }
+
+        /**
+         * 个人页「开发功能」那一行状态：本机通知开没开 + 上次同步时间。
+         * 返回 JSON 字符串而不是两个布尔/长整型参数 —— 桥的返回值类型在各端解释不完全一致，
+         * 字符串最稳，而且一次取回省掉一次桥调用。契约见 web/account.html 的 refreshAppStatus()：
+         *   {"notifications":true,"lastSyncAt":1789300000000}
+         * lastSyncAt 为 0 表示这台设备一次都没成功同步过（Store.lastSyncAt 由 SyncWorker 写入）。
+         */
+        @JavascriptInterface
+        fun appStatus(): String {
+            if (!fromAppPage()) return ""
+            return JSONObject()
+                .put("notifications", Notifier.notificationsEnabled(applicationContext))
+                .put("lastSyncAt", Store.lastSyncAt(applicationContext))
+                .toString()
         }
     }
 
@@ -154,9 +171,21 @@ class MainActivity : AppCompatActivity() {
         // 上次已登录过：先把周期同步挂上，进入页面后探针会把 token 再确认一次
         if (Store.token(this) != null) {
             Scheduler.ensurePeriodic(this)
-            // 打开就同步一次：周期任务在 Doze 下最坏要几小时才跑，只靠它会让临近开始的活动漏提醒
-            Scheduler.syncNow(this)
         }
+    }
+
+    /**
+     * 每次回到前台都同步一次（带 60 秒节流，见 Scheduler.syncNow）。
+     *
+     * 原来只在 onCreate 里同步：App 从后台切回来时 onCreate 不会再跑，于是会出现
+     * 「用户明明打开着 App，新通知却还躺在服务端」。冷启动是 onCreate → onResume 紧挨着，
+     * 所以这一处也覆盖了原来那次「打开就同步」。
+     * 不会堆任务：syncNow 用的是唯一名 + KEEP，已经排着的那次不会被叠加。
+     * 背景是周期任务在 Doze 下最坏要几小时才跑（见 ensurePeriodic），只靠它会让临近开始的活动漏提醒。
+     */
+    override fun onResume() {
+        super.onResume()
+        if (Store.token(this) != null) Scheduler.syncNow(this)
     }
 
     /**

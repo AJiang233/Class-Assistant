@@ -47,7 +47,8 @@ export default class EntryFormAbility extends FormExtensionAbility {
     // 预留：卡片消息事件（如手动刷新）
     if (message === 'sync') {
       Store.init(this.context).then((): void => {
-        SyncService.run(this.context);
+        // 用户手动点刷新：绕过节流，点了就得有反应
+        SyncService.run(this.context, true);
       });
     }
   }

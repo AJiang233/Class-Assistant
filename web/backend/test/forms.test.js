@@ -4,6 +4,7 @@ import { describe, it } from 'node:test';
 import {
   buildCsv,
   csvCell,
+  handleListMyForms,
   normalizeFields,
   parseFields,
   validateAnswers
@@ -181,5 +182,56 @@ describe('通知跳转链接校验', () => {
 describe('修改策略取值', () => {
   it('三个取值与后端白名单一致，避免拼写漂移', () => {
     assert.deepEqual(Object.values(EDIT_POLICY).sort(), ['always', 'before_deadline', 'none']);
+  });
+});
+
+describe('我的表单列表', () => {
+  // 只喂 listMine 与 loadRoleMap 两条 SQL；这个用例只关心返回的字段，不关心怎么筛
+  function fakeDb(rows) {
+    return {
+      prepare(sql) {
+        const stmt = {
+          _args: [],
+          bind(...args) { stmt._args = args; return stmt; },
+          async all() {
+            if (/FROM roles/i.test(sql)) return { results: [] };
+            return { results: rows };
+          },
+          async first() { return null; },
+          async run() { return {}; }
+        };
+        return stmt;
+      }
+    };
+  }
+
+  /**
+   * created_at 是 App 端（安卓 / 鸿蒙）判断「这条表单提醒过没有」的唯一依据，
+   * 与通知的 publish_time 同一口径。删掉这个字段两端就只会整批当新的推 —— 或者干脆推不了。
+   */
+  it('pending 每条都带 created_at（App 端靠它判新）', async () => {
+    const env = {
+      DB: fakeDb([{
+        id: 3,
+        title: '聚餐报名',
+        description: '',
+        remind_people: null,
+        edit_policy: EDIT_POLICY.NONE,
+        anonymous: 0,
+        creator_name: '班长',
+        created_at: '2026-09-13 10:00:00',
+        my_submitted_at: null
+      }])
+    };
+    const res = await handleListMyForms(
+      new Request('https://class.example/api/forms/mine'),
+      env,
+      { id: 2, name: '张三', positions: '学生' }
+    );
+    const body = await res.json();
+
+    assert.equal(body.data.pending.length, 1);
+    assert.equal(body.data.pending[0].created_at, '2026-09-13 10:00:00');
+    assert.equal(body.data.pending[0].title, '聚餐报名');
   });
 });

@@ -70,23 +70,30 @@ async function sendAll(env, vapid, remindPeople, payload) {
   const dead = [];
   const ok = [];
 
-  await Promise.all(targets.map(async (sub) => {
-    try {
-      const res = await sendWebPush(sub, message, vapid);
-      if (res.status === 404 || res.status === 410) {
-        dead.push(sub.endpoint);
-        return;
+  // 分批顺序推进，而不是 targets.map 一把梭。
+  // 一次班级通知可能几十上百台设备，全部并起来会撞上 Worker 对同一主机的并发连接上限
+  // （同时打开的连接数是有配额的），而且一旦中途抛错，已经发出去的那部分状态就丢了。
+  // ponytail: 6 是照 Worker 的并发连接配额取的，别再改成无上限的 Promise.all。
+  const BATCH = 6;
+  for (let i = 0; i < targets.length; i += BATCH) {
+    await Promise.all(targets.slice(i, i + BATCH).map(async (sub) => {
+      try {
+        const res = await sendWebPush(sub, message, vapid);
+        if (res.status === 404 || res.status === 410) {
+          dead.push(sub.endpoint);
+          return;
+        }
+        if (res.ok) {
+          ok.push(sub.endpoint);
+          return;
+        }
+        const text = await res.text().catch(() => '');
+        console.error('推送被拒:', res.status, String(text).slice(0, 200));
+      } catch (e) {
+        console.error('推送请求失败:', e);
       }
-      if (res.ok) {
-        ok.push(sub.endpoint);
-        return;
-      }
-      const text = await res.text().catch(() => '');
-      console.error('推送被拒:', res.status, String(text).slice(0, 200));
-    } catch (e) {
-      console.error('推送请求失败:', e);
-    }
-  }));
+    }));
+  }
 
   if (dead.length) await model.removeByEndpoints(dead);
   if (ok.length) await model.markOk(ok);

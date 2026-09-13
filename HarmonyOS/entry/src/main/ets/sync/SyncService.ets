@@ -1,6 +1,6 @@
 import common from '@ohos.app.ability.common';
 import { Store } from '../data/Store';
-import { Api, ApiStatus, ActivityRow, ListResult, NoticeRow, UserInfo } from '../net/Api';
+import { Api, ApiStatus, ActivityRow, ListResult, NoticeRow, TodoRow, UserInfo } from '../net/Api';
 import { SchoolEvent, EventData, parseServerTime, startOfToday, formatDayClock } from '../model/SchoolEvent';
 import { ReminderService } from '../remind/ReminderService';
 import { NoticeService } from '../notice/NoticeService';
@@ -9,11 +9,46 @@ import { Constants } from '../common/Constants';
 import { DeepLink } from '../common/DeepLink';
 
 /**
- * 后台同步：拉取活动与通知 → 更新本地缓存 → 重排提醒 → 对新通知发提醒 → 刷新卡片。
+ * 后台同步：拉取活动 / 通知 / 待填表单 → 更新本地缓存 → 重排提醒 → 对新通知与新表单发提醒 → 刷新卡片。
  * 未登录（没有 token）时直接跳过，等用户在网页里登录后由页面触发。
  */
 export class SyncService {
-  static async run(context: common.Context): Promise<void> {
+  /** 回前台同步的节流窗口（毫秒），与安卓端 Scheduler.SYNC_THROTTLE_MILLIS 同值 */
+  private static readonly SYNC_THROTTLE_MILLIS: number = 60 * 1000;
+
+  /**
+   * 正在跑的那一轮同步。回前台（EntryAbility.onForeground）与 30 分钟周期任务
+   * （SyncWorkAbility）可能几乎同时进来，没有它就会并发拉两轮相同请求。
+   * 安卓端靠「唯一任务名 + KEEP」达到同样效果，这边没有等价机制，只能自己挡一道。
+   */
+  private static running: boolean = false;
+
+  /**
+   * 同步入口：只负责节流与去重，真正干活在 sync()。
+   *
+   * 默认带 60 秒节流（对应安卓端 Scheduler.syncNow）：回前台触发得非常频繁
+   * （切一下应用、锁屏解锁都算），每次都拉一轮完整请求纯属白耗流量和电。
+   * 判据取「上次同步**完成**时间」而不是「上次触发时间」，所以同步一直失败时不会被
+   * 节流卡住 —— 下次回前台照常重试（这个时间由本轮拉完数据后写入，见 sync 末尾）。
+   *
+   * 登录成功、卡片手动刷新这类「必须马上拉到」的场景传 force = true 绕过节流。
+   */
+  static async run(context: common.Context, force: boolean = false): Promise<void> {
+    if (SyncService.running) {
+      return;
+    }
+    if (!force && Date.now() - Store.getLastSyncTimeSync() < SyncService.SYNC_THROTTLE_MILLIS) {
+      return;
+    }
+    SyncService.running = true;
+    try {
+      await SyncService.sync(context);
+    } finally {
+      SyncService.running = false;
+    }
+  }
+
+  private static async sync(context: common.Context): Promise<void> {
     await Store.init(context);
     const token: string = await Store.getToken();
     if (token.length === 0) {
@@ -34,10 +69,19 @@ export class SyncService {
       await SyncService.logOutSession(context);
       return;
     }
+    const todos: ListResult<TodoRow> =
+      await Api.getMyTodos('/api/forms/mine', token);
+    if (todos.status === ApiStatus.UNAUTHORIZED) {
+      await SyncService.logOutSession(context);
+      return;
+    }
     // 网络/服务端异常：这轮什么都不动，等下次同步
     if (activities.status !== ApiStatus.OK || notices.status !== ApiStatus.OK) {
       return;
     }
+    // 表单拉不到（网络抖动 / 5xx）不拖垮整轮：活动与通知才是主线，
+    // 少提醒一条表单待办，比「活动提醒也一起不排了」轻得多，所以这里当成空清单继续往下走
+    const todoList: TodoRow[] = todos.status === ApiStatus.OK ? todos.list : [];
 
     const me: UserInfo | null = Api.decodeUser(token);
     let meId: string = '';
@@ -66,12 +110,7 @@ export class SyncService {
       if (start === 0 || start < earliest || start > horizon) {
         continue;
       }
-      // remind_people 为空按「全班」处理；否则只提醒名单里的人
-      const people: string[] = Api.parsePeople(row.remind_people);
-      const mine: boolean = people.length === 0 ||
-        (meName.length > 0 && people.indexOf(meName) >= 0) ||
-        (meId.length > 0 && people.indexOf(meId) >= 0);
-      if (!mine) {
+      if (!SyncService.isMine(row.remind_people, meId, meName)) {
         continue;
       }
       const title: string = row.title.length > 0 ? row.title : '班级活动';
@@ -92,8 +131,10 @@ export class SyncService {
     }
     await Store.saveEvents(data);
     await ReminderService.reschedule(rows);
-    await SyncService.notifyNewNotices(notices.list);
+    await SyncService.notifyNewNotices(notices.list, meId, meName);
+    await SyncService.notifyNewTodos(todoList);
     await WidgetUpdater.refreshAll(context);
+    await Store.setLastSyncTime(Date.now());
   }
 
   /**
@@ -108,11 +149,32 @@ export class SyncService {
     await WidgetUpdater.refreshAll(context);
   }
 
-  /** 同步时发现比上次更新更晚的通知，逐条提醒一次 */
-  private static async notifyNewNotices(rows: NoticeRow[]): Promise<void> {
+  /**
+   * 这条活动 / 通知该不该提醒当前用户：remind_people 为空按「全班」处理，否则只提醒名单里的人
+   * （名单里存的是姓名或用户 id，见 Api.parsePeople）。
+   *
+   * 活动、通知两条路都走这一份判定 —— 只在活动那边写一遍的话，通知就会「没被点名也弹」，
+   * 与网页列表的 remindMe()、服务端「推给谁」的口径都不一致（见后端 utils/audience.js）。
+   * 待填表单不走这里：/api/forms/mine 服务端已按提醒对象滤过，客户端再滤一遍是白做。
+   */
+  private static isMine(raw: string | string[] | null | undefined, meId: string, meName: string): boolean {
+    const people: string[] = Api.parsePeople(raw);
+    if (people.length === 0) {
+      return true;
+    }
+    return (meName.length > 0 && people.indexOf(meName) >= 0) ||
+      (meId.length > 0 && people.indexOf(meId) >= 0);
+  }
+
+  /** 同步时发现比上次更新更晚的通知，逐条提醒一次（只提醒提醒对象里的，见 isMine） */
+  private static async notifyNewNotices(rows: NoticeRow[], meId: string, meName: string): Promise<void> {
+    // 先按提醒对象筛一道再算基线：last_notice_time 记的必须是「我该看到的」最新时间，
+    // 否则会拿别人的通知时间当基线，回头真点名我的那条反倒被当成旧的漏掉。
+    const mine: NoticeRow[] = rows.filter((row: NoticeRow): boolean =>
+      SyncService.isMine(row.remind_people, meId, meName));
     let newest: number = 0;
-    for (let i = 0; i < rows.length; i++) {
-      const t: number = parseServerTime(rows[i].publish_time);
+    for (let i = 0; i < mine.length; i++) {
+      const t: number = parseServerTime(mine[i].publish_time);
       if (t > newest) {
         newest = t;
       }
@@ -128,8 +190,8 @@ export class SyncService {
     }
 
     // 每条新通知单独发一条、各带自己的深链（网页侧读 ?view=notices&id= 后落到该条），互不覆盖
-    for (let i = 0; i < rows.length; i++) {
-      const row: NoticeRow = rows[i];
+    for (let i = 0; i < mine.length; i++) {
+      const row: NoticeRow = mine[i];
       const t: number = parseServerTime(row.publish_time);
       const id: number = SyncService.idOf(row.id);
       if (t <= lastSeen || id === 0) {
@@ -144,6 +206,51 @@ export class SyncService {
 
     if (newest > lastSeen) {
       await Store.setLastNoticeTime(newest);
+    }
+  }
+
+  /**
+   * 同步时发现比上次更新更晚的待填表单，逐条提醒一次。
+   *
+   * 与 notifyNewNotices 同一套「首次同步只记基线」的逻辑：装机时把当前所有待填表单一起推
+   * 不是提醒，是刷屏。判新用 created_at（服务端下发时刻），口径与通知的 publish_time 一致。
+   * 表单在本端没有列表页，点通知直接开网页的填写页（forms.html?id=…，见 DeepLink.form），
+   * 与 Web Push 那条 url 是同一个落地页。
+   */
+  private static async notifyNewTodos(rows: TodoRow[]): Promise<void> {
+    let newest: number = 0;
+    for (let i = 0; i < rows.length; i++) {
+      const created: string = rows[i].created_at !== undefined ? rows[i].created_at : '';
+      const t: number = parseServerTime(created);
+      if (t > newest) {
+        newest = t;
+      }
+    }
+    if (newest === 0) {
+      return;
+    }
+    const lastSeen: number = await Store.getLastTodoTime();
+    if (lastSeen === 0) {
+      // 首次同步只记录基线，避免装机时把历史表单全推一遍
+      await Store.setLastTodoTime(newest);
+      return;
+    }
+
+    for (let i = 0; i < rows.length; i++) {
+      const row: TodoRow = rows[i];
+      const created: string = row.created_at !== undefined ? row.created_at : '';
+      const t: number = parseServerTime(created);
+      const id: number = SyncService.idOf(row.id);
+      if (t <= lastSeen || id === 0) {
+        continue;
+      }
+      const title: string = row.title.length > 0 ? row.title : '待填表单';
+      await NoticeService.publishNotice(Constants.TODO_ID_BASE + id, '新表单：' + title,
+        '待填表单，点击打开填写', DeepLink.form(id));
+    }
+
+    if (newest > lastSeen) {
+      await Store.setLastTodoTime(newest);
     }
   }
 

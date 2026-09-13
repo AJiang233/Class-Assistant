@@ -912,11 +912,16 @@
 
     function fieldRowHTML() {
         var id = 'fld' + (++fieldSeq);
-        return '<div class="info-row member-row" id="' + id + '">'
-            // flex:1 让字段内容 / 选项撑满整行：.member-main 默认没有 flex-grow，
-            // 不加的话 input 的 width:100% 只等于输入框固有宽度，看着是窄的
+        // 整行只有 member-main 一个 flex 子项，字段内容 / 选项才能像别的 .form-field 输入框一样
+        // 占满整行。删除按钮原本另占一列（.member-actions，flex-shrink:0），于是下面两个 input
+        // 永远比「表单标题」窄一截（少掉按钮 + gap 那约 80px），看着就是「没铺满」。
+        // 行内 padding 也去掉左右那 4px，与 .form-field 的左边缘对齐
+        return '<div class="info-row member-row" id="' + id + '" style="padding-left:0; padding-right:0;">'
             + '<div class="member-main" style="flex:1;">'
-            + '<div class="member-line"><span class="member-name fld-title">字段</span></div>'
+            + '<div class="member-line" style="justify-content:space-between; align-items:center;">'
+            + '<span class="member-name fld-title">字段</span>'
+            + '<button type="button" class="btn btn-danger btn-sm" onclick="removeFieldRow(\'' + id + '\')">删除</button>'
+            + '</div>'
             + '<div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin:8px 0;">'
             + '<select class="form-input fld-type" style="width:auto;" onchange="onFieldTypeChange(this)">'
             + '<option value="text">单行文本</option><option value="textarea">多行文本</option>'
@@ -928,7 +933,6 @@
             + '<div style="margin-bottom:8px;"><input class="form-input fld-label" type="text" placeholder="字段内容，如：姓名" autocomplete="off"></div>'
             + '<div class="fld-options-wrap" style="display:none;"><input class="form-input fld-options" type="text" placeholder="选项，用逗号分隔，如：午餐,晚餐" autocomplete="off"></div>'
             + '</div>'
-            + '<div class="member-actions"><button type="button" class="btn btn-danger btn-sm" onclick="removeFieldRow(\'' + id + '\')">删除</button></div>'
             + '</div>';
     }
 

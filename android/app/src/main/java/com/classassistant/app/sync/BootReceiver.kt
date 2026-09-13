@@ -13,6 +13,7 @@ class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Intent.ACTION_BOOT_COMPLETED) return
         Scheduler.ensurePeriodic(context)
-        Scheduler.syncNow(context)
+        // 开机后必须立刻重排闹钟，不能被回前台的 60 秒节流挡掉
+        Scheduler.syncNow(context, force = true)
     }
 }

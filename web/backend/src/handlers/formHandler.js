@@ -387,6 +387,10 @@ export async function handleListMyForms(request, env, user) {
         id: row.id,
         title: row.title,
         deadline: row.deadline,
+        // 下发时刻：App 端（安卓 / 鸿蒙）靠它判断「这条表单我提醒过没有」，
+        // 与通知的 publish_time 同一口径（都是 SQL 里的本地时间字符串）。
+        // 少这个字段，App 只能整批当新的推，或者干脆推不了。
+        created_at: row.created_at,
         creator_name: row.creator_name,
         anonymous: !!row.anonymous,
         submitted_at: row.my_submitted_at || null

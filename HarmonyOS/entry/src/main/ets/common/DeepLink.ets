@@ -54,6 +54,17 @@ export class DeepLink {
   }
 
   /**
+   * 某条待填表单的深链，拼法与安卓端 SyncWorker.notifyNewTodos 一致。
+   *
+   * 和上面两个不一样，表单不在应用壳的视图白名单里（首页只列待填清单，没有单条详情页），
+   * 所以直接指向网页的填写页 forms.html —— 与 Web Push 那条 url 是同一个落地页。
+   * 因此这里是相对站点的完整页路径，不是 ?view=… 那种壳内深链。
+   */
+  static form(formId: number): string {
+    return 'forms.html?id=' + formId.toString();
+  }
+
+  /**
    * 通知点击的目标：打开 EntryAbility，并把深链塞进 want.parameters
    * （EntryAbility 冷/热启动都从 parameters[DEEP_LINK_KEY] 里取，两条路共用一份解析）。
    * requestCode 用通知 id，同一条通知重复发拿到的是同一个 agent —— 深链本来就由这个 id 推出来，

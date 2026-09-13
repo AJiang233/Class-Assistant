@@ -2,11 +2,12 @@
 <resources>
     <string name="app_name">班级助理</string>
 
-    <!-- 通知渠道 -->
+    <!-- 通知渠道。两条都是「重要」级别（系统会以横幅弹出），说明里点一句，
+         省得用户以为弹窗关不掉 —— 想静音在系统设置里单独关这一条渠道即可。 -->
     <string name="channel_activity">活动提醒</string>
-    <string name="channel_activity_desc">活动开始前 30 分钟提醒</string>
+    <string name="channel_activity_desc">活动开始前 30 分钟提醒（会弹出横幅）</string>
     <string name="channel_notice">班级通知</string>
-    <string name="channel_notice_desc">班委发布新通知时提醒</string>
+    <string name="channel_notice_desc">班委发布新通知时提醒（会弹出横幅）</string>
 
     <!-- 桌面小组件 -->
     <string name="widget_title">今日活动</string>
