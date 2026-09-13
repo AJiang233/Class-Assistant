@@ -688,7 +688,9 @@
         try {
             if (window.CAHost && typeof CAHost.platform === 'function') {
                 var p = String(CAHost.platform() || '').trim();
-                if (p === 'android' || p === 'ios' || p === 'harmony') return p;
+                // 只认 version.json 里真有的段。将来真发 iOS 版时要在这里补回 'ios'，
+                // 否则 iOS 壳内会落进「没桥」那一支，提示「当前是网页版，网页不需要更新」。
+                if (p === 'android' || p === 'harmony') return p;
             }
         } catch (e) {}
         return '';
