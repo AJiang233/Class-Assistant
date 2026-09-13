@@ -107,16 +107,6 @@
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
                         <span>系统内测中，功能与数据仍在调整，敬请留意</span>
                     </div>
-                    <!-- 安装到主屏引导：由 app.js 的 refreshInstallHint() 按平台决定是否显示
-                         （iOS 给图文步骤，安卓给「安装」按钮，已安装或已关闭则完全不出现） -->
-                    <div class="beta-banner install-hint" id="installHint" hidden>
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><polyline points="7 10 12 15 17 10"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
-                        <span class="install-hint-text"></span>
-                        <button type="button" class="btn btn-outline btn-sm install-hint-action" hidden onclick="promptInstall()">安装</button>
-                        <button type="button" class="install-hint-close" onclick="dismissInstallHint()" aria-label="不再提示">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                        </button>
-                    </div>
                     <div class="home-layout">
                         <div class="calendar">
                             <div class="cal-head">

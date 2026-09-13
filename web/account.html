@@ -130,6 +130,14 @@
                         <button class="btn btn-primary btn-block" type="button" onclick="openAdmin()">进入管理员面板</button>
                     </div>
 
+                    <!-- 安装到桌面：只有 iOS 与 PC 会显示（由 app.js 的 shouldOfferInstall() 判定）。
+                         安卓 / 鸿蒙都已有原生 App，壳内靠 CAHost 桥识别后整块隐藏。 -->
+                    <div class="profile-card" id="installCard" hidden>
+                        <h2 style="margin:0 0 8px;">安装到桌面</h2>
+                        <p class="profile-sub install-entry-text" style="margin:0 0 14px;"></p>
+                        <button class="btn btn-primary btn-block install-entry-action" type="button" onclick="installApp()" hidden>安装</button>
+                    </div>
+
                     <!-- 通知：Web Push 开启/关闭。iOS 需 16.4+ 且「添加到主屏幕」之后才有推送，
                          不满足时直接说明原因并放弃推送这一项（其余功能不受影响），不给死按钮。 -->
                     <div class="profile-card" id="notifyCard">
@@ -362,16 +370,8 @@
     var pushSub = null;
     var pushServerEnabled = false;
 
-    function isStandaloneMode() {
-        try {
-            if (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) return true;
-        } catch (e) {}
-        return window.navigator.standalone === true;
-    }
-    function isIOSDevice() {
-        var ua = navigator.userAgent || '';
-        return (/iPad|iPhone|iPod/.test(ua)) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
-    }
+    // isStandaloneMode() / isIOSDevice() / inNativeShell() 都来自 assets/js/app.js，这里不再重复定义
+
     /** iOS 版本号压成整数比较：16.4 → 1604；iPadOS 13+ 的 UA 冻在 10_15，取不到就返回 null */
     function iosVersionCode() {
         var m = /OS (\d+)[._](\d+)/.exec(navigator.userAgent || '');
@@ -380,6 +380,15 @@
     }
     /** 本机是否具备收推送的前提（不含服务端是否配置） */
     function detectPushCapability() {
+        // 原生壳（安卓 / 鸿蒙 App）自带推送通道，网页这套 Push API 在 WebView 里点不通，
+        // 与其给一个必然失败的按钮，不如直接说明
+        if (inNativeShell()) {
+            return {
+                ok: false,
+                status: '当前在 App 内，通知由 App 直接推送。',
+                hint: '不需要在这里开启，班级通知会由 App 自己送达。'
+            };
+        }
         if (!('serviceWorker' in navigator) || !('Notification' in window)) {
             return { ok: false, status: '此浏览器不支持通知。', hint: '班级消息请在群里查看。' };
         }
