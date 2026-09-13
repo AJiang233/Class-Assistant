@@ -162,7 +162,7 @@
                             <p class="profile-sub" style="margin:0 0 14px;">页面样式错乱或显示异常时，清除本地缓存并重新加载整个应用。如果没有效果请清除应用数据或检查更新。</p>
                             <button class="btn btn-outline btn-block" id="reloadBtn" type="button" onclick="forceRefresh()">清除缓存并刷新</button>
 
-                            <p class="profile-sub" style="margin:20px 0 14px;">用最新一条真实活动 / 通知发一条测试推送，检查手机能否收到、点击能否跳到对应详情（仅安卓 App）。</p>
+                            <p class="profile-sub" style="margin:20px 0 14px;">用最新一条真实活动 / 通知发一条测试推送，检查手机能否收到、点击能否跳到对应详情（需安装安卓 / 鸿蒙 App）。</p>
                             <!-- 一行两个按钮：.btn-row 默认三列，这里改两列 -->
                             <div class="btn-row" style="grid-template-columns:repeat(2, minmax(0,1fr));">
                                 <button class="btn btn-outline" id="testActivityBtn" type="button" onclick="testPush('activity')">活动推送测试</button>
@@ -204,8 +204,9 @@
                     </div>
 
                     <!-- 关于软件：版本号从原生桥取（网页版没有桥，显示「网页版」）；
-                         「检查更新」拿站点根目录的 version.json（version + url）与当前版本比较，
-                         读不到就只提示「检查更新失败」，不猜地址也不退回别的页面 -->
+                         「检查更新」先问 CAHost.platform() 自己是什么端，再从站点根目录的
+                         version.json 里读对应那一段（android / ios / harmony）的 version + url 与当前版本比较；
+                         没有桥就不读任何一段；缺 version 或 url 只提示「检查更新失败」，不猜地址也不退回别的页面 -->
                     <div class="profile-card" id="aboutCard">
                         <h2 style="margin:0 0 8px;">关于软件</h2>
                         <div class="info-list">
@@ -441,6 +442,16 @@
     function showNotifyBtn(id, visible) { var el = notifyEl(id); if (el) el.hidden = !visible; }
 
     async function refreshNotify() {
+        // App 壳（安卓 / 鸿蒙）的通知走本地通道，网页推送对它没有意义：
+        // 壳里的 WebView 有 serviceWorker / Notification 却没有 PushManager，卡片会显示
+        // 「本机没有可用的推送通道」并提 iOS 16.4 —— 对着一个明明能收通知的 App 用户说这话是错的。
+        // 所以直接在 App 里撤掉整张卡片（App 自己的通知测试在下面「开发功能」里，走 CAHost）。
+        // 这段必须在第一个 await 之前：放在后面的话卡片会先画出来再消失。
+        if (window.CAHost && typeof window.CAHost.platform === 'function') {
+            var appCard = notifyEl('notifyCard');
+            if (appCard) appCard.remove();
+            return;
+        }
         var statusEl = notifyEl('notifyStatus');
         var hintEl = notifyEl('notifyHint');
         if (!statusEl) return;
@@ -564,7 +575,7 @@
     refreshNotify();
 
     // ===== 推送通知测试 =====
-    // 网页本身发不了系统通知，只有安卓壳注入的 CAHost 桥能触发原生通知；
+    // 网页本身发不了系统通知，只有 App 壳注入的 CAHost 桥能触发原生通知；
     // 网页版（含 PWA）没有这个桥，点了就只给一句提示，不做假的成功反馈。
     function pushHint(text) {
         document.getElementById('pushHint').textContent = text || '';
@@ -573,7 +584,7 @@
         var btn = document.getElementById(kind === 'activity' ? 'testActivityBtn' : 'testNoticeBtn');
         pushHint('');
         if (!window.CAHost || typeof CAHost.testNotification !== 'function') {
-            pushHint('网页版没有系统通知通道，请安装安卓 App 后在本页测试。');
+            pushHint('网页版没有系统通知通道，请安装安卓 / 鸿蒙 App 后在本页测试。');
             return;
         }
         var label = btn.textContent;
@@ -595,7 +606,8 @@
     window.testPush = testPush;
 
     // ===== 关于软件：版本号 + 检查更新 =====
-    // App 内取原生版本号（原生桥回传 BuildConfig.VERSION_NAME）；网页版没有桥，显示「网页版」
+    // App 内取原生版本号（安卓回传 BuildConfig.VERSION_NAME，鸿蒙回传 app.json5 的 versionName）；
+    // 网页版没有桥，显示「网页版」
     var appVersion = '';
     (function loadAppVersion() {
         try {
@@ -615,8 +627,23 @@
         return false;
     }
 
-    // 「最新版本」写在站点根目录的 version.json（发版时改那里，与 CI 输入的 version_name 一致）；
-    // 带时间戳 + no-store 是绕开 Cloudflare 与 Service Worker 的缓存，否则检查更新永远看到旧值
+    /**
+     * 自己是什么端，就只读 version.json 里哪一段。
+     * 没有原生桥（纯网页版）返回空串 —— 那就不读任何一段，网页自己不需要更新。
+     */
+    function platformKey() {
+        try {
+            if (window.CAHost && typeof CAHost.platform === 'function') {
+                var p = String(CAHost.platform() || '').trim();
+                if (p === 'android' || p === 'ios' || p === 'harmony') return p;
+            }
+        } catch (e) {}
+        return '';
+    }
+
+    // 「最新版本」写在站点根目录的 version.json，按端分段（发版时改对应那段，
+    // 与该端安装包的版本号保持一致）；带时间戳 + no-store 是绕开 Cloudflare 与
+    // Service Worker 的缓存，否则检查更新永远看到旧值
     async function checkUpdate() {
         var btn = document.getElementById('updateBtn');
         var hint = document.getElementById('updateHint');
@@ -628,14 +655,16 @@
             var res = await fetch('version.json?_=' + Date.now(), { cache: 'no-store' });
             if (!res.ok) throw new Error('HTTP ' + res.status);
             var data = (await res.json()) || {};
-            var latest = String(data.version || '').trim();
-            // 只认 version.json 里写的 url：json 读不到（网络失败 / 不是 JSON / 缺 version 或 url）
-            // 就一律算失败，不猜地址、也不退回 Actions 构建产物页 —— 那页不是版本下载入口
-            var link = String(data.url || '').trim();
-            if (!latest || !link) {
+            var key = platformKey();
+            var section = key ? (data[key] || {}) : {};
+            var latest = String(section.version || '').trim();
+            // 只认自己那段里写的 url：没桥（纯网页版）或缺 version / url 都算失败，
+            // 不猜地址、也不退回 Actions 构建产物页 —— 那页不是版本下载入口
+            var link = String(section.url || '').trim();
+            if (!key) {
+                hint.textContent = '当前是网页版，网页不需要更新。';
+            } else if (!latest || !link) {
                 hint.textContent = '检查更新失败';
-            } else if (!appVersion) {
-                hint.innerHTML = '当前是网页版，网页不需要更新；安卓安装包见 <a href="' + esc(link) + '" target="_blank" rel="noopener">下载地址</a>。';
             } else if (isNewer(latest, appVersion)) {
                 hint.innerHTML = '发现新版本 v' + esc(latest) + '，<a href="' + esc(link) + '" target="_blank" rel="noopener">前往下载</a>';
             } else {

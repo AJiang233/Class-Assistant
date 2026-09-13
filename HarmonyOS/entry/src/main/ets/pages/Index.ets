@@ -1,18 +1,18 @@
 import web_webview from '@ohos.web.webview';
 import { webview } from '@kit.ArkWeb';
 import { BusinessError } from '@ohos.base';
+import bundleManager from '@ohos.bundle.bundleManager';
 import promptAction from '@ohos.promptAction';
 import emitter from '@ohos.events.emitter';
 import common from '@ohos.app.ability.common';
 import notificationManager from '@ohos.notificationManager';
 import { Constants, BridgeEvents } from '../common/Constants';
+import { DeepLink } from '../common/DeepLink';
 import { SystemBar } from '../common/SystemBar';
 import { Store } from '../data/Store';
 import { Api } from '../net/Api';
 import { SyncService } from '../sync/SyncService';
 import { Scheduler } from '../sync/Scheduler';
-import { ReminderService } from '../remind/ReminderService';
-import { WidgetUpdater } from '../widget/WidgetUpdater';
 import { PROBE_JS } from './ProbeJs';
 
 interface ReadyData {
@@ -27,26 +27,106 @@ interface ThemeData {
   dark: boolean;
 }
 
+/** 从常量地址里取主机名（地址都写死在 Constants 里，不为此引地址解析库） */
+function hostOf(origin: string): string {
+  return origin.replace(/^https?:\/\//, '').split('/')[0].toLowerCase();
+}
+
+/**
+ * 留在应用内加载的主机（含子域）：门户自己 + 教务系统。从 Constants 派生，避免两处地址漂移。
+ * 与安卓端 MainActivity.inAppHosts 是同一份名单 —— 别自作聪明放宽到顶级域：
+ * 按后缀截 szjw.njau.edu.cn 得到的是 edu.cn，那样任何 *.edu.cn 都会被当成站内。
+ */
+const IN_APP_HOSTS: string[] = [hostOf(Constants.START_URL), hostOf(Constants.SCHOOL_ORIGIN)];
+
 /**
  * 页面与网页之间的 JS 桥（CAHost）。
  * 桥方法可能在非 UI 线程被调用，因此只通过 emitter 投递给页面处理，
  * 不直接操作 UI 状态。
  */
 class HostBridge {
+  /**
+   * 当前 WebView 主文档 URL（由页面 onPageBegin 更新）。桥方法据此判断调用方是不是本应用页面。
+   * Web 会导航到教务系统这类外部站点，而 javaScriptProxy 挂上的 CAHost 在那些页面里同样可调用 ——
+   * 不校验的话，外部页面可以改本地 token、甚至触发教务绑定流程（拿到教务 Cookie 后
+   * 上报到当前本地 token 名下）。与安卓端 MainActivity.fromAppPage 同一套判断。
+   */
+  currentUrl: string = '';
+
+  private fromAppPage(): boolean {
+    const url: string = this.currentUrl;
+    return url === Constants.START_URL ||
+      url.startsWith(Constants.START_URL + '/') ||
+      url.startsWith(Constants.START_URL + '?') ||
+      url.startsWith(Constants.START_URL + '#');
+  }
+
   setPullRefreshReady(ready: boolean): void {
+    if (!this.fromAppPage()) {
+      return;
+    }
     emitter.emit({ eventId: BridgeEvents.PULL_READY }, { data: { ready: ready } });
   }
 
   setToken(token: string): void {
+    if (!this.fromAppPage()) {
+      return;
+    }
     emitter.emit({ eventId: BridgeEvents.TOKEN }, { data: { token: token } });
   }
 
   startAcademicLogin(): void {
+    if (!this.fromAppPage()) {
+      return;
+    }
     emitter.emit({ eventId: BridgeEvents.ACADEMIC_START }, { data: {} });
   }
 
   setTheme(dark: boolean): void {
+    if (!this.fromAppPage()) {
+      return;
+    }
     emitter.emit({ eventId: BridgeEvents.THEME }, { data: { dark: dark } });
+  }
+
+  /** 网页据此读 version.json 里自己那段；没有桥（纯网页版）则不读任何一段 */
+  platform(): string {
+    if (!this.fromAppPage()) {
+      return '';
+    }
+    return Constants.PLATFORM;
+  }
+
+  /** 关于软件卡片显示的 App 版本号，对应安卓端 HostBridge.appVersion（BuildConfig.VERSION_NAME） */
+  appVersion(): string {
+    if (!this.fromAppPage()) {
+      return '';
+    }
+    try {
+      const info: bundleManager.BundleInfo =
+        bundleManager.getBundleInfoForSelfSync(bundleManager.BundleFlag.GET_BUNDLE_INFO_DEFAULT);
+      return info.versionName;
+    } catch (e) {
+      return '';
+    }
+  }
+
+  /**
+   * 个人页「推送通知测试」：用最新一条真实活动 / 通知发一条本地通知，让用户自查推送是否可达、
+   * 点通知能否跳到对应详情。kind 为 "activity" / "notice"。
+   * 桥方法必须同步返回，而拉数据要发网络请求，所以这里只能同步做一件事：本地没 token 时
+   * 直接给出提示（这是最常见的失败分支，与安卓端 SyncWorker.pushTestNotification 同一句话）。
+   * 其余结果一律返回空串，网页那边显示兜底文案 —— 对比安卓端能同步阻塞拿回完整结果，这是有损的。
+   */
+  testNotification(kind: string): string {
+    if (!this.fromAppPage()) {
+      return '';
+    }
+    if (Store.getTokenSync().length === 0) {
+      return '请先登录后再测试推送';
+    }
+    SyncService.pushTestNotification(kind);
+    return '';
   }
 }
 
@@ -65,6 +145,8 @@ struct Index {
   @State pullReady: boolean = true;
   @State isRefreshing: boolean = false;
   @State userAgent: string = '';
+  /** 起始地址：从通知/提醒点进来时是那条详情页，否则是主页 */
+  @State startSrc: string = Constants.START_URL;
   private defaultUserAgent: string = '';
   private academicLogin: boolean = false;
   private bindingInProgress: boolean = false;
@@ -73,6 +155,12 @@ struct Index {
   aboutToAppear(): void {
     const uiContext: common.UIAbilityContext = this.context;
     SystemBar.apply(uiContext, SystemBar.isSystemDark(uiContext));
+
+    // 冷启动带进来的深链（EntryAbility.onCreate 存的）只取一次，作为首屏地址
+    const pending: string = DeepLink.consume();
+    if (pending.length > 0) {
+      this.startSrc = DeepLink.toUrl(pending);
+    }
 
     emitter.on({ eventId: BridgeEvents.PULL_READY }, (eventData: emitter.EventData): void => {
       const data = eventData.data as ReadyData;
@@ -89,6 +177,9 @@ struct Index {
       const data = eventData.data as ThemeData;
       SystemBar.apply(this.context, data.dark);
     });
+    emitter.on({ eventId: BridgeEvents.DEEP_LINK }, (): void => {
+      this.applyDeepLink();
+    });
   }
 
   aboutToDisappear(): void {
@@ -96,6 +187,20 @@ struct Index {
     emitter.off(BridgeEvents.TOKEN);
     emitter.off(BridgeEvents.ACADEMIC_START);
     emitter.off(BridgeEvents.THEME);
+    emitter.off(BridgeEvents.DEEP_LINK);
+  }
+
+  /** App 已在运行时点通知/提醒：跳到对应详情页 */
+  private applyDeepLink(): void {
+    if (this.academicLogin) {
+      // 教务登录中途点通知：不打断登录流程（对应安卓端 onNewIntent 的判断）
+      return;
+    }
+    const deep: string = DeepLink.consume();
+    if (deep.length === 0) {
+      return;
+    }
+    this.controller.loadUrl(DeepLink.toUrl(deep));
   }
 
   /** 网页里的登录 token 变化时保存下来，并触发一次同步 */
@@ -103,9 +208,7 @@ struct Index {
     if (token.length === 0) {
       // 网页里退出了登录，本地也清掉，避免继续用旧身份提醒
       if ((await Store.getToken()).length > 0) {
-        await Store.clearSession();
-        await ReminderService.cancelAll();
-        await WidgetUpdater.refreshAll(this.context);
+        await SyncService.logOutSession(this.context);
       }
       return;
     }
@@ -224,6 +327,10 @@ struct Index {
     }
   }
 
+  /**
+   * 拦截系统协议（拨号 / 短信 / 邮件等）：ArkWeb 自己加载不了，直接拦下不加载。
+   * 与安卓端 isSystemScheme 同语义 —— 两端一样只是「拦掉」，不代转给系统，行为保持一致。
+   */
   private isSystemScheme(url: string): boolean {
     const index: number = url.indexOf(':');
     if (index <= 0) {
@@ -233,10 +340,56 @@ struct Index {
     return scheme === 'tel' || scheme === 'sms' || scheme === 'mailto';
   }
 
+  /**
+   * 该交给系统浏览器打开的站外链接：http(s)，且不在门户 / 教务域内（含子域）。
+   * 对应安卓端 MainActivity.isExternalLink。
+   */
+  private isExternalLink(url: string): boolean {
+    const lower: string = url.toLowerCase();
+    if (!lower.startsWith('http://') && !lower.startsWith('https://')) {
+      return false;
+    }
+    let host: string = lower.replace(/^https?:\/\//, '');
+    const slash: number = host.indexOf('/');
+    if (slash >= 0) {
+      host = host.substring(0, slash);
+    }
+    const colon: number = host.indexOf(':');
+    if (colon >= 0) {
+      host = host.substring(0, colon);
+    }
+    if (host.length === 0) {
+      return false;
+    }
+    for (let i = 0; i < IN_APP_HOSTS.length; i++) {
+      const known: string = IN_APP_HOSTS[i];
+      if (host === known || host.endsWith('.' + known)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * 站外链接交给系统浏览器；APK 下载也走这里 —— ArkWeb 自己装不了应用。
+   * 没有能处理的应用时给句提示，别静默无反应（对应安卓端 openInBrowser）。
+   */
+  private openInBrowser(url: string): void {
+    this.context.startAbility({
+      action: 'ohos.want.action.viewData',
+      entities: ['entity.system.browsable'],
+      uri: url
+    }, (err: BusinessError): void => {
+      if (err) {
+        promptAction.showToast({ message: '没有可以打开该链接的应用', duration: 3000 });
+      }
+    });
+  }
+
   build() {
     Stack({ alignContent: Alignment.TopStart }) {
       Refresh({ refreshing: $$this.isRefreshing, offset: 36 }) {
-        Web({ src: Constants.START_URL, controller: this.controller })
+        Web({ src: this.startSrc, controller: this.controller })
           .width('100%')
           .height('100%')
           .javaScriptAccess(true)
@@ -248,7 +401,8 @@ struct Index {
           .javaScriptProxy({
             object: this.host,
             name: 'CAHost',
-            methodList: ['setPullRefreshReady', 'setToken', 'startAcademicLogin', 'setTheme'],
+            methodList: ['setPullRefreshReady', 'setToken', 'startAcademicLogin', 'setTheme',
+              'platform', 'appVersion', 'testNotification'],
             controller: this.controller
           })
           .onControllerAttached(() => {
@@ -258,8 +412,12 @@ struct Index {
               this.defaultUserAgent = '';
             }
           })
-          .onPageBegin(() => {
+          .onPageBegin((event?: OnPageBeginEvent) => {
             this.isRefreshing = true;
+            // 桥的来源校验依赖这个值，必须在本页脚本执行之前更新（只在主 frame 触发）
+            if (event !== undefined && event !== null) {
+              this.host.currentUrl = event.url;
+            }
           })
           .onPageEnd((event?: OnPageEndEvent) => {
             this.isRefreshing = false;
@@ -287,7 +445,17 @@ struct Index {
               return false;
             }
             try {
-              return this.isSystemScheme(event.data.getRequestUrl());
+              const url: string = event.data.getRequestUrl();
+              if (this.isSystemScheme(url)) {
+                return true;
+              }
+              // 只管主框架（子框架里的第三方链接不该被踢到浏览器）；教务登录期间一律不往外跳 ——
+              // 认证过程会跨主机，跳走就把登录流程断了。与安卓端 shouldOverrideUrlLoading 同一套判断。
+              if (!this.academicLogin && event.data.isMainFrame() && this.isExternalLink(url)) {
+                this.openInBrowser(url);
+                return true;
+              }
+              return false;
             } catch (e) {
               return false;
             }

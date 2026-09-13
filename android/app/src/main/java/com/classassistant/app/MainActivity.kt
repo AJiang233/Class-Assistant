@@ -126,6 +126,16 @@ class MainActivity : AppCompatActivity() {
             if (!fromAppPage()) return ""
             return BuildConfig.VERSION_NAME
         }
+
+        /**
+         * 网页据此读 version.json 里自己那段（android / ios / harmony）。
+         * 纯网页版没有这个桥，也就不会去读任何一段。
+         */
+        @JavascriptInterface
+        fun platform(): String {
+            if (!fromAppPage()) return ""
+            return "android"
+        }
     }
 
     /** Android 13+ 发通知需要用户授权 */

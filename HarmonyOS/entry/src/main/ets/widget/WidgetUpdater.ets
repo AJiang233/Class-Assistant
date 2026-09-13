@@ -32,7 +32,11 @@ export class WidgetUpdater {
       title = rm.getStringSync($r('app.string.widget_title_of').id, userName);
     }
 
-    const lines: string[] = [];
+    // 缓存里保留了当天已经开始的（甚至已结束的）活动，直接取前 MAX_ROWS 条会被它们占满，
+    // 把真正要看的那条挤掉；所以先把「现在及以后」排在前面，还有空行才补当天更早的。
+    // 缓存按开始时间升序，两个列表各自都有序。
+    const upcoming: string[] = [];
+    const earlier: string[] = [];
     const now: number = Date.now();
     for (let i = 0; i < events.length; i++) {
       const event: EventData = events[i];
@@ -40,11 +44,14 @@ export class WidgetUpdater {
         continue;
       }
       const eventTitle: string = event.title.length > 0 ? event.title : '班级活动';
-      lines.push(formatClock(event.start) + '  ' + eventTitle);
-      if (lines.length >= MAX_ROWS) {
-        break;
+      const line: string = formatClock(event.start) + '  ' + eventTitle;
+      if (event.start >= now) {
+        upcoming.push(line);
+      } else {
+        earlier.push(line);
       }
     }
+    const lines: string[] = upcoming.concat(earlier).slice(0, MAX_ROWS);
 
     const emptyText: string = rm.getStringSync($r('app.string.widget_empty').id);
     return {

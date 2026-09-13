@@ -15,7 +15,8 @@ interface ReplyData {
 
 /** 活动行（只声明同步用到的字段） */
 export interface ActivityRow {
-  id: number;
+  /** 服务端可能不给 id，解析后是 undefined —— 用 SyncService.idOf 归一 */
+  id?: number;
   title: string;
   start_time: string;
   location: string;
@@ -24,9 +25,30 @@ export interface ActivityRow {
 
 /** 通知行（只声明同步用到的字段） */
 export interface NoticeRow {
+  /** 服务端可能不给 id，解析后是 undefined —— 用 SyncService.idOf 归一 */
+  id?: number;
   title: string;
   content: string;
   publish_time: string;
+}
+
+/** 列表请求结果：401 重试没意义（要清本地会话），必须与「其它失败」分开 */
+export enum ApiStatus {
+  OK = 0,
+  UNAUTHORIZED = 1,
+  FAILED = 2
+}
+
+/** 列表接口结果；成功但没有数据是 { OK, [] }，失败是 { FAILED, [] } / { UNAUTHORIZED, [] } */
+export interface ListResult<T> {
+  status: ApiStatus;
+  list: T[];
+}
+
+/** 原始响应：状态码归一成 ApiStatus，text 只在 OK 时有效 */
+interface RawReply {
+  status: ApiStatus;
+  text: string;
 }
 
 interface ActivityListReply {
@@ -68,8 +90,8 @@ interface BindBody {
  * 站点与门户同源，接口都在 https://class.qxwkstudio.top/api 下。
  */
 export class Api {
-  /** 发 GET 请求，返回响应文本；网络或状态码异常返回 null */
-  private static async getText(path: string, token: string, timeout: number): Promise<string | null> {
+  /** 发 GET 请求：401 单独标出来（token 失效，重试无意义），其余非 2xx 与网络异常都算失败 */
+  private static async getRaw(path: string, token: string, timeout: number): Promise<RawReply> {
     const req = http.createHttp();
     try {
       const header: Record<string, string> = {
@@ -83,48 +105,50 @@ export class Api {
         readTimeout: timeout,
         expectDataType: http.HttpDataType.STRING
       });
-      if (resp.responseCode < 200 || resp.responseCode > 299) {
-        return null;
+      if (resp.responseCode === 401) {
+        return { status: ApiStatus.UNAUTHORIZED, text: '' };
       }
-      const text = resp.result as string;
-      return text.length > 0 ? text : null;
+      if (resp.responseCode < 200 || resp.responseCode > 299) {
+        return { status: ApiStatus.FAILED, text: '' };
+      }
+      return { status: ApiStatus.OK, text: resp.result as string };
     } catch (e) {
-      return null;
+      return { status: ApiStatus.FAILED, text: '' };
     } finally {
       req.destroy();
     }
   }
 
-  /** 取 data.list；请求失败返回 null（区分「失败」与「确实没有数据」） */
-  static async getActivities(path: string, token: string): Promise<ActivityRow[] | null> {
-    const text = await Api.getText(path, token, 15000);
-    if (text === null) {
-      return null;
+  /** 取 data.list；请求失败返回 FAILED（区分「失败」与「确实没有数据」） */
+  static async getActivities(path: string, token: string): Promise<ListResult<ActivityRow>> {
+    const reply: RawReply = await Api.getRaw(path, token, 15000);
+    if (reply.status !== ApiStatus.OK) {
+      return { status: reply.status, list: [] };
     }
     try {
-      const root = JSON.parse(text) as ActivityListReply;
+      const root = JSON.parse(reply.text) as ActivityListReply;
       if (root.data === undefined || root.data === null || root.data.list === undefined) {
-        return [];
+        return { status: ApiStatus.OK, list: [] };
       }
-      return root.data.list;
+      return { status: ApiStatus.OK, list: root.data.list };
     } catch (e) {
-      return null;
+      return { status: ApiStatus.FAILED, list: [] };
     }
   }
 
-  static async getNotices(path: string, token: string): Promise<NoticeRow[] | null> {
-    const text = await Api.getText(path, token, 15000);
-    if (text === null) {
-      return null;
+  static async getNotices(path: string, token: string): Promise<ListResult<NoticeRow>> {
+    const reply: RawReply = await Api.getRaw(path, token, 15000);
+    if (reply.status !== ApiStatus.OK) {
+      return { status: reply.status, list: [] };
     }
     try {
-      const root = JSON.parse(text) as NoticeListReply;
+      const root = JSON.parse(reply.text) as NoticeListReply;
       if (root.data === undefined || root.data === null || root.data.list === undefined) {
-        return [];
+        return { status: ApiStatus.OK, list: [] };
       }
-      return root.data.list;
+      return { status: ApiStatus.OK, list: root.data.list };
     } catch (e) {
-      return null;
+      return { status: ApiStatus.FAILED, list: [] };
     }
   }
 

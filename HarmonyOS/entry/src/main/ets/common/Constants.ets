@@ -19,10 +19,22 @@ export class Constants {
   /** 只同步未来 7 天内的活动 */
   static readonly HORIZON_MS: number = 7 * 24 * 60 * 60 * 1000;
 
-  /** 新通知聚合提醒使用的通知 ID */
-  static readonly NOTICE_NOTIFICATION_ID: number = 9001;
-  /** 活动提醒通知 ID 基数（实际 ID = 基数 + 活动 id） */
-  static readonly ACTIVITY_NOTIFICATION_BASE: number = 1000;
+  /**
+   * 通知 id 基数：每条通知用 NOTICE_ID_BASE + 通知 id，天然去重（同一条重复同步不会叠加）。
+   * 必须与活动提醒的 id（直接用活动 id）拉开距离，否则两个列表里 id 相同的记录会互相顶掉。
+   * 与安卓端 SyncWorker.NOTICE_ID_BASE 保持同值。
+   */
+  static readonly NOTICE_ID_BASE: number = 100000;
+
+  /**
+   * 通知/提醒带出去的目标页深链参数名。
+   * 值必须与安卓端 Notifier.EXTRA_DEEP_LINK 一致 —— 这是跨端契约，
+   * 网页靠 ?view=…&id=… 落到对应详情，改这里等于改两端。
+   */
+  static readonly DEEP_LINK_KEY: string = 'ca_deep_link';
+
+  /** 桥方法 CAHost.platform() 的返回值，网页据此读 version.json 里自己那段 */
+  static readonly PLATFORM: string = 'harmony';
 
   /** workScheduler 后台同步任务 ID */
   static readonly SYNC_WORK_ID: number = 1;
@@ -30,6 +42,10 @@ export class Constants {
   static readonly SYNC_INTERVAL_MINUTES: number = 60;
 
   static readonly BUNDLE_NAME: string = 'com.classassistant.app';
+
+  /** 通知 / 提醒点击后要拉起的宿主（wantAgent 的目标，须与 module.json5 里的名字一致） */
+  static readonly ENTRY_MODULE: string = 'entry';
+  static readonly ENTRY_ABILITY: string = 'EntryAbility';
 }
 
 /** 页面与 JS 桥之间通过 emitter 传递的事件 ID */
@@ -38,4 +54,6 @@ export class BridgeEvents {
   static readonly TOKEN: number = 1002;
   static readonly ACADEMIC_START: number = 1003;
   static readonly THEME: number = 1004;
+  /** 已在运行时点通知进来（对应安卓端 MainActivity.onNewIntent） */
+  static readonly DEEP_LINK: number = 1005;
 }
