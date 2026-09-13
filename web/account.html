@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>个人中心 - 班级助理</title>
-    <meta name="description" content="班级助理：我的资料、个性化与修改密码。">
+    <meta name="description" content="班级助理：我的资料、偏好设置与修改密码。">
     <meta name="color-scheme" content="light dark">
     <meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#07070c" media="(prefers-color-scheme: dark)">
@@ -47,13 +47,14 @@
             </div>
 
             <div class="split-grid">
-                <!-- 左列：个人资料 + 个性化 -->
+                <!-- 左列：个人资料 + 偏好设置 -->
                 <div class="split-col">
                     <div class="profile-card" id="profileCard"></div>
 
-                    <!-- 个性化（所有登录用户） -->
+                    <!-- 偏好设置（所有登录用户）：主题外观 + 通知合成一张卡，都是「本机偏好」，
+                         原先分成左右两栏两张卡，找起来割裂。 -->
                     <div class="profile-card" id="prefCard">
-                        <h2 style="margin:0 0 16px;">个性化</h2>
+                        <h2 style="margin:0 0 16px;">偏好设置</h2>
                         <div class="form-field" style="margin-bottom:0;">
                             <label class="form-label">主题外观</label>
                             <div class="tabs pref-seg" id="themeSeg">
@@ -62,6 +63,22 @@
                                 <button type="button" class="tab" data-theme-choice="light">浅色</button>
                                 <button type="button" class="tab" data-theme-choice="dark">深色</button>
                             </div>
+                        </div>
+
+                        <!-- 通知：Web Push 开启/关闭。iOS 需 16.4+ 且「添加到主屏幕」之后才有推送，
+                             不满足时只说明原因，不给死按钮（其余功能不受影响）。
+                             三个按钮互斥（开启 / 测试+关闭），只会显示当前可用的那 1~2 个；
+                             .btn-row 默认三列会在只有 1~2 个按钮时留空档，这里改成按可见数量平分整行。
+                             外层保留 id="notifyCard"：App 壳（安卓 / 鸿蒙）靠它整节撤掉，见 refreshNotify()。 -->
+                        <div id="notifyCard" style="margin-top:24px; padding-top:22px; border-top:1px solid var(--separator);">
+                            <label class="form-label">通知</label>
+                            <p class="profile-sub" id="notifyStatus" style="margin:0 0 14px;">正在检查本机是否支持通知…</p>
+                            <div class="btn-row" style="grid-template-columns:none; grid-auto-flow:column; grid-auto-columns:minmax(0,1fr);">
+                                <button class="btn btn-primary" id="notifyEnableBtn" type="button" onclick="enablePush()" hidden>开启通知</button>
+                                <button class="btn btn-outline" id="notifyTestBtn" type="button" onclick="testPushSelf()" hidden>发送测试通知</button>
+                                <button class="btn btn-outline" id="notifyDisableBtn" type="button" onclick="disablePush()" hidden>关闭通知</button>
+                            </div>
+                            <p class="profile-sub" id="notifyHint" style="margin:14px 0 0;"></p>
                         </div>
                     </div>
 
@@ -138,19 +155,8 @@
                         <button class="btn btn-primary btn-block install-entry-action" type="button" onclick="installApp()" hidden>安装</button>
                     </div>
 
-                    <!-- 通知：Web Push 开启/关闭。iOS 需 16.4+ 且「添加到主屏幕」之后才有推送，
-                         不满足时直接说明原因并放弃推送这一项（其余功能不受影响），不给死按钮。 -->
-                    <div class="profile-card" id="notifyCard">
-                        <h2 style="margin:0 0 8px;">通知</h2>
-                        <p class="profile-sub" id="notifyStatus" style="margin:0 0 14px;">正在检查本机是否支持通知…</p>
-                        <!-- 一行两个按钮：.btn-row 默认三列，这里改两列 -->
-                        <div class="btn-row" style="grid-template-columns:repeat(2, minmax(0,1fr));">
-                            <button class="btn btn-primary" id="notifyEnableBtn" type="button" onclick="enablePush()" hidden>开启通知</button>
-                            <button class="btn btn-outline" id="notifyTestBtn" type="button" onclick="testPushSelf()" hidden>发送测试通知</button>
-                            <button class="btn btn-outline" id="notifyDisableBtn" type="button" onclick="disablePush()" hidden>关闭通知</button>
-                        </div>
-                        <p class="profile-sub" id="notifyHint" style="margin:14px 0 0;"></p>
-                    </div>
+                    <!-- 通知一节已并入左列「偏好设置」卡片（原 #notifyCard 的位置），
+                         这里不再单独成卡。 -->
 
                     <!-- 开发功能：强制刷新 + 推送测试，默认折叠，避免日常误触 -->
                     <div class="profile-card collapse" id="devCard">
@@ -436,7 +442,8 @@
         // App 壳（安卓 / 鸿蒙）的通知走本地通道，网页推送对它没有意义：
         // 壳里的 WebView 有 serviceWorker / Notification 却没有 PushManager，卡片会显示
         // 「本机没有可用的推送通道」并提 iOS 16.4 —— 对着一个明明能收通知的 App 用户说这话是错的。
-        // 所以直接在 App 里撤掉整张卡片（App 自己的通知测试在下面「开发功能」里，走 CAHost）。
+        // 所以直接在 App 里撤掉通知这一节（#notifyCard 现在是「偏好设置」卡片里的一个 div，
+        // 不是整张卡；App 自己的通知测试在下面「开发功能」里，走 CAHost）。
         // 这段必须在第一个 await 之前：放在后面的话卡片会先画出来再消失。
         // 判定复用 app.js 的 inNativeShell()（只看有没有 CAHost 桥），
         // 这样没带 CAHost.platform 的旧版 App 也能被兜住。
@@ -713,7 +720,7 @@
     }
     loadProfile();
 
-    // ===== 个性化：主题外观 =====
+    // ===== 偏好设置：主题外观 =====
     function currentThemeChoice() {
         try { var v = localStorage.getItem('theme'); return (v === 'dark' || v === 'light') ? v : 'system'; } catch (e) { return 'system'; }
     }

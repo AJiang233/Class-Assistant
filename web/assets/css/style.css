@@ -371,6 +371,12 @@ body {
    内容层按钮用标准材质填充（不做玻璃）；按压给轻微回弹 + 指针高光。
    ═══════════════════════════════════════════════════════════════════ */
 
+/* 没有这条，hidden 属性对 .btn 之类自带 display 的组件是失效的：
+   作者样式表的 display 会盖掉浏览器默认的 [hidden]{display:none}，
+   于是「隐藏」的按钮照样画出来（个人页的通知 / 安装按钮都栽过）。
+   加 !important 是为了不被后面任何 .btn 变体的 display 反超。 */
+[hidden] { display: none !important; }
+
 .btn {
   position: relative; isolation: isolate;
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
