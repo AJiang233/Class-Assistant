@@ -22,19 +22,26 @@ object Scheduler {
 
     private const val SYNC_WORK_NAME = "class_assistant_sync"
     private const val SYNC_ONCE_NAME = "class_assistant_sync_once"
+    /** 后台同步间隔（分钟）。15 是 WorkManager 周期任务的下限，再小会被系统夹上来 */
+    private const val SYNC_INTERVAL_MINUTES = 15L
     private const val WINDOW_MILLIS = 5L * 60 * 1000
 
     /** 活动开始前多久提醒 */
     const val REMIND_LEAD_MILLIS = 30L * 60 * 1000
 
-    /** 每小时后台同步一次（WorkManager 周期任务下限为 15 分钟） */
+    /**
+     * 每 15 分钟后台同步一次。15 已经是 WorkManager 周期任务的下限，所以这是不动推送通道
+     * 能达到的最快轮询；但 Doze / 后台限制照样会把它推迟，15 分钟只是正常情况下的上限，不是保证。
+     */
     fun ensurePeriodic(context: Context) {
-        val request = PeriodicWorkRequestBuilder<SyncWorker>(1, TimeUnit.HOURS)
+        val request = PeriodicWorkRequestBuilder<SyncWorker>(SYNC_INTERVAL_MINUTES, TimeUnit.MINUTES)
             .setConstraints(networkConstraints())
             .build()
         WorkManager.getInstance(context).enqueueUniquePeriodicWork(
             SYNC_WORK_NAME,
-            ExistingPeriodicWorkPolicy.KEEP,
+            // 必须 UPDATE，不能 KEEP：KEEP 在任务已存在时什么都不做，于是改这个间隔对已装的
+            // 用户永远不生效（他们会一直停在旧排期上）。UPDATE 会把新参数应用上去，且不重置已有计时。
+            ExistingPeriodicWorkPolicy.UPDATE,
             request
         )
     }

@@ -154,9 +154,21 @@ class MainActivity : AppCompatActivity() {
         // 上次已登录过：先把周期同步挂上，进入页面后探针会把 token 再确认一次
         if (Store.token(this) != null) {
             Scheduler.ensurePeriodic(this)
-            // 打开就同步一次：周期任务在 Doze 下最坏要几小时才跑，只靠它会让临近开始的活动漏提醒
-            Scheduler.syncNow(this)
         }
+    }
+
+    /**
+     * 每次回到前台都立即同步一次。
+     *
+     * 原来只在 onCreate 里同步：App 从后台切回来时 onCreate 不会再跑，于是会出现
+     * 「用户明明打开着 App，新通知却还躺在服务端」。冷启动是 onCreate → onResume 紧挨着，
+     * 所以这一处也覆盖了原来那次「打开就同步」。
+     * 不会堆任务：syncNow 用的是唯一名 + KEEP，已经排着的那次不会被叠加。
+     * 背景是周期任务在 Doze 下最坏要几小时才跑（见 ensurePeriodic），只靠它会让临近开始的活动漏提醒。
+     */
+    override fun onResume() {
+        super.onResume()
+        if (Store.token(this) != null) Scheduler.syncNow(this)
     }
 
     /**

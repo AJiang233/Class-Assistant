@@ -38,8 +38,8 @@ export class Constants {
 
   /** workScheduler 后台同步任务 ID */
   static readonly SYNC_WORK_ID: number = 1;
-  /** 后台同步间隔（分钟，workScheduler 周期下限为 30 分钟） */
-  static readonly SYNC_INTERVAL_MINUTES: number = 60;
+  /** 后台同步间隔（分钟，workScheduler 周期下限为 30 分钟）—— 已经在下限上，不能再压 */
+  static readonly SYNC_INTERVAL_MINUTES: number = 30;
 
   static readonly BUNDLE_NAME: string = 'com.classassistant.app';
 
