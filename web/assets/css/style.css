@@ -1529,7 +1529,9 @@ body.app-mode { overflow: hidden; }
   gap: 12px; flex-wrap: wrap; margin-bottom: 18px;
 }
 .ac-toolbar-left { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
-.ac-toolbar-right { display: flex; align-items: center; gap: 8px; }
+/* margin-left: auto 是必要的：切到「学业达成」时会收起左侧的学年学期，
+   只靠 space-between 的话右侧这组按钮会跑到左边去 */
+.ac-toolbar-right { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 .ac-select-label { font-size: 0.85rem; font-weight: 600; color: var(--text-secondary); }
 .ac-select { width: auto; min-width: 158px; padding: 8px 12px; font-size: 0.87rem; }
 .ac-meta { font-size: 0.79rem; color: var(--text-tertiary); }
@@ -1540,6 +1542,9 @@ body.app-mode { overflow: hidden; }
   background: var(--danger-soft); color: var(--danger);
   font-size: 0.87rem; font-weight: 600; line-height: 1.5;
 }
+
+/* 子标签（课表 / 学业达成）：沿用 .tabs 分段控件，仅把与下方工具栏的间距对齐 */
+.ac-seg { margin-bottom: 18px; }
 
 .ac-success { display: none; font-size: 0.88rem; font-weight: 600; color: var(--success); margin-bottom: 14px; }
 .ac-success.show { display: block; }

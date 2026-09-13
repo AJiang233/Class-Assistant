@@ -119,10 +119,16 @@
                 </div>
             </div>
 
-            <!-- 已绑定：数据看板 -->
+            <!-- 已绑定：数据看板。课表与学业达成拆成子标签（两端统一），手机上不用一路往下滚 -->
             <div id="dataView" style="display:none;">
+                <div class="tabs ac-seg" id="acSeg">
+                    <span class="tab-pill" id="acSegPill" aria-hidden="true"></span>
+                    <button type="button" class="tab" data-ac-tab="timetable">课表</button>
+                    <button type="button" class="tab" data-ac-tab="credits">学业达成</button>
+                </div>
+
                 <div class="ac-toolbar">
-                    <div class="ac-toolbar-left">
+                    <div class="ac-toolbar-left" id="termTools">
                         <label class="ac-select-label" for="termSelect">学年学期</label>
                         <select class="form-input ac-select" id="termSelect"></select>
                         <span class="ac-meta" id="syncMeta"></span>
@@ -135,31 +141,34 @@
 
                 <div class="ac-alert" id="noticeBox" style="display:none;"></div>
 
-                <!-- 课表 -->
-                <div class="section-block" style="margin-top:0;">
-                    <div class="section-head">
-                        <h2 class="section-title">我的课表</h2>
-                        <span class="section-count" id="weekHint"></span>
+                <!-- 课表：未排课程并入本页（无数据时整块隐藏） -->
+                <div id="paneTimetable">
+                    <div class="section-block" style="margin-top:0;">
+                        <div class="section-head">
+                            <h2 class="section-title">我的课表</h2>
+                            <span class="section-count" id="weekHint"></span>
+                        </div>
+                        <div id="timetableView"></div>
                     </div>
-                    <div id="timetableView"></div>
-                </div>
 
-                <!-- 未排课 -->
-                <div class="section-block" id="unscheduledBlock" style="display:none;">
-                    <div class="section-head">
-                        <h2 class="section-title">未安排课程</h2>
-                        <span class="section-count" id="unscheduledCount"></span>
+                    <div class="section-block" id="unscheduledBlock" style="display:none;">
+                        <div class="section-head">
+                            <h2 class="section-title">未安排课程</h2>
+                            <span class="section-count" id="unscheduledCount"></span>
+                        </div>
+                        <div id="unscheduledView"></div>
                     </div>
-                    <div id="unscheduledView"></div>
                 </div>
 
                 <!-- 学业达成 -->
-                <div class="section-block">
-                    <div class="section-head">
-                        <h2 class="section-title">学业达成情况</h2>
-                        <span class="section-count" id="creditHint"></span>
+                <div id="paneCredits" hidden>
+                    <div class="section-block" style="margin-top:0;">
+                        <div class="section-head">
+                            <h2 class="section-title">学业达成情况</h2>
+                            <span class="section-count" id="creditHint"></span>
+                        </div>
+                        <div id="creditsView"></div>
                     </div>
-                    <div id="creditsView"></div>
                 </div>
             </div>
         </div>
@@ -225,6 +234,7 @@
             document.getElementById('termSelect').addEventListener('change', function () {
                 loadTimetable(this.value, false);
             });
+            initAcSeg();
             loadStatus();
         } catch (e) {
             var lv = document.getElementById('loadingView');
@@ -250,6 +260,8 @@
         if (!bindStatus.bound) { showOnly('bindView'); return; }
         setLoadingTip('已绑定，正在拉取课表与学分…');
         showOnly('dataView');
+        // 分段控件在隐藏状态下量不到尺寸（滑块宽高为 0），显示出来后补量一次
+        moveAcSegPill();
         if (bindStatus.status === 'expired') {
             showNotice('教务登录态已过期，请重新绑定后查看最新数据。');
         }
@@ -433,6 +445,54 @@
     }
     function hideNotice() {
         document.getElementById('noticeBox').style.display = 'none';
+    }
+
+    // ===== 子标签：课表 / 学业达成 =====
+    // 两块内容原来纵向堆叠，手机上要滚很久才看得到学分；拆成子标签后一次只看一块。
+    // 「学年学期」与「更新于」只对课表有意义，切到学业达成时收起，免得放一个不生效的筛选。
+    function initAcSeg() {
+        var seg = document.getElementById('acSeg');
+        if (!seg) return;
+        seg.addEventListener('click', function (e) {
+            // 被点的可能是按钮里的文字，往上找到带 data-ac-tab 的那个按钮
+            var btn = e.target;
+            while (btn && btn !== seg && !btn.getAttribute('data-ac-tab')) btn = btn.parentNode;
+            if (!btn || btn === seg) return;
+            switchAcTab(btn.getAttribute('data-ac-tab'));
+        });
+        switchAcTab('timetable');
+        window.addEventListener('resize', moveAcSegPill);
+    }
+
+    function switchAcTab(name) {
+        [['timetable', 'paneTimetable'], ['credits', 'paneCredits']].forEach(function (pair) {
+            var pane = document.getElementById(pair[1]);
+            if (pane) pane.hidden = (pair[0] !== name);
+        });
+        var termTools = document.getElementById('termTools');
+        if (termTools) termTools.hidden = (name !== 'timetable');
+        var seg = document.getElementById('acSeg');
+        if (seg) {
+            var btns = seg.querySelectorAll('.tab');
+            for (var i = 0; i < btns.length; i++) {
+                btns[i].classList.toggle('active', btns[i].getAttribute('data-ac-tab') === name);
+            }
+        }
+        moveAcSegPill();
+    }
+
+    /** 滑块：与个人页主题分段、移动端底栏同一套弹簧动画，位置与尺寸按激活项实测写入 */
+    function moveAcSegPill() {
+        var pill = document.getElementById('acSegPill');
+        if (!pill) return;
+        var active = pill.parentNode.querySelector('.tab.active');
+        // 还在加载 / 未绑定（dataView 隐藏）时量出来是 0，此时先藏起滑块，等显示后 loadStatus 再补量
+        if (!active || !active.offsetWidth) { pill.style.opacity = '0'; return; }
+        pill.style.left = active.offsetLeft + 'px';
+        pill.style.top = active.offsetTop + 'px';
+        pill.style.width = active.offsetWidth + 'px';
+        pill.style.height = active.offsetHeight + 'px';
+        pill.style.opacity = '1';
     }
 
     // ===== 课表 =====
