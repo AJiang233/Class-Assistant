@@ -20,3 +20,7 @@ Thumbs.db
 /bin/
 *.exe
 *.test
+
+# 安卓签名凭据（正式 keystore 只以 base64 存 GitHub Secrets，绝不进仓库）
+*.jks
+*.keystore

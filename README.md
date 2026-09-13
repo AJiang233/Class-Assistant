@@ -69,7 +69,9 @@ class-assistant/
 - **桌面小组件**：显示今日活动
 - **教务绑定**：门户内一键打开教务登录页（固定桌面 UA，规避教务系统的手机端兼容问题），登录后由原生读出会话 Cookie 上报后端
 - 构建：`cd android && ./gradlew assembleDebug`（产物在 `app/build/outputs/apk/debug/`）
-- 发版：CI（`build-android.yml`）注入 `version_name` 并产出 APK；发布 Release 后需同步更新 `web/version.json`（最新版本号 + APK 稳定直链），否则个人中心「检查更新」读不到，维护细节见 `web/README.md` 的部署一节
+- 签名：正式 keystore 不进仓库（`.gitignore` 挡了 `*.jks` / `*.keystore`），只以 base64 存在仓库 Secrets：`KEYSTORE_BASE64`（keystore 的 base64）、`KEYSTORE_PASSWORD`、`KEY_ALIAS`、`KEY_PASSWORD`；密钥与口令务必另行备份，丢了就只能改包名、让所有人重装一次
+- 生成 keystore：`keytool -genkeypair -v -keystore release.jks -alias class-assistant -keyalg RSA -keysize 2048 -validity 10000`，再 `base64 -w0 release.jks`（PowerShell：`[Convert]::ToBase64String([IO.File]::ReadAllBytes("release.jks"))`）填进 `KEYSTORE_BASE64`
+- 发版：CI（`build-android.yml`）注入 `version_name`、从 Secrets 还原 keystore 后产出已签名的 release 包；发布 Release 后需同步更新 `web/version.json`（最新版本号 + APK 稳定直链），否则个人中心「检查更新」读不到，维护细节见 `web/README.md` 的部署一节
 
 ### 常驻调度进程（`cmd/scheduler` + `internal/`）
 

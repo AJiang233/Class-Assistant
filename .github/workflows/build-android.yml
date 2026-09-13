@@ -47,17 +47,35 @@ jobs:
           sed -i -E "s/versionName = .*/versionName = \"$VERSION_NAME\"/" android/app/build.gradle.kts
           grep -nE "versionCode|versionName" android/app/build.gradle.kts
 
-      - name: Build Debug APK
-        run: ./gradlew assembleDebug
+      - name: Restore keystore
+        env:
+          # keystore 不进仓库（.gitignore 有 *.jks / *.keystore），只以 base64 存在仓库 Secrets
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "::error::缺少 Secrets.KEYSTORE_BASE64，正式签名构建无法进行（生成方式见 README 的安卓端一节）"
+            exit 1
+          fi
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          echo "CA_KEYSTORE_FILE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+
+      - name: Build Release APK
+        env:
+          CA_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          CA_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          CA_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: ./gradlew assembleRelease
         working-directory: android
 
       - name: Rename APK
+        # 路径写死 app-release.apk：签名配置没生效时产物叫 app-release-unsigned.apk，
+        # 这一步会直接失败，不会把未签名包当正式包传上去
         run: |
-          mv android/app/build/outputs/apk/debug/app-debug.apk \
-             android/app/build/outputs/apk/debug/ClassAssistant-${{ github.event.inputs.version_name }}.apk
+          mv android/app/build/outputs/apk/release/app-release.apk \
+             android/app/build/outputs/apk/release/ClassAssistant-${{ github.event.inputs.version_name }}.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: ClassAssistant-${{ github.event.inputs.version_name }}
-          path: android/app/build/outputs/apk/debug/ClassAssistant-${{ github.event.inputs.version_name }}.apk
+          path: android/app/build/outputs/apk/release/ClassAssistant-${{ github.event.inputs.version_name }}.apk

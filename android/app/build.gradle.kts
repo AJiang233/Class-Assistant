@@ -15,6 +15,21 @@ android {
         versionName = "0.1.0"
     }
 
+    // 正式签名：CI 从 Secrets 还原出 keystore，再用环境变量把路径与口令传进来。
+    // 缺环境变量时不创建这个配置，release 会产出未签名的 app-release-unsigned.apk
+    // （能编译、装不上）——既不影响 assembleDebug，也杜绝「本地没密钥却拿 debug 密钥签个包发出去」
+    val keystorePath = System.getenv("CA_KEYSTORE_FILE")
+    if (keystorePath != null) {
+        signingConfigs {
+            create("release") {
+                storeFile = file(keystorePath)
+                storePassword = System.getenv("CA_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("CA_KEY_ALIAS")
+                keyPassword = System.getenv("CA_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
@@ -22,9 +37,11 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            // 内测分发：先用调试签名，装过 debug 包的机器可直接覆盖升级；
-            // 将来正式发布时换成正式 keystore（换签名后需要重装一次）
-            signingConfig = signingConfigs.getByName("debug")
+            // 这里以前挂的是 debug 签名配置：CI 的 runner 是干净环境，没有 ~/.android/debug.keystore，
+            // AGP 每次现生成一把随机密钥，于是每个包的签名都不同，装机必须先卸载。
+            // 改成固定 keystore 后（缺 Secrets 时为 null → 出未签名包）签名才稳定、能覆盖升级。
+            // 注意换签名这一次仍要重装：旧包是随机 debug 密钥签的，那把密钥随 runner 一起没了。
+            signingConfig = signingConfigs.findByName("release")
         }
     }
     compileOptions {
