@@ -1,5 +1,6 @@
 package com.classassistant.app.notify
 
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -36,6 +37,22 @@ object Notifier {
      * 新建的 id 不需要 v2 那套后缀 —— 只有「要改变一条已存在渠道的重要性」时才必须换新 id。
      */
     const val CHANNEL_COURSE = "course_reminder"
+
+    /**
+     * 前台服务那条常驻通知的渠道。IMPORTANCE_MIN：不响铃、不弹横幅、不进锁屏，
+     * 只在通知栏里占一行 —— 这是「让用户知道有东西在后台跑」的最低调形式。
+     *
+     * 为什么不能干脆不要通知：前台服务**必须**有可见通知，这是系统要求不是我们的选择。
+     * 用户想彻底去掉，要么去系统设置里关掉这条渠道（服务会继续跑），
+     * 要么到「个人中心 → 后台通知」把常驻关掉。
+     */
+    const val CHANNEL_BACKGROUND = "background_running"
+
+    /**
+     * 常驻通知的 id。**不能用小数字**：活动提醒直接用活动 id（1、2、3…），撞上就互相顶掉。
+     * 沿用通知 / 表单那套「分段留空间」的做法（见 SyncRunner.NOTICE_ID_BASE）。
+     */
+    const val ONGOING_ID = 300_000
 
     /** 点通知要直达的页面深链（?view=…&id=…），MainActivity 启动时拼到站点地址后面 */
     const val EXTRA_DEEP_LINK = "ca_deep_link"
@@ -77,10 +94,18 @@ object Notifier {
                 NotificationManager.IMPORTANCE_HIGH
             ).apply { description = context.getString(R.string.channel_course_desc) }
         )
+        // 前台服务那条常驻通知：最低重要级，不响不弹，只在通知栏占一行（见 CHANNEL_BACKGROUND 的注释）
+        manager.createNotificationChannel(
+            NotificationChannel(
+                CHANNEL_BACKGROUND,
+                context.getString(R.string.channel_background),
+                NotificationManager.IMPORTANCE_MIN
+            ).apply { description = context.getString(R.string.channel_background_desc) }
+        )
     }
 
     /** 活动到点提醒。notificationId 就是活动 id（Scheduler → AlarmReceiver 传的 event.id），
-     *  所以能直接拼深链；也正因为通知 id 被活动占用，通知那边得另开一段号（见 SyncWorker.NOTICE_ID_BASE）。 */
+     *  所以能直接拼深链；也正因为通知 id 被活动占用，通知那边得另开一段号（见 SyncRunner.NOTICE_ID_BASE）。 */
     fun notifyActivity(
         context: Context,
         notificationId: Int,
@@ -112,6 +137,36 @@ object Notifier {
      */
     fun notifyCourse(context: Context, notificationId: Int, title: String, body: String) {
         send(context, CHANNEL_COURSE, notificationId, title, body, "?view=academic")
+    }
+
+    /**
+     * 前台服务要的那条常驻通知。点击回到通知页，复用与正式提醒同一套深链。
+     *
+     * 不复用 send()：那条是「提醒」—— 高重要级 + autoCancel（点掉就消失）；
+     * 这条是「公告」—— 最低重要级 + ongoing（不该被顺手划掉，它是服务还在跑的凭据）。
+     */
+    fun ongoingNotification(context: Context): Notification {
+        ensureChannels(context)
+        val intent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra(EXTRA_DEEP_LINK, "?view=notices")
+        }
+        val pending = PendingIntent.getActivity(
+            context,
+            ONGOING_ID,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        return NotificationCompat.Builder(context, CHANNEL_BACKGROUND)
+            .setSmallIcon(R.drawable.ic_notify)
+            .setContentTitle(context.getString(R.string.background_title))
+            .setContentText(context.getString(R.string.background_text))
+            .setContentIntent(pending)
+            // 渠道重要级在 26+ 说了算，这两行是给更老的系统兜底
+            .setPriority(NotificationCompat.PRIORITY_MIN)
+            .setShowWhen(false)
+            .setOngoing(true)
+            .build()
     }
 
     private fun send(

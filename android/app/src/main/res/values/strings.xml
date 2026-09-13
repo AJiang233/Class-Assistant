@@ -11,6 +11,14 @@
     <string name="channel_course">课程提醒</string>
     <string name="channel_course_desc">按「个人中心」里的设置在上课前提醒（会弹出横幅）</string>
 
+    <!-- 前台服务那条常驻通知：最低重要级（不响、不弹、不进锁屏），只在通知栏占一行。
+         前台服务必须有可见通知，所以没法更静；想彻底去掉只能去系统设置里关掉这条渠道，
+         或到「个人中心 → 后台通知」里把常驻关掉。 -->
+    <string name="channel_background">后台运行</string>
+    <string name="channel_background_desc">保持后台接收班级通知（不会响铃，也不弹出）</string>
+    <string name="background_title">班级助理正在后台运行</string>
+    <string name="background_text">这样新通知能及时送达，点这里进应用</string>
+
     <!-- 桌面小组件：今日活动 -->
     <string name="widget_title">今日活动</string>
     <string name="widget_title_of">%1$s 的今日活动</string>

@@ -7,6 +7,7 @@ import android.content.Intent
 /**
  * 开机后恢复：WorkManager 的周期任务本身能跨重启存活，这里再兜一次底，
  * 并立即同步一次以重新排上提醒闹钟（闹钟在重启后会丢失）。
+ * 另外把「后台常驻」的前台服务也重新挂上 —— 它和闹钟一样，进程一没就没了。
  */
 class BootReceiver : BroadcastReceiver() {
 
@@ -21,5 +22,8 @@ class BootReceiver : BroadcastReceiver() {
         // 跨过一夜再开机是常态，小组件得先按当天刷一遍
         Scheduler.refreshWidgets(context)
         Scheduler.scheduleMidnightRefresh(context)
+        // 前台服务随重启一起没了，这里重新挂上。开机广播是「后台启动前台服务」的合法豁免时机之一，
+        // 但还要 ROM 放行自启动、且应用不是 stopped 状态（首次安装后没打开过就收不到这个广播）
+        BackgroundMode.apply(context)
     }
 }

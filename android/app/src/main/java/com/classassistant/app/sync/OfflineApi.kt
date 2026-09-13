@@ -116,7 +116,7 @@ object OfflineApi {
         Log.i(TAG, "→ $key 在线=${isOnline(context)}")
 
         // 断网：直接回放缓存，**不看 token** —— 读的是本机已经存下的那份数据，
-        // 登录态在不在都不影响（退出登录时缓存会一起清掉，见 SyncWorker.logOutSession）。
+        // 登录态在不在都不影响（退出登录时缓存会一起清掉，见 SyncRunner.logOutSession）。
         // 以前这里先要求 token，于是「冷启动 + 断网 + 探针还没把 token 报上来」时会白跑一趟。
         if (!isOnline(context)) return fromCache(context, key, path, detailSource)
 

@@ -3,6 +3,7 @@ package com.classassistant.app.widget
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import com.classassistant.app.sync.BackgroundMode
 import com.classassistant.app.sync.Scheduler
 
 /**
@@ -28,12 +29,19 @@ class WidgetRefreshReceiver : BroadcastReceiver() {
         when (intent.action) {
             ACTION_MIDNIGHT,
             Intent.ACTION_TIME_CHANGED,
-            Intent.ACTION_TIMEZONE_CHANGED,
-            Intent.ACTION_MY_PACKAGE_REPLACED -> {
+            Intent.ACTION_TIMEZONE_CHANGED -> {
                 Scheduler.refreshWidgets(context)
                 Scheduler.scheduleMidnightRefresh(context)
-                // 时间/时区变了，课程闹钟的绝对触发时刻要重算；覆盖安装后闹钟本来就没了，也得重排
+                // 时间/时区变了，课程闹钟的绝对触发时刻要重算
                 Scheduler.rescheduleCourseAlarms(context)
+            }
+            Intent.ACTION_MY_PACKAGE_REPLACED -> {
+                // 覆盖安装会把闹钟与 AllowedAlarms 一起清掉，得重新排
+                Scheduler.refreshWidgets(context)
+                Scheduler.scheduleMidnightRefresh(context)
+                Scheduler.rescheduleCourseAlarms(context)
+                // 前台服务也随安装一起没了，这里重新挂上
+                BackgroundMode.apply(context)
             }
         }
     }

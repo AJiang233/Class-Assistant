@@ -9,6 +9,16 @@
     <!-- 开机后恢复提醒闹钟与同步任务 -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
+    <!-- 后台常驻：前台服务把进程钉住，按分钟级间隔拉新通知（见 sync/BackgroundSyncService）。
+         FOREGROUND_SERVICE_* 那两个类型权限是 API 34+ 才有的，更老的系统会忽略。 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <!-- 免电池优化：Doze 期间系统会挂起网络访问，而**前台服务并不能豁免这一点** ——
+         白名单才是唯一确定的豁免，不加的话「手机放着不动」时照样收不到通知。
+         个人页「后台通知」那张卡片负责引导用户开（见 MainActivity.HostBridge）。 -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
     <application
         android:allowBackup="false"
         android:icon="@drawable/ic_launcher"
@@ -28,6 +38,20 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- 后台常驻：把进程钉在后台，按分钟级间隔轮询新通知（见 sync/BackgroundSyncService）。
+             类型写成 dataSync|specialUse，运行时按 SDK 分支传：
+               ≥34 传 specialUse（无时长上限，且 targetSdk 升到 35 后仍可从开机广播启动）
+               29–33 传 dataSync（那时还没有 specialUse 这个值）
+             两个都声明，保证每一支都合法。 -->
+        <service
+            android:name=".sync.BackgroundSyncService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync|specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="持续在后台拉取班级通知与活动，好让新通知尽快提醒到人" />
+        </service>
 
         <!-- 活动到点提醒：由 AlarmManager 触发 -->
         <receiver

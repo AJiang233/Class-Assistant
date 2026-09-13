@@ -143,7 +143,7 @@ object OfflineCache {
 
     /**
      * 退出登录时清空。不清的话换账号后能离线翻到上一个账号的通知与课表 ——
-     * 与 Store.clearSession 同一个道理，所以调用点也统一放在 SyncWorker.logOutSession。
+     * 与 Store.clearSession 同一个道理，所以调用点也统一放在 SyncRunner.logOutSession。
      */
     fun clear(context: Context) {
         try {

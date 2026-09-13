@@ -3,6 +3,7 @@ package com.classassistant.app
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.ActivityNotFoundException
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -11,6 +12,7 @@ import android.net.Uri
 import android.net.http.SslError
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.view.KeyEvent
 import android.view.View
 import android.webkit.CookieManager
@@ -30,9 +32,11 @@ import com.classassistant.app.data.Store
 import com.classassistant.app.databinding.ActivityMainBinding
 import com.classassistant.app.notify.Notifier
 import com.classassistant.app.sync.Api
+import com.classassistant.app.sync.BackgroundMode
+import com.classassistant.app.sync.BackgroundSyncService
 import com.classassistant.app.sync.OfflineApi
 import com.classassistant.app.sync.Scheduler
-import com.classassistant.app.sync.SyncWorker
+import com.classassistant.app.sync.SyncRunner
 import com.classassistant.app.sync.parseTimetableJson
 import org.json.JSONObject
 
@@ -96,13 +100,15 @@ class MainActivity : AppCompatActivity() {
             if (token.isBlank()) {
                 // 网页里退出了登录：清本地会话，并取消闹钟、重绘小组件
                 // （只清凭据的话，小组件会继续显示上一个账号的活动、旧闹钟也还留着）
-                if (Store.token(ctx) != null) SyncWorker.logOutSession(ctx)
+                if (Store.token(ctx) != null) SyncRunner.logOutSession(ctx)
                 return
             }
             if (token == Store.token(ctx)) return
             Store.saveToken(ctx, token)
             Api.decodeUser(token)?.let { Store.saveUser(ctx, it.first, it.second) }
             Scheduler.ensurePeriodic(ctx)
+            // 登录态变了：后台常驻服务该起了（它只在登录后才跑得动）
+            BackgroundMode.apply(ctx)
             // 刚换了登录凭据，这一次必须真拉：不能让它被回前台的 60 秒节流挡掉
             Scheduler.syncNow(ctx, force = true)
         }
@@ -122,7 +128,7 @@ class MainActivity : AppCompatActivity() {
         @JavascriptInterface
         fun testNotification(kind: String): String {
             if (!fromAppPage()) return ""
-            return SyncWorker.pushTestNotification(applicationContext, kind)
+            return SyncRunner.pushTestNotification(applicationContext, kind)
         }
 
         /** 关于软件卡片显示的 App 版本号；网页版没有原生桥，拿不到会退回「网页版」 */
@@ -191,6 +197,95 @@ class MainActivity : AppCompatActivity() {
             .put("atStart", Store.courseRemindAtStart(ctx))
             .put("courseCount", parseTimetableJson(Store.timetableJson(ctx))?.courses?.size ?: 0)
             .toString()
+
+        /**
+         * 个人页「后台通知」卡片读状态。契约见 web/account.html 的 refreshBackgroundCard()：
+         *   {"enabled":true,"running":true,"ignoringBattery":false,"standbyBucket":"active"}
+         *
+         * 这几项都是**本机能如实回答的**，而且都是 AOSP 公开 API：
+         *   ignoringBattery 有没有免电池优化 —— Doze 期间系统会挂起网络，它是唯一确定的豁免
+         *   running         前台服务当前在不在跑
+         *   standbyBucket   系统给这个应用定的待机档（active / working_set / frequent / rare / restricted），
+         *                   越靠后越被压。它跨 ROM 通用，能解释「为什么最近收不到」
+         * enabled 是用户自己在个人页的开关（存在本机，与账号无关）。
+         *
+         * 厂商的「自启动」**没有标准 API**，读不到 —— 所以那个值不在这里，页面上只能如实写
+         * 「这一项我们看不到，需要你自己去设置里确认」。不瞎猜一个值显示给用户。
+         */
+        @JavascriptInterface
+        fun backgroundStatus(): String {
+            if (!fromAppPage()) return ""
+            return backgroundStatusJson(applicationContext)
+        }
+
+        /** 改「后台常驻」开关：存下来并立刻启停服务。返回改完后的最新状态，页面直接用返回值刷新 */
+        @JavascriptInterface
+        fun setBackgroundAlwaysOn(enabled: Boolean): String {
+            if (!fromAppPage()) return ""
+            val ctx = applicationContext
+            BackgroundMode.setEnabled(ctx, enabled)
+            return backgroundStatusJson(ctx)
+        }
+
+        /** 申请免电池优化：弹系统标准窗。用户点「允许」之后由系统去改，我们下次读状态才看得到结果 */
+        @JavascriptInterface
+        fun requestIgnoreBatteryOptimizations() {
+            if (!fromAppPage()) return
+            runOnUiThread {
+                val asked = startSettings(
+                    Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+                        .setData(Uri.parse("package:$packageName"))
+                )
+                // 少数 ROM 把这个弹窗去掉了：退到电池优化列表，让用户自己找
+                if (!asked) openBatteryList()
+            }
+        }
+
+        /** 打开系统的电池优化列表：用户拒了上面的弹窗、或想自己去找的时候用 */
+        @JavascriptInterface
+        fun openBatterySettings() {
+            if (!fromAppPage()) return
+            runOnUiThread { openBatteryList() }
+        }
+
+        /**
+         * 打开 ROM 的「自启动 / 后台管理」页。逐个试各家的私有页面（见 BackgroundMode.AUTO_START_PAGES），
+         * 一个都打不开就退到应用详情页 —— 那里至少有「电池」「权限」这些入口，用户自己也能找到。
+         * 连应用详情页都打不开（理论上不该发生）才提示用户手动去，别点了没反应。
+         */
+        @JavascriptInterface
+        fun openAutoStartSettings() {
+            if (!fromAppPage()) return
+            runOnUiThread {
+                val opened = BackgroundMode.AUTO_START_PAGES.any { (pkg, cls) ->
+                    startSettings(Intent().setComponent(ComponentName(pkg, cls)))
+                }
+                if (opened) return@runOnUiThread
+
+                val fallback = startSettings(
+                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                        .setData(Uri.parse("package:$packageName"))
+                )
+                if (!fallback) {
+                    Toast.makeText(
+                        this@MainActivity,
+                        "没能打开系统设置，请手动到「设置 → 应用 → 班级助理」里找",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }
+
+        private fun openBatteryList() {
+            startSettings(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+        }
+
+        private fun backgroundStatusJson(ctx: Context): String = JSONObject()
+            .put("enabled", BackgroundMode.isEnabled(ctx))
+            .put("running", BackgroundSyncService.isRunning())
+            .put("ignoringBattery", BackgroundMode.ignoringBatteryOptimizations(ctx))
+            .put("standbyBucket", BackgroundMode.standbyBucket(ctx))
+            .toString()
     }
 
     /** Android 13+ 发通知需要用户授权 */
@@ -210,6 +305,9 @@ class MainActivity : AppCompatActivity() {
         if (Store.token(this) != null) {
             Scheduler.ensurePeriodic(this)
         }
+        // 「后台常驻」的前台服务也在这里挂上 —— 这是它唯一 100% 可行的启动时机：
+        // 应用可见时启动前台服务不受 Android 12+ 的后台启动限制，之后才轮到开机广播那些豁免时机
+        BackgroundMode.apply(this)
         // 小组件的内容按**本地日期**算（今日活动 / 今日课程），而后台同步可能几小时没跑过。
         // 打开 App 是最可靠的一次「对表」机会：隔夜回来、跨了零点，都在这里把小组件刷成当天该有的样子。
         Scheduler.refreshWidgets(this)
@@ -382,6 +480,18 @@ class MainActivity : AppCompatActivity() {
         } catch (e: ActivityNotFoundException) {
             Toast.makeText(this, "没有可以打开该链接的应用", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    /**
+     * 打开一个系统设置页。返回是否成功 —— 厂商页面不存在（那台机器没装对应应用、或厂商改了名）
+     * 时返回 false，调用方（BackgroundMode.AUTO_START_PAGES 那张表）靠返回值继续试下一个。
+     * 这里**不弹提示**：逐个试探时弹一串「打不开」比什么都不说更糟，最终兜底失败才由调用方提示。
+     */
+    private fun startSettings(intent: Intent): Boolean = try {
+        startActivity(intent)
+        true
+    } catch (e: Exception) {
+        false
     }
 
     /**

@@ -24,6 +24,7 @@ object Store {
     private const val KEY_COURSE_LEAD = "course_remind_lead"
     private const val KEY_COURSE_AT_START = "course_remind_at_start"
     private const val KEY_COURSE_ALARMS = "scheduled_course_alarm_ids"
+    private const val KEY_BACKGROUND_ALWAYS_ON = "background_always_on"
 
     /** 课程提醒默认提前多少分钟；0 = 不提前提醒 */
     const val DEFAULT_COURSE_LEAD = 15
@@ -61,9 +62,9 @@ object Store {
      * 退出登录：清凭据 + 同步缓存。
      * events 不清的话，小组件会继续显示上一个账号当天的活动；last_notice_time 不清的话，
      * 换账号后首次同步会把历史通知当新的逐条补推（「首次同步只记基线」那一支进不去）。
-     * last_todo_time（待填表单，见 SyncWorker.notifyNewTodos）同理。
+     * last_todo_time（待填表单，见 SyncRunner.notifyNewTodos）同理。
      * last_sync_at 不清的话，退出后 60 秒内重新登录会被回前台同步的节流挡掉，新账号要等一分钟才拉数据。
-     * 注意：取消提醒闹钟与重绘小组件不在这里做，退出登录请统一走 SyncWorker.logOutSession()。
+     * 注意：取消提醒闹钟与重绘小组件不在这里做，退出登录请统一走 SyncRunner.logOutSession()。
      */
     fun clearSession(context: Context) {
         sp(context).edit()
@@ -172,5 +173,20 @@ object Store {
 
     fun saveScheduledCourseAlarms(context: Context, ids: Set<String>) {
         sp(context).edit().putStringSet(KEY_COURSE_ALARMS, ids).apply()
+    }
+
+    // ===== 后台常驻开关（网页个人页经 CAHost 桥读写，见 sync/BackgroundMode） =====
+
+    /**
+     * 是否让前台服务把进程钉在后台（默认开）。
+     *
+     * 与课程提醒那两个设置一样**不随退出登录清掉**：这是这台设备的偏好，与账号无关。
+     * 也没进 clearSession —— 换账号后用户的意图不会变。
+     */
+    fun backgroundAlwaysOn(context: Context): Boolean =
+        sp(context).getBoolean(KEY_BACKGROUND_ALWAYS_ON, true)
+
+    fun setBackgroundAlwaysOn(context: Context, enabled: Boolean) {
+        sp(context).edit().putBoolean(KEY_BACKGROUND_ALWAYS_ON, enabled).apply()
     }
 }

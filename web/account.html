@@ -122,6 +122,24 @@
                             </label>
                             <p class="profile-sub" style="margin:14px 0 0;">提醒由手机本地排期，不需要联网；课表跟着后台同步自动更新。</p>
                         </div>
+
+                        <!-- 后台通知：仅 App 壳。这是「App 没打开、手机放着不动时还能不能收到通知」的开关面，
+                             整块默认 hidden，有桥时由 refreshBackgroundCard() 放出来。
+                             只写本机能如实回答的东西；厂商的「自启动 / 后台管理」没有标准 API，读不到，
+                             所以那里如实说「我们看不到，要你自己去设置里确认」—— 猜一个值糊上去比不显示更糟。 -->
+                        <div id="backgroundCard" style="margin-top:24px; padding-top:22px; border-top:1px solid var(--separator);" hidden>
+                            <label class="form-label">后台通知</label>
+                            <p class="profile-sub" id="backgroundStatus" style="margin:0 0 14px;"></p>
+                            <label style="display:flex; align-items:center; gap:8px; font-size:0.89rem; color:var(--text); cursor:pointer;">
+                                <input type="checkbox" id="backgroundAlwaysOn" onchange="saveBackgroundAlwaysOn()"> 后台常驻，及时收到新通知
+                            </label>
+                            <p class="profile-sub" style="margin:14px 0 14px;">开启后状态栏会有一条「班级助理正在后台运行」的提示 —— 这是系统对常驻应用的硬性要求，它不响铃也不弹出。关掉不影响收到提醒，只是新通知最多晚 15 分钟。</p>
+                            <div class="btn-row" style="grid-template-columns:repeat(2, minmax(0,1fr));">
+                                <button class="btn btn-outline" id="batteryBtn" type="button" onclick="openBatteryAction()">允许后台运行</button>
+                                <button class="btn btn-outline" id="autoStartBtn" type="button" onclick="openAutoStart()">自启动设置</button>
+                            </div>
+                            <p class="profile-sub" id="backgroundHint" style="margin:14px 0 0;"></p>
+                        </div>
                     </div>
 
                     <!-- 日历订阅（所有登录用户）。默认折叠（结构同 #pwdCard / 原 #devCard，见 toggleCollapse）：
@@ -696,11 +714,105 @@
     window.saveCourseReminder = saveCourseReminder;
     refreshCourseCard();
 
+    // ===== 后台通知（仅 App 壳） =====
+    // 状态全部来自 CAHost.backgroundStatus()，它返回：
+    //   {"enabled":true,"running":true,"ignoringBattery":false,"standbyBucket":"active"}
+    // 这几项都是 AOSP 公开 API 能如实回答的。厂商的「自启动」读不到，所以**不在**这个 JSON 里，
+    // 页面上只能写一句「要你自己去确认」—— 编一个值显示给用户，比承认看不到更糟。
+    var STANDBY_LABEL = {
+        active: '系统把它当「活跃应用」',
+        working_set: '系统把它当「常用应用」',
+        frequent: '系统把它当「较常用应用」',
+        rare: '系统把它当「很少用的应用」，后台任务会被明显压制',
+        restricted: '系统把它当「受限应用」，后台任务基本跑不动'
+    };
+
+    function readBackgroundStatus() {
+        if (!window.CAHost || typeof CAHost.backgroundStatus !== 'function') return null;
+        try { return JSON.parse(CAHost.backgroundStatus() || '') || null; } catch (e) { return null; }
+    }
+
+    function renderBackgroundStatus(info) {
+        var status = document.getElementById('backgroundStatus');
+        var hint = document.getElementById('backgroundHint');
+        var toggle = document.getElementById('backgroundAlwaysOn');
+        if (toggle) toggle.checked = !!info.enabled;
+        if (!status) return;
+
+        var parts = [];
+        if (info.enabled) {
+            parts.push(info.running
+                ? '后台常驻：运行中'
+                : '后台常驻：已开启，但服务当前没在跑（可能被系统回收了，重新打开一次 App 就能恢复）');
+        } else {
+            parts.push('后台常驻：已关闭');
+        }
+        parts.push(info.ignoringBattery
+            ? '已允许后台运行'
+            : '还没允许后台运行 —— 手机放着不动时系统会掐掉网络，那种情况下收不到通知');
+        var bucket = STANDBY_LABEL[info.standbyBucket];
+        if (bucket) parts.push(bucket);
+        status.textContent = parts.join('；') + '。';
+
+        var btn = document.getElementById('batteryBtn');
+        if (btn) btn.textContent = info.ignoringBattery ? '查看电池设置' : '允许后台运行';
+        if (hint) {
+            hint.textContent = info.ignoringBattery
+                ? '各家的「自启动 / 后台管理」不对外开放，我们读不到 —— 点右边「自启动设置」去系统里确认一下，把「自启动」或「后台运行」这类开关打开。'
+                : '点左边按钮允许后在系统弹窗里选「允许」，再点右边去把「自启动」打开。两件都做完，App 没打开时也能收到通知。';
+        }
+    }
+
+    function refreshBackgroundCard() {
+        var card = document.getElementById('backgroundCard');
+        if (!card) return;
+        var info = readBackgroundStatus();
+        if (!info) return;   // 网页版没有这个桥：整块保持隐藏，不给一个点了没反应的设置项
+        card.hidden = false;
+        renderBackgroundStatus(info);
+    }
+
+    /** 改完即存：原生侧会立刻启停前台服务，退回最新状态用来刷新这一块 */
+    function saveBackgroundAlwaysOn() {
+        if (!window.CAHost || typeof CAHost.setBackgroundAlwaysOn !== 'function') return;
+        var toggle = document.getElementById('backgroundAlwaysOn');
+        try {
+            var info = JSON.parse(CAHost.setBackgroundAlwaysOn(!!(toggle && toggle.checked)) || '') || null;
+            if (info) renderBackgroundStatus(info);
+        } catch (e) {
+            refreshBackgroundCard();   // 存失败就退回真实状态，别让页面停在一个没生效的值上
+        }
+    }
+    window.saveBackgroundAlwaysOn = saveBackgroundAlwaysOn;
+
+    /** 一个按钮两种用途：还没免电池优化就去申请，已经有了就打开设置页让用户自己看 */
+    function openBatteryAction() {
+        if (!window.CAHost) return;
+        var info = readBackgroundStatus();
+        if (info && info.ignoringBattery) {
+            if (typeof CAHost.openBatterySettings === 'function') CAHost.openBatterySettings();
+        } else if (typeof CAHost.requestIgnoreBatteryOptimizations === 'function') {
+            CAHost.requestIgnoreBatteryOptimizations();
+        }
+    }
+    window.openBatteryAction = openBatteryAction;
+
+    function openAutoStart() {
+        if (window.CAHost && typeof CAHost.openAutoStartSettings === 'function') {
+            CAHost.openAutoStartSettings();
+        }
+    }
+    window.openAutoStart = openAutoStart;
+
+    refreshBackgroundCard();
+
     // 重取一次的两个时机：页面重新可见时（用户去「系统设置 → 通知」改完开关再切回来，
     // 而 WebView 不会自己重载这个页面，不重取就会一直显示旧状态），
     // 以及资料卡重绘之后（loadProfile 会重建 DOM，那行元素是新的）。
+    // 后台通知那张卡尤其依赖这个时机：用户是「点按钮 → 跳到系统设置 → 授权 → 切回来」的，
+    // 不在这里重取就看不到「已允许后台运行」。
     document.addEventListener('visibilitychange', function () {
-        if (!document.hidden) refreshAppStatus();
+        if (!document.hidden) { refreshAppStatus(); refreshBackgroundCard(); }
     });
 
     // ===== 关于软件：版本号 + 检查更新 =====
