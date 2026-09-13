@@ -322,6 +322,8 @@
 - **安装入口只给 iOS 与 PC**：安卓与鸿蒙都已有原生 App，再推网页版安装只会让人困惑。判定在 `app.js` 的 `shouldOfferInstall()`：壳内不给（两个 App 注入的是同名 `CAHost` 桥）、已装（standalone）不给、iOS 给，其余只有认得出是 PC 桌面浏览器才给（认不出的移动端一律当移动端）。已用 10 组 UA 在沙箱里跑**真实 app.js 源码**验证，并固化成测试。
 - **安装引导从主页横幅移到个人页卡片**：主页不再挂横幅，入口收进 `account.html` 的「安装到桌面」卡片；随之删掉「不再提示」的 localStorage 逻辑与 `.install-hint-*` 样式。个人页跑在 iframe 里、而 `beforeinstallprompt` 只在顶层窗口触发，所以安装事件统一存在顶层窗口上、卡片从顶层取。
 - 顺带堵掉一处误导：原生壳里网页 Push API 点不通，通知卡片原先会显示「此浏览器不支持通知」，现在直接说明「当前在 App 内，通知由 App 直接推送」，不给必然失败的按钮。
+- **修掉「装好了还推安装」**：个人页跑在 iframe 里，iframe 自己问 `display-mode` / `navigator.standalone` 并不反映顶层状态（装好的 App 里点开个人页仍被判成未安装，于是又推一次）。改成以顶层窗口为准，并且放宽到 `standalone` / `minimal-ui` / `fullscreen` / `window-controls-overlay` 与 iOS 的 `navigator.standalone` —— 只要不是 `browser` 就算已在应用里。同一个坑也影响通知卡片（装好的 PWA 里会显示「还没添加到主屏幕」），一并修好。
+  验证做了红绿两步：把 `isStandaloneMode()` 换回旧实现后，新增的两条 iframe 用例确实失败（`# fail 2`），换回新实现即全绿。
 
 ### 上线前仍要做
 
