@@ -1,10 +1,10 @@
 /**
- * 前端 Service Worker 的缓存策略测试。
+ * 前端 PWA 相关测试：Service Worker 的缓存策略 + 安装入口的平台判定。
  *
  * 位置说明：本仓库只有一个测试运行器（`npm test` 跑 backend/test/*.test.js），
- * 所以这个测前端 sw.js 的文件也放在这里。它读取的是 web/sw.js 的真实源码。
+ * 所以这些测前端文件（web/sw.js、web/assets/js/app.js）的用例也放在这里，读的是真实源码。
  *
- * 覆盖的是「浏览器里没法验证」的部分：断网回退、接口绕过、旧缓存清理。
+ * 覆盖的是「浏览器里没法逐个验证」的部分：断网回退、接口绕过、旧缓存清理、各平台是否给安装入口。
  * 真实的注册与接管行为已在本机浏览器实测（见方案验收记录）。
  */
 import { test } from 'node:test';
@@ -15,6 +15,7 @@ import { dirname, join } from 'node:path';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SOURCE = readFileSync(join(HERE, '../../sw.js'), 'utf8');
+const APP_SOURCE = readFileSync(join(HERE, '../../assets/js/app.js'), 'utf8');
 const ORIGIN = 'https://class.test';
 
 /** 把 sw.js 放进一个带假 caches / fetch / self 的沙箱里执行，取出它注册的各个事件处理器 */
@@ -283,3 +284,82 @@ test('点通知：跨域窗口不会被导航', async () => {
   assert.deepEqual(navigated, []);
   assert.deepEqual(opened, [ORIGIN + '/?view=notices']);
 });
+
+// ===== 安装入口的平台判定 =====
+// 安卓与鸿蒙都已有原生 App，所以安装引导只该给 iOS 与 PC；壳内靠 CAHost 桥识别后整块隐藏。
+
+const UA_IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
+// iPadOS 13+ 的 Safari 报的就是这串 Mac UA，只能靠触点数区分 iPad 与真 Mac
+const UA_MAC_SAFARI = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15';
+const UA_ANDROID = 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
+const UA_HARMONY = 'Mozilla/5.0 (Phone; OpenHarmony 5.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36 ArkWeb/4.1.6.1';
+const UA_PC_CHROME = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+
+/** 在沙箱里跑真实的 app.js，只取判定用得到的几个函数 */
+function loadApp({ ua, standalone = false, maxTouchPoints = 0, inShell = false }) {
+  const noop = () => {};
+  const card = { hidden: false, querySelector: () => null };
+  const document = {
+    readyState: 'complete',
+    addEventListener: noop,
+    getElementById: () => card,
+    querySelector: () => null,
+    createElement: () => ({ style: {}, setAttribute: noop, appendChild: noop }),
+    body: { appendChild: noop }
+  };
+  const navigator = { userAgent: ua, maxTouchPoints, serviceWorker: { register: () => Promise.resolve() } };
+  const win = {
+    location: { href: ORIGIN + '/' },
+    matchMedia: () => ({ matches: standalone, addEventListener: noop, addListener: noop }),
+    addEventListener: noop,
+    navigator,
+    localStorage: { getItem: () => null, setItem: noop },
+    document
+  };
+  // 安卓壳与鸿蒙壳注入的都是 CAHost
+  if (inShell) win.CAHost = {};
+  win.self = win;
+  win.window = win;
+  win.top = win;
+
+  const sandbox = {
+    window: win,
+    document,
+    navigator,
+    localStorage: win.localStorage,
+    location: win.location,
+    fetch: async () => new Response('{}', { status: 200 }),
+    console,
+    setTimeout,
+    clearTimeout,
+    Request,
+    Response,
+    Headers,
+    atob,
+    btoa,
+    TextEncoder,
+    TextDecoder
+  };
+  const factory = new Function(...Object.keys(sandbox),
+    APP_SOURCE + '\n;return { shouldOfferInstall: shouldOfferInstall };');
+  return factory(...Object.values(sandbox));
+}
+
+const INSTALL_CASES = [
+  ['iPhone Safari 未安装 → 给引导', { ua: UA_IPHONE }, true],
+  ['iPhone 已加到主屏 → 不给', { ua: UA_IPHONE, standalone: true }, false],
+  ['iPad（UA 伪装成 Mac，有触点）→ 给引导', { ua: UA_MAC_SAFARI, maxTouchPoints: 5 }, true],
+  ['安卓 Chrome → 不给（已有 App）', { ua: UA_ANDROID }, false],
+  ['鸿蒙 ArkWeb → 不给（已有 App）', { ua: UA_HARMONY }, false],
+  ['安卓 App 壳（CAHost）→ 不给', { ua: UA_ANDROID, inShell: true }, false],
+  ['鸿蒙 App 壳（CAHost）→ 不给', { ua: UA_HARMONY, inShell: true }, false],
+  ['Windows Chrome → 给引导', { ua: UA_PC_CHROME }, true],
+  ['Mac Safari（同样 UA 但无触点）→ 给引导', { ua: UA_MAC_SAFARI }, true],
+  ['PC 上已装的独立窗口 → 不给', { ua: UA_PC_CHROME, standalone: true }, false]
+];
+
+for (const [name, opts, want] of INSTALL_CASES) {
+  test('安装入口：' + name, () => {
+    assert.equal(loadApp(opts).shouldOfferInstall(), want);
+  });
+}
