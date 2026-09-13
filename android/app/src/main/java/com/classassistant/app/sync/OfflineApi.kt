@@ -3,6 +3,7 @@ package com.classassistant.app.sync
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.util.Log
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import com.classassistant.app.data.OfflineCache
@@ -13,16 +14,17 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 /**
- * 原生离线层。WebView 里每个请求都会先经过这里（MainActivity 的 shouldInterceptRequest），管两件事：
+ * 原生离线层：**只做接口**。WebView 里每个请求都会先经过这里（MainActivity 的 shouldInterceptRequest），
  *
- *   接口 /api/…    在线自己拉一份（用本机 token）、成功顺手更新缓存；断网或连不上时回放缓存
- *   页面与静态资源  同样是「在线回源 + 顺手存一份，断网回放」—— 也就是离线壳
- *   写操作         一律不接管：POST / PUT / DELETE 断网就该失败，绝不能假装成功
+ *   /api/ 的只读请求  在线自己拉一份（用本机 token）、成功顺手更新缓存；断网或连不上时回放缓存
+ *   其余              返回 null，交给 WebView 原样走网络 —— 写操作（POST / PUT / DELETE）断网就该失败，
+ *                     绝不能假装成功
  *
- * 为什么不靠网页自己的 Service Worker 兜住页面：sw.js 本身写得没问题，但真机上冷启动离线时
- * 它没接管 iframe 的导航（不重启 App 时页面已渲染，所以看不出问题；一杀进程重开就暴露成
- * 「除了主页都打不开」）。离线壳做在原生层，逻辑由我们掌握；两者并不冲突 ——
- * SW 能接管时请求根本到不了这里。
+ * 页面与静态资源**不归这一层管**，它们是网页自己的 Service Worker 兜住的（见 sw.js 的离线壳）。
+ * 这一点踩过一次坑：真机上报「断网后除主页都打不开」时，一度以为是这一层没兜住页面，于是照着
+ * 做了一套原生离线壳 —— 其实根本走不到，因为页面的导航请求会被 Service Worker 接走，
+ * shouldInterceptRequest 压根看不见它们。真正的原因是 sw.js 缓存的响应带着跳转标记、
+ * 交不出导航（见 sw.js 的注释）。所以这里只留接口那一半。
  *
  * 为什么自己发请求，而不是「放行 WebView 再把它的响应存下来」：shouldInterceptRequest 只能给响应、
  * 看不到 WebView 自己请求的结果；而依赖 request.getRequestHeaders() 里的 Authorization 又是在赌
@@ -30,37 +32,14 @@ import java.net.URL
  */
 object OfflineApi {
 
-    private val HOST = Api.BASE.removePrefix("https://")
-
     /**
-     * 离线壳清单：页面与静态资源。与 sw.js 的 PRECACHE 保持同一份，改一边记得改另一边。
-     *
-     * 这些路径**不依赖登录态**，所以没 token 时照样缓存与回放 ——
-     * 否则「没登录 + 断网」会连登录页都打不开，那就彻底进不去了。
+     * 诊断标签。真机上报「断网时数据不对 / 页面打不开」时，先 `adb logcat -s CAOffline` 看这些行：
+     * 请求有没有到这一层、走了网络/缓存/放行哪一支。这类问题和缓存、Service Worker 接管时机有关，
+     * 光看代码猜不出结论。
      */
-    private val SHELL_PATHS = setOf(
-        "/", "/index.html", "/notices.html", "/activities.html", "/academic.html",
-        "/forms.html", "/admin.html", "/account.html",
-        "/assets/css/style.css", "/assets/js/app.js", "/manifest.json"
-    )
+    private const val TAG = "CAOffline"
 
-    /** 内置离线提示页，只在「断网 + 该页面从没缓存过」时出现（见 shell 的注释） */
-    private val OFFLINE_PAGE = """
-        <!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8">
-        <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-        <title>离线</title><style>
-        body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
-        background:#F2F2F7;color:#1c1c1e;font:15px/1.7 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif}
-        .box{max-width:19em;padding:0 24px;text-align:center}
-        h1{font-size:1.05rem;margin:0 0 8px}
-        p{color:#6b6b75;margin:0 0 18px;font-size:.9rem}
-        button{font:inherit;padding:10px 22px;border:0;border-radius:999px;background:#4F46E5;color:#fff}
-        </style></head><body><div class="box">
-        <h1>当前没有网络</h1>
-        <p>这个页面还没有离线缓存。连上网打开一次，之后断网也能看。</p>
-        <button onclick="location.reload()">重试</button>
-        </div></body></html>
-    """.trimIndent()
+    private val HOST = Api.BASE.removePrefix("https://")
 
     /**
      * 会被写入缓存的接口路径（正则，不含查询串）。挑选标准：只读，且形状有限 ——
@@ -114,7 +93,7 @@ object OfflineApi {
     /** 是否属于列表形状（决定缓存文件前缀，详情回退据此枚举） */
     fun isListPath(path: String): Boolean = LIST_PATHS.contains(path)
 
-    /** 是否可以写入缓存（接口部分） */
+    /** 是否可以写入缓存 */
     fun isCacheablePath(path: String): Boolean = CACHE_PATHS.any { it.matches(path) }
 
     /**
@@ -126,18 +105,15 @@ object OfflineApi {
 
         val url = request.url
         if (url.host != HOST || url.scheme != "https") return null
-        // 站点根请求的 path 可能是空串（App 起的地址是 "https://host"，没有结尾斜杠）：
-        // 按 "/" 算 —— 否则离线冷启动的第一跳就不在壳清单里，直接白屏。
-        // 服务端会把它 301 到 "/"，缓存键也就该落在 "/" 上
-        val path = url.path?.takeIf { it.isNotEmpty() } ?: "/"
-        val key = if (url.query.isNullOrEmpty()) path else "$path?${url.query}"
-
-        // 离线壳：页面与静态资源，不需要 token
-        if (SHELL_PATHS.contains(path)) return shell(context, request, url.toString(), path, key)
+        val path = url.path ?: ""
 
         val cacheable = isCacheablePath(path)
         val detailSource = DETAIL_PATHS.firstOrNull { it.first.matches(path) }
         if (!cacheable && detailSource == null) return null
+
+        val key = if (url.query.isNullOrEmpty()) path else "$path?${url.query}"
+        // 诊断用一行：真机报「离线数据不对」时，先看请求有没有到这一层、走了哪条分支
+        Log.i(TAG, "→ $key 在线=${isOnline(context)}")
 
         // 断网：直接回放缓存，**不看 token** —— 读的是本机已经存下的那份数据，
         // 登录态在不在都不影响（退出登录时缓存会一起清掉，见 SyncWorker.logOutSession）。
@@ -158,58 +134,22 @@ object OfflineApi {
                         if (isListPath(path)) OfflineCache.Shape.LIST else OfflineCache.Shape.OTHER
                     )
                 }
+                Log.i(TAG, "  取到网络 ${fetched.text.length} 字（落盘=$cacheable）")
                 response(fetched.text)
             }
             // 服务端答了（401 / 500 / success:false）：原样交回页面。
             // 这里绝不能退回缓存 —— 那等于把「登录态失效了」「服务端出错了」盖成一份旧数据，
             // 页面既不会提示重新绑定，用户也看不出自己看的是哪天的东西。
-            is Fetched.Http -> fetched.text?.let { response(it, fetched.code) }
+            is Fetched.Http -> {
+                Log.w(TAG, "  服务端答了 ${fetched.code}，原样透传")
+                fetched.text?.let { response(it, fetched.code) }
+            }
             // 连不上（超时 / 断网 / DNS 挂了）：这才轮到缓存兜底
-            Fetched.Down -> fromCache(context, key, path, detailSource)
-        }
-    }
-
-    /**
-     * 离线壳：页面与静态资源。规则跟接口一样是「网络优先、失败回退缓存」，两点不同：
-     *   1. 不需要 token —— 登录页本身也得能离线打开
-     *   2. 连缓存都没有时，给一个内置的提示页。否则 WebView 会甩出它默认的错误页
-     *      （一屏英文 +「找不到页面」），用户既分不清是「没网」还是「应用坏了」，也没有重试入口。
-     *      只有「打开页面」的请求才给提示页 —— 缺一个图标 / 脚本时塞 HTML 只会更乱。
-     */
-    private fun shell(
-        context: Context,
-        request: WebResourceRequest,
-        url: String,
-        path: String,
-        key: String
-    ): WebResourceResponse? {
-        if (isOnline(context)) {
-            when (val fetched = fetch(url, token = null, expectJson = false)) {
-                is Fetched.Ok -> {
-                    OfflineCache.write(context, key, fetched.text, OfflineCache.Shape.SHELL)
-                    return response(fetched.text, mime = mimeOf(path))
-                }
-                is Fetched.Http -> return fetched.text?.let { response(it, fetched.code, mimeOf(path)) }
-                Fetched.Down -> { /* 落到下面的缓存回退 */ }
+            Fetched.Down -> {
+                Log.w(TAG, "  连不上，转缓存")
+                fromCache(context, key, path, detailSource)
             }
         }
-
-        OfflineCache.read(context, key)?.let { return response(it, mime = mimeOf(path)) }
-
-        val wantsHtml = request.isForMainFrame ||
-            path == "/" || path.endsWith(".html") ||
-            request.requestHeaders?.get("Accept")?.contains("text/html") == true
-        return if (wantsHtml) response(OFFLINE_PAGE, mime = "text/html") else null
-    }
-
-    /** 按扩展名给 MIME。页面与静态资源都要带着正确的类型回去，否则 CSS 会被当成纯文本 */
-    private fun mimeOf(path: String): String = when {
-        path.endsWith(".css") -> "text/css"
-        path.endsWith(".js") -> "text/javascript"
-        path.endsWith(".json") -> "application/json"
-        path.endsWith(".png") -> "image/png"
-        path.endsWith(".svg") -> "image/svg+xml"
-        else -> "text/html"
     }
 
     /** 精确键优先；详情再退一步，从缓存过的列表里按 id 拼回来 */
@@ -219,20 +159,35 @@ object OfflineApi {
         path: String,
         detailSource: Pair<Regex, String>?
     ): WebResourceResponse? {
-        OfflineCache.read(context, key)?.let { return response(it) }
+        OfflineCache.read(context, key)?.let {
+            Log.i(TAG, "  命中缓存（${it.length} 字）")
+            return response(it)
+        }
 
-        val source = detailSource ?: return null
-        val id = source.first.matchEntire(path)?.groupValues?.get(1) ?: return null
-        return OfflineCache.findItem(context, source.second, id)?.let { response(it) }
+        val source = detailSource ?: run {
+            Log.w(TAG, "  $key 无缓存，放行给 WebView（断网这一路必然失败）")
+            return null
+        }
+        val id = source.first.matchEntire(path)?.groupValues?.get(1) ?: run {
+            Log.w(TAG, "  $key 没能从路径里取出 id，放行给 WebView")
+            return null
+        }
+        return OfflineCache.findItem(context, source.second, id)?.let {
+            Log.i(TAG, "  $key 从缓存的列表里按 id 拼回来了")
+            response(it)
+        } ?: run {
+            Log.w(TAG, "  $key 在 ${source.second} 的缓存列表里找不到 id=$id，放行给 WebView")
+            null
+        }
     }
 
-    private fun response(body: String, code: Int = 200, mime: String = "application/json") = WebResourceResponse(
-        mime,
+    private fun response(body: String, code: Int = 200) = WebResourceResponse(
+        "application/json",
         "utf-8",
         code,
         if (code in 200..299) "OK" else "Error",
-        // 接口那份绝不进任何缓存；页面与静态资源没必要再禁一层
-        if (mime == "application/json") mapOf("Cache-Control" to "no-store") else emptyMap(),
+        // 接口那份绝不进任何缓存
+        mapOf("Cache-Control" to "no-store"),
         ByteArrayInputStream(body.toByteArray(Charsets.UTF_8))
     )
 
@@ -249,17 +204,15 @@ object OfflineApi {
     }
 
     /**
-     * expectJson 区分两类响应：
-     *   接口   —— 2xx 还要 success:true 才算成功（后端有 200 + success:false 的错法，那种只透传）
-     *   页面资源 —— 2xx 有正文就算成功。不区分的话 HTML 会被当成「解析不出 JSON」而拒之门外，
-     *              于是离线壳永远存不下东西。
+     * 取一份接口响应。2xx 之外都算「服务端答了」；
+     * 2xx 也还要 success:true —— 后端有些错误是用 200 + success:false 返回的，那种同样只透传。
      */
-    private fun fetch(url: String, token: String?, expectJson: Boolean = true): Fetched = try {
+    private fun fetch(url: String, token: String): Fetched = try {
         val conn = URL(url).openConnection() as HttpURLConnection
         try {
             conn.connectTimeout = 8000
             conn.readTimeout = 15000
-            if (token != null) conn.setRequestProperty("Authorization", "Bearer $token")
+            conn.setRequestProperty("Authorization", "Bearer $token")
             conn.setRequestProperty("Accept", "*/*")
 
             val code = conn.responseCode
@@ -267,10 +220,7 @@ object OfflineApi {
                 ?.bufferedReader()?.use { it.readText() }
             if (code !in 200..299 || text.isNullOrBlank()) {
                 Fetched.Http(code, text)
-            } else if (!expectJson) {
-                Fetched.Ok(text)
             } else {
-                // 后端有些错误是 200 + success:false 返回的，那种同样只透传
                 val parsed = try {
                     JSONObject(text)
                 } catch (e: Exception) {
@@ -282,6 +232,8 @@ object OfflineApi {
             conn.disconnect()
         }
     } catch (e: Exception) {
+        // 以前这里是静默的：真机上「为什么没走缓存」十有八九就藏在这条异常里（超时？DNS？TLS？）
+        Log.w(TAG, "取 $url 失败：${e.javaClass.simpleName} ${e.message}")
         Fetched.Down
     }
 

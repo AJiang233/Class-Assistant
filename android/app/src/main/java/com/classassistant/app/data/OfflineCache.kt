@@ -27,20 +27,16 @@ object OfflineCache {
 
     /**
      * 条目数上限。缓存键含查询串，`?date=YYYY-MM-DD` 这类会随用户翻日历慢慢堆积，
-     * 所以要有个头；正常用到的形状也就十几条。离线壳那十一条不参与淘汰（见 prune）。
+     * 所以要有个头；正常用到的形状也就十几条。
      */
     private const val MAX_FILES = 60
 
     /**
-     * 缓存条目的三种形状，决定文件名前缀（读取时三个前缀都试一遍，形状只影响淘汰顺序）：
-     *   SHELL  页面与静态资源（离线壳）。**永不淘汰** —— 一共就十一条，而它们是「断网时 App 能不能打开」
-     *          的全部依据；和快照混在一起按时间淘汰的话，用户翻日历攒够一屏快照就能把它们挤掉，
-     *          那个「杀进程重开后打不开」的问题就会悄悄回来。
+     * 缓存条目的两种形状，决定文件名前缀（读取时两个前缀都试一遍，形状只影响淘汰顺序）：
      *   LIST   列表接口，详情回退的唯一数据源
      *   OTHER  单份快照（课表、学分、表单、翻日历产生的 ?date=…），最容易把上限顶满，先淘汰它们
      */
     enum class Shape(val prefix: String) {
-        SHELL("S_"),
         LIST("L_"),
         OTHER("X_")
     }
@@ -89,16 +85,14 @@ object OfflineCache {
 
     /**
      * 淘汰决策：超过 max 时该删哪些（返回文件名）。
-     * 顺序是先非列表条目、再列表条目（各自最旧的先走），**离线壳一条都不动**。
+     * 顺序是先非列表条目、再列表条目，各自最旧的先走。
      *
-     * 拎成纯函数是为了能测（见 OfflineCacheTest）：「壳永不淘汰」这条一旦坏掉，
-     * 表现是「断网时 App 打不开」而不是某个看得见的报错，只能靠测试钉住。
+     * 拎成纯函数是为了能测（见 OfflineCacheTest）：缓存淘汰坏了不会报错，
+     * 只会表现成「离线时少了几条数据」，那种事在现场很难倒推。
      */
     internal fun evictionPlan(files: List<Pair<String, Long>>, max: Int): List<String> {
         if (files.size <= max) return emptyList()
-        val (lists, others) = files
-            .filterNot { it.first.startsWith(Shape.SHELL.prefix) }
-            .partition { it.first.startsWith(Shape.LIST.prefix) }
+        val (lists, others) = files.partition { it.first.startsWith(Shape.LIST.prefix) }
         return (others.sortedBy { it.second } + lists.sortedBy { it.second })
             .take(files.size - max)
             .map { it.first }
