@@ -18,11 +18,12 @@ CREATE TABLE IF NOT EXISTS notices (
   title          TEXT NOT NULL,
   content        TEXT NOT NULL,
   publish_time   DATETIME NOT NULL,
-  publisher      TEXT NOT NULL,
+  publisher      TEXT NOT NULL,               -- 署名，创建时由服务端从登录态写入
   remind_people  TEXT,
   source         TEXT DEFAULT 'manual',
   expire_time    DATETIME,
   link           TEXT,                      -- 可选跳转（仅站内相对路径），如表单填写页
+  created_by     INTEGER,                   -- 创建者 user id；迁移前的历史行为 NULL
   created_at     DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -40,8 +41,9 @@ CREATE TABLE IF NOT EXISTS activities (
   location       TEXT,
   start_time     DATETIME NOT NULL,
   end_time       DATETIME,
-  publisher      TEXT NOT NULL,
+  publisher      TEXT NOT NULL,               -- 署名，创建时由服务端从登录态写入
   remind_people  TEXT,
+  created_by     INTEGER,                   -- 创建者 user id；迁移前的历史行为 NULL
   created_at     DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 

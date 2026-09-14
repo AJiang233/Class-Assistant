@@ -1,13 +1,15 @@
 /**
- * 「提醒对象」可见性判定 —— 「谁看得到 / 谁该收到」只在这里实现一次
+ * 「提醒对象」可见性与内容归属 —— 「谁看得到 / 谁能改」只在这里实现一次
  *
- * 规则：提醒对象为空（null / '' / []）= 默认全班；但带「不计入班级管理」权限（class:exclude）
+ * 可见性：提醒对象为空（null / '' / []）= 默认全班；但带「不计入班级管理」权限（class:exclude）
  * 的人不算全班的一员 —— 只有在提醒对象里被明确勾选（写了姓名或用户 id）才可见 / 才通知。
  *
  * 网页列表、安卓推送、日历订阅、表单读的都是这一条规则。判定必须只有一份：
  * 任何「按 id 取一条」「按名单挑人」「按页取列表」的地方都从这里取，
  * 别在各自的 handler 里重写 —— 之前单条读取、日历订阅、表单详情三处各写各的，
  * 结果就是「不计入班级管理」的规则只挡住了列表，其余三条路径全绕过去了。
+ *
+ * 归属：通知/活动的改与删只认创建者本人，或持有 user:manage 的班委（见 canManageItem）。
  */
 import { RoleModel } from '../models/roleModel.js';
 import { UserModel } from '../models/userModel.js';
@@ -80,12 +82,23 @@ export function canView(raw, viewer) {
 /**
  * 「按 id 取一条」用的判定：在 canView 之上给能发文的人放行 ——
  * 班委要能打开一条自己没被定向到的通知/活动去修改或删除，否则编辑入口就断了。
- * 能改到什么程度由各自的 handler 再校验归属（见 issue #17）。
+ * 真能不能改由 canManageItem 决定。
  *
  * 日历订阅不要用这个：班委的日历里不该出现全班的定向内容。
  */
 export function canViewItem(raw, viewer) {
   return viewer.canWrite || canView(raw, viewer);
+}
+
+/**
+ * 这条内容能不能被修改 / 删除：创建者本人，或持有 user:manage 的班委。
+ *
+ * row.created_by 为空的记录 = 迁移（migrations/2026-09-14-content-owner.sql）之前发的，
+ * 不知道归谁，一律按「需要 user:manage」处理 —— 不一刀切拒绝，否则老内容谁都动不了。
+ */
+export function canManageItem(row, viewer) {
+  if (!row || row.created_by == null) return viewer.canManageUsers;
+  return Number(row.created_by) === Number(viewer.user.id) || viewer.canManageUsers;
 }
 
 /**
@@ -96,6 +109,14 @@ export function withoutRemindPeople(row, viewer) {
   if (viewer.canWrite) return row;
   const { remind_people, ...rest } = row;
   return rest;
+}
+
+/**
+ * 单条响应的形状：按上面两条规则裁剪，并附上 canManage 给前端决定
+ * 显不显示「修改 / 删除」按钮（不附的话，学习委员会看到一个必然 403 的按钮）。
+ */
+export function itemForViewer(row, viewer) {
+  return { ...withoutRemindPeople(row, viewer), canManage: canManageItem(row, viewer) };
 }
 
 /**
