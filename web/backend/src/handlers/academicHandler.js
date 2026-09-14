@@ -561,7 +561,7 @@ export async function handleAcademicTimetable(request, env, user) {
   const refresh = url.searchParams.get('refresh') === '1';
 
   const binding = await model.getBinding(user.id);
-  if (!binding) return jsonResponse(error('还没绑定教务系统，到「课表与学业」绑定后会自动同步', 'NOT_BOUND'), 400);
+  if (!binding) return jsonResponse(error('还没绑定教务系统，绑定后会自动同步', 'NOT_BOUND'), 400);
 
   const cachedTerms = await model.listTimetableTerms(user.id);
   const opened = await schoolClientFromBinding(env, model, binding);
@@ -668,7 +668,7 @@ export async function handleAcademicCredits(request, env, user) {
   const refresh = new URL(request.url).searchParams.get('refresh') === '1';
 
   const binding = await model.getBinding(user.id);
-  if (!binding) return jsonResponse(error('还没绑定教务系统，到「课表与学业」绑定后会自动同步', 'NOT_BOUND'), 400);
+  if (!binding) return jsonResponse(error('还没绑定教务系统，绑定后会自动同步', 'NOT_BOUND'), 400);
 
   const cached = await model.getCredits(user.id);
   const cachedData = cached ? await readCachePayload(cached, () => model.deleteCredits(user.id)) : null;

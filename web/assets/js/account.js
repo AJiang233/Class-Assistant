@@ -361,7 +361,7 @@ function renderCourseStatus(info, saved) {
     if (!el) return;
     if (!info) { el.textContent = ''; return; }
     if (!info.courseCount) {
-        el.textContent = '还没有课表：先到「课表与学业」绑定教务系统，同步成功后才有可提醒的课。';
+        el.textContent = '还没有课表：先到「学业」绑定教务系统，同步成功后才有可提醒的课。';
         return;
     }
     var lead = COURSE_LEAD_LABEL[info.lead] || ('提前 ' + info.lead + ' 分钟');
