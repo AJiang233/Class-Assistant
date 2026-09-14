@@ -74,6 +74,11 @@ export async function verify(token, secret) {
     if (parts.length !== 3) return null;
 
     const [headerEncoded, payloadEncoded, signature] = parts;
+
+    // 显式校验头：只承认自己签发的 HS256，避免后续引入其它算法时出现 alg 混淆
+    const header = JSON.parse(new TextDecoder().decode(base64UrlDecode(headerEncoded)));
+    if (!header || header.alg !== 'HS256' || header.typ !== 'JWT') return null;
+
     const signatureInput = `${headerEncoded}.${payloadEncoded}`;
 
     const key = await crypto.subtle.importKey(
@@ -96,9 +101,9 @@ export async function verify(token, secret) {
 
     const payload = JSON.parse(new TextDecoder().decode(base64UrlDecode(payloadEncoded)));
 
-    // 检查过期时间
+    // 检查过期时间：缺 exp 的令牌不能当作永久有效，一律拒绝
     const now = Math.floor(Date.now() / 1000);
-    if (payload.exp && payload.exp < now) return null;
+    if (typeof payload.exp !== 'number' || payload.exp < now) return null;
 
     return payload;
   } catch {
