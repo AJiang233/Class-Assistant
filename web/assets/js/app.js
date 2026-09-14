@@ -34,7 +34,7 @@ async function api(path, options = {}) {
       redirectToIndex();
     }
     // 透传后端错误码与 HTTP 状态，供前端按 code 精确分支（不再靠文案匹配）
-    const err = new Error(data.error || '请求失败 (' + res.status + ')');
+    const err = new Error(data.error || '请求失败（' + res.status + '）');
     err.code = data.code || '';
     err.httpStatus = res.status;
     throw err;
@@ -199,7 +199,7 @@ function renderRemindBox(boxId, members, checkedNames) {
       + '<input type="checkbox" class="remind-cb" value="' + escAttr(m.name) + '"' + chk + '>' + esc(m.name) + '</label>';
   }).join('');
   box.innerHTML = (positions.length ? '<div class="remind-quick"><span class="remind-quick-label">按职位选择</span>' + quick + '</div>' : '')
-    + '<div class="mb-12"><input class="form-input" type="search" placeholder="搜索姓名 / 职务" autocomplete="off"></div>'
+    + '<div class="mb-12"><input class="form-input" type="search" placeholder="搜索姓名 / 职位" autocomplete="off"></div>'
     + '<div class="remind-members">' + rows + '</div>'
     + '<div class="remind-empty" hidden>没有匹配的成员</div>';
   bindRemindBox(box, boxId);

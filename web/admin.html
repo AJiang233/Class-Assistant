@@ -171,7 +171,7 @@
                         </button>
                         <div class="collapse-body">
                             <div class="form-field">
-                                <input id="memberSearch" class="form-input" type="search" placeholder="搜索姓名 / 学号 / 职务" autocomplete="off" data-act="filter-members">
+                                <input id="memberSearch" class="form-input" type="search" placeholder="搜索姓名 / 学号 / 职位" autocomplete="off" data-act="filter-members">
                             </div>
                             <div class="info-list" id="memberList"></div>
                         </div>
@@ -203,7 +203,7 @@
                                     <input class="form-input" type="text" id="regContact" placeholder="选填" autocomplete="off">
                                 </div>
                                 <div class="form-field">
-                                    <label class="form-label">职务（可多选，留空则为「学生」）</label>
+                                    <label class="form-label">职位（可多选，留空则为「学生」）</label>
                                     <div class="pos-picker" id="regPosPicker"></div>
                                 </div>
                                 <button class="btn btn-primary btn-block" id="regBtn" type="submit">注册成员</button>
@@ -236,8 +236,8 @@
                             </div>
                             <div class="form-field">
                                 <label class="form-label">该职位的权限（可选，不勾选则仅为称号）</label>
-                                <label class="field-check"><input type="checkbox" id="rolePermWrite" value="content:write"> 可发布 / 修改 / 删除 活动、通知，创建 / 管理表单</label>
-                                <label class="field-check"><input type="checkbox" id="rolePermManage" value="user:manage"> 可注册账号、管理班级成员、添加 / 管理职位</label>
+                                <label class="field-check"><input type="checkbox" id="rolePermWrite" value="content:write"> 可发布、修改、删除活动与通知，创建、管理表单</label>
+                                <label class="field-check"><input type="checkbox" id="rolePermManage" value="user:manage"> 可注册账号、管理班级成员、添加、管理职位</label>
                                 <label class="field-check"><input type="checkbox" id="rolePermExclude" value="class:exclude"> 不计入班级管理（提醒对象为空时不算全班，需在提醒对象里明确勾选才通知）</label>
                             </div>
                             <button type="button" class="btn btn-primary btn-block" id="roleAddBtn" data-act="add-role">添加职位</button>
@@ -264,7 +264,7 @@
                         <input id="editName" class="form-input" type="text" placeholder="请输入姓名" autocomplete="off">
                     </div>
                     <div class="form-field">
-                        <label class="form-label">职务（可多选）</label>
+                        <label class="form-label">职位（可多选）</label>
                         <div class="pos-picker" id="editPosPicker"></div>
                     </div>
                     <div class="form-field">

@@ -593,7 +593,7 @@ function fmtBJTime(v) {
 }
 async function loadProfile() {
     var card = document.getElementById('profileCard');
-    card.innerHTML = stateHTML('加载中…');
+    card.innerHTML = stateHTML('正在加载…');
     try {
         var res = await api('/api/auth/me');
         var u = res.data;
@@ -607,11 +607,11 @@ async function loadProfile() {
             + '</div>'
             + '</div>'
             + '<div class="info-list">'
-            + '<div class="info-row"><span class="k">职务</span><span class="v">' + positionsChipsHTML(u.positions) + '</span></div>'
+            + '<div class="info-row"><span class="k">职位</span><span class="v">' + positionsChipsHTML(u.positions) + '</span></div>'
             + '<div class="info-row"><span class="k">联系方式</span>'
             + '<span class="v v-actions">'
             + '<span id="contactValue">' + esc(u.contact || '未填写') + '</span>'
-            + '<button type="button" class="btn btn-outline btn-sm" data-act="open-contact-edit">修改</button>'
+            + '<button type="button" class="btn btn-outline btn-sm" data-act="open-contact-edit">编辑</button>'
             + '</span></div>'
             + '<div class="info-row"><span class="k">更新时间</span><span class="v">' + esc(fmtBJTime(u.update_time)) + '</span></div>'
             // 「上次同步时间」不是「这份数据存进后端的时刻」，而是 App 上次成功拉完数据的时刻

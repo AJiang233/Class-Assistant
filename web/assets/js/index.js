@@ -499,7 +499,7 @@ function closeDetail() {
 async function showDetail(id) {
     var card = document.getElementById('detailCard');
     document.getElementById('detailModalTitle').textContent = '活动详情';
-    card.innerHTML = stateHTML('加载中…');
+    card.innerHTML = stateHTML('正在加载…');
     openDetail();
     try {
         var res = await api('/api/activities/' + id);
@@ -509,7 +509,7 @@ async function showDetail(id) {
         if (a.location) meta += '<span>' + icon('pin') + esc(a.location) + '</span>';
         var byline = '<div class="detail-byline"><span>' + icon('user') + '发布人 ' + esc(a.publisher || '未知') + '</span></div>';
         var remind = fmtRemind(a.remind_people);
-        var remindLine = remind ? '<div class="detail-remind"><span>' + icon('bell') + '被通知人 ' + esc(remind) + '</span></div>' : '';
+        var remindLine = remind ? '<div class="detail-remind"><span>' + icon('bell') + '提醒对象 ' + esc(remind) + '</span></div>' : '';
         card.innerHTML =
             '<div class="detail-head"><div class="detail-title">' + esc(a.title) + '</div></div>'
             + '<div class="detail-meta">' + meta + '</div>'
@@ -524,7 +524,7 @@ async function showDetail(id) {
 async function showNoticeDetail(id) {
     var card = document.getElementById('detailCard');
     document.getElementById('detailModalTitle').textContent = '通知详情';
-    card.innerHTML = stateHTML('加载中…');
+    card.innerHTML = stateHTML('正在加载…');
     openDetail();
     try {
         var res = await api('/api/notices/' + id);
@@ -533,9 +533,9 @@ async function showNoticeDetail(id) {
             + (n.link ? '<span class="badge badge-form">表单</span>' : '');
         var meta = '<span>' + icon('clock') + '发布 ' + esc(fmtDate(n.publish_time)) + '</span>';
         if (n.expire_time) meta += '<span>' + icon('clock') + '截止 ' + esc(fmtDate(n.expire_time)) + '</span>';
-        var byline = '<div class="detail-byline"><span>' + icon('user') + '通知人 ' + esc(n.publisher || '未知') + '</span></div>';
+        var byline = '<div class="detail-byline"><span>' + icon('user') + '发布人 ' + esc(n.publisher || '未知') + '</span></div>';
         var remind = fmtRemind(n.remind_people);
-        var remindLine = remind ? '<div class="detail-remind"><span>' + icon('bell') + '被通知人 ' + esc(remind) + '</span></div>' : '';
+        var remindLine = remind ? '<div class="detail-remind"><span>' + icon('bell') + '提醒对象 ' + esc(remind) + '</span></div>' : '';
         card.innerHTML =
             '<div class="detail-head"><div class="detail-title">' + esc(n.title) + '</div>' + badge + '</div>'
             + '<div class="detail-meta">' + meta + '</div>'

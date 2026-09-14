@@ -141,7 +141,7 @@ var editingMemberId = null;
 
 async function loadMembers() {
     var el = document.getElementById('memberList');
-    el.innerHTML = stateHTML('加载中…');
+    el.innerHTML = stateHTML('正在加载…');
     try {
         var res = await api('/api/auth/users');
         membersCache = (res.data && res.data.list) || [];
@@ -228,7 +228,7 @@ function renderRegPosPicker() {
 // 加载 roles 表已定义的自定义职位（同步「管理职位」列表与各职务选择器）
 async function loadRoles() {
     var el = document.getElementById('roleList');
-    if (el) el.innerHTML = stateHTML('加载中…');
+    if (el) el.innerHTML = stateHTML('正在加载…');
     try {
         var res = await api('/api/auth/roles');
         rolesCache = (res.data && res.data.list) || [];
@@ -505,7 +505,7 @@ var fieldSeq = 0;
 
 async function loadFormsAdmin() {
     var el = document.getElementById('formAdminList');
-    el.innerHTML = stateHTML('加载中…');
+    el.innerHTML = stateHTML('正在加载…');
     try {
         var res = await api('/api/forms');
         var list = (res.data && res.data.list) || [];
@@ -565,7 +565,7 @@ function fieldRowHTML() {
         + '<label class="fld-required-row"><input type="checkbox" class="fld-required"> 必填</label>'
         + '</div>'
         + '<div class="mb-8"><input class="form-input fld-label" type="text" placeholder="字段内容，如：姓名" autocomplete="off"></div>'
-        + '<div class="fld-options-wrap" hidden><input class="form-input fld-options" type="text" placeholder="选项，用逗号分隔，如：午餐,晚餐" autocomplete="off"></div>'
+        + '<div class="fld-options-wrap" hidden><input class="form-input fld-options" type="text" placeholder="选项，用英文逗号分隔，如：午餐,晚餐" autocomplete="off"></div>'
         + '</div>'
         + '</div>';
 }
@@ -606,7 +606,7 @@ function collectFields() {
         if (type === 'radio' || type === 'checkbox') {
             var opts = row.querySelector('.fld-options').value.split(',')
                 .map(function (s) { return s.trim(); }).filter(Boolean);
-            if (opts.length < 2) return { error: '「' + label + '」是选择类字段，至少填 2 个选项（用逗号分隔）' };
+            if (opts.length < 2) return { error: '「' + label + '」是选择类字段，至少填 2 个选项（用英文逗号分隔）' };
             field.options = opts;
         }
         fields.push(field);
@@ -739,7 +739,7 @@ async function openFormResult(id) {
     formResultForm = null;
     formPendingText = '';
     document.getElementById('formResultTitle').textContent = '表单结果';
-    document.getElementById('formResultMeta').textContent = '加载中…';
+    document.getElementById('formResultMeta').textContent = '正在加载…';
     document.getElementById('formPendingList').innerHTML = '';
     document.getElementById('formSubsList').innerHTML = '';
     document.getElementById('formSubsBtn').hidden = false;
@@ -780,7 +780,7 @@ async function loadFormSubs() {
     if (!formResultForm) { host.innerHTML = stateHTML('表单信息未加载，请关闭弹窗重开', true); return; }
     btn.disabled = true;
     var original = btn.textContent;
-    btn.textContent = '加载中…';
+    btn.textContent = '正在加载…';
     try {
         var subsRes = await api('/api/forms/' + formResultId + '/submissions');
         var list = (subsRes.data && subsRes.data.list) || [];
