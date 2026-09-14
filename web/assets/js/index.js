@@ -35,7 +35,7 @@ var FRAME_KEYS = { academic: 'frameAcademic', activities: 'frameActivities', not
         renderCalendar();
         document.getElementById('noticeList').innerHTML = stateHTML('登录后查看班级通知');
         document.getElementById('activityList').innerHTML = stateHTML('登录后查看班级活动');
-        document.getElementById('formList').innerHTML = stateHTML('登录后查看待填表单');
+        document.getElementById('formList').innerHTML = stateHTML('登录后查看表单');
     }
     // 支持 ?view=xxx 直达（App 内绑定教务系统后会跳回课表页）
     var target = 'home';
@@ -411,7 +411,7 @@ async function loadNotices(date) {
     }
 }
 
-// ===== 待填表单（首页待办；没有独立导航入口，靠这里与通知里的按钮进入） =====
+// ===== 我的表单（首页待办；含待填与已提交，没有独立导航入口，靠这里与通知里的按钮进入） =====
 async function loadForms() {
     var el = document.getElementById('formList');
     el.innerHTML = skeletonHTML(2);
@@ -419,7 +419,7 @@ async function loadForms() {
         var res = await api('/api/forms/mine');
         var pending = (res.data && res.data.pending) || [];
         var editable = (res.data && res.data.editable) || [];
-        if (!pending.length && !editable.length) { el.innerHTML = stateHTML('暂无待填表单'); return; }
+        if (!pending.length && !editable.length) { el.innerHTML = stateHTML('暂无表单'); return; }
         el.innerHTML = pending.map(function (f) { return formRowHTML(f, false); }).join('')
             + editable.map(function (f) { return formRowHTML(f, true); }).join('');
     } catch (err) {
@@ -427,19 +427,30 @@ async function loadForms() {
     }
 }
 
-/** 表单待办条目：待填 / 已提交可修改 */
+/** 编辑策略 → 徽章文案，与管理端「编辑方式」下拉的三个选项逐字一致 */
+var EDIT_POLICY_LABEL = {
+    always: '随时可修改',
+    before_deadline: '截止前可修改',
+    none: '提交后不可修改'
+};
+
+/** 表单待办条目：第一个徽章写填写状态，第二个写编辑策略 */
 function formRowHTML(f, submitted) {
     var meta = '';
     if (f.deadline) meta += '<span>' + icon('clock') + esc(fmtDate(f.deadline)) + '</span>';
     if (f.creator_name) meta += '<span>' + icon('user') + esc(f.creator_name) + '</span>';
-    var badge = submitted
-        ? '<span class="badge badge-manual">已提交 · 可修改</span>'
+    var stateBadge = submitted
+        ? '<span class="badge badge-manual">已提交</span>'
         : '<span class="badge badge-form">待填写</span>';
+    // 映射表命中才渲染：后端将来加了新策略而这里没跟上时，宁可不显示，也别露出英文原值
+    var policy = EDIT_POLICY_LABEL[f.edit_policy];
+    var policyBadge = policy ? '<span class="badge badge-policy">' + esc(policy) + '</span>' : '';
     return '<a class="list-row" href="forms.html?id=' + encodeURIComponent(f.id) + '">'
         + '<div class="list-row-main">'
         + '<div class="list-row-title">'
         + '<span class="list-row-name">' + esc(f.title) + '</span>'
-        + badge
+        + stateBadge
+        + policyBadge
         + '</div>'
         + '<div class="list-row-meta">' + meta + '</div>'
         + '</div>'

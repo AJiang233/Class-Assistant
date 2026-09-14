@@ -56,7 +56,7 @@ export class FormModel {
 
   /**
    * 我的表单（首页待办 / 填写页）：未关闭的表单 + 本人提交状态。
-   * 是否算「待填」由 handler 结合 edit_policy 与截止时间判断。
+   * 哪些显示、进 pending 还是 editable，由 handler 结合 edit_policy 与截止时间判断。
    */
   async listMine(userId, limit = 100) {
     const result = await this.db.prepare(

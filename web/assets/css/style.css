@@ -507,6 +507,9 @@ a.list-row { color: inherit; text-decoration: none; }
 .badge-crawler { background: var(--success-soft); color: var(--success); border-color: color-mix(in srgb, var(--success) 30%, transparent); }
 .badge-danger { background: var(--danger-soft); color: var(--danger); border-color: color-mix(in srgb, var(--danger) 30%, transparent); }
 .badge-form { background: var(--success-soft); color: var(--success); border-color: color-mix(in srgb, var(--success) 30%, transparent); }
+/* 编辑策略（随时可修改 / 截止前可修改 / 提交后不可修改）：只是附加说明，
+   不上语义色，免得跟左边「待填写 / 已提交」的状态徽章抢眼 */
+.badge-policy { background: var(--bg-sunken); color: var(--text-tertiary); border-color: var(--border); }
 
 /* ═══════════════════════════════════════════════════════════════════
    10 · 详情内容
@@ -884,6 +887,9 @@ input[type="checkbox"]:disabled { opacity: 0.5; cursor: not-allowed; }
 .member-sub { font-size: 0.84rem; color: var(--text-tertiary); margin-top: 3px; }
 .member-actions { display: flex; gap: 6px; flex-shrink: 0; }
 .member-actions .btn { padding: 4px 11px; font-size: 0.82rem; min-height: 28px; }
+/* 表单管理卡片：标题与按钮占第一行，meta 落到它们下方一行（按钮涨到 4 个后横排会挤） */
+.form-admin-row { flex-wrap: wrap; }
+.form-admin-meta { flex: 1 1 100%; }
 
 /* 管理职位：分组小标题 */
 .roles-group-label { font-size: 0.82rem; color: var(--text-tertiary); margin: 14px 0 2px; }

@@ -61,12 +61,14 @@ function isPastDeadline(form, now = Date.now()) {
   return ms != null && ms < now;
 }
 
-/** 是否还能提交/覆盖 */
-function submitGate(form, hasSubmitted, now = Date.now()) {
+/** 是否还能提交/覆盖。导出是为了让测试盯住「always 过截止也放行」这条口径 */
+export function submitGate(form, hasSubmitted, now = Date.now()) {
   if (form.status !== 'open') {
     return { ok: false, message: '表单已关闭，如需补交请联系发布人', code: 'FORM_CLOSED' };
   }
-  if (isPastDeadline(form, now)) {
+  // 「随时可修改」不受截止时间约束：名单上的人过多久都能补交或改答案。
+  // 必须与 handleListMyForms 的过滤同一口径，否则会「列表里列出来了却点不动」。
+  if (form.edit_policy !== EDIT_POLICY.ALWAYS && isPastDeadline(form, now)) {
     return { ok: false, message: '表单已过截止时间，如需补交请联系发布人', code: 'FORM_CLOSED' };
   }
   if (hasSubmitted && form.edit_policy === EDIT_POLICY.NONE) {
@@ -360,7 +362,14 @@ export async function handleListForms(request, env, user) {
   }
 }
 
-/** 我的表单：待填 + 已填可修改（首页待办 / 填写页） */
+/**
+ * 我的表单：未提交（待填）+ 已提交（首页待办 / 填写页）。
+ *
+ * 显示规则：
+ *  - 「随时可修改」不删除就不消失；
+ *  - 其余两种到截止时间前不消失、过截止才消失。
+ * 与是否提交无关 —— 已提交的只是从 pending 挪到 editable，不会凭空消失。
+ */
 export async function handleListMyForms(request, env, user) {
   try {
     const model = new FormModel(env.DB);
@@ -373,13 +382,18 @@ export async function handleListMyForms(request, env, user) {
     const editable = [];
     for (const row of rows) {
       if (!canView(row.remind_people, viewer)) continue;
-      // 已过截止的表单不再算待办：填不了，列出来只会误导（仍可通过链接打开看到已截止）
-      if (isPastDeadline(row, now)) continue;
+      // 过了截止时间就不再算待办：填不了，列出来只会误导（仍可通过链接打开看到已截止）。
+      // 「随时可修改」例外 —— 它不受截止时间约束，过多久都还能补交/改答案，照常列出；
+      // 与 submitGate 的放行保持同一口径。
+      if (row.edit_policy !== EDIT_POLICY.ALWAYS && isPastDeadline(row, now)) continue;
       const submitted = !!row.my_submitted_at;
       const item = {
         id: row.id,
         title: row.title,
         deadline: row.deadline,
+        // 编辑策略：主页第二个徽章靠它显示「随时可修改 / 截止前可修改 / 提交后不可修改」，
+        // 别让前端退回「是不是 none」的布尔 —— 那样区分不出另外两种。
+        edit_policy: row.edit_policy,
         // 下发时刻：App 端（安卓 / 鸿蒙）靠它判断「这条表单我提醒过没有」，
         // 与通知的 publish_time 同一口径（都是 SQL 里的本地时间字符串）。
         // 少这个字段，App 只能整批当新的推，或者干脆推不了。
@@ -388,8 +402,10 @@ export async function handleListMyForms(request, env, user) {
         anonymous: !!row.anonymous,
         submitted_at: row.my_submitted_at || null
       };
+      // 已提交的都留在列表里：edit_policy 只决定「点进去还能不能改」（见 submitGate），
+      // 不决定「还显不显示」—— 之前这里按 NONE 又滤一道，交完就消失，与显示规则不符。
       if (!submitted) pending.push(item);
-      else if (row.edit_policy !== EDIT_POLICY.NONE) editable.push(item);
+      else editable.push(item);
     }
 
     return jsonResponse(success({ pending, editable }));

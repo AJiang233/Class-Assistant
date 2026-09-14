@@ -516,21 +516,28 @@ async function loadFormsAdmin() {
     }
 }
 
+/**
+ * 表单管理卡片：标题与按钮占第一行，meta 落到按钮下方一行。
+ * 按钮现在有 4 个（多了停止收集），meta 再挤在左栏里会把按钮顶到换行。
+ */
 function formAdminRowHTML(f) {
+    var closed = f.status !== 'open';
     var meta = ['提交 ' + (f.submission_count || 0) + ' 份'];
     if (f.deadline) meta.push('截止 ' + fmtDate(f.deadline));
     if (f.anonymous) meta.push('匿名');
-    if (f.status !== 'open') meta.push('已关闭');
-    return '<div class="info-row member-row">'
+    if (closed) meta.push('已关闭');
+    return '<div class="info-row member-row form-admin-row">'
         + '<div class="member-main">'
         + '<div class="member-line"><span class="member-name">' + esc(f.title) + '</span></div>'
-        + '<div class="member-line"><span>' + esc(meta.join(' · ')) + '</span></div>'
         + '</div>'
         + '<div class="member-actions">'
+        + '<button type="button" class="btn btn-outline btn-sm" data-act="toggle-form-status" data-id="' + escAttr(f.id) + '" data-status="' + (closed ? 'open' : 'closed') + '">'
+        + (closed ? '恢复收集' : '停止收集') + '</button>'
         + '<button type="button" class="btn btn-outline btn-sm" data-act="open-form-time" data-id="' + escAttr(f.id) + '">修改时间</button>'
         + '<button type="button" class="btn btn-outline btn-sm" data-act="open-form-result" data-id="' + escAttr(f.id) + '">提交明细</button>'
         + '<button type="button" class="btn btn-danger btn-sm" data-act="del-form" data-id="' + escAttr(f.id) + '">删除</button>'
         + '</div>'
+        + '<div class="member-line form-admin-meta"><span>' + esc(meta.join(' · ')) + '</span></div>'
         + '</div>';
 }
 
@@ -677,6 +684,28 @@ async function delForm(id) {
         loadFormsAdmin();
     } catch (err) {
         alert(err.message);
+    }
+}
+
+/**
+ * 停止 / 恢复收集：只改 status，不碰提交数据。
+ * 停止后同学那边「我的表单」里就看不到它了（/api/forms/mine 只查 status='open'），
+ * 提交也会被 submitGate 第一道拦住；已提交的答案原样保留。
+ * 恢复用同一个接口、同一个按钮位 —— 不给恢复的话，误停就只能删掉重建。
+ */
+async function toggleFormStatus(id, next, btn) {
+    if (next === 'closed'
+        && !confirm('确定停止收集？停止后同学看不到这条表单，也不能再提交；已提交的答案会保留。')) return;
+    var original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = next === 'closed' ? '停止中…' : '恢复中…';
+    try {
+        await api('/api/forms/' + id, { method: 'PUT', body: JSON.stringify({ status: next }) });
+        loadFormsAdmin();
+    } catch (err) {
+        alert(err.message);
+        btn.disabled = false;
+        btn.textContent = original;
     }
 }
 
@@ -872,4 +901,7 @@ delegate(document, 'click', '[data-act="load-form-subs"]', function () { loadFor
 delegate(document, 'click', '[data-act="copy-pending"]', function () { copyPending(); });
 delegate(document, 'click', '[data-act="export-form"]', function () { exportForm(); });
 delegate(document, 'click', '[data-act="del-form"]', function (el) { delForm(el.getAttribute('data-id')); });
+delegate(document, 'click', '[data-act="toggle-form-status"]', function (el) {
+    toggleFormStatus(el.getAttribute('data-id'), el.getAttribute('data-status'), el);
+});
 })();

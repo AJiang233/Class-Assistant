@@ -7,6 +7,7 @@ import {
   handleListMyForms,
   normalizeFields,
   parseFields,
+  submitGate,
   validateAnswers
 } from '../src/handlers/formHandler.js';
 import { EDIT_POLICY } from '../src/models/formModel.js';
@@ -233,5 +234,120 @@ describe('我的表单列表', () => {
     assert.equal(body.data.pending.length, 1);
     assert.equal(body.data.pending[0].created_at, '2026-09-13 10:00:00');
     assert.equal(body.data.pending[0].title, '聚餐报名');
+  });
+
+  it('每条都带 edit_policy（主页第二个徽章靠它区分三种策略）', async () => {
+    const env = {
+      DB: fakeDb([{
+        id: 4,
+        title: '暑期实践报名',
+        description: '',
+        remind_people: null,
+        edit_policy: EDIT_POLICY.BEFORE_DEADLINE,
+        anonymous: 0,
+        creator_name: '班长',
+        deadline: null,
+        created_at: '2026-09-13 10:00:00',
+        my_submitted_at: null
+      }])
+    };
+    const res = await handleListMyForms(
+      new Request('https://class.example/api/forms/mine'),
+      env,
+      { id: 2, name: '张三', positions: '学生' }
+    );
+    const body = await res.json();
+
+    assert.equal(body.data.pending[0].edit_policy, EDIT_POLICY.BEFORE_DEADLINE);
+  });
+
+  /**
+   * 「随时可修改」不受截止时间约束：过了截止也要列出来（还能补交、改答案），
+   * 其余策略过了截止就不再算待办。这条口径必须与 submitGate 的放行一致，
+   * 否则会出现「列表里列出来了却点不动」。
+   */
+  it('过截止：always 照常列出，其余策略被滤掉，没截止的照常列出', async () => {
+    const base = {
+      description: '',
+      remind_people: null,
+      anonymous: 0,
+      creator_name: '班长',
+      created_at: '2026-09-13 10:00:00',
+      my_submitted_at: null,
+      deadline: '2020-01-01 00:00:00'
+    };
+    const env = {
+      DB: fakeDb([
+        { ...base, id: 11, title: '随时可改的', edit_policy: EDIT_POLICY.ALWAYS },
+        { ...base, id: 12, title: '截止前可改的', edit_policy: EDIT_POLICY.BEFORE_DEADLINE },
+        { ...base, id: 13, title: '不可改的', edit_policy: EDIT_POLICY.NONE },
+        { ...base, id: 14, title: '没截止的', edit_policy: EDIT_POLICY.NONE, deadline: null }
+      ])
+    };
+    const res = await handleListMyForms(
+      new Request('https://class.example/api/forms/mine'),
+      env,
+      { id: 2, name: '张三', positions: '学生' }
+    );
+    const titles = (await res.json()).data.pending.map((f) => f.title);
+
+    assert.ok(titles.includes('随时可改的'), 'always 过截止仍要能填，必须列出');
+    assert.ok(titles.includes('没截止的'), '没有截止时间的照常列出');
+    assert.equal(titles.includes('截止前可改的'), false, '过截止且非 always 的不再算待办');
+    assert.equal(titles.includes('不可改的'), false, '过截止且非 always 的不再算待办');
+  });
+
+  /**
+   * 已提交不意味着消失：edit_policy 只决定点进去还能不能改，
+   * 「还显不显示」只看截止时间（always 则连截止时间都不看）。
+   */
+  it('已提交的表单都留着：不可修改的只是从「待填」挪到「已提交」', async () => {
+    const base = {
+      description: '',
+      remind_people: null,
+      anonymous: 0,
+      creator_name: '班长',
+      deadline: null,
+      created_at: '2026-09-13 10:00:00',
+      my_submitted_at: '2026-09-13 12:00:00'
+    };
+    const env = {
+      DB: fakeDb([
+        { ...base, id: 21, title: '交了不可改的', edit_policy: EDIT_POLICY.NONE },
+        { ...base, id: 22, title: '交了截止前可改的', edit_policy: EDIT_POLICY.BEFORE_DEADLINE },
+        { ...base, id: 23, title: '交了随时可改的', edit_policy: EDIT_POLICY.ALWAYS }
+      ])
+    };
+    const res = await handleListMyForms(
+      new Request('https://class.example/api/forms/mine'),
+      env,
+      { id: 2, name: '张三', positions: '学生' }
+    );
+    const body = await res.json();
+
+    assert.equal(body.data.pending.length, 0, '已提交的不该再算「待填」');
+    assert.deepEqual(
+      body.data.editable.map((f) => f.edit_policy).sort(),
+      ['always', 'before_deadline', 'none'],
+      '三种策略的已提交表单都要留着，不能因「不可修改」消失'
+    );
+  });
+});
+
+describe('提交闸门', () => {
+  const pastForm = { status: 'open', edit_policy: EDIT_POLICY.ALWAYS, deadline: '2020-01-01 00:00:00' };
+
+  it('always 过截止仍可提交（与列表的放行同一口径）', () => {
+    assert.equal(submitGate(pastForm, false).ok, true);
+    assert.equal(submitGate(pastForm, true).ok, true);
+  });
+
+  it('其余策略过截止被拦', () => {
+    assert.equal(submitGate({ ...pastForm, edit_policy: EDIT_POLICY.BEFORE_DEADLINE }, false).ok, false);
+    assert.equal(submitGate({ ...pastForm, edit_policy: EDIT_POLICY.NONE }, false).ok, false);
+  });
+
+  it('关闭的表单一律不可提交，与策略无关', () => {
+    assert.equal(submitGate({ ...pastForm, status: 'closed' }, false).ok, false);
   });
 });
