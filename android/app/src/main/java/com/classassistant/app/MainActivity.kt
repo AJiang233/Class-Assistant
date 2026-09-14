@@ -323,6 +323,9 @@ class MainActivity : AppCompatActivity() {
         Scheduler.refreshWidgets(this)
         // 顺手把下一次零点刷新排上（重复排只是覆盖，不会堆）
         Scheduler.scheduleMidnightRefresh(this)
+        // 再补一次「当天」的两个列表键：主页的当日列表按日期取，键每天都不一样，而后台同步
+        // 未必在当天跑过 —— 补上它，进屋那一下才不用等网络（见 SyncRunner.prewarmTodayLists）
+        SyncRunner.prewarmTodayLists(this)
     }
 
     /**
@@ -423,7 +426,10 @@ class MainActivity : AppCompatActivity() {
                 override fun shouldInterceptRequest(
                     view: WebView,
                     request: WebResourceRequest
-                ): WebResourceResponse? = OfflineApi.intercept(applicationContext, request)
+                ): WebResourceResponse? = OfflineApi.intercept(applicationContext, request) { key, json ->
+                    // 「先回缓存」那一支的后半程：后台取到的新数据与缓存不同，推回页面重绘
+                    pushApiUpdate(key, json)
+                }
 
                 // 站内与教务域留在 WebView，系统协议拦截，其余外链交给系统浏览器
                 override fun shouldOverrideUrlLoading(
@@ -525,6 +531,24 @@ class MainActivity : AppCompatActivity() {
         // 只有「主页 + 无弹窗 + 已置顶」时才允许下拉刷新；其余情况把手势交还给页面滚动
         binding.swipeRefresh.setOnChildScrollUpCallback { _, _ -> !pullRefreshReady }
         binding.swipeRefresh.setOnRefreshListener { binding.webView.reload() }
+    }
+
+    /**
+     * 把后台刷新到的新数据推回网页（原生离线层的 SWR 用，见 OfflineApi.refreshInBackground）。
+     *
+     * 页面在 app.js 里把 window.__caApiUpdated(key, json) 挂到 window 上，按 key（路径 + 查询串，
+     * 与缓存键同一个字符串）找到自己那个渲染函数重绘。网页版没有这一步 —— 它本来就不经过这一层。
+     *
+     * evaluateJavascript 必须在 UI 线程调用，而调用方还在后台线程，所以在这里切过去。
+     * JSONObject.quote 负责把 key 与整段 JSON 转成安全的 JS 字面量（里面有引号、换行、中文）。
+     */
+    internal fun pushApiUpdate(key: String, json: String) {
+        runOnUiThread {
+            binding.webView.evaluateJavascript(
+                "window.__caApiUpdated&&window.__caApiUpdated(${JSONObject.quote(key)},${JSONObject.quote(json)})",
+                null
+            )
+        }
     }
 
     /** 是否是 WebView 打不开、该交给系统应用处理的协议（拨号 / 短信 / 邮件） */

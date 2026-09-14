@@ -58,6 +58,41 @@ function withTimeout(options) {
   return options;
 }
 
+// ===== 原生离线层的数据回填（App 壳专用）=====
+/**
+ * App 里 /api/ 的只读请求由原生层接管（见 android 的 sync/OfflineApi）：本地有一份够新鲜的
+ * 缓存时，**先把缓存给页面**，首帧就不必等一次网络往返；紧接着它在后台去取最新的，
+ * 内容变了再把新数据推回这里。页面只要把自己的渲染函数按「请求 URL」注册进来：
+ *
+ *   onApiData('/api/notices?scope=all&limit=200', function (data) { renderList(data.list); });
+ *
+ * 键必须与页面请求时的 URL 完全一致（原生那边缓存键就是「路径 + 查询串」）。带参数的请求
+ * 尤其要注意：参数不同就是两份缓存、两个键，注册错了只会静默不生效。
+ * 网页版没有这个入口（根本不经过原生层），注册了也不会被调用，所以页面里不用判断环境。
+ */
+const apiRenderers = {};
+function onApiData(key, render) {
+  if (typeof render === 'function') apiRenderers[key] = render;
+}
+window.__caApiUpdated = function (key, json) {
+  const render = apiRenderers[key];
+  if (!render) return;   // 这一份没人关心（比如页面已经切走）：静默跳过
+  let payload;
+  try {
+    payload = JSON.parse(json);
+  } catch (e) {
+    console.warn('推回的数据解析失败：', key, e);
+    return;
+  }
+  // 失败响应不回填：success:false 是后端用 200 包的错误，渲染函数按 data 展开会读到 undefined
+  if (!payload || payload.success !== true) return;
+  try {
+    render(payload.data || {});
+  } catch (e) {
+    console.warn('回填渲染失败：', key, e);
+  }
+};
+
 /** 保存登录会话 */
 function saveSession(data) {
   // Safari 无痕模式或配额耗尽时 setItem 会抛 QuotaExceededError。

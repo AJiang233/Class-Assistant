@@ -81,24 +81,36 @@ function setLoadingTip(text) {
 }
 async function loadStatus() {
     setLoadingTip('正在查询教务绑定状态…');
+    // App 壳：原生层先给缓存（首帧不必等网络），后台刷新完把新数据推回这里
+    onApiData('/api/academic/status', function (data) { applyStatus(data); });
+    var res;
     try {
-        var res = await api('/api/academic/status');
-        bindStatus = res.data || {};
+        res = await api('/api/academic/status');
     } catch (err) {
         showOnly('bindView');
         showFormError('bindError', err.message);
         return;
     }
-    if (!bindStatus.bound) { showOnly('bindView'); return; }
+    applyStatus(res.data || {});
+    if (!bindStatus.bound) return;
     setLoadingTip('已绑定，正在拉取课表与学分…');
-    showOnly('dataView');
-    // 分段控件在隐藏状态下量不到尺寸（滑块宽高为 0），显示出来后补量一次
-    moveAcSegPill();
     // 不再因为 status=expired 就在这里拉红横幅「请重新绑定」：课表接口会把上次的缓存
     // 给回来，提示交给 loadTimetable 按「为什么给的是缓存」出一行小字（见 cacheHintText）。
     // 否则用户还没看到课表，就先被告知「出事了、去重新绑定」。
     loadTimetable(savedTerm(), false);
     loadCredits(false);
+}
+
+/**
+ * 绑定状态的渲染：只决定露出哪块面板，不去拉数据（课表与学分各有各的加载）。
+ * 首次加载与「原生后台刷新推回」共用它 —— 绑定状态变了（比如刚在别处解绑），面板要跟着换。
+ */
+function applyStatus(info) {
+    bindStatus = info || {};
+    if (!bindStatus.bound) { showOnly('bindView'); return; }
+    showOnly('dataView');
+    // 分段控件在隐藏状态下量不到尺寸（滑块宽高为 0），显示出来后补量一次
+    moveAcSegPill();
 }
 
 /** 三个面板只留一个（默认都靠 hidden 属性切换，样式在 style.css 的 [hidden] 里） */
@@ -365,25 +377,12 @@ async function loadTimetable(term, refresh) {
     if (term) query.push('xnxq=' + encodeURIComponent(term));
     if (refresh) query.push('refresh=1');
     if (query.length) path += '?' + query.join('&');
+    // App 壳：原生层先给缓存、后台刷新完把新数据推回这个键上。键里带学期参数，
+    // 所以按实际请求的 URL 注册（不同学期的缓存是两份）
+    onApiData(path, function (data) { applyTimetable(data, false); });
     try {
         var res = await api(path);
-        timetable = res.data;
-        activeTerm = timetable.xnxqId;
-        rememberTerm(activeTerm);
-        renderTermSelect(timetable.terms, activeTerm);
-        renderSyncMeta(timetable);
-        renderTimetable(timetable);
-        renderUnscheduled(timetable.unscheduled);
-        if (timetable.stale) {
-            showNotice(cacheHintText(timetable.cacheReason), true);
-            // 手动刷新仍然只拿到缓存：说明教务那边已经拉不动了，问一句要不要重新登录。
-            // 自动加载走到这一支是常态（登录态一天左右就会被重置），小字说明就够了
-            if (refresh && timetable.cacheReason === 'expired' && askReLogin()) {
-                showOnly('bindView');
-            }
-        } else {
-            hideNotice();
-        }
+        applyTimetable(res.data, refresh);
     } catch (err) {
         // 会话过期/未绑定用错误码精确判断（不再靠文案匹配，避免误伤渲染错误）
         if (err.code === 'NOT_BOUND') {
@@ -404,6 +403,32 @@ async function loadTimetable(term, refresh) {
             return;
         }
         view.innerHTML = stateHTML(err.message, true);
+    }
+}
+
+/**
+ * 课表渲染。首次加载与「原生后台刷新推回」共用这一个入口。
+ *
+ * @param askRelogin 只有「用户自己点了刷新、却仍然只拿到缓存里的过期数据」才问要不要重新登录。
+ *                   后台推回来的那份是它刚取到的新数据，不该走这一支。
+ */
+function applyTimetable(data, askRelogin) {
+    timetable = data;
+    activeTerm = timetable.xnxqId;
+    rememberTerm(activeTerm);
+    renderTermSelect(timetable.terms, activeTerm);
+    renderSyncMeta(timetable);
+    renderTimetable(timetable);
+    renderUnscheduled(timetable.unscheduled);
+    if (timetable.stale) {
+        showNotice(cacheHintText(timetable.cacheReason), true);
+        // 手动刷新仍然只拿到缓存：说明教务那边已经拉不动了，问一句要不要重新登录。
+        // 自动加载走到这一支是常态（登录态一天左右就会被重置），小字说明就够了
+        if (askRelogin && timetable.cacheReason === 'expired' && askReLogin()) {
+            showOnly('bindView');
+        }
+    } else {
+        hideNotice();
     }
 }
 
@@ -571,6 +596,10 @@ async function loadCredits(refresh) {
         view.innerHTML = stateHTML(err.message, true);
     }
 }
+
+// App 壳：原生层先把这一份缓存给页面（预热的就是不带 refresh 的那个 URL），
+// 后台刷新完若内容有变化再推回这里重绘
+onApiData('/api/academic/credits', function (data) { credits = data; renderCredits(data); });
 
 function renderCredits(data) {
     var view = document.getElementById('creditsView');

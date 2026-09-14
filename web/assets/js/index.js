@@ -380,35 +380,47 @@ function remindMe(raw) {
 async function loadNotices(date) {
     var el = document.getElementById('noticeList');
     el.innerHTML = skeletonHTML(3);
-    var q = date ? ('?limit=50&date=' + encodeURIComponent(date)) : '?limit=50';
+    var key = '/api/notices?limit=50' + (date ? '&date=' + encodeURIComponent(date) : '');
+    var render = function (data) { renderNotices(date, (data && data.list) || []); };
+    // App 壳：原生层先给缓存、后台刷新完把新数据推回这个键上（网页版注册了也不会被调用）
+    onApiData(key, render);
     try {
-        var res = await api('/api/notices' + q);
-        var list = (res.data && res.data.list) || [];
-        // 主页展示提醒当前账户（含「全班」）的通知，当天全部（不限条数）
-        list = list.filter(function (n) { return remindMe(n.remind_people); });
-        if (!list.length) { el.innerHTML = stateHTML('暂无提醒你的通知'); return; }
-        list.sort(function (a, b) { return String(b.publish_time || '').localeCompare(String(a.publish_time || '')); });
-        el.innerHTML = list.map(function (n) {
-            var pub = n.publisher ? '<span>' + icon('user') + esc(n.publisher) + '</span>' : '';
-            var formBadge = n.link ? '<span class="badge badge-form">表单</span>' : '';
-            return '<button type="button" class="list-row" data-act="notice-detail" data-id="' + escAttr(n.id) + '">'
-                + '<div class="list-row-main">'
-                + '<div class="list-row-title">'
-                + '<span class="list-row-name">' + esc(n.title) + '</span>'
-                + '<span class="badge badge-' + escAttr(n.source || 'manual') + '">' + esc(sourceName(n.source)) + '</span>'
-                + formBadge
-                + '</div>'
-                + '<div class="list-row-meta">'
-                + pub
-                + '<span>' + icon('clock') + esc(fmtDate(n.publish_time)) + '</span>'
-                + '</div>'
-                + '</div>'
-                + '<svg class="list-row-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>'
-                + '</button>';
-        }).join('');
+        var res = await api(key);
+        render(res.data || {});
     } catch (err) {
         el.innerHTML = stateHTML(err.message, true);
     }
+}
+
+/**
+ * 当日通知列表渲染。首次加载与「原生后台刷新推回」共用它。
+ * 先按下 `activeDate` 对一遍：用户切到别的日期后，早先那次请求的刷新结果不该再盖上来。
+ */
+function renderNotices(date, list) {
+    if (date && activeDate !== date) return;
+    var el = document.getElementById('noticeList');
+    // 主页展示提醒当前账户（含「全班」）的通知，当天全部（不限条数）
+    list = list.filter(function (n) { return remindMe(n.remind_people); });
+    if (!list.length) { el.innerHTML = stateHTML('暂无提醒你的通知'); return; }
+    list.sort(function (a, b) { return String(b.publish_time || '').localeCompare(String(a.publish_time || '')); });
+    el.innerHTML = list.map(function (n) {
+        var pub = n.publisher ? '<span>' + icon('user') + esc(n.publisher) + '</span>' : '';
+        var formBadge = n.link ? '<span class="badge badge-form">表单</span>' : '';
+        return '<button type="button" class="list-row" data-act="notice-detail" data-id="' + escAttr(n.id) + '">'
+            + '<div class="list-row-main">'
+            + '<div class="list-row-title">'
+            + '<span class="list-row-name">' + esc(n.title) + '</span>'
+            + '<span class="badge badge-' + escAttr(n.source || 'manual') + '">' + esc(sourceName(n.source)) + '</span>'
+            + formBadge
+            + '</div>'
+            + '<div class="list-row-meta">'
+            + pub
+            + '<span>' + icon('clock') + esc(fmtDate(n.publish_time)) + '</span>'
+            + '</div>'
+            + '</div>'
+            + '<svg class="list-row-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>'
+            + '</button>';
+    }).join('');
 }
 
 // ===== 我的表单（首页待办；含待填与已提交，没有独立导航入口，靠这里与通知里的按钮进入） =====
@@ -461,28 +473,37 @@ function formRowHTML(f, submitted) {
 async function loadActivities(date) {
     var el = document.getElementById('activityList');
     el.innerHTML = skeletonHTML(3);
-    var q = date ? ('?date=' + encodeURIComponent(date) + '&limit=50') : '?limit=50';
+    var key = '/api/activities' + (date ? '?date=' + encodeURIComponent(date) + '&limit=50' : '?limit=50');
+    var render = function (data) { renderActivities(date, (data && data.list) || []); };
+    // App 壳：原生层先给缓存、后台刷新完把新数据推回这个键上（网页版注册了也不会被调用）
+    onApiData(key, render);
     try {
-        var res = await api('/api/activities' + q);
-        var list = (res.data && res.data.list) || [];
-        // 主页展示提醒当前账户（含「全班」）的活动，当天全部（不限条数）
-        list = list.filter(function (a) { return remindMe(a.remind_people); });
-        if (!list.length) { el.innerHTML = stateHTML('暂无提醒你的活动'); return; }
-        list.sort(function (a, b) { return String(b.start_time || '').localeCompare(String(a.start_time || '')); });
-        el.innerHTML = list.map(function (a) {
-            var meta = '<span>' + icon('clock') + esc(fmtDate(a.start_time)) + '</span>';
-            if (a.location) meta += '<span>' + icon('pin') + esc(a.location) + '</span>';
-            return '<button type="button" class="list-row" data-act="activity-detail" data-id="' + escAttr(a.id) + '">'
-                + '<div class="list-row-main">'
-                + '<div class="list-row-title"><span class="list-row-name">' + esc(a.title) + '</span></div>'
-                + '<div class="list-row-meta">' + meta + '</div>'
-                + '</div>'
-                + '<svg class="list-row-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>'
-                + '</button>';
-        }).join('');
+        var res = await api(key);
+        render(res.data || {});
     } catch (err) {
         el.innerHTML = stateHTML(err.message, true);
     }
+}
+
+/** 当日活动列表渲染。同 renderNotices：切了日期之后，早先那次请求的刷新结果不该再盖上来 */
+function renderActivities(date, list) {
+    if (date && activeDate !== date) return;
+    var el = document.getElementById('activityList');
+    // 主页展示提醒当前账户（含「全班」）的活动，当天全部（不限条数）
+    list = list.filter(function (a) { return remindMe(a.remind_people); });
+    if (!list.length) { el.innerHTML = stateHTML('暂无提醒你的活动'); return; }
+    list.sort(function (a, b) { return String(b.start_time || '').localeCompare(String(a.start_time || '')); });
+    el.innerHTML = list.map(function (a) {
+        var meta = '<span>' + icon('clock') + esc(fmtDate(a.start_time)) + '</span>';
+        if (a.location) meta += '<span>' + icon('pin') + esc(a.location) + '</span>';
+        return '<button type="button" class="list-row" data-act="activity-detail" data-id="' + escAttr(a.id) + '">'
+            + '<div class="list-row-main">'
+            + '<div class="list-row-title"><span class="list-row-name">' + esc(a.title) + '</span></div>'
+            + '<div class="list-row-meta">' + meta + '</div>'
+            + '</div>'
+            + '<svg class="list-row-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>'
+            + '</button>';
+    }).join('');
 }
 
 // ===== 详情弹窗（点击"当日活动/当日通知"行弹出） =====

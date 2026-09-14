@@ -147,7 +147,7 @@ object SyncRunner {
     }
 
     /**
-     * 预热离线缓存：把**网页会请求的**那几份 URL 也拉一遍存下来（清单见 OfflineApi.PREWARM），
+     * 预热离线缓存：把**网页会请求的**那几份 URL 也拉一遍存下来（清单见 OfflineApi.prewarmPaths），
      * 这样即使某个页面用户很久没打开过，断网时照样有内容可看 ——
      * 离线数据的新鲜度因此跟着后台同步走，而不是「上次打开那个页面时」。
      *
@@ -158,7 +158,7 @@ object SyncRunner {
      * 顺序上放在主流程之后、记 lastSyncAt 之前，所以这里慢了也只会推迟「上次同步」的显示。
      */
     private fun prewarmOfflineCache(ctx: Context, token: String) {
-        for (path in OfflineApi.PREWARM) {
+        for (path in OfflineApi.prewarmPaths()) {
             val res = Api.get(path, token)
             if (res is Api.Res.Unauthorized) return
             cacheResponse(ctx, path, res)
@@ -166,6 +166,29 @@ object SyncRunner {
                 (res as? Api.Res.Ok)?.body?.let { saveTimetable(ctx, it) }
             }
         }
+    }
+
+    /**
+     * App 启动时补一次「当天」的两个键（只跑还缺的那条）。
+     *
+     * 后台同步未必在当天跑过 —— 用户几天没联网、或系统把周期任务压后，都会让「今天」的那两个键
+     * 迟迟不存在，而主页当日列表正是靠它们秒开的。缓存键里带着日期，所以「已经在缓存里」
+     * 就等于「今天已经取到过」，靠这个天然节流：冷启动一天可能发生很多次，不必再记时间戳。
+     */
+    internal fun prewarmTodayLists(context: Context) {
+        val ctx = context.applicationContext
+        val token = Store.token(ctx) ?: return
+        // 全在线程里做：连「读缓存看缺不缺」也一并放进去，调用方（Activity.onCreate）零成本
+        Thread {
+            val missing = OfflineApi.todayListPaths(System.currentTimeMillis())
+                .filter { OfflineCache.read(ctx, it) == null }
+            if (missing.isEmpty()) return@Thread
+            for (path in missing) {
+                val res = Api.get(path, token)
+                if (res is Api.Res.Unauthorized) return@Thread
+                cacheResponse(ctx, path, res)
+            }
+        }.start()
     }
 
     /**
