@@ -95,6 +95,13 @@ export class AcademicModel {
     ).bind(userId, xnxqId, payload).run();
   }
 
+  /** 丢弃某一学期的课表缓存（payload 损坏时清掉，让下一次请求重抓） */
+  async deleteTimetable(userId, xnxqId) {
+    return this.db.prepare(
+      'DELETE FROM academic_timetable WHERE user_id = ? AND xnxq_id = ?'
+    ).bind(userId, xnxqId).run();
+  }
+
   // ===== 学业达成（学分）缓存 =====
 
   async getCredits(userId) {
@@ -111,6 +118,11 @@ export class AcademicModel {
          payload = excluded.payload,
          fetched_at = CURRENT_TIMESTAMP`
     ).bind(userId, payload).run();
+  }
+
+  /** 丢弃学业达成缓存（payload 损坏时清掉，让下一次请求重抓） */
+  async deleteCredits(userId) {
+    return this.db.prepare('DELETE FROM academic_credits WHERE user_id = ?').bind(userId).run();
   }
 
   // ===== 多因子认证中间态 =====
