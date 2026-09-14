@@ -1749,3 +1749,77 @@ body.app-mode { overflow: hidden; }
     scroll-behavior: auto !important;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   CSP 收紧配套：原先写在标签上的内联样式
+   ── 为什么在这里 ──
+   style-src 现在只放行 'self'（见 web/_headers），页面里再写 style="..."
+   会被浏览器整条丢掉（**不是**只丢那一条声明，是整个属性失效），所以散落在
+   HTML 与 innerHTML 字符串里的一两句样式统一收到这里：
+     · 纯间距 → .mt-* / .mb-* 工具类（只列确实用到的档位，不是通用分层）
+     · 有结构含义的（登录容器、卡片分隔线、勾选行、字段行…）→ 语义类
+   隐藏/显示一律用 [hidden] 属性（上面已有 [hidden]{display:none!important}），
+   JS 侧对应 el.hidden = true/false。
+   注意：JS 里通过 CSSOM 写的（el.style.width = … / setProperty）不受 CSP 限制，
+   滑块定位、进度条宽度这类动态值仍然留在 JS 里，没有搬到这里。
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── 间距 ── */
+.mt-0 { margin-top: 0; }
+.mt-6 { margin-top: 6px; }
+.mt-8 { margin-top: 8px; }
+.mt-10 { margin-top: 10px; }
+.mt-12 { margin-top: 12px; }
+.mt-14 { margin-top: 14px; }
+.mb-0 { margin-bottom: 0; }
+.mb-8 { margin-bottom: 8px; }
+.mb-12 { margin-bottom: 12px; }
+.mb-14 { margin-bottom: 14px; }
+
+/* ── 单属性小工具 ── */
+.grow { flex: 1; }
+.w-auto { width: auto; }
+
+/* 主壳里登录视图的容器（原内联 max-width / 居中 / 左右内边距） */
+.login-wrap { max-width: 420px; margin: 48px auto; padding: 0 16px; }
+
+/* ── 卡片内的排版 ── */
+/* 卡片标题：原先靠 h2 上的内联 margin 与下方内容拉开距离 */
+.card-title { margin: 0 0 16px; }
+.card-title-tight { margin: 0 0 8px; }
+/* .profile-sub 的几种段位：说明文字在内容之前 / 结果提示跟在按钮之后 / 段落之间留白 */
+.profile-sub-lead { margin: 0 0 14px; }
+.profile-sub-tail { margin: 14px 0 0; }
+.profile-sub-wide { margin: 0 0 16px; }
+.profile-sub-even { margin: 14px 0 14px; }
+/* 卡片下半区（通知 / 后台常驻 / 课程提醒 / 日历订阅…）：用一条分隔线与上一块断开 */
+.card-divider { margin-top: 24px; padding-top: 22px; border-top: 1px solid var(--separator); }
+
+/* ── 表单 ── */
+/* 一行勾选项：整行可点（原来是标签上的内联 display/margin） */
+.field-check { display: block; margin: 6px 0; }
+/* 卡片里更轻量的一行勾选项 */
+.check-row { display: flex; align-items: center; gap: 8px; font-size: 0.89rem; color: var(--text); cursor: pointer; }
+.check-row-note { display: flex; align-items: center; gap: 8px; margin: 12px 0 14px; font-size: 0.9rem; color: var(--text-secondary); cursor: pointer; }
+/* 按钮行：默认三列（.btn-row），这两个是「两列」与「单行等高」 */
+.btn-row-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.btn-row-inline { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); }
+/* 自适应列宽的多列表单（日历订阅的三个选项） */
+.grid-150 { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+
+/* ── 提醒对象选择区 ── */
+/* 没有成员可提醒（.remind-hint）与搜索后全被滤掉（.remind-empty）的提示文字 */
+.remind-hint,
+.remind-empty { font-size: 0.85rem; opacity: 0.6; }
+
+/* ── 成员列表 / 资料卡 ── */
+/* 贴边的一行（列表里已经有自己的分隔与内边距，不想再叠加 info-row 的左右内边距） */
+.member-row-flush { padding-left: 0; padding-right: 0; }
+/* 左右分散的一行（.member-line 默认按基线对齐，这里要居中并两端撑开） */
+.member-line-spread { justify-content: space-between; align-items: center; }
+/* 「值」区里带按钮，需要行内 flex 对齐 */
+.info-row .v-actions { display: inline-flex; align-items: center; gap: 10px; }
+
+/* ── 表单字段编辑器（管理员面板动态生成的每一行） ── */
+.fld-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 8px 0; }
+.fld-required-row { display: flex; align-items: center; gap: 6px; white-space: nowrap; font-size: 0.9rem; color: var(--text-secondary); cursor: pointer; }

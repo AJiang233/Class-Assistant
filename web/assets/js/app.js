@@ -178,7 +178,7 @@ function renderRemindBox(boxId, members, checkedNames) {
   if (!box) return;
   box.className = 'remind-box';
   if (!members || !members.length) {
-    box.innerHTML = '<span style="opacity:.6;font-size:.85rem;">暂无成员可提醒</span>';
+    box.innerHTML = '<span class="remind-hint">暂无成员可提醒</span>';
     return;
   }
   const checked = {};
@@ -199,9 +199,9 @@ function renderRemindBox(boxId, members, checkedNames) {
       + '<input type="checkbox" class="remind-cb" value="' + escAttr(m.name) + '"' + chk + '>' + esc(m.name) + '</label>';
   }).join('');
   box.innerHTML = (positions.length ? '<div class="remind-quick"><span class="remind-quick-label">按职位选择</span>' + quick + '</div>' : '')
-    + '<div style="margin-bottom:12px;"><input class="form-input" type="search" placeholder="搜索姓名 / 职务" autocomplete="off"></div>'
+    + '<div class="mb-12"><input class="form-input" type="search" placeholder="搜索姓名 / 职务" autocomplete="off"></div>'
     + '<div class="remind-members">' + rows + '</div>'
-    + '<div class="remind-empty" hidden style="font-size:0.85rem; opacity:.6;">没有匹配的成员</div>';
+    + '<div class="remind-empty" hidden>没有匹配的成员</div>';
   bindRemindBox(box, boxId);
   syncRemindQuick(boxId);
 }
@@ -238,7 +238,7 @@ function filterRemindMembers(input) {
   box.querySelectorAll('.remind-members .chip').forEach(function (chip) {
     const text = (chip.textContent + ' ' + (chip.getAttribute('data-positions') || '')).toLowerCase();
     const hit = !q || text.indexOf(q) >= 0;
-    chip.style.display = hit ? '' : 'none';
+    chip.hidden = !hit;
     if (hit) shown++;
   });
   const empty = box.querySelector('.remind-empty');

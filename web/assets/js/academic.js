@@ -12,14 +12,14 @@ var WEEKDAY_NAMES = ['周一', '周二', '周三', '周四', '周五', '周六',
     // 全局兜底：任何未捕获异常都不再静默卡骨架屏，直接显示在加载区
     window.addEventListener('error', function (e) {
         var lv = document.getElementById('loadingView');
-        if (lv && lv.style.display !== 'none') {
+        if (lv && !lv.hidden) {
             lv.innerHTML = stateHTML('脚本错误：' + (e.message || '未知错误'), true);
         }
     });
     window.addEventListener('unhandledrejection', function (e) {
         var lv = document.getElementById('loadingView');
         var msg = e && e.reason && e.reason.message ? e.reason.message : String(e.reason || '未知错误');
-        if (lv && lv.style.display !== 'none') {
+        if (lv && !lv.hidden) {
             lv.innerHTML = stateHTML('加载失败：' + msg, true);
         }
     });
@@ -31,7 +31,7 @@ var WEEKDAY_NAMES = ['周一', '周二', '周三', '周四', '周五', '周六',
         }
         // App 内才有 JS 桥；有桥才显示「一键绑定」
         if (window.CAHost && typeof CAHost.startAcademicLogin === 'function') {
-            document.getElementById('appBindBox').style.display = 'block';
+            document.getElementById('appBindBox').hidden = false;
             document.getElementById('appBindBtn').addEventListener('click', function () {
                 try { CAHost.startAcademicLogin(); } catch (e) {}
             });
@@ -42,8 +42,8 @@ var WEEKDAY_NAMES = ['周一', '周二', '周三', '周四', '周五', '周六',
         document.getElementById('mfaVerifyBtn').addEventListener('click', doMfaVerify);
         document.getElementById('mfaBackBtn').addEventListener('click', function () {
             mfaToken = '';
-            document.getElementById('mfaStep').style.display = 'none';
-            document.getElementById('pwdStep').style.display = '';
+            document.getElementById('mfaStep').hidden = true;
+            document.getElementById('pwdStep').hidden = false;
         });
         document.getElementById('mfaCode').addEventListener('keydown', function (e) {
             if (e.key === 'Enter') doMfaVerify();
@@ -91,10 +91,11 @@ async function loadStatus() {
     loadCredits(false);
 }
 
+/** 三个面板只留一个（默认都靠 hidden 属性切换，样式在 style.css 的 [hidden] 里） */
 function showOnly(id) {
     ['loadingView', 'bindView', 'dataView'].forEach(function (k) {
         var el = document.getElementById(k);
-        if (el) el.style.display = (k === id) ? 'block' : 'none';
+        if (el) el.hidden = k !== id;
     });
 }
 
@@ -149,8 +150,8 @@ function enterMfaStep(d) {
     if (d.contact) tip += '，验证码将发送到 ' + d.contact;
     tip += '。点下面的「获取验证码」即可收到。';
     document.getElementById('mfaTip').textContent = tip;
-    document.getElementById('pwdStep').style.display = 'none';
-    document.getElementById('mfaStep').style.display = '';
+    document.getElementById('pwdStep').hidden = true;
+    document.getElementById('mfaStep').hidden = false;
     document.getElementById('mfaCode').value = '';
     document.getElementById('bindError').classList.remove('show');
     document.getElementById('mfaCode').focus();
@@ -162,8 +163,8 @@ function resetMfaStep() {
     if (mfaTimer) { clearInterval(mfaTimer); mfaTimer = null; }
     var send = document.getElementById('mfaSendBtn');
     send.disabled = false; send.textContent = '获取验证码';
-    document.getElementById('mfaStep').style.display = 'none';
-    document.getElementById('pwdStep').style.display = '';
+    document.getElementById('mfaStep').hidden = true;
+    document.getElementById('pwdStep').hidden = false;
 }
 
 /** 第二步：下发验证码（带 60 秒倒计时，避免连点） */
@@ -263,10 +264,10 @@ function showFormSuccess(id, msg) {
 function showNotice(msg) {
     var el = document.getElementById('noticeBox');
     el.textContent = msg;
-    el.style.display = 'block';
+    el.hidden = false;
 }
 function hideNotice() {
-    document.getElementById('noticeBox').style.display = 'none';
+    document.getElementById('noticeBox').hidden = true;
 }
 
 // ===== 子标签：课表 / 学业达成 =====
@@ -482,8 +483,8 @@ function renderUnscheduled(list) {
     var block = document.getElementById('unscheduledBlock');
     var view = document.getElementById('unscheduledView');
     var rows = list || [];
-    if (!rows.length) { block.style.display = 'none'; return; }
-    block.style.display = 'block';
+    if (!rows.length) { block.hidden = true; return; }
+    block.hidden = false;
     document.getElementById('unscheduledCount').textContent = rows.length + ' 门';
     view.innerHTML = '<div class="list">' + rows.map(function (c) {
         var meta = [];
@@ -531,7 +532,7 @@ function renderCredits(data) {
         + '<div class="credit-sub">' + esc(profileLine) + (profile.matchRate ? ' · 匹配度 ' + esc(profile.matchRate) : '') + '</div></div>'
         + '<div class="credit-rate">' + rate + '<span>%</span></div>'
         + '</div>';
-    html += '<div class="credit-bar"><span style="width:' + Math.min(rate, 100) + '%"></span></div>';
+    html += '<div class="credit-bar"><span></span></div>';
     html += '<div class="credit-stats">'
         + statBox('要求学分', summary.required)
         + statBox('已获学分', summary.obtained, 'ok')
@@ -552,7 +553,7 @@ function renderCredits(data) {
     html += rows.map(function (r) {
         var isLeaf = r.leaf;
         var cls = 'credit-row' + (r.level === 1 ? ' lv1' : (r.level === 2 ? ' lv2' : ' lv3'));
-        var name = '<span class="cr-name" style="padding-left:' + ((r.level - 1) * 14) + 'px">' + esc(r.name) + '</span>';
+        var name = '<span class="cr-name" data-indent="' + ((r.level - 1) * 14) + '">' + esc(r.name) + '</span>';
         var nums = isLeaf
             ? '<span class="cr-num">' + r.required + '</span>'
                 + '<span class="cr-num">' + r.obtained + '</span>'
@@ -566,6 +567,13 @@ function renderCredits(data) {
     html += '</div>';
 
     view.innerHTML = html;
+    // 进度条宽度与层级缩进原来是内联 style，CSP 收紧后会被整条丢掉，
+    // 改成建好 DOM 后用 CSSOM 写 —— CSSOM 不受 style-src 限制。
+    var bar = view.querySelector('.credit-bar > span');
+    if (bar) bar.style.width = Math.min(rate, 100) + '%';
+    view.querySelectorAll('.cr-name[data-indent]').forEach(function (el) {
+        el.style.paddingLeft = el.getAttribute('data-indent') + 'px';
+    });
 }
 
 function statBox(label, value, tone) {

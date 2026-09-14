@@ -22,9 +22,12 @@
 #       只写 'self' 会把它挡掉 —— 统计静默失效，而且每次加载都多一条控制台资源报错。
 #       所以按需放行这两个精确主机（没用通配符）。本站自己不加载任何其它第三方脚本，
 #       要再加来源请同时改 csp.test.js 的白名单断言，别默默放宽。
-#   style-src 'self' 'unsafe-inline'
-#       'unsafe-inline' 是必需的：页面里仍有大量 style="..." 内联属性（骨架屏、日历、
-#       提醒选择区、弹窗定位等），去掉之后整站排版会崩。样式不是这条 issue 的收紧对象。
+#   style-src 'self'
+#       页面里已经没有内联 style 属性，也没有 <style> 块 —— 原先散落各处的一两句样式
+#       都收进了 assets/css/style.css（文件末尾那段「CSP 收紧配套」注释里列了全部新增类）。
+#       注意：JS 里通过 CSSOM 写的（el.style.width / setProperty）不受 style-src 限制，
+#       滑块定位、学分进度条宽度、层级缩进这类动态值仍然留在 JS 里。
+#       隐藏/显示统一走 [hidden] 属性（style.css 顶部有 [hidden]{display:none!important}）。
 #   img-src 'self' data:      favicon 用的是 data:image/svg+xml
 #   connect-src 'self'        前端与后端同域（app.js 里 API_BASE 为空），另加 beacon 上报域
 #   frame-src 'self'          自家 iframe 之间要能嵌套
@@ -32,7 +35,7 @@
 #   base-uri 'self'           不允许注入 <base> 改写相对地址
 #   form-action 'self'        表单不往站外提交
 /*
-  Content-Security-Policy: default-src 'self'; script-src 'self' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://cloudflareinsights.com; frame-src 'self'; frame-ancestors 'self'; object-src 'none'; base-uri 'self'; form-action 'self'
+  Content-Security-Policy: default-src 'self'; script-src 'self' https://static.cloudflareinsights.com; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://cloudflareinsights.com; frame-src 'self'; frame-ancestors 'self'; object-src 'none'; base-uri 'self'; form-action 'self'
   X-Content-Type-Options: nosniff
   X-Frame-Options: SAMEORIGIN
   Referrer-Policy: strict-origin-when-cross-origin

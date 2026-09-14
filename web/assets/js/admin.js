@@ -467,9 +467,10 @@ function initDateHints() {
 }
 
 // ===== 初始化：按权限显示对应区块 =====
+// 卡片在 HTML 里默认 hidden（CSP 下不再用内联 display:none），有权限才摘掉这个属性
 if (canWrite) {
     ['addNoticeCard', 'addActivityCard', 'addFormCard', 'manageFormsCard'].forEach(function (id) {
-        document.getElementById(id).style.display = 'block';
+        document.getElementById(id).hidden = false;
     });
     document.getElementById('actStart').value = nowLocal();
     document.getElementById('actEnd').value = todayEnd();
@@ -481,13 +482,13 @@ if (canWrite) {
 }
 // 职位卡片：与「添加/管理成员」卡片一样正常显示，列表只读，增删在提交时由后端校验权限
 ['manageRolesCard', 'addRoleCard'].forEach(function (id) {
-    document.getElementById(id).style.display = 'block';
+    document.getElementById(id).hidden = false;
 });
 loadRoles();
 
 if (canManage) {
     ['membersCard', 'addMemberCard'].forEach(function (id) {
-        document.getElementById(id).style.display = 'block';
+        document.getElementById(id).hidden = false;
     });
     initMemberManagement();
     loadMembers();
@@ -549,22 +550,22 @@ function fieldRowHTML() {
     // 占满整行。删除按钮原本另占一列（.member-actions，flex-shrink:0），于是下面两个 input
     // 永远比「表单标题」窄一截（少掉按钮 + gap 那约 80px），看着就是「没铺满」。
     // 行内 padding 也去掉左右那 4px，与 .form-field 的左边缘对齐
-    return '<div class="info-row member-row" id="' + id + '" style="padding-left:0; padding-right:0;">'
-        + '<div class="member-main" style="flex:1;">'
-        + '<div class="member-line" style="justify-content:space-between; align-items:center;">'
+    return '<div class="info-row member-row member-row-flush" id="' + id + '">'
+        + '<div class="member-main grow">'
+        + '<div class="member-line member-line-spread">'
         + '<span class="member-name fld-title">字段</span>'
         + '<button type="button" class="btn btn-danger btn-sm" data-act="remove-field-row" data-id="' + escAttr(id) + '">删除</button>'
         + '</div>'
-        + '<div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin:8px 0;">'
-        + '<select class="form-input fld-type" style="width:auto;" data-act="field-type-change">'
+        + '<div class="fld-row">'
+        + '<select class="form-input fld-type w-auto" data-act="field-type-change">'
         + '<option value="text">单行文本</option><option value="textarea">多行文本</option>'
         + '<option value="radio">单选</option><option value="checkbox">多选</option>'
         + '<option value="number">数字</option><option value="date">日期</option>'
         + '</select>'
-        + '<label style="display:flex; align-items:center; gap:6px; white-space:nowrap; font-size:0.9rem; color:var(--text-secondary); cursor:pointer;"><input type="checkbox" class="fld-required"> 必填</label>'
+        + '<label class="fld-required-row"><input type="checkbox" class="fld-required"> 必填</label>'
         + '</div>'
-        + '<div style="margin-bottom:8px;"><input class="form-input fld-label" type="text" placeholder="字段内容，如：姓名" autocomplete="off"></div>'
-        + '<div class="fld-options-wrap" style="display:none;"><input class="form-input fld-options" type="text" placeholder="选项，用逗号分隔，如：午餐,晚餐" autocomplete="off"></div>'
+        + '<div class="mb-8"><input class="form-input fld-label" type="text" placeholder="字段内容，如：姓名" autocomplete="off"></div>'
+        + '<div class="fld-options-wrap" hidden><input class="form-input fld-options" type="text" placeholder="选项，用逗号分隔，如：午餐,晚餐" autocomplete="off"></div>'
         + '</div>'
         + '</div>';
 }
@@ -584,7 +585,7 @@ function removeFieldRow(id) {
 function onFieldTypeChange(sel) {
     var t = sel.value;
     var wrap = sel.closest('.info-row').querySelector('.fld-options-wrap');
-    if (wrap) wrap.style.display = (t === 'radio' || t === 'checkbox') ? 'block' : 'none';
+    if (wrap) wrap.hidden = !(t === 'radio' || t === 'checkbox');
 }
 
 /** 收集字段定义；key 由序号生成（字段一旦有人提交就锁死，key 不会漂移） */
@@ -741,7 +742,7 @@ async function openFormResult(id) {
     document.getElementById('formResultMeta').textContent = '加载中…';
     document.getElementById('formPendingList').innerHTML = '';
     document.getElementById('formSubsList').innerHTML = '';
-    document.getElementById('formSubsBtn').style.display = '';
+    document.getElementById('formSubsBtn').hidden = false;
     openModal('formResultModal');
     try {
         var formRes = await api('/api/forms/' + id);
@@ -802,7 +803,7 @@ async function loadFormSubs() {
                     + '</div></div>';
             }).join('');
         }
-        btn.style.display = 'none';
+        btn.hidden = true;
     } catch (err) {
         host.innerHTML = stateHTML(err.message, true);
     } finally {
