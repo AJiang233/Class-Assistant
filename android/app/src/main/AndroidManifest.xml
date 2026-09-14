@@ -28,9 +28,15 @@
         android:theme="@style/Theme.ClassAssistant"
         android:usesCleartextTraffic="false">
 
+        <!-- launchMode 用 singleTop：提醒通知与小组件的 PendingIntent 带的是
+             FLAG_ACTIVITY_CLEAR_TOP（没有 SINGLE_TOP）。在默认的 standard 模式下，
+             系统会把已经在栈顶的实例**销毁重建**，于是 onNewIntent 根本不会执行
+             （MainActivity 里那段注释正是按「会走 onNewIntent」写的），且每点一次提醒
+             都要把整个 WebView 重新加载一遍。singleTop 复用现有实例，由 onNewIntent 跳深链。 -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTop"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:theme="@style/Theme.ClassAssistant">
             <intent-filter>

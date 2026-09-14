@@ -333,6 +333,10 @@ class MainActivity : AppCompatActivity() {
      * App 已经在运行时点提醒通知：系统走 onNewIntent，onCreate 不会再执行，
      * 少了这一段就会「App 被拉到前台，但停在原来的页面，不跳那条活动/通知」。
      * setIntent 之后 getIntent()（以及 initialUrl()）才看得到这次的新 intent。
+     *
+     * 这条路能被走到，靠的是清单里的 `android:launchMode="singleTop"`：
+     * 提醒的 PendingIntent 只带 FLAG_ACTIVITY_CLEAR_TOP，standard 模式下系统会把
+     * 栈顶的实例销毁重建，onNewIntent 永远不执行（改回 standard 前先看一眼那里的注释）。
      */
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
@@ -343,6 +347,22 @@ class MainActivity : AppCompatActivity() {
         // 正在看的页面重载回主页。
         if (intent.getStringExtra(Notifier.EXTRA_DEEP_LINK).isNullOrBlank()) return
         binding.webView.loadUrl(initialUrl())
+    }
+
+    /**
+     * 退出时把 WebView 拆干净。
+     *
+     * MainActivity 是唯一页面，Activity finish 并不会让进程退出，所以不 destroy 的话，
+     * 它拉起的渲染进程、以及挂在上面的 JS 桥会一直跟着进程留着 —— 反复进出就是一份份泄漏。
+     * 顺序上先摘桥再 destroy：免得销毁过程中还有页面脚本回调进来。
+     */
+    override fun onDestroy() {
+        binding.webView.apply {
+            stopLoading()
+            removeJavascriptInterface(BRIDGE_NAME)
+            destroy()
+        }
+        super.onDestroy()
     }
 
     private fun requestNotificationPermission() {
@@ -373,7 +393,7 @@ class MainActivity : AppCompatActivity() {
             // Kotlin 合成不出属性，写成 settings.supportMultipleWindows = false 编译不过。
             settings.setSupportMultipleWindows(false)
 
-            addJavascriptInterface(HostBridge(), "CAHost")
+            addJavascriptInterface(HostBridge(), BRIDGE_NAME)
 
             webViewClient = object : WebViewClient() {
                 /**
@@ -392,11 +412,16 @@ class MainActivity : AppCompatActivity() {
                     request: WebResourceRequest
                 ): Boolean {
                     val url = request.url
-                    if (isSystemScheme(url)) return true
+                    if (isSystemScheme(url)) {
+                        // 拨号 / 短信 / 邮件：WebView 自己打不开这些协议，交给系统应用去接。
+                        // 以前这里直接 return true 却什么都不做 —— 结果就是点了没反应。
+                        openExternal(url)
+                        return true
+                    }
                     // 只管主框架（子框架里的第三方链接不该被踢到浏览器）；
                     // 教务登录期间一律不往外跳——认证过程会跨主机，跳走就把登录流程断了
                     if (!academicLogin && request.isForMainFrame && isExternalLink(url)) {
-                        openInBrowser(url)
+                        openExternal(url)
                         return true
                     }
                     return false
@@ -446,10 +471,24 @@ class MainActivity : AppCompatActivity() {
         binding.swipeRefresh.setOnRefreshListener { binding.webView.reload() }
     }
 
-    /** 拦截系统协议（拨号/短信/邮件等），避免 WebView 无法打开 */
+    /** 是否是 WebView 打不开、该交给系统应用处理的协议（拨号 / 短信 / 邮件） */
     private fun isSystemScheme(url: android.net.Uri): Boolean {
         val scheme = url.scheme?.lowercase() ?: return false
         return scheme == "tel" || scheme == "sms" || scheme == "mailto"
+    }
+
+    /**
+     * 交给系统应用打开：站外链接交给浏览器，tel / sms / mailto 交给各自的处理应用
+     * （ACTION_VIEW 对这三种协议都能解析到对应应用，浏览器点这类链接也是这么做的）。
+     * 外链里的 APK 也一样走这里 —— WebView 自己装不了应用。
+     * 没有能处理的应用时给句提示，别静默无反应。
+     */
+    private fun openExternal(url: Uri) {
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, url))
+        } catch (e: ActivityNotFoundException) {
+            Toast.makeText(this, "没有可以打开该链接的应用", Toast.LENGTH_SHORT).show()
+        }
     }
 
     /**
@@ -471,15 +510,6 @@ class MainActivity : AppCompatActivity() {
         if (scheme != "http" && scheme != "https") return false
         val host = url.host?.lowercase() ?: return false
         return inAppHosts.none { host == it || host.endsWith(".$it") }
-    }
-
-    /** 外链交给系统浏览器；APK 下载也走这里，WebView 自己装不了应用。没有能处理的应用时给句提示，别静默无反应 */
-    private fun openInBrowser(url: Uri) {
-        try {
-            startActivity(Intent(Intent.ACTION_VIEW, url))
-        } catch (e: ActivityNotFoundException) {
-            Toast.makeText(this, "没有可以打开该链接的应用", Toast.LENGTH_SHORT).show()
-        }
     }
 
     /**
@@ -571,6 +601,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     private companion object {
+        /**
+         * JS 桥挂在页面里的对象名，加桥 / 摘桥两处共用。
+         * 注意 PROBE_JS 里是按字面量 `CAHost.xxx` 调的（JS 那边插值不进来），改名要一起改。
+         */
+        const val BRIDGE_NAME = "CAHost"
+
         /** 教务系统源（服务端代理与 Cookie 归属域） */
         const val SCHOOL_ORIGIN = "https://szjw.njau.edu.cn"
 
