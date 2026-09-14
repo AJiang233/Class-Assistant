@@ -16,8 +16,16 @@
         android:id="@+id/card_item_progress"
         style="@style/WidgetCardProgress" />
 
-    <!-- 颜色不在这里写死：由各自的 Service 按名字从调色板里取，同一个名字永远同色 -->
-    <View
+    <!-- 竖条**必须是 ImageView，不能图省事写成 <View>**。
+         RemoteViews 只认一份固定白名单：FrameLayout / LinearLayout / RelativeLayout /
+         GridLayout / ImageView / TextView / ProgressBar / ListView 等，纯 android.view.View
+         **不在里面**（子类也不行）。写成 <View> 的话，启动器 inflate 这一行会抛
+         "InflateException: Class not allowed to be inflated android.view.View"，
+         于是标题照常显示、列表整块变成启动器那行灰色的「无法加载小部件」——
+         2026-09-14 就是这么坏过一次的。
+         这里的 ImageView 只当一块纯色矩形用：颜色由 Service 反射 setBackgroundColor 给，
+         所以既不需要 src 也不需要 scaleType。 -->
+    <ImageView
         android:id="@+id/card_item_bar"
         android:layout_width="4dp"
         android:layout_height="match_parent"
