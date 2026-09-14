@@ -528,7 +528,7 @@ function formAdminRowHTML(f) {
         + '</div>'
         + '<div class="member-actions">'
         + '<button type="button" class="btn btn-outline btn-sm" data-act="open-form-time" data-id="' + escAttr(f.id) + '">修改时间</button>'
-        + '<button type="button" class="btn btn-outline btn-sm" data-act="open-form-result" data-id="' + escAttr(f.id) + '">结果</button>'
+        + '<button type="button" class="btn btn-outline btn-sm" data-act="open-form-result" data-id="' + escAttr(f.id) + '">提交明细</button>'
         + '<button type="button" class="btn btn-danger btn-sm" data-act="del-form" data-id="' + escAttr(f.id) + '">删除</button>'
         + '</div>'
         + '</div>';

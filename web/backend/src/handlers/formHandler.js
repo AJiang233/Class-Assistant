@@ -64,13 +64,13 @@ function isPastDeadline(form, now = Date.now()) {
 /** 是否还能提交/覆盖 */
 function submitGate(form, hasSubmitted, now = Date.now()) {
   if (form.status !== 'open') {
-    return { ok: false, message: '表单已关闭', code: 'FORM_CLOSED' };
+    return { ok: false, message: '表单已关闭，如需补交请联系发布人', code: 'FORM_CLOSED' };
   }
   if (isPastDeadline(form, now)) {
-    return { ok: false, message: '表单已过截止时间', code: 'FORM_CLOSED' };
+    return { ok: false, message: '表单已过截止时间，如需补交请联系发布人', code: 'FORM_CLOSED' };
   }
   if (hasSubmitted && form.edit_policy === EDIT_POLICY.NONE) {
-    return { ok: false, message: '该表单提交后不可修改', code: 'FORM_LOCKED' };
+    return { ok: false, message: '这条表单提交后不能再编辑', code: 'FORM_LOCKED' };
   }
   return { ok: true };
 }
@@ -101,13 +101,13 @@ function formVisibleTo(form, viewer) {
 /** 取表单并校验调用者是创建者；不满足时返回可直接回给前端的 failure */
 async function loadOwnedForm(env, user, rawId) {
   const id = parseInt(rawId);
-  if (!id) return { failure: { message: '无效的表单ID', code: 'INVALID_ID', status: 400 } };
+  if (!id) return { failure: { message: '表单不存在', code: 'INVALID_ID', status: 400 } };
 
   const model = new FormModel(env.DB);
   const form = await model.findById(id);
   if (!form) return { failure: { message: '表单不存在', code: 'FORM_NOT_FOUND', status: 404 } };
   if (form.creator_id !== user.id) {
-    return { failure: { message: '只能管理自己创建的表单', code: 'FORBIDDEN', status: 403 } };
+    return { failure: { message: '只能管理自己发布的表单', code: 'FORBIDDEN', status: 403 } };
   }
   return { form, model };
 }
@@ -134,10 +134,10 @@ export function normalizeFields(raw) {
     const type = String(item.type == null ? 'text' : item.type);
 
     if (!/^[A-Za-z][A-Za-z0-9_]{0,29}$/.test(key)) {
-      return { ok: false, message: '字段标识需以字母开头，只含字母数字下划线，最长 30 位', code: 'INVALID_FIELDS' };
+      return { ok: false, message: '字段标识只能以英文字母开头，只含英文字母、数字和下划线，最长 30 位', code: 'INVALID_FIELDS' };
     }
     if (seen.has(key)) {
-      return { ok: false, message: `字段标识重复：${key}`, code: 'INVALID_FIELDS' };
+      return { ok: false, message: '字段标识重复了，请换一个', code: 'INVALID_FIELDS' };
     }
     seen.add(key);
     if (!label) return { ok: false, message: '字段名称不能为空', code: 'INVALID_FIELDS' };
@@ -145,7 +145,7 @@ export function normalizeFields(raw) {
       return { ok: false, message: `字段名称最多 ${MAX_LABEL_LEN} 个字符`, code: 'INVALID_FIELDS' };
     }
     if (!FIELD_TYPES.includes(type)) {
-      return { ok: false, message: `不支持的字段类型：${type}`, code: 'INVALID_FIELDS' };
+      return { ok: false, message: '不支持这种字段类型', code: 'INVALID_FIELDS' };
     }
 
     const field = { key, label, type, required: !!item.required };
@@ -198,7 +198,7 @@ function normalizeValue(field, value) {
   }
   if (field.type === 'date') {
     if (s && !/^\d{4}-\d{2}-\d{2}$/.test(s)) {
-      return { ok: false, message: `字段「${field.label}」日期格式应为 YYYY-MM-DD`, code: 'INVALID_ANSWERS' };
+      return { ok: false, message: `字段「${field.label}」的日期请按 2026-09-14 这样的格式填写`, code: 'INVALID_ANSWERS' };
     }
     return { ok: true, value: s };
   }
@@ -226,7 +226,7 @@ export function validateAnswers(fields, raw) {
   }
 
   if (JSON.stringify(answers).length > MAX_ANSWERS_LEN) {
-    return { ok: false, message: '答案总长度超出上限', code: 'INVALID_ANSWERS' };
+    return { ok: false, message: `答案总长度超出上限（最多 ${MAX_VALUE_LEN} 个字符）`, code: 'INVALID_ANSWERS' };
   }
   return { ok: true, answers };
 }
@@ -284,7 +284,7 @@ export async function handleCreateForm(request, env, user, ctx) {
     }
 
     const remind = normalizeRemind(body.remind_people);
-    if (remind === false) return jsonResponse(error('提交对象格式不正确', 'INVALID_REMIND'), 400);
+    if (remind === false) return jsonResponse(error('提醒对象格式不正确', 'INVALID_REMIND'), 400);
 
     const model = new FormModel(env.DB);
     const formId = await model.create({
@@ -340,7 +340,7 @@ export async function handleCreateForm(request, env, user, ctx) {
       excludeUserId: user.id
     });
 
-    return jsonResponse(success({ message: '表单已创建', id: formId }), 201);
+    return jsonResponse(success({ message: '表单已添加', id: formId }), 201);
   } catch (e) {
     console.error('创建表单失败:', e);
     return jsonResponse(error('创建表单失败，请稍后重试', 'CREATE_FORM_FAILED'), 500);
@@ -403,7 +403,7 @@ export async function handleListMyForms(request, env, user) {
 export async function handleGetForm(request, env, user, params) {
   try {
     const id = parseInt(params.id);
-    if (!id) return jsonResponse(error('无效的表单ID', 'INVALID_ID'), 400);
+    if (!id) return jsonResponse(error('表单不存在', 'INVALID_ID'), 400);
 
     const model = new FormModel(env.DB);
     const form = await model.findById(id);
@@ -457,14 +457,14 @@ export async function handleUpdateForm(request, env, user, params) {
     }
     if (body.edit_policy !== undefined) {
       if (!EDIT_POLICIES.includes(body.edit_policy)) {
-        return jsonResponse(error('修改策略不合法', 'INVALID_EDIT_POLICY'), 400);
+        return jsonResponse(error('编辑方式不正确', 'INVALID_EDIT_POLICY'), 400);
       }
       data.edit_policy = body.edit_policy;
     }
     if (body.anonymous !== undefined) data.anonymous = body.anonymous ? 1 : 0;
     if (body.status !== undefined) {
       if (!['open', 'closed'].includes(body.status)) {
-        return jsonResponse(error('表单状态不合法', 'INVALID_STATUS'), 400);
+        return jsonResponse(error('表单状态不正确', 'INVALID_STATUS'), 400);
       }
       data.status = body.status;
     }
@@ -477,14 +477,14 @@ export async function handleUpdateForm(request, env, user, params) {
     }
     if (body.remind_people !== undefined) {
       const r = normalizeRemind(body.remind_people);
-      if (r === false) return jsonResponse(error('提交对象格式不正确', 'INVALID_REMIND'), 400);
+      if (r === false) return jsonResponse(error('提醒对象格式不正确', 'INVALID_REMIND'), 400);
       data.remind_people = r;
     }
     if (body.fields !== undefined) {
       const submitted = await model.listSubmittedUserIds(form.id);
       if (submitted.length > 0) {
         return jsonResponse(
-          error('已有同学提交，不能再修改字段（标题、说明、截止时间可改）', 'FORM_FIELDS_LOCKED'),
+          error('已有同学提交，不能再编辑字段（标题、说明、截止时间可改）', 'FORM_FIELDS_LOCKED'),
           409
         );
       }
@@ -494,7 +494,7 @@ export async function handleUpdateForm(request, env, user, params) {
     }
 
     await model.update(form.id, data);
-    return jsonResponse(success({ message: '表单已更新' }));
+    return jsonResponse(success({ message: '表单已保存' }));
   } catch (e) {
     console.error('更新表单失败:', e);
     return jsonResponse(error('更新表单失败', 'UPDATE_FORM_FAILED'), 500);
@@ -614,7 +614,7 @@ export async function handleExportForm(request, env, user, params) {
 export async function handleSubmitForm(request, env, user, params) {
   try {
     const id = parseInt(params.id);
-    if (!id) return jsonResponse(error('无效的表单ID', 'INVALID_ID'), 400);
+    if (!id) return jsonResponse(error('表单不存在', 'INVALID_ID'), 400);
 
     const model = new FormModel(env.DB);
     const form = await model.findById(id);
@@ -623,7 +623,7 @@ export async function handleSubmitForm(request, env, user, params) {
     // 非定向的人不该能提交别人的表单：这里回 403（详情那边已给 404，提交是明确的越权动作）
     const viewer = await loadViewer(env, user);
     if (!formVisibleTo(form, viewer)) {
-      return jsonResponse(error('这条表单不在你的提交范围内', 'FORBIDDEN'), 403);
+      return jsonResponse(error('这条表单没有发给你，不能提交', 'FORBIDDEN'), 403);
     }
 
     const mine = await model.findMySubmission(id, user.id);

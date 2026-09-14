@@ -51,10 +51,10 @@ async function schoolClientFromBinding(env, model, binding) {
     // 密文损坏 / 密钥轮换后解不开：与登录态过期区分开，便于排查是密钥问题而非教务问题
     console.error('教务会话解密失败:', e);
     await model.markExpired(binding.user_id);
-    return { failure: { message: '教务会话无法解密，请重新绑定', code: 'ACADEMIC_DECRYPT_FAILED', status: 400 } };
+    return { failure: { message: '教务登录态已过期，请重新登录教务系统', code: 'ACADEMIC_DECRYPT_FAILED', status: 400 } };
   }
   if (!cookies) {
-    return { failure: { message: '教务登录态已失效，请重新绑定', code: 'ACADEMIC_EXPIRED', status: 400 } };
+    return { failure: { message: '教务登录态已过期，请重新登录教务系统', code: 'ACADEMIC_EXPIRED', status: 400 } };
   }
   return { client: new SchoolClient(cookies) };
 }
@@ -327,17 +327,17 @@ async function bindWithCookies(env, user, cookies) {
     info = await client.sessionUserInfo();
   } catch (e) {
     if (e instanceof SchoolSessionExpired) {
-      return { failure: { message: '教务登录态无效，请重新登录教务系统', code: 'ACADEMIC_INVALID', status: 400 } };
+      return { failure: { message: '教务登录态已过期，请重新登录教务系统', code: 'ACADEMIC_INVALID', status: 400 } };
     }
-    return { failure: { message: `无法连接教务系统：${e.message}`, code: 'ACADEMIC_UNREACHABLE', status: 502 } };
+    return { failure: { message: '暂时连不上教务系统，请稍后重试', code: 'ACADEMIC_UNREACHABLE', status: 502 } };
   }
   if (!info || !info.id) {
-    return { failure: { message: '教务返回的用户信息异常，请重新登录教务系统', code: 'ACADEMIC_INVALID', status: 400 } };
+    return { failure: { message: '没能读到你的教务信息，请重新登录教务系统', code: 'ACADEMIC_INVALID', status: 400 } };
   }
   if (!sameStudentId(user.student_id, info.userAccount)) {
     return {
       failure: {
-        message: `教务返回学号 ${info.userAccount || '空'}，与当前账号 ${user.student_id} 不一致，只能绑定本人`,
+        message: '教务账号与当前登录的学号不一致，请用本人的教务账号绑定',
         code: 'ACADEMIC_IDENTITY_MISMATCH',
         status: 403
       }
@@ -349,7 +349,7 @@ async function bindWithCookies(env, user, cookies) {
     sealed = await sealCookies(env, cookies);
   } catch (e) {
     console.error('教务会话封存失败:', e);
-    return { failure: { message: '服务端未配置教务会话加密密钥', code: 'VAULT_NOT_CONFIGURED', status: 500 } };
+    return { failure: { message: '服务端暂时不可用，请稍后重试', code: 'VAULT_NOT_CONFIGURED', status: 500 } };
   }
 
   const model = new AcademicModel(env.DB);
@@ -374,7 +374,7 @@ export async function handleAcademicBind(request, env, user) {
   const body = await request.json().catch(() => ({}));
   const cookies = String(body.cookies || '').trim();
   if (!cookies) {
-    return jsonResponse(error('缺少教务系统会话 Cookie', 'MISSING_COOKIES'), 400);
+    return jsonResponse(error('没有拿到教务系统的登录凭据，请重新登录', 'MISSING_COOKIES'), 400);
   }
 
   const result = await bindWithCookies(env, user, cookies);
@@ -410,7 +410,7 @@ export async function handleAcademicPasswordLogin(request, env, user) {
       const status = e.code === 'CAS_NEED_CAPTCHA' ? 409 : 400;
       return jsonResponse(error(e.message, e.code), status);
     }
-    return jsonResponse(error(`统一身份认证登录失败：${e.message}`, 'CAS_ERROR'), 502);
+    return jsonResponse(error('统一身份认证登录失败，请检查学号密码，或改用手动绑定', 'CAS_ERROR'), 502);
   }
 
   // 认证已通过，但要求多因子二次验证：暂存会话，让前端进入第二步
@@ -418,7 +418,7 @@ export async function handleAcademicPasswordLogin(request, env, user) {
     const type = session.state.reAuthType;
     if (!isMfaCodeSupported(type)) {
       return jsonResponse(
-        error('该账号的二次验证方式不是短信/邮箱验证码，暂不支持代登录，请改用手动粘贴 Cookie 绑定', 'MFA_UNSUPPORTED'),
+        error('该账号的二次验证方式暂不支持，请改用手动绑定', 'MFA_UNSUPPORTED'),
         400
       );
     }
@@ -430,7 +430,7 @@ export async function handleAcademicPasswordLogin(request, env, user) {
       sealedState = await sealCookies(env, JSON.stringify(session.state));
     } catch (e) {
       console.error('MFA 中间态封存失败:', e);
-      return jsonResponse(error('服务端未配置教务会话加密密钥', 'VAULT_NOT_CONFIGURED'), 500);
+      return jsonResponse(error('服务端暂时不可用，请稍后重试', 'VAULT_NOT_CONFIGURED'), 500);
     }
     await model.saveMfaSession(user.id, token, sealedState);
     return jsonResponse(success({
@@ -443,20 +443,21 @@ export async function handleAcademicPasswordLogin(request, env, user) {
 
   const result = await bindWithCookies(env, user, session.cookies);
   if (result.failure) {
-    // 代登录路径独有的诊断：带上拿到的 Cookie 名与跳转链（只有名字，没有值）
-    const hint = `已拿到 Cookie：${session.cookieNames.join(',') || '无'}；跳转：${session.hops.join(' → ')}`;
-    return jsonResponse(error(`${result.failure.message}（${hint}）`, result.failure.code), result.failure.status);
+    // 代登录路径独有的诊断：Cookie 名与跳转链只写日志（只有名字，没有值）——
+    // 用户看这串跳转没有任何可操作的信息，拼进提示只会把真正的原因淹掉
+    console.error('代登录失败诊断：', `Cookie：${session.cookieNames.join(',') || '无'}；跳转：${session.hops.join(' → ')}`);
+    return jsonResponse(error(result.failure.message, result.failure.code), result.failure.status);
   }
   return jsonResponse(success({ ...result.data, via: 'password' }));
 }
 
 /** 中间态共用：取出本人在有效期内的 CAS 会话 */
 async function loadMfaState(env, user, token) {
-  if (!token) return { failure: { message: '缺少认证会话', code: 'MISSING_TOKEN', status: 400 } };
+  if (!token) return { failure: { message: '登录已超时，请重新输入学号与密码', code: 'MISSING_TOKEN', status: 400 } };
   const model = new AcademicModel(env.DB);
   const state = await model.getMfaSession(user.id, token, MFA_TTL, env);
   if (!state) {
-    return { failure: { message: '认证会话已过期，请重新输入学号密码', code: 'MFA_EXPIRED', status: 400 } };
+    return { failure: { message: '登录已超时，请重新输入学号与密码', code: 'MFA_EXPIRED', status: 400 } };
   }
   return { model, state };
 }
@@ -474,7 +475,7 @@ export async function handleAcademicMfaSend(request, env, user) {
     return jsonResponse(success({ sent: true, mobile: sent.mobile, label: sent.label }));
   } catch (e) {
     if (e instanceof CasError) return jsonResponse(error(e.message, e.code), 400);
-    return jsonResponse(error(`验证码发送失败：${e.message}`, 'MFA_SEND_FAILED'), 502);
+    return jsonResponse(error('验证码发送失败，请稍后重试', 'MFA_SEND_FAILED'), 502);
   }
 }
 
@@ -498,14 +499,14 @@ export async function handleAcademicMfaVerify(request, env, user) {
       await loaded.model.bumpMfaAttempts(String(body.token || ''));
       return jsonResponse(error(e.message, e.code), 400);
     }
-    return jsonResponse(error(`多因子认证失败：${e.message}`, 'MFA_ERROR'), 502);
+    return jsonResponse(error('二次验证失败，请重试或改用手动绑定', 'MFA_ERROR'), 502);
   }
 
   const result = await bindWithCookies(env, user, session.cookies);
   await loaded.model.deleteMfaSession(String(body.token || ''));
   if (result.failure) {
-    const hint = `已拿到 Cookie：${session.cookieNames.join(',') || '无'}；跳转：${session.hops.join(' → ')}`;
-    return jsonResponse(error(`${result.failure.message}（${hint}）`, result.failure.code), result.failure.status);
+    console.error('代登录失败诊断：', `Cookie：${session.cookieNames.join(',') || '无'}；跳转：${session.hops.join(' → ')}`);
+    return jsonResponse(error(result.failure.message, result.failure.code), result.failure.status);
   }
   return jsonResponse(success({ ...result.data, via: 'password+mfa' }));
 }
@@ -553,7 +554,7 @@ export async function handleAcademicTimetable(request, env, user) {
   const refresh = url.searchParams.get('refresh') === '1';
 
   const binding = await model.getBinding(user.id);
-  if (!binding) return jsonResponse(error('尚未绑定教务系统', 'NOT_BOUND'), 400);
+  if (!binding) return jsonResponse(error('还没绑定教务系统，到「课表与学业」绑定后会自动同步', 'NOT_BOUND'), 400);
 
   const cachedTerms = await model.listTimetableTerms(user.id);
   const opened = await schoolClientFromBinding(env, model, binding);
@@ -579,7 +580,7 @@ export async function handleAcademicTimetable(request, env, user) {
     const current = (terms || []).find((t) => String(t.dqxqflag) === '1') || (terms || [])[0];
     xnxqId = current ? current.id : (cachedTerms[0] ? cachedTerms[0].xnxq_id : '');
   }
-  if (!xnxqId) return jsonResponse(error('未能确定学年学期', 'NO_TERM'), 400);
+  if (!xnxqId) return jsonResponse(error('暂时取不到学期信息，请稍后重试', 'NO_TERM'), 400);
 
   // 2. 缓存命中：教务那一趟没成（不可达 / 登录态被重置）就无条件把它给出去，
   //    否则只在「没手动刷新 + 缓存还新鲜」时用
@@ -608,7 +609,7 @@ export async function handleAcademicTimetable(request, env, user) {
     if (liveError instanceof SchoolSessionExpired) {
       return jsonResponse(error(liveError.message, 'ACADEMIC_EXPIRED'), 400);
     }
-    return jsonResponse(error(`教务系统暂时不可用：${liveError.message}`, 'ACADEMIC_UNREACHABLE'), 502);
+    return jsonResponse(error('暂时连不上教务系统，请稍后重试', 'ACADEMIC_UNREACHABLE'), 502);
   }
 
   // 3. 实时抓取并落库
@@ -643,7 +644,7 @@ export async function handleAcademicTimetable(request, env, user) {
       await model.markExpired(user.id);
       return jsonResponse(error(e.message, 'ACADEMIC_EXPIRED'), 400);
     }
-    return jsonResponse(error(`抓取课表失败：${e.message}`, 'ACADEMIC_FETCH_FAILED'), 502);
+    return jsonResponse(error('获取课表失败，请稍后重试', 'ACADEMIC_FETCH_FAILED'), 502);
   }
 }
 
@@ -658,7 +659,7 @@ export async function handleAcademicCredits(request, env, user) {
   const refresh = new URL(request.url).searchParams.get('refresh') === '1';
 
   const binding = await model.getBinding(user.id);
-  if (!binding) return jsonResponse(error('尚未绑定教务系统', 'NOT_BOUND'), 400);
+  if (!binding) return jsonResponse(error('还没绑定教务系统，到「课表与学业」绑定后会自动同步', 'NOT_BOUND'), 400);
 
   const cached = await model.getCredits(user.id);
   const cachedData = cached ? await readCachePayload(cached, () => model.deleteCredits(user.id)) : null;
@@ -680,7 +681,7 @@ export async function handleAcademicCredits(request, env, user) {
     const plan = await client.studentPlan(binding.school_uid || '');
     const pyfaid = plan && (plan.zxjhid || plan.pyfaid);
     if (!pyfaid) {
-      return jsonResponse(error('未取到当前执行计划，无法计算学业达成情况', 'NO_PLAN'), 400);
+      return jsonResponse(error('暂时取不到学业达成数据，请稍后重试', 'NO_PLAN'), 400);
     }
 
     const details = await client.creditDetails(binding.school_uid, pyfaid, null);
@@ -705,12 +706,12 @@ export async function handleAcademicCredits(request, env, user) {
         fromCache: true,
         stale: true,
         cacheReason: cacheReasonOf(e),
-        warning: e.message
+        warning: '教务系统暂时不可用，显示的是上次同步的数据'
       }));
     }
     if (e instanceof SchoolSessionExpired) {
       return jsonResponse(error(e.message, 'ACADEMIC_EXPIRED'), 400);
     }
-    return jsonResponse(error(`抓取学业达成情况失败：${e.message}`, 'ACADEMIC_FETCH_FAILED'), 502);
+    return jsonResponse(error('获取学业达成数据失败，请稍后重试', 'ACADEMIC_FETCH_FAILED'), 502);
   }
 }

@@ -43,7 +43,7 @@ function jsonError(status, message, code) {
 
 async function loadFreshUser(request, env) {
   if (!env.JWT_SECRET) {
-    return { error: jsonError(500, '服务端未配置 JWT_SECRET', 'SERVER_MISCONFIGURED') };
+    return { error: jsonError(500, '服务端暂时不可用，请联系管理员', 'SERVER_MISCONFIGURED') };
   }
   const authResult = await authenticate(request, env.JWT_SECRET);
   if (!authResult.valid) {
@@ -86,7 +86,7 @@ export function withPermission(perm) {
     const customMap = buildRoleMap(await roleModel.list());
 
     if (!hasPermission(loaded.user.positions, perm, customMap)) {
-      return jsonError(403, '没有操作权限', 'FORBIDDEN');
+      return jsonError(403, '没有操作权限，请联系班长或团支书', 'FORBIDDEN');
     }
 
     return handler(request, env, loaded.user, ctx);

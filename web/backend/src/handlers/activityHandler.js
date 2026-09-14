@@ -14,7 +14,7 @@ export async function handleCreateActivity(request, env, user, ctx) {
     const { title, content = '', location = '', start_time, end_time = '', remind_people = null } = body;
 
     if (!title || !start_time) {
-      return jsonResponse(error('标题、开始时间为必填字段', 'MISSING_FIELDS'), 400);
+      return jsonResponse(error('请填写标题和开始时间', 'MISSING_FIELDS'), 400);
     }
 
     const remind = remind_people ? JSON.stringify(remind_people) : null;
@@ -43,7 +43,7 @@ export async function handleCreateActivity(request, env, user, ctx) {
     return jsonResponse(success({ message: '活动发布成功' }), 201);
   } catch (e) {
     console.error('发布活动失败:', e);
-    return jsonResponse(error('发布活动失败', 'CREATE_ACTIVITY_FAILED'), 500);
+    return jsonResponse(error('发布活动失败，请稍后重试', 'CREATE_ACTIVITY_FAILED'), 500);
   }
 }
 
@@ -90,7 +90,7 @@ export async function handleGetActivity(request, env, user, params) {
   try {
     const id = parseInt(params.id);
     if (!id) {
-      return jsonResponse(error('无效的活动ID', 'INVALID_ID'), 400);
+      return jsonResponse(error('活动不存在', 'INVALID_ID'), 400);
     }
 
     const activityModel = new ActivityModel(env.DB);
@@ -117,7 +117,7 @@ export async function handleUpdateActivity(request, env, user, params) {
   try {
     const id = parseInt(params.id);
     if (!id) {
-      return jsonResponse(error('无效的活动ID', 'INVALID_ID'), 400);
+      return jsonResponse(error('活动不存在', 'INVALID_ID'), 400);
     }
 
     const activityModel = new ActivityModel(env.DB);
@@ -130,7 +130,7 @@ export async function handleUpdateActivity(request, env, user, params) {
     // 归属校验：content:write 只说明「能发内容」，不等于「能改别人发的内容」
     const viewer = await loadViewer(env, user);
     if (!canManageItem(existing, viewer)) {
-      return jsonResponse(error('只能修改自己发布的活动', 'FORBIDDEN'), 403);
+      return jsonResponse(error('只能编辑自己发布的活动', 'FORBIDDEN'), 403);
     }
 
     const body = await request.json().catch(() => ({}));
@@ -150,7 +150,7 @@ export async function handleUpdateActivity(request, env, user, params) {
 
     await activityModel.update(id, payload);
 
-    return jsonResponse(success({ message: '活动更新成功' }));
+    return jsonResponse(success({ message: '活动已保存' }));
   } catch (e) {
     console.error('更新活动失败:', e);
     return jsonResponse(error('更新活动失败', 'UPDATE_ACTIVITY_FAILED'), 500);
@@ -164,7 +164,7 @@ export async function handleDeleteActivity(request, env, user, params) {
   try {
     const id = parseInt(params.id);
     if (!id) {
-      return jsonResponse(error('无效的活动ID', 'INVALID_ID'), 400);
+      return jsonResponse(error('活动不存在', 'INVALID_ID'), 400);
     }
 
     const activityModel = new ActivityModel(env.DB);

@@ -300,7 +300,7 @@ function testPush(kind) {
         }
         btn.disabled = false;
         btn.textContent = label;
-        pushHint(msg || '已发送，请查看手机通知栏。');
+        pushHint(msg || '已发送，请查看通知栏。');
     }, 0);
 }
 

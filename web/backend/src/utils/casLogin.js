@@ -367,7 +367,7 @@ function parseMaskedContact(html) {
 export async function sendMfaCode(state) {
   const type = MFA_CODE_TYPES[String(state.reAuthType)];
   if (!type) {
-    throw new CasError('该账号的二次验证方式暂不支持代登录，请改用手动粘贴 Cookie 绑定', 'MFA_UNSUPPORTED');
+    throw new CasError('该账号的二次验证方式暂不支持，请改用手动绑定', 'MFA_UNSUPPORTED');
   }
   const jar = CookieJar.fromJSON(state.jar);
   const mfaUrl = mfaPageUrl(state);
@@ -396,7 +396,7 @@ export async function sendMfaCode(state) {
   }
   if (!json || json.res !== 'success') {
     throw new CasError(
-      (json && (json.returnMessage || json.msg)) || `验证码发送失败（HTTP ${res.status}）`,
+      '验证码发送失败，请稍后重试',
       'MFA_SEND_FAILED'
     );
   }
@@ -421,7 +421,7 @@ function mfaPageUrl(state) {
 export async function verifyMfaCode(state, code) {
   const type = MFA_CODE_TYPES[String(state.reAuthType)];
   if (!type) {
-    throw new CasError('该账号的二次验证方式暂不支持代登录，请改用手动粘贴 Cookie 绑定', 'MFA_UNSUPPORTED');
+    throw new CasError('该账号的二次验证方式暂不支持，请改用手动绑定', 'MFA_UNSUPPORTED');
   }
   const jar = CookieJar.fromJSON(state.jar);
   const form = new URLSearchParams({
@@ -459,13 +459,13 @@ export async function verifyMfaCode(state, code) {
     json = null;
   }
   if (!json) {
-    throw new CasError(`多因子认证返回异常：${submitText.slice(0, 160) || `HTTP ${res.status}`}`, 'MFA_ERROR');
+    throw new CasError('二次验证失败，请重试或改用手动绑定', 'MFA_ERROR');
   }
   if (json.code === 'reAuth_failed') {
-    throw new CasError(json.msg || '验证码错误', 'MFA_CODE_INVALID');
+    throw new CasError('验证码错误', 'MFA_CODE_INVALID');
   }
   if (json.code === 'reAuth_unauthorized') {
-    throw new CasError(json.msg || '认证未通过', 'MFA_UNAUTHORIZED');
+    throw new CasError('二次验证未通过', 'MFA_UNAUTHORIZED');
   }
 
   // 通过后照页面的做法跳到 /login?service=… 领 ticket，再一路跟到教务
@@ -481,7 +481,7 @@ export async function verifyMfaCode(state, code) {
   }
 
   throw new CasError(
-    `多因子认证已通过，但未换到教务会话（链路：${chain.map(describeHop).join(' | ')}；教务 Cookie：${cookieNames.join(',') || '无'}）`,
+    '登录已通过，但没拿到教务凭据，请重试或改用手动绑定',
     'CAS_NO_SESSION'
   );
 }
@@ -546,7 +546,7 @@ export async function loginWithPassword(studentId, password) {
     if (result.url.includes('reAuthLoginView.do')) {
       const params = parseReAuthParams(html);
       if (!params || !params.service) {
-        throw new CasError('多因子认证页面结构变化，请改用手动粘贴 Cookie 绑定', 'MFA_PARSE_FAILED');
+        throw new CasError('二次验证暂时不可用，请改用手动绑定', 'MFA_PARSE_FAILED');
       }
       return {
         mfaRequired: true,
@@ -564,23 +564,23 @@ export async function loginWithPassword(studentId, password) {
     // 以服务端实际返回的文案为准（「图形动态码错误」= 要图形验证码）
     const text = extractErrorText(html);
     if (/验证码|动态码/.test(text)) {
-      throw new CasError('教务登录需要图形验证码，请改用「手动粘贴 Cookie」绑定', 'CAS_NEED_CAPTCHA');
+      throw new CasError('教务登录需要图形验证码，请改用手动绑定', 'CAS_NEED_CAPTCHA');
     }
     if (await needsCaptcha(jar, studentId)) {
-      throw new CasError('当前账号或网络需要验证码，请改用「手动粘贴 Cookie」绑定', 'CAS_NEED_CAPTCHA');
+      throw new CasError('当前账号或网络需要验证码，请改用手动绑定', 'CAS_NEED_CAPTCHA');
     }
-    throw new CasError(text || '学号或密码错误', 'CAS_LOGIN_FAILED');
+    throw new CasError('学号或密码不正确', 'CAS_LOGIN_FAILED');
   }
 
   // 4. 已回到教务域：ticket 落在教务的 SSO 回调上，由它换取会话并下发 Cookie
   //    必须真的落到 szjw；停在 workflow 等中间域只是拿到了中间站的 Cookie，换不到会话
   //    能不能用由调用方再用 sessionUserInfo 验一次
   if (hostOf(result.url) !== hostOf(SCHOOL_ORIGIN)) {
-    throw new CasError(`登录流程未回到教务系统（跳转：${hops.join(' → ')}）`, 'CAS_NO_SESSION');
+    throw new CasError('登录流程没走完，请重试或改用手动绑定', 'CAS_NO_SESSION');
   }
   const cookies = jar.headerFor(SCHOOL_ORIGIN);
   if (!cookies) {
-    throw new CasError(`登录已通过，但未取到教务会话（跳转：${hops.join(' → ')}）`, 'CAS_NO_SESSION');
+    throw new CasError('登录已通过，但没拿到教务凭据，请重试或改用手动绑定', 'CAS_NO_SESSION');
   }
   return { cookies, hops, cookieNames: jar.namesFor(SCHOOL_ORIGIN) };
 }

@@ -56,7 +56,7 @@
             android:foregroundServiceType="dataSync|specialUse">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="持续在后台拉取班级通知与活动，好让新通知尽快提醒到人" />
+                android:value="在后台持续接收班级通知与班级活动，让新通知尽快提醒到人" />
         </service>
 
         <!-- 深 Doze 兜底：进程内的定时器叫不醒睡着的 CPU，只能靠这个闹钟（见 SyncAlarmReceiver） -->

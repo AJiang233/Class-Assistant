@@ -29,7 +29,7 @@ export default {
       return addCors(await dispatch(request, env, ctx), request);
     } catch (e) {
       console.error(`未捕获的请求异常 ${method} ${url.pathname}:`, e);
-      return addCors(jsonResponse(error('服务器内部错误', 'INTERNAL_ERROR'), 500), request);
+      return addCors(jsonResponse(error('服务器出错了，请稍后重试', 'INTERNAL_ERROR'), 500), request);
     }
   }
 };

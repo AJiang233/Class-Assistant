@@ -60,7 +60,7 @@ export async function handleRegister(request, env) {
 
     // 校验必填字段
     if (!student_id || !name || !password) {
-      return jsonResponse(error('学号、姓名、密码为必填字段', 'MISSING_FIELDS'), 400);
+      return jsonResponse(error('请填写学号、姓名和密码', 'MISSING_FIELDS'), 400);
     }
     // 姓名与联系方式会进成员列表、提醒对象选择器与 CSV 导出，长度必须有上限
     const nameText = String(name).trim();
@@ -86,7 +86,7 @@ export async function handleRegister(request, env) {
       const customName = role_name || (typeof positions === 'string' ? positions : '');
       if (customName) {
         if (isReservedRole(customName)) {
-          return jsonResponse(error('不能把系统预置职位当自定义职位写入权限表', 'RESERVED_ROLE'), 400);
+          return jsonResponse(error('系统预置职位不能改为自定义职位', 'RESERVED_ROLE'), 400);
         }
         const named = assertCustomRoleName(customName);
         if (!named.ok) {
@@ -106,7 +106,7 @@ export async function handleRegister(request, env) {
     // 检查学号是否已存在
     const existing = await userModel.findByStudentId(student_id);
     if (existing) {
-      return jsonResponse(error('该学号已注册', 'STUDENT_ID_EXISTS'), 409);
+      return jsonResponse(error('该学号已注册，请直接登录，或换一个学号', 'STUDENT_ID_EXISTS'), 409);
     }
 
     // 哈希密码
@@ -138,17 +138,17 @@ export async function handleLogin(request, env) {
     const { student_id, password } = body;
 
     if (!student_id || !password) {
-      return jsonResponse(error('学号和密码为必填字段', 'MISSING_FIELDS'), 400);
+      return jsonResponse(error('请填写学号和密码', 'MISSING_FIELDS'), 400);
     }
     if (!env.JWT_SECRET) {
-      return jsonResponse(error('服务端未配置 JWT_SECRET', 'SERVER_MISCONFIGURED'), 500);
+      return jsonResponse(error('服务端暂时不可用，请联系管理员', 'SERVER_MISCONFIGURED'), 500);
     }
 
     const userModel = new UserModel(env.DB);
     const user = await userModel.findByStudentId(student_id);
 
     if (!user) {
-      return jsonResponse(error('学号或密码错误', 'INVALID_CREDENTIALS'), 401);
+      return jsonResponse(error('学号或密码不正确', 'INVALID_CREDENTIALS'), 401);
     }
 
     // 验证密码（格式：盐值:哈希）
@@ -156,7 +156,7 @@ export async function handleLogin(request, env) {
     const isValid = await verifyPassword(password, hash, salt);
 
     if (!isValid) {
-      return jsonResponse(error('学号或密码错误', 'INVALID_CREDENTIALS'), 401);
+      return jsonResponse(error('学号或密码不正确', 'INVALID_CREDENTIALS'), 401);
     }
 
     const token = await sign(
@@ -190,7 +190,7 @@ export async function handleMe(request, env, userPayload) {
     const user = await userModel.findById(userPayload.id);
 
     if (!user) {
-      return jsonResponse(error('用户不存在', 'USER_NOT_FOUND'), 404);
+      return jsonResponse(error('成员不存在', 'USER_NOT_FOUND'), 404);
     }
 
     const permissions = await computePermissions(env, user.positions);
@@ -210,7 +210,7 @@ export async function handleUpdateProfile(request, env, user) {
     const body = await request.json();
     const { contact } = body;
     if (contact === undefined) {
-      return jsonResponse(error('没有可更新的字段', 'MISSING_FIELDS'), 400);
+      return jsonResponse(error('没有需要保存的修改', 'MISSING_FIELDS'), 400);
     }
 
     const value = String(contact).trim();
@@ -223,7 +223,7 @@ export async function handleUpdateProfile(request, env, user) {
 
     const fresh = await userModel.findById(user.id);
     return jsonResponse(success({
-      message: '更新成功',
+      message: '已保存',
       contact: fresh ? fresh.contact : value,
       update_time: fresh ? fresh.update_time : null
     }));
@@ -242,7 +242,7 @@ export async function handleChangePassword(request, env, user) {
     const { old_password, new_password } = body;
 
     if (!old_password || !new_password) {
-      return jsonResponse(error('旧密码、新密码为必填字段', 'MISSING_FIELDS'), 400);
+      return jsonResponse(error('请填写旧密码和新密码', 'MISSING_FIELDS'), 400);
     }
     // 先转字符串再比长度：非字符串入参的 .length 是 undefined，两个比较会同时为假而绕过校验
     const newPassword = String(new_password);
@@ -253,13 +253,13 @@ export async function handleChangePassword(request, env, user) {
     const userModel = new UserModel(env.DB);
     const existing = await userModel.findByStudentId(user.student_id);
     if (!existing) {
-      return jsonResponse(error('用户不存在', 'USER_NOT_FOUND'), 404);
+      return jsonResponse(error('成员不存在', 'USER_NOT_FOUND'), 404);
     }
 
     const [salt, hash] = existing.password_hash.split(':');
     const isValid = await verifyPassword(old_password, hash, salt);
     if (!isValid) {
-      return jsonResponse(error('旧密码错误', 'INVALID_OLD_PASSWORD'), 400);
+      return jsonResponse(error('旧密码不正确', 'INVALID_OLD_PASSWORD'), 400);
     }
 
     const { hash: newHash, salt: newSalt } = await hashPassword(newPassword);
@@ -294,20 +294,20 @@ export async function handleDeleteUser(request, env, user, params) {
   try {
     const id = parseInt(params.id);
     if (!id) {
-      return jsonResponse(error('无效的用户ID', 'INVALID_ID'), 400);
+      return jsonResponse(error('成员不存在', 'INVALID_ID'), 400);
     }
     if (id === user.id) {
-      return jsonResponse(error('不能删除当前登录账号', 'CANNOT_DELETE_SELF'), 400);
+      return jsonResponse(error('不能删除自己的账号', 'CANNOT_DELETE_SELF'), 400);
     }
 
     const userModel = new UserModel(env.DB);
     const existing = await userModel.findById(id);
     if (!existing) {
-      return jsonResponse(error('用户不存在', 'USER_NOT_FOUND'), 404);
+      return jsonResponse(error('成员不存在', 'USER_NOT_FOUND'), 404);
     }
 
     await userModel.delete(id);
-    return jsonResponse(success({ message: '删除成功' }));
+    return jsonResponse(success({ message: '成员已删除' }));
   } catch (e) {
     console.error('删除成员失败:', e);
     return jsonResponse(error('删除成员失败', 'DELETE_USER_FAILED'), 500);
@@ -321,13 +321,13 @@ export async function handleUpdateUser(request, env, user, params) {
   try {
     const id = parseInt(params.id);
     if (!id) {
-      return jsonResponse(error('无效的用户ID', 'INVALID_ID'), 400);
+      return jsonResponse(error('成员不存在', 'INVALID_ID'), 400);
     }
 
     const body = await request.json();
     const { name, positions, contact, password } = body;
     if (name === undefined && positions === undefined && contact === undefined && password === undefined) {
-      return jsonResponse(error('没有可更新的字段', 'MISSING_FIELDS'), 400);
+      return jsonResponse(error('没有需要保存的修改', 'MISSING_FIELDS'), 400);
     }
 
     // 职位名与注册同规则：预置名可以写（那是正常任职），自定义名不能冒用预置名、不能超长
@@ -347,7 +347,7 @@ export async function handleUpdateUser(request, env, user, params) {
     const userModel = new UserModel(env.DB);
     const existing = await userModel.findById(id);
     if (!existing) {
-      return jsonResponse(error('用户不存在', 'USER_NOT_FOUND'), 404);
+      return jsonResponse(error('成员不存在', 'USER_NOT_FOUND'), 404);
     }
 
     const data = {};
@@ -379,7 +379,7 @@ export async function handleUpdateUser(request, env, user, params) {
     }
 
     await userModel.update(id, data);
-    return jsonResponse(success({ message: '更新成功' }));
+    return jsonResponse(success({ message: '已保存' }));
   } catch (e) {
     console.error('更新成员失败:', e);
     return jsonResponse(error('更新成员失败', 'UPDATE_USER_FAILED'), 500);
@@ -427,7 +427,7 @@ export async function handleCreateRole(request, env, user) {
       return jsonResponse(error('职位名称不能为空', 'MISSING_FIELDS'), 400);
     }
     if (isReservedRole(rawName)) {
-      return jsonResponse(error('不能把系统预置职位当自定义职位写入权限表', 'RESERVED_ROLE'), 400);
+      return jsonResponse(error('系统预置职位不能改为自定义职位', 'RESERVED_ROLE'), 400);
     }
     const named = assertCustomRoleName(rawName);
     if (!named.ok) {
@@ -438,7 +438,7 @@ export async function handleCreateRole(request, env, user) {
     const roleModel = new RoleModel(env.DB);
     await roleModel.upsert(named.name, JSON.stringify(sanitizePermissions(permissions)));
 
-    return jsonResponse(success({ message: '添加成功' }), 201);
+    return jsonResponse(success({ message: '职位已添加' }), 201);
   } catch (e) {
     console.error('添加自定义职位失败:', e);
     return jsonResponse(error('添加自定义职位失败，请稍后重试', 'CREATE_ROLE_FAILED'), 500);
@@ -452,13 +452,13 @@ export async function handleDeleteRole(request, env, user, params) {
   try {
     const id = parseInt(params.id);
     if (!id) {
-      return jsonResponse(error('无效的职位ID', 'INVALID_ID'), 400);
+      return jsonResponse(error('职位不存在', 'INVALID_ID'), 400);
     }
 
     const roleModel = new RoleModel(env.DB);
     await roleModel.deleteById(id);
 
-    return jsonResponse(success({ message: '删除成功' }));
+    return jsonResponse(success({ message: '成员已删除' }));
   } catch (e) {
     console.error('删除自定义职位失败:', e);
     return jsonResponse(error('删除自定义职位失败，请稍后重试', 'DELETE_ROLE_FAILED'), 500);

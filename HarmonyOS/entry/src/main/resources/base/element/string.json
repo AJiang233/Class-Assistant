@@ -2,7 +2,7 @@
   "string": [
     {
       "name": "module_desc",
-      "value": "班级助理鸿蒙端"
+      "value": "班级助理"
     },
     {
       "name": "EntryAbility_desc",
@@ -34,7 +34,7 @@
     },
     {
       "name": "channel_activity",
-      "value": "活动提醒"
+      "value": "班级活动提醒"
     },
     {
       "name": "channel_activity_desc",
