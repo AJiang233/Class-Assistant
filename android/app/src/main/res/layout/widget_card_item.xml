@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 桌面小组件里的一张卡片（ListView 的 item），课表与今日活动**共用**：
+     一张浅靛蓝圆角卡，左侧一道彩色竖条，卡里从上到下是「时间 / 名称 / 地点」三行。
+     课表那边正在上的那节由进度条盖出上过的部分；活动没有下课时间，进度条一直保持默认的 gone。
+
+     子 View 的顺序 = 叠放次序（FrameLayout 后画的在上面）：
+       1. ProgressBar 最底：正在上的那节，上过的部分由它盖深
+       2. 左侧竖条压在进度条之上：它是这张卡的「标签」，不该被进度盖住
+       3. 三行文字在最上
+     根布局的 layout_margin 会被 ListView 忽略（见 widget_courses.xml），行距由 dividerHeight 给 -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/card_item_root"
+    style="@style/WidgetCard">
+
+    <ProgressBar
+        android:id="@+id/card_item_progress"
+        style="@style/WidgetCardProgress" />
+
+    <!-- 颜色不在这里写死：由各自的 Service 按名字从调色板里取，同一个名字永远同色 -->
+    <View
+        android:id="@+id/card_item_bar"
+        android:layout_width="4dp"
+        android:layout_height="match_parent"
+        android:layout_marginTop="8dp"
+        android:layout_marginBottom="8dp" />
+
+    <!-- 卡内的上下留白加在这一层，不能加在卡片上：进度条要能铺满整张卡。
+         paddingLeft = 竖条 4dp + 与文字的间距 10dp -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingLeft="14dp"
+        android:paddingTop="6dp"
+        android:paddingBottom="6dp">
+
+        <TextView
+            android:id="@+id/card_item_time"
+            style="@style/WidgetCardMeta" />
+
+        <TextView
+            android:id="@+id/card_item_title"
+            style="@style/WidgetCardTitle" />
+
+        <TextView
+            android:id="@+id/card_item_place"
+            style="@style/WidgetCardMeta" />
+    </LinearLayout>
+</FrameLayout>

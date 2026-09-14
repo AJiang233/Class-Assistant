@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 正在上的那条课程：底与普通条一样，上过的部分用更深的靛蓝盖住。
+<!-- 卡片上「已经过去的那一部分」：底与普通卡片一样，上过的部分用更深的靛蓝盖住。
+     目前只有课表在用（活动缓存里没有下课时间，算不出上到几成）。
      progressDrawable 的 progress 层必须是 <clip>：进度就是它的 level，
      于是「上到一半」看着就是一半深、一半浅 —— 不用自己去算宽度（RemoteViews 也设不了任意宽度） -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">

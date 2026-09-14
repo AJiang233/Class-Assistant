@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  「今日活动」小组件在系统「添加小组件」列表里的图标。
+  刻意与应用图标同族：同样的满幅蓝底、白色图形，只是图形从对话气泡换成五角星，
+  两个小组件摆在一排时才认得出谁是谁。
+
+  108dp 满幅方图，和 ic_launcher.xml 一样交给启动器去裁形状。
+  星星是 Material 的 star 标准 24dp 路径，用 group 放大 3 倍并平移 (18,18) 落到 108 视口里
+  （24 → 72，四周各留 18）。手算五角星那 10 个顶点既啰嗦又容易画歪，缩放现成的标准路径更省事。
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#2196F3"
+        android:pathData="M0,0h108v108h-108z" />
+    <group
+        android:scaleX="3"
+        android:scaleY="3"
+        android:translateX="18"
+        android:translateY="18">
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M12,17.27L18.18,21l-1.64,-7.03L22,9.24l-7.19,-0.61L12,2 9.19,8.63 2,9.24l5.46,4.73L5.82,21z" />
+    </group>
+</vector>

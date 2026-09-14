@@ -1,7 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 尺寸：长 4 格、高 3 格。框架按 min = 70n − 30 换算格子数（这是 n 格的上限），
+     于是 4 格 250dp、3 格 180dp；写大一点就跳成下一格，卡片周围多出一整格空白。
+     高 3 格是为了与课表卡片取同一档：两块都是「标题 + 可滚动的三行卡片列表」，
+     180dp 才能让两张卡露出来又留得住滚动的余地，摆在一起也对得齐。 -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
-    android:minWidth="180dp"
-    android:minHeight="110dp"
+    android:minWidth="250dp"
+    android:minHeight="180dp"
     android:updatePeriodMillis="1800000"
     android:initialLayout="@layout/widget_today"
     android:resizeMode="horizontal|vertical"

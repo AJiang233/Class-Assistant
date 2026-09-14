@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 课表小组件。每条课程是一个「条」：FrameLayout 自带浅靛蓝圆角底，进行中的那条把
-     ProgressBar 显示出来盖住已上的部分，文字压在最上层。行数给到 4 —— 一天四五节课是常态 -->
+<!-- 课表小组件。课程行是 ListView（集合组件，数据见 CoursesWidgetService）：几节课就列几行，
+     装不下往下滚 —— 一天四五节课是常态，而这个组件只有 180dp 高，一张课卡就有 50 多 dp，
+     写死行数必然裁掉最后几节。
+
+     行距**不能**靠 item 自己的 layout_margin：ListView 会忽略 item 根布局的 margin。
+     这里用 5dp 的透明 divider 当行距，标题到第一行的那 5dp 由列表的 paddingTop 给。 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/courses_widget_root"
     android:layout_width="match_parent"
@@ -20,57 +24,16 @@
         android:maxLines="1"
         android:ellipsize="end" />
 
-    <FrameLayout
-        android:id="@+id/courses_row_1"
-        style="@style/WidgetCourseRow">
-
-        <ProgressBar
-            android:id="@+id/courses_row_1_progress"
-            style="@style/WidgetCourseProgress" />
-
-        <TextView
-            android:id="@+id/courses_row_1_text"
-            style="@style/WidgetCourseText" />
-    </FrameLayout>
-
-    <FrameLayout
-        android:id="@+id/courses_row_2"
-        style="@style/WidgetCourseRow">
-
-        <ProgressBar
-            android:id="@+id/courses_row_2_progress"
-            style="@style/WidgetCourseProgress" />
-
-        <TextView
-            android:id="@+id/courses_row_2_text"
-            style="@style/WidgetCourseText" />
-    </FrameLayout>
-
-    <FrameLayout
-        android:id="@+id/courses_row_3"
-        style="@style/WidgetCourseRow">
-
-        <ProgressBar
-            android:id="@+id/courses_row_3_progress"
-            style="@style/WidgetCourseProgress" />
-
-        <TextView
-            android:id="@+id/courses_row_3_text"
-            style="@style/WidgetCourseText" />
-    </FrameLayout>
-
-    <FrameLayout
-        android:id="@+id/courses_row_4"
-        style="@style/WidgetCourseRow">
-
-        <ProgressBar
-            android:id="@+id/courses_row_4_progress"
-            style="@style/WidgetCourseProgress" />
-
-        <TextView
-            android:id="@+id/courses_row_4_text"
-            style="@style/WidgetCourseText" />
-    </FrameLayout>
+    <!-- height 0dp + weight 1：占满标题以下的全部高度。内容超出时由它自己滚，
+         不再像固定行数那样把最后几行裁在卡片外面 -->
+    <ListView
+        android:id="@+id/courses_list"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:paddingTop="5dp"
+        android:divider="@android:color/transparent"
+        android:dividerHeight="5dp" />
 
     <TextView
         android:id="@+id/courses_widget_empty"

@@ -8,46 +8,60 @@
         <item name="android:windowLightNavigationBar" tools:targetApi="27">true</item>
     </style>
 
-    <!-- 桌面小组件里的一行活动 -->
-    <style name="WidgetRow">
+    <!-- ===== 桌面小组件的卡片 =====
+         课表与今日活动用的是同一套卡片：一张浅靛蓝圆角卡，左侧一条彩色竖条，
+         卡里从上到下三行「时间 / 名称 / 地点」。布局也共用 widget_card_item.xml，
+         所以这里的样式一律叫 WidgetCard*（不带某一侧的专属名）。 -->
+
+    <!-- 卡片本体。
+         高度交给内容（wrap_content）而不是写死：三行文字本身就比固定高度可靠 —— 用户把
+         系统字号调大时，写死的高度会把第三行切掉。
+
+         **这里不能加 padding**：进度条是 match_parent，卡的上下内边距会把它一起挤进去，
+         「上到一半」就变成一条悬在卡中间、上下够不到边的横带。卡内的留白由内容那层
+         （widget_card_item.xml 里的 LinearLayout）自己加。
+
+         这里也**故意不写 layout_margin**：这套样式只给 ListView 的 item 用，而 ListView
+         会忽略 item 根布局的 margin（变成 AbsListView.LayoutParams 时就丢了），写了也不生效。
+         行距由列表的 dividerHeight / paddingTop 给。 -->
+    <style name="WidgetCard">
         <item name="android:layout_width">match_parent</item>
         <item name="android:layout_height">wrap_content</item>
-        <item name="android:layout_marginTop">7dp</item>
-        <item name="android:textColor">#4b4b55</item>
-        <item name="android:textSize">13sp</item>
-        <item name="android:maxLines">1</item>
-        <item name="android:ellipsize">end</item>
+        <item name="android:background">@drawable/widget_card</item>
     </style>
 
-    <!-- 课表小组件：一条课程 = 一个浅色圆角条（FrameLayout 自带底），
-         进度条压在上面盖出「上到一半」的效果，文字再压在最上层 -->
-    <style name="WidgetCourseRow">
-        <item name="android:layout_width">match_parent</item>
-        <item name="android:layout_height">28dp</item>
-        <item name="android:layout_marginTop">5dp</item>
-        <item name="android:background">@drawable/widget_course_row</item>
-    </style>
-
-    <!-- minHeight/maxHeight 必须显式写：框架的 progressBarStyleHorizontal 把高度夹在 16dip，
-         不覆盖的话进度条只有半条高，跟底下的圆角条对不上 -->
-    <style name="WidgetCourseProgress" parent="@android:style/Widget.ProgressBar.Horizontal">
+    <!-- 卡片上「已经过去的那一部分」。目前只有课表用（活动缓存里没有下课时间，算不出上到几成）。
+         minHeight/maxHeight 必须显式写：框架的 progressBarStyleHorizontal 把高度夹在 16dip，
+         不覆盖的话进度条只有半条高，跟底下的卡片对不上 -->
+    <style name="WidgetCardProgress" parent="@android:style/Widget.ProgressBar.Horizontal">
         <item name="android:layout_width">match_parent</item>
         <item name="android:layout_height">match_parent</item>
         <item name="android:minHeight">0dp</item>
         <item name="android:maxHeight">1000dp</item>
         <item name="android:max">100</item>
-        <item name="android:progressDrawable">@drawable/widget_course_progress</item>
+        <item name="android:progressDrawable">@drawable/widget_card_progress</item>
         <item name="android:visibility">gone</item>
     </style>
 
-    <style name="WidgetCourseText">
+    <!-- 卡片里的次要两行：时间与地点。比名称小一号、颜色更淡，三行才有主次 -->
+    <style name="WidgetCardMeta">
         <item name="android:layout_width">match_parent</item>
         <item name="android:layout_height">wrap_content</item>
-        <item name="android:layout_gravity">center_vertical</item>
-        <item name="android:paddingLeft">10dp</item>
-        <item name="android:paddingRight">10dp</item>
+        <item name="android:textColor">#8d8d98</item>
+        <item name="android:textSize">11sp</item>
+        <item name="android:maxLines">1</item>
+        <item name="android:ellipsize">end</item>
+    </style>
+
+    <!-- 卡片里的名称：三行里最重的一行。颜色写成资源而不是字面量 ——
+         课表那边「正在上」要换成强调色、「已上完」要变灰，这两处只能由代码 setTextColor 改，
+         代码与布局必须取同一份（理由同 colors.xml 里的 widget_row_text） -->
+    <style name="WidgetCardTitle">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
         <item name="android:textColor">@color/widget_row_text</item>
         <item name="android:textSize">12sp</item>
+        <item name="android:textStyle">bold</item>
         <item name="android:maxLines">1</item>
         <item name="android:ellipsize">end</item>
     </style>

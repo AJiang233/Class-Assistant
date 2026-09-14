@@ -78,10 +78,17 @@
             </intent-filter>
         </receiver>
 
-        <!-- 桌面小组件：今日活动 -->
+        <!-- 桌面小组件：今日活动。
+
+             android:label / android:icon 决定它在系统「添加小组件」列表里显示什么：
+             名字取自 receiver 的 label，图标取自 receiver 的 icon —— **两个都不写就回退到
+             application 那一份**（label = 班级助理、icon = 应用图标），于是两个组件在列表里
+             连名字带图标长得一模一样。只写 name / exported 是不够的。 -->
         <receiver
             android:name=".widget.TodayWidgetProvider"
-            android:exported="true">
+            android:exported="true"
+            android:label="@string/widget_title"
+            android:icon="@drawable/ic_widget_today">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>
@@ -90,10 +97,12 @@
                 android:resource="@xml/today_widget_info" />
         </receiver>
 
-        <!-- 桌面小组件：课表 -->
+        <!-- 桌面小组件：课表。label / icon 的作用同上一条，两个组件各自独立。 -->
         <receiver
             android:name=".widget.CoursesWidgetProvider"
-            android:exported="true">
+            android:exported="true"
+            android:label="@string/courses_widget_title"
+            android:icon="@drawable/ic_widget_courses">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>
@@ -101,6 +110,19 @@
                 android:name="android.appwidget.provider"
                 android:resource="@xml/courses_widget_info" />
         </receiver>
+
+        <!-- 两块小组件的列表数据源（集合组件）。**每一条都必须有**：框架绑定集合组件
+             服务时要校验 BIND_REMOTEVIEWS，缺声明时对应的列表永远是空的，而且不报任何错。
+             exported 保持 false —— 只有持有该权限的系统进程会绑它，没有 intent-filter。 -->
+        <service
+            android:name=".widget.CoursesWidgetService"
+            android:exported="false"
+            android:permission="android.permission.BIND_REMOTEVIEWS" />
+
+        <service
+            android:name=".widget.EventsWidgetService"
+            android:exported="false"
+            android:permission="android.permission.BIND_REMOTEVIEWS" />
 
         <!-- 小组件换天 / 系统时间变更 / 覆盖安装：刷新小组件并重排闹钟。
              TIME_SET 与 TIMEZONE_CHANGED 属于系统「隐式广播豁免」名单，清单注册收得到；
