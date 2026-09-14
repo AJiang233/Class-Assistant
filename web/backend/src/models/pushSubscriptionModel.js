@@ -62,6 +62,14 @@ export class PushSubscriptionModel {
     return row ? row.n : 0;
   }
 
+  /** 该 endpoint 是否已登记（重复订阅时用于区分「新建」与「改绑」，只影响返回的状态码） */
+  async existsByEndpoint(endpoint) {
+    const row = await this.db.prepare(
+      'SELECT 1 AS n FROM push_subscriptions WHERE endpoint = ? LIMIT 1'
+    ).bind(endpoint).first();
+    return !!row;
+  }
+
   /** 取这批用户的全部订阅（发送时用；一条用户可能有多台设备） */
   async listByUsers(userIds) {
     const ids = (userIds || []).filter((id) => Number.isInteger(id) || /^\d+$/.test(String(id)));

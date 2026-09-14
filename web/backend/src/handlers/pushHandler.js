@@ -60,6 +60,7 @@ export async function handlePushSubscribe(request, env, user) {
 
     const ua = String(request.headers.get('User-Agent') || '').slice(0, MAX_UA_LEN);
     const model = new PushSubscriptionModel(env.DB);
+    const existed = await model.existsByEndpoint(parsed.endpoint);
     await model.upsert({
       userId: user.id,
       endpoint: parsed.endpoint,
@@ -68,7 +69,8 @@ export async function handlePushSubscribe(request, env, user) {
       ua
     });
 
-    return jsonResponse(success({ message: '已开启通知' }), 201);
+    // upsert 同时承担新建与改绑，只有确实是新订阅才回 201
+    return jsonResponse(success({ message: '已开启通知' }), existed ? 200 : 201);
   } catch (e) {
     console.error('保存推送订阅失败:', e);
     return jsonResponse(error('保存推送订阅失败', 'PUSH_SUBSCRIBE_FAILED'), 500);
