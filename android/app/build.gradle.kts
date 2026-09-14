@@ -12,7 +12,7 @@ android {
         minSdk = 24
         targetSdk = 34
         versionCode = 1
-        versionName = "0.1.0"
+        versionName = "0.0.1"
     }
 
     // 正式签名：CI 从 Secrets 还原出 keystore，再用环境变量把路径与口令传进来。
