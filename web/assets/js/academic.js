@@ -6,6 +6,16 @@ var timetable = null;       // 课表数据
 var credits = null;         // 学分数据
 var activeTerm = '';        // 当前选中的学期
 
+// 上次看的学期：退出重进沿用（把选过的学期带回去问后端；那个学期已不在教务列表里时，
+// 后端会回落到按日期推算的当前学期，返回的 xnxqId 又会把这里覆盖掉）
+var TERM_KEY = 'ca_term';
+function savedTerm() {
+    try { return localStorage.getItem(TERM_KEY) || ''; } catch (e) { return ''; }
+}
+function rememberTerm(id) {
+    try { if (id) localStorage.setItem(TERM_KEY, id); } catch (e) {}
+}
+
 var WEEKDAY_NAMES = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
 
 (function init() {
@@ -87,7 +97,7 @@ async function loadStatus() {
     // 不再因为 status=expired 就在这里拉红横幅「请重新绑定」：课表接口会把上次的缓存
     // 给回来，提示交给 loadTimetable 按「为什么给的是缓存」出一行小字（见 cacheHintText）。
     // 否则用户还没看到课表，就先被告知「出事了、去重新绑定」。
-    loadTimetable('', false);
+    loadTimetable(savedTerm(), false);
     loadCredits(false);
 }
 
@@ -245,6 +255,7 @@ async function doUnbind() {
     try {
         await api('/api/academic/bind', { method: 'DELETE' });
         timetable = null; credits = null; activeTerm = '';
+        try { localStorage.removeItem(TERM_KEY); } catch (e) {}
         showOnly('bindView');
     } catch (err) {
         showNotice(err.message);
@@ -358,6 +369,7 @@ async function loadTimetable(term, refresh) {
         var res = await api(path);
         timetable = res.data;
         activeTerm = timetable.xnxqId;
+        rememberTerm(activeTerm);
         renderTermSelect(timetable.terms, activeTerm);
         renderSyncMeta(timetable);
         renderTimetable(timetable);

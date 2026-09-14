@@ -51,6 +51,12 @@
   --border-strong: rgba(60, 60, 67, 0.24);
   --separator: rgba(60, 60, 67, 0.10);
 
+  /* ── 卡片内的排版 ── */
+  /* 标题到内容的间距：常显卡靠 .card-title 的 margin-bottom，折叠卡靠 .collapse-body 的
+     margin-top —— 两处必须同值。手机端缩一档的覆盖写在 21 的媒体查询里，基础值就必须留在
+     这里：同特异性的 :root 谁在后谁生效，定义放文件末尾会把媒体查询里的覆盖盖掉。 */
+  --card-title-gap: 16px;
+
   /* ── 强调色 ── */
   --accent: var(--sys-blue);
   --accent-hover: #0069d9;
@@ -923,7 +929,7 @@ input[type="checkbox"]:disabled { opacity: 0.5; cursor: not-allowed; }
   transition: transform var(--dur-slow) var(--ease-spring);
 }
 .collapse.open .collapse-arrow { transform: rotate(180deg); }
-.collapse-body { display: none; margin-top: 16px; }
+.collapse-body { display: none; margin-top: var(--card-title-gap); }
 .collapse.open .collapse-body { display: block; animation: blockIn var(--dur-slow) var(--ease-standard) both; }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -1394,7 +1400,8 @@ body.app-mode { overflow: hidden; }
   .profile-name { font-size: 1.07rem; }
   .profile-sub { font-size: 0.84rem; }
   .info-row { padding: 11px 2px; font-size: 0.89rem; }
-  .collapse-body { margin-top: 12px; }
+  /* .card-title 与 .collapse-body 一起跟着缩，两处始终同值 */
+  :root { --card-title-gap: 12px; }
 
   .list-row { padding: 14px 15px; gap: 12px; }
   .list-row-title { font-size: 0.98rem; margin-bottom: 4px; }
@@ -1798,9 +1805,10 @@ body.app-mode { overflow: hidden; }
 .login-wrap { max-width: 420px; margin: 48px auto; padding: 0 16px; }
 
 /* ── 卡片内的排版 ── */
-/* 卡片标题：原先靠 h2 上的内联 margin 与下方内容拉开距离 */
-.card-title { margin: 0 0 16px; }
-.card-title-tight { margin: 0 0 8px; }
+/* 标题到内容的间距：走 --card-title-gap（基础值在顶部 :root，手机端在 21 的媒体查询里缩一档）——
+   常显卡用这里的 margin-bottom，折叠卡用 .collapse-body 的 margin-top，两处必须同值，
+   一个 16 一个 8 并排看就是「一松一紧」。 */
+.card-title { margin: 0 0 var(--card-title-gap); }
 /* .profile-sub 的几种段位：说明文字在内容之前 / 结果提示跟在按钮之后 / 段落之间留白 */
 .profile-sub-lead { margin: 0 0 14px; }
 .profile-sub-tail { margin: 14px 0 0; }

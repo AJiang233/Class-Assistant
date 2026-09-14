@@ -29,7 +29,7 @@
     <string name="courses_widget_title">今日课程</string>
     <string name="courses_widget_title_tomorrow">明日课程</string>
     <string name="courses_widget_title_day">%1$s 课程</string>
-    <string name="courses_widget_nodata">还没同步到课表。到「课表与学业」绑定教务系统后会自动同步</string>
+    <string name="courses_widget_nodata">还没同步到课表。到「学业」绑定教务系统后会自动同步</string>
     <string name="courses_widget_none">近期没有课程安排</string>
     <string name="courses_widget_desc">显示今天要上的课；今天没课或已上完时，显示下一个要上课的日子</string>
 
