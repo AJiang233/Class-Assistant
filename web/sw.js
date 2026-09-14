@@ -32,7 +32,17 @@ const PRECACHE = [
   '/admin',
   '/account',
   '/assets/css/style.css',
+  // 脚本按页面拆分（CSP 的 script-src 只放行 'self'，内联脚本全部外置），
+  // 每一个都得进预热清单，否则某页断网打开时缺脚本、按钮点不动。
+  '/assets/js/theme.js',
   '/assets/js/app.js',
+  '/assets/js/index.js',
+  '/assets/js/notices.js',
+  '/assets/js/activities.js',
+  '/assets/js/academic.js',
+  '/assets/js/forms.js',
+  '/assets/js/account.js',
+  '/assets/js/admin.js',
   '/manifest.json'
 ];
 
