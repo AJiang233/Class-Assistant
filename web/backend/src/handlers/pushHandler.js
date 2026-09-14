@@ -99,7 +99,10 @@ export async function handlePushUnsubscribe(request, env, user) {
 export async function handlePushTest(request, env, user) {
   try {
     const vapid = vapidConfig(env);
-    if (!vapid) return jsonResponse(error('推送功能暂时不可用，请稍后重试', 'PUSH_DISABLED'), 503);
+    if (!vapid) {
+      console.error('未配置 VAPID 密钥，推送已禁用（见 web/README 的推送一节）');
+      return jsonResponse(error('推送功能暂时不可用，请稍后重试', 'PUSH_DISABLED'), 503);
+    }
 
     const model = new PushSubscriptionModel(env.DB);
     const subs = await model.listByUsers([user.id]);

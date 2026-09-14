@@ -141,6 +141,7 @@ export async function handleLogin(request, env) {
       return jsonResponse(error('请填写学号和密码', 'MISSING_FIELDS'), 400);
     }
     if (!env.JWT_SECRET) {
+      console.error('未配置 JWT_SECRET，无法签发登录态');
       return jsonResponse(error('服务端暂时不可用，请联系管理员', 'SERVER_MISCONFIGURED'), 500);
     }
 

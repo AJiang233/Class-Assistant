@@ -329,12 +329,16 @@ async function bindWithCookies(env, user, cookies) {
     if (e instanceof SchoolSessionExpired) {
       return { failure: { message: '教务登录态已过期，请重新登录教务系统', code: 'ACADEMIC_INVALID', status: 400 } };
     }
+    // 用户侧只说「连不上」，具体原因（超时 / DNS / 上游 5xx）留在日志里
+    console.error('教务接口不可达:', e.message);
     return { failure: { message: '暂时连不上教务系统，请稍后重试', code: 'ACADEMIC_UNREACHABLE', status: 502 } };
   }
   if (!info || !info.id) {
+    console.error('教务返回的用户信息不完整:', JSON.stringify(info));
     return { failure: { message: '没能读到你的教务信息，请重新登录教务系统', code: 'ACADEMIC_INVALID', status: 400 } };
   }
   if (!sameStudentId(user.student_id, info.userAccount)) {
+    console.error(`教务返回学号 ${info.userAccount || '空'} 与当前账号 ${user.student_id} 不一致`);
     return {
       failure: {
         message: '教务账号与当前登录的学号不一致，请用本人的教务账号绑定',
@@ -410,6 +414,7 @@ export async function handleAcademicPasswordLogin(request, env, user) {
       const status = e.code === 'CAS_NEED_CAPTCHA' ? 409 : 400;
       return jsonResponse(error(e.message, e.code), status);
     }
+    console.error('统一身份认证登录失败:', e.message);
     return jsonResponse(error('统一身份认证登录失败，请检查学号密码，或改用手动绑定', 'CAS_ERROR'), 502);
   }
 
@@ -475,6 +480,7 @@ export async function handleAcademicMfaSend(request, env, user) {
     return jsonResponse(success({ sent: true, mobile: sent.mobile, label: sent.label }));
   } catch (e) {
     if (e instanceof CasError) return jsonResponse(error(e.message, e.code), 400);
+    console.error('验证码发送失败:', e.message);
     return jsonResponse(error('验证码发送失败，请稍后重试', 'MFA_SEND_FAILED'), 502);
   }
 }
@@ -499,6 +505,7 @@ export async function handleAcademicMfaVerify(request, env, user) {
       await loaded.model.bumpMfaAttempts(String(body.token || ''));
       return jsonResponse(error(e.message, e.code), 400);
     }
+    console.error('二次验证失败:', e.message);
     return jsonResponse(error('二次验证失败，请重试或改用手动绑定', 'MFA_ERROR'), 502);
   }
 
@@ -609,6 +616,7 @@ export async function handleAcademicTimetable(request, env, user) {
     if (liveError instanceof SchoolSessionExpired) {
       return jsonResponse(error(liveError.message, 'ACADEMIC_EXPIRED'), 400);
     }
+    console.error('教务接口不可达（课表）:', liveError.message);
     return jsonResponse(error('暂时连不上教务系统，请稍后重试', 'ACADEMIC_UNREACHABLE'), 502);
   }
 
@@ -644,6 +652,7 @@ export async function handleAcademicTimetable(request, env, user) {
       await model.markExpired(user.id);
       return jsonResponse(error(e.message, 'ACADEMIC_EXPIRED'), 400);
     }
+    console.error('获取课表失败:', e.message);
     return jsonResponse(error('获取课表失败，请稍后重试', 'ACADEMIC_FETCH_FAILED'), 502);
   }
 }
@@ -681,6 +690,7 @@ export async function handleAcademicCredits(request, env, user) {
     const plan = await client.studentPlan(binding.school_uid || '');
     const pyfaid = plan && (plan.zxjhid || plan.pyfaid);
     if (!pyfaid) {
+      console.error('教务未返回当前执行计划（zxjhid / pyfaid）');
       return jsonResponse(error('暂时取不到学业达成数据，请稍后重试', 'NO_PLAN'), 400);
     }
 
@@ -700,6 +710,7 @@ export async function handleAcademicCredits(request, env, user) {
     // 抓取失败但有旧缓存：先把旧数据给出去，页面标记为「缓存」并带上原因。
     // 登录态过期也走这一支 —— 课表与学分在同一页，课表能看而学分报错太割裂
     if (cachedData) {
+      console.error('学业达成抓取失败，回缓存:', e.message);
       return jsonResponse(success({
         ...cachedData,
         fetchedAt: toIso(cached.fetched_at),
@@ -712,6 +723,7 @@ export async function handleAcademicCredits(request, env, user) {
     if (e instanceof SchoolSessionExpired) {
       return jsonResponse(error(e.message, 'ACADEMIC_EXPIRED'), 400);
     }
+    console.error('获取学业达成数据失败:', e.message);
     return jsonResponse(error('获取学业达成数据失败，请稍后重试', 'ACADEMIC_FETCH_FAILED'), 502);
   }
 }
