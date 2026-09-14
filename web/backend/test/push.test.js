@@ -13,7 +13,7 @@ import { parseRemindNames, resolveRemindUsers } from '../src/utils/audience.js';
 import { pushEnabled, pushToRemindAudience, vapidConfig } from '../src/utils/push.js';
 import { PushSubscriptionModel } from '../src/models/pushSubscriptionModel.js';
 import { handlePushSubscribe, handlePushUnsubscribe } from '../src/handlers/pushHandler.js';
-import { encryptPayload } from '../src/utils/webpush.js';
+import { b64uToBytes, buildVapidHeader, encryptPayload, sendWebPush } from '../src/utils/webpush.js';
 
 // 真实可用的订阅密钥：加密那步会真的做 ECDH + AES-GCM，随便编的字节过不了 importKey
 const recipient = createECDH('prime256v1');
@@ -340,6 +340,43 @@ describe('推送载荷加密（RFC 8291）', () => {
     const b = await encryptPayload(sub, '同样的内容');
     assert.notDeepEqual(Array.from(a.subarray(0, 16)), Array.from(b.subarray(0, 16)), 'salt 应每次不同');
     assert.notDeepEqual(Array.from(a.subarray(21, 86)), Array.from(b.subarray(21, 86)), '临时公钥应每次不同');
+  });
+});
+
+describe('推送发送加固', () => {
+  /**
+   * 端点由用户上报，慢或恶意的端点不能一直挂住 waitUntil 收尾任务；
+   * VAPID 公钥长度不对时要给出可定位的报错，而不是底层 importKey 的含糊异常。
+   */
+  it('发送请求带超时信号', async () => {
+    const inits = [];
+    const orig = globalThis.fetch;
+    globalThis.fetch = async (url, init) => { inits.push(init); return new Response('', { status: 201 }); };
+    try {
+      await sendWebPush(
+        { endpoint: 'https://push.example/x', p256dh: P256DH, auth: AUTH },
+        { title: 't' },
+        { publicKey: VAPID.VAPID_PUBLIC_KEY, privateKey: VAPID.VAPID_PRIVATE_KEY, subject: VAPID.VAPID_SUBJECT }
+      );
+    } finally { globalThis.fetch = orig; }
+
+    assert.equal(inits.length, 1);
+    assert.ok(inits[0].signal, '应带上 AbortSignal 超时信号');
+  });
+
+  it('VAPID 公钥不是 65 字节未压缩点时给出明确报错', async () => {
+    await assert.rejects(
+      () => buildVapidHeader('https://push.example/x', {
+        publicKey: 'AAAA',
+        privateKey: VAPID.VAPID_PRIVATE_KEY,
+        subject: VAPID.VAPID_SUBJECT
+      }),
+      /65 字节/
+    );
+  });
+
+  it('非法 base64url 给出明确报错', () => {
+    assert.throws(() => b64uToBytes('!!!not base64!!!'), /base64url/);
   });
 });
 

@@ -11,11 +11,20 @@
 
 const encoder = new TextEncoder();
 
+/** 推送端点由用户上报，慢或恶意的端点不能一直挂住尾部的 waitUntil 任务 */
+const PUSH_TIMEOUT_MS = 10000;
+
 /** base64url 字符串 → 字节 */
 export function b64uToBytes(input) {
-  const s = String(input).replace(/-/g, '+').replace(/_/g, '/');
+  const s = String(input == null ? '' : input).replace(/-/g, '+').replace(/_/g, '/');
   const pad = s.length % 4 === 0 ? '' : '='.repeat(4 - (s.length % 4));
-  const bin = atob(s + pad);
+  let bin;
+  try {
+    bin = atob(s + pad);
+  } catch {
+    // 交给调用方一个说人话的错误，而不是底层 atob 的 InvalidCharacterError
+    throw new Error('推送密钥不是合法的 base64url');
+  }
   const out = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
   return out;
@@ -124,6 +133,11 @@ export async function buildVapidHeader(endpoint, vapid) {
 
   // 私钥是 32 字节原始值，JWK 还缺 x/y，从公钥（未压缩点）里取
   const pub = b64uToBytes(vapid.publicKey);
+  // 长度不对时 subarray(1,33)/(33,65) 会静默截断出错误的 x/y，
+  // 最后抛一个难以理解的 importKey 错误 —— 这里先给出可定位的提示
+  if (pub.length !== 65 || pub[0] !== 4) {
+    throw new Error('VAPID 公钥必须是 65 字节的未压缩 P-256 点（0x04 开头），请检查 VAPID_PUBLIC_KEY');
+  }
   const jwk = {
     kty: 'EC',
     crv: 'P-256',
@@ -154,6 +168,7 @@ export async function sendWebPush(subscription, payloadObject, vapid) {
       'Content-Type': 'application/octet-stream',
       TTL: '86400'
     },
-    body
+    body,
+    signal: AbortSignal.timeout(PUSH_TIMEOUT_MS)
   });
 }
