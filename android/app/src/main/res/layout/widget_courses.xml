@@ -1,16 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 课表小组件。课程行是 ListView（集合组件，数据见 CoursesWidgetService）：几节课就列几行，
-     装不下往下滚 —— 一天四五节课是常态，而这个组件只有 180dp 高，一张课卡就有 50 多 dp，
+     装不下往下滚 —— 一天四五节课是常态，而这个组件最小只有 110dp 高，一张课卡就有 50 多 dp，
      写死行数必然裁掉最后几节。
 
      行距**不能**靠 item 自己的 layout_margin：ListView 会忽略 item 根布局的 margin。
-     这里用 5dp 的透明 divider 当行距，标题到第一行的那 5dp 由列表的 paddingTop 给。 -->
+     这里用 4dp 的透明 divider 当行距，标题到第一行的那 3dp 由列表的 paddingTop 给。 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/courses_widget_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:padding="14dp"
+    android:paddingLeft="12dp"
+    android:paddingRight="12dp"
+    android:paddingTop="10dp"
+    android:paddingBottom="10dp"
     android:background="@drawable/widget_bg">
 
     <TextView
@@ -31,15 +34,15 @@
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:paddingTop="5dp"
+        android:paddingTop="3dp"
         android:divider="@android:color/transparent"
-        android:dividerHeight="5dp" />
+        android:dividerHeight="4dp" />
 
     <TextView
         android:id="@+id/courses_widget_empty"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
+        android:layout_marginTop="6dp"
         android:textColor="#8d8d98"
         android:textSize="13sp" />
 </LinearLayout>

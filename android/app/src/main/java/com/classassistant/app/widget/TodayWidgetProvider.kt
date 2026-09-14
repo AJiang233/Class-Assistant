@@ -12,7 +12,7 @@ import android.widget.RemoteViews
 import com.classassistant.app.MainActivity
 import com.classassistant.app.R
 import com.classassistant.app.data.Store
-import com.classassistant.app.sync.isSameDay
+import com.classassistant.app.sync.isEventActiveOnDay
 
 /**
  * 桌面小组件：显示今天的班级活动。
@@ -84,14 +84,21 @@ class TodayWidgetProvider : AppWidgetProvider() {
             manager.notifyAppWidgetViewDataChanged(widgetId, R.id.widget_list)
         }
 
-        /** 今天有没有活动。只用来决定「显示列表还是空态」，真正的过滤在 EventsWidgetService 里。 */
+        /**
+         * 今天有没有活动。只用来决定「显示列表还是空态」，逐行的过滤在 EventsWidgetService 里，
+         * 两边**必须**走同一个判据（isEventActiveOnDay）—— 各写一份的话，一旦口径岔开，
+         * 用户看到的就是「标题说今日有安排、下面却空着」。
+         */
         private fun hasToday(context: Context): Boolean {
             val now = System.currentTimeMillis()
             val events = Store.events(context)
             for (i in 0 until events.length()) {
                 val row = events.optJSONObject(i) ?: continue
                 val start = row.optLong("start", 0L)
-                if (start != 0L && isSameDay(start, now)) return true
+                if (start == 0L) continue
+                // 与 SyncRunner 落库时同一套：没有 end 这个键 = 没有结束时间（那场只占开始那天）
+                val end = row.optLong("end", 0L).takeIf { it > 0L }
+                if (isEventActiveOnDay(start, end, now)) return true
             }
             return false
         }

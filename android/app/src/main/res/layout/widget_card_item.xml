@@ -1,16 +1,30 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 桌面小组件里的一张卡片（ListView 的 item），课表与今日活动**共用**：
-     一张浅靛蓝圆角卡，左侧一道彩色竖条，卡里从上到下是「时间 / 名称 / 地点」三行。
-     课表那边正在上的那节由进度条盖出上过的部分；活动没有下课时间，进度条一直保持默认的 gone。
+     一张圆角卡（底色 = 左侧那根彩条的浅色版，见 WidgetCard.kt），卡里从上到下是
+     「时间 / 名称 / 地点」三行。
+     课表那边正在上的那节由进度条盖出上过的部分；活动卡片不给进度条。
 
      子 View 的顺序 = 叠放次序（FrameLayout 后画的在上面）：
-       1. ProgressBar 最底：正在上的那节，上过的部分由它盖深
-       2. 左侧竖条压在进度条之上：它是这张卡的「标签」，不该被进度盖住
-       3. 三行文字在最上
+       1. ImageView：卡片底色，最底；每行一个颜色，由 Service 用 setImageViewResource 换
+       2. ProgressBar：课表「正在上」的那节，上过的部分盖一层深色（它自己的底色是透明的）
+       3. 左侧竖条压在进度条之上：它是这张卡的「标签」，不该被进度盖住
+       4. 三行文字在最上
      根布局的 layout_margin 会被 ListView 忽略（见 widget_courses.xml），行距由 dividerHeight 给 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/card_item_root"
     style="@style/WidgetCard">
+
+    <!-- 卡片底色。必须是一层 ImageView，而不是给根布局设背景色：
+         RemoteViews 里能改整块背景色的只有 setBackgroundColor，而它只能铺**方角**纯色
+         （圆角会丢）；换背景**资源**那条路（setBackgroundResource）在各版本上又不保险。
+         「ImageView + setImageViewResource」是本来就有、各版本都稳的首方接口，
+         圆角交给 shape 资源去画。
+         这里的 src 只是兜底（万一哪行没设到，卡片也不至于是透的），实际颜色由 Service 每行覆盖 -->
+    <ImageView
+        android:id="@+id/card_item_bg"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:src="@drawable/widget_card" />
 
     <ProgressBar
         android:id="@+id/card_item_progress"
@@ -24,23 +38,24 @@
          于是标题照常显示、列表整块变成启动器那行灰色的「无法加载小部件」——
          2026-09-14 就是这么坏过一次的。
          这里的 ImageView 只当一块纯色矩形用：颜色由 Service 反射 setBackgroundColor 给，
-         所以既不需要 src 也不需要 scaleType。 -->
+         所以既不需要 src 也不需要 scaleType。
+         上下让开 6dp：卡片是 8dp 圆角，竖条通到边就会戳在圆角外面 -->
     <ImageView
         android:id="@+id/card_item_bar"
         android:layout_width="4dp"
         android:layout_height="match_parent"
-        android:layout_marginTop="8dp"
-        android:layout_marginBottom="8dp" />
+        android:layout_marginTop="6dp"
+        android:layout_marginBottom="6dp" />
 
-    <!-- 卡内的上下留白加在这一层，不能加在卡片上：进度条要能铺满整张卡。
-         paddingLeft = 竖条 4dp + 与文字的间距 10dp -->
+    <!-- 卡内的上下留白加在这一层，不能加在卡片上：进度条和底色要能铺满整张卡。
+         paddingLeft = 竖条 4dp + 与文字的间距 8dp -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:paddingLeft="14dp"
-        android:paddingTop="6dp"
-        android:paddingBottom="6dp">
+        android:paddingLeft="12dp"
+        android:paddingTop="5dp"
+        android:paddingBottom="5dp">
 
         <TextView
             android:id="@+id/card_item_time"

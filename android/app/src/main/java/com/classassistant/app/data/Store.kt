@@ -113,6 +113,13 @@ object Store {
 
     // ===== 日程缓存（未来若干天的活动，按开始时间升序） =====
 
+    /**
+     * 每一条的字段是 [com.classassistant.app.sync.SyncRunner] 落库、
+     * 小组件（`TodayWidgetProvider` / `EventsWidgetService`）读取之间的一份约定：
+     *   `id` / `title` / `start`（开始毫秒）/ `location` 必有；
+     *   `end`（结束毫秒）**可有可无** —— 服务端的 end_time 本来就允许为空，
+     *   为空时 SyncRunner 干脆不写这个键，读的那边取不到就是 0，等于「没有结束时间」（只占开始那天）。
+     */
     fun events(context: Context): JSONArray {
         val raw = sp(context).getString(KEY_EVENTS, null) ?: return JSONArray()
         return try {

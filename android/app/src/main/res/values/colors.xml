@@ -11,7 +11,12 @@
     <color name="widget_row_text">#4b4b55</color>
     <color name="widget_row_text_done">#9a9aa5</color>
 
-    <!-- 课表小组件：一条课程一个浅靛蓝圆角底；正在上的那条，上过的部分用更深的靛蓝盖住 -->
+    <!-- 课表小组件：一条课程一个圆角底，颜色按课程名从 6 个浅色里取（见 drawable/widget_card*，
+         选色算法在 WidgetCard.kt）；正在上的那条，上过的部分盖一层深色。
+
+         深色用半透明黑而不是某个具体颜色：进度条的 progressDrawable 是布局里写死的**一个**
+         资源，没法跟着每行的底色走；中性深色压在任何一种浅底色上读起来都是「这段已经过去了」，
+         也不会跟卡片底色打架（原先只有靛蓝一种底色时，这里才是实心的 #B4B9FF） -->
     <color name="widget_chip">#E9EAFF</color>
-    <color name="widget_chip_fill">#B4B9FF</color>
+    <color name="widget_chip_fill">#2E000000</color>
 </resources>

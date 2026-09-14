@@ -1,15 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 今日活动小组件。活动行是 ListView（集合组件，数据见 EventsWidgetService）：今天几场活动就列几行，
-     装不下往下滚 —— 卡片结构与课表**完全一致**（三行文字 + 左侧彩条），两块摆在一起才是同一套东西。
+     装不下往下滚 —— 卡片结构与课表**完全一致**（三行文字 + 左侧彩条 + 同色浅底），
+     两块摆在一起才是同一套东西。
 
      行距**不能**靠 item 自己的 layout_margin：ListView 会忽略 item 根布局的 margin。
-     这里用 5dp 的透明 divider 当行距，标题到第一行的那 5dp 由列表的 paddingTop 给。 -->
+     这里用 4dp 的透明 divider 当行距，标题到第一行的那 3dp 由列表的 paddingTop 给。 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:padding="14dp"
+    android:paddingLeft="12dp"
+    android:paddingRight="12dp"
+    android:paddingTop="10dp"
+    android:paddingBottom="10dp"
     android:background="@drawable/widget_bg">
 
     <TextView
@@ -29,15 +33,15 @@
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:paddingTop="5dp"
+        android:paddingTop="3dp"
         android:divider="@android:color/transparent"
-        android:dividerHeight="5dp" />
+        android:dividerHeight="4dp" />
 
     <TextView
         android:id="@+id/widget_empty"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
+        android:layout_marginTop="6dp"
         android:text="@string/widget_empty"
         android:textColor="#8d8d98"
         android:textSize="13sp" />

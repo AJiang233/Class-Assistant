@@ -79,6 +79,10 @@ private class CoursesWidgetFactory(private val context: Context) :
         // 是各版本都通用的写法。代价是它只认纯色 —— 竖条没有圆角，靠 item 里给它的
         // 上下 margin 让开卡片圆角（见 widget_card_item.xml）。
         views.setInt(R.id.card_item_bar, "setBackgroundColor", barColor(course.name))
+        // 卡片底色 = 同一条竖条颜色的浅色版（与上一句同一份取色，两者永远配对），
+        // 用 setImageViewResource 换整块 shape 资源 —— 为什么非得走这一层 ImageView，
+        // 见 WidgetCard.kt 里 CARD_BG_DRAWABLES 的注释
+        views.setImageViewResource(R.id.card_item_bg, cardBgRes(course.name))
 
         // 正在上的那一节：进度条铺出「上到哪儿了」，课程名同时换成强调色。
         // 宽度交给 ProgressBar 的 level 去画（RemoteViews 设不了任意宽度），

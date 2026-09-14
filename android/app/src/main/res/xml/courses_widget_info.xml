@@ -3,16 +3,17 @@
      它只是兜底：真正的「换天」由 Scheduler.scheduleMidnightRefresh 的零点闹钟负责，
      内容变化则由同步成功后主动刷新（见 CoursesWidgetProvider.refreshAll）。
 
-     尺寸：长 4 格、高 3 格。格子数换算 dp 的公式是 min = 70n − 30（那是 n 格的上限），
-     于是 4 格 250dp、3 格 180dp —— 再大一点就跳成下一格，卡片周围多出整整一格空白。
+     尺寸：长 3 格、高 2 格。格子数换算 dp 的公式是 min = 70n − 30（那是 n 格的上限），
+     于是 3 格 180dp、2 格 110dp —— 写大一点就跳成下一格，卡片周围多出整整一格空白。
 
-     为什么是 3 格高：一张课卡是三行文字（开始时间 / 课程名 / 地点），约 50 多 dp，
-     2 格（110dp）扣掉标题与内边距只剩 59dp，一屏只完整露得下一张，「下节上什么」就看不见了，
-     而课表组件最有用的一眼正是这个。课卡本身仍是可滚动的列表（见 CoursesWidgetService），
-     课多的时候后面几节靠滚动，不靠格子高。改课卡行数 / 字号 / 内边距前先回来看这个算式。 -->
+     为什么改成 3×2（原先是 4 格 × 3 格 = 250dp × 180dp）：桌面上一格就是一块地方，
+     两块组件（这个 + 今日活动）并排只占 3×4，比原先省下一格宽、一格高。
+     代价是 110dp 扣掉标题与内边距后只完整露得下一张课卡，「今天还剩几节」要靠往下滚 ——
+     课卡本来就是可滚动的列表（见 CoursesWidgetService），课多时不会丢内容。
+     改课卡行数 / 字号 / 内边距前先回来看这个算式。 -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
-    android:minWidth="250dp"
-    android:minHeight="180dp"
+    android:minWidth="180dp"
+    android:minHeight="110dp"
     android:updatePeriodMillis="1800000"
     android:initialLayout="@layout/widget_courses"
     android:resizeMode="horizontal|vertical"

@@ -79,18 +79,25 @@ object SyncRunner {
         // 缓存下限取「今天 00:00」而不是「现在」：小工具只读这份缓存，标题又叫「今日活动」，
         // 所以一条今天已经开始（甚至已经结束）的活动也必须留着，否则正在进行的活动
         // 会显示成「今日暂无安排」。提醒不受影响 —— rescheduleAlarms 自己会跳过已开始的活动。
+        // 判据用的是**活动最后一天**而不是开始时间（下一行的注释），一条跨天的活动因此也留得住。
         val earliest = startOfToday(now)
         val rows = mutableListOf<Event>()
 
         for (row in activities) {
             val start = parseServerTime(row.optString("start_time")) ?: continue
-            if (start < earliest || start > horizon) continue
+            // end_time 服务端允许为空（空 = 只占开始那天），解析不出来时也按空处理
+            val end = parseServerTime(row.optString("end_time"))
+            // 下界按「活动的最后一天」判、上界按开始时间判：一条昨天开始、今天才结束的活动
+            // 今天仍在办（主页也还显示它），要是在这里按 start >= 今天 一刀切掉，小组件就会漏。
+            // earliest 就是「今天 00:00」，所以这一比就是比日期，与 Event.isEventActiveOnDay 同口径。
+            if (startOfToday(end ?: start) < earliest) continue
+            if (start > horizon) continue
             if (!isMine(row, meId, meName)) continue
             val id = row.optInt("id", 0)
             if (id == 0) continue
             val title = row.optString("title").ifBlank { "班级活动" }
             val location = row.optString("location").orEmpty()
-            rows.add(Event(id, title, start, location))
+            rows.add(Event(id, title, start, end, location))
         }
 
         val sorted = rows.sortedBy { it.startMillis }
@@ -99,6 +106,9 @@ object SyncRunner {
                 put("id", event.id)
                 put("title", event.title)
                 put("start", event.startMillis)
+                // 没有结束时间就**不写这个键**：小组件那边 optLong 取不到自然是 0，等于「没结束时间」，
+                // 写个 0 进去只是让缓存里多一个没意义的字段
+                event.endMillis?.let { put("end", it) }
                 put("location", event.location)
             }
         }))

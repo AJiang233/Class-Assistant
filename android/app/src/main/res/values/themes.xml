@@ -9,7 +9,7 @@
     </style>
 
     <!-- ===== 桌面小组件的卡片 =====
-         课表与今日活动用的是同一套卡片：一张浅靛蓝圆角卡，左侧一条彩色竖条，
+         课表与今日活动用的是同一套卡片：一张圆角卡（底色 = 左侧彩条的浅色版，每行一个色），
          卡里从上到下三行「时间 / 名称 / 地点」。布局也共用 widget_card_item.xml，
          所以这里的样式一律叫 WidgetCard*（不带某一侧的专属名）。 -->
 
@@ -21,13 +21,15 @@
          「上到一半」就变成一条悬在卡中间、上下够不到边的横带。卡内的留白由内容那层
          （widget_card_item.xml 里的 LinearLayout）自己加。
 
+         **这里也没有 background**：底色是每行一个颜色，画在 widget_card_item.xml 第一层
+         那支 ImageView 上（见那里的注释）。
+
          这里也**故意不写 layout_margin**：这套样式只给 ListView 的 item 用，而 ListView
          会忽略 item 根布局的 margin（变成 AbsListView.LayoutParams 时就丢了），写了也不生效。
          行距由列表的 dividerHeight / paddingTop 给。 -->
     <style name="WidgetCard">
         <item name="android:layout_width">match_parent</item>
         <item name="android:layout_height">wrap_content</item>
-        <item name="android:background">@drawable/widget_card</item>
     </style>
 
     <!-- 卡片上「已经过去的那一部分」。目前只有课表用（活动缓存里没有下课时间，算不出上到几成）。
