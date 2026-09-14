@@ -386,6 +386,30 @@ async function installApp() {
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', renderInstallEntry);
 else renderInstallEntry();
 
+/* ===== 网页通知：开启失败时给用户看的话 =====
+   为什么放在共享脚本里而不是 account.js：account.js 是带副作用的 IIFE（开头就 requireAuth、
+   结尾就 refreshNotify），没法单独取出一个函数来测；放这里能被 pwa.test.js 的沙箱直接取到。
+
+   COPY.md 第 7 节：浏览器抛的异常原文（subscribe 失败时是英文 DOMException）只进 console.error，
+   不给用户看。所以下面把能对上号的失败原因翻成人话，其余一律走最后那句 ——
+   浏览器还有一堆我们复现不了的失败原因，不逐个翻译。 */
+function pushSubscribeError(e) {
+  var name = (e && e.name) || '';
+  // 权限在 requestPermission 那一关被拒时，上面已经拦掉并提示过了；
+  // 这里兜住浏览器拖到 subscribe 才拒绝的情况（两条路都要给同一句话）
+  if (name === 'NotAllowedError') {
+    return '通知权限没拿到。请到系统设置里允许「班级助理」发通知后再试。';
+  }
+  // 公钥不合法：服务端 VAPID 密钥配错或换过密钥，用户在这台设备上做不了什么，指向管理员
+  if (name === 'InvalidAccessError' || name === 'InvalidCharacterError') {
+    return '推送服务配置有问题，这里开不了通知，请联系管理员。';
+  }
+  // 最典型的一种：Chrome / Edge 的推送服务是 Google 的 FCM，部分网络环境访问不到；
+  // 被裁剪过的国产浏览器可能整个没有推送服务 —— 两者报的都是同一句英文的
+  // "Registration failed - push service error"，用户在这台设备上无计可施，如实说明即可。
+  return '这台设备连不上浏览器的推送服务，网页通知暂时开不了。换个网络或浏览器可以再试；其它功能不受影响。';
+}
+
 /* 注册 Service Worker：提供离线壳，也是可安装与推送的前提。
    注册失败只意味着没有离线与推送，页面本身照常可用，所以只提示不抛错。 */
 if ('serviceWorker' in navigator) {

@@ -1814,6 +1814,9 @@ body.app-mode { overflow: hidden; }
 .profile-sub-tail { margin: 14px 0 0; }
 .profile-sub-wide { margin: 0 0 16px; }
 .profile-sub-even { margin: 14px 0 14px; }
+/* 一段说明里要换行（如后台通知状态行：第二行是系统待机档位）：靠 pre-line 认文本里的 \n，
+   这样两行仍属于同一个 <p>，不会吃到 .profile-sub-lead 那 14px 的段落间距 */
+.profile-sub-lines { white-space: pre-line; }
 /* 卡片下半区（通知 / 后台常驻 / 课程提醒 / 日历订阅…）：用一条分隔线与上一块断开 */
 .card-divider { margin-top: 24px; padding-top: 22px; border-top: 1px solid var(--separator); }
 

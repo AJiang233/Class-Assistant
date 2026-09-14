@@ -229,7 +229,11 @@ async function enablePush() {
         });
         await api('/api/push/subscribe', { method: 'POST', body: JSON.stringify(sub.toJSON()) });
     } catch (e) {
-        hintEl.textContent = '开启失败：' + (e && e.message ? e.message : e);
+        // 异常原文（subscribe 失败时是英文 DOMException）只进日志，不给用户看：COPY.md 第 7 节。
+        // 这里碰到的不是 api() 的错误 —— 那句是后端按 COPY.md 写好的中文，直接透传没问题；
+        // subscribe() 抛的是浏览器自己的话，得翻一道。
+        console.error('开启通知失败：', e);
+        hintEl.textContent = pushSubscribeError(e);
         if (btn) btn.disabled = false;
         return;
     }
@@ -407,12 +411,14 @@ refreshCourseCard();
 //   {"enabled":true,"running":true,"ignoringBattery":false,"standbyBucket":"active"}
 // 这几项都是 AOSP 公开 API 能如实回答的。厂商的「自启动」读不到，所以**不在**这个 JSON 里，
 // 页面上只能写一句「要你自己去确认」—— 编一个值显示给用户，比承认看不到更糟。
+// 系统给应用的待机档（AOSP StandbyBucket）五档都要能说出来：
+// 这一行要如实回答「目前被系统视作什么」，漏一档就会在该档上开天窗。
 var STANDBY_LABEL = {
-    active: '系统视作「活跃应用」',
-    working_set: '系统视作「常用应用」',
-    frequent: '系统视作「较常用应用」',
-    rare: '系统视作「很少用的应用」，后台任务会被压制',
-    restricted: '系统视作「受限应用」，后台任务基本跑不动'
+    active: '目前被系统视作「活跃应用」',
+    working_set: '目前被系统视作「常用应用」',
+    frequent: '目前被系统视作「较常用应用」',
+    rare: '目前被系统视作「很少用的应用」，后台任务会被压制',
+    restricted: '目前被系统视作「受限应用」，后台任务基本跑不动'
 };
 
 function readBackgroundStatus() {
@@ -420,6 +426,15 @@ function readBackgroundStatus() {
     try { return JSON.parse(CAHost.backgroundStatus() || '') || null; } catch (e) { return null; }
 }
 
+/**
+ * 后台通知状态行：分两行。
+ *   第一行 —— 常驻开没开、有没有允许后台运行；
+ *   第二行 —— 系统目前把本应用算作哪一档待机（`standbyBucket`），五档都如实写出来。
+ *
+ * 换行用 \n、由 .profile-sub-lines 的 white-space: pre-line 落地。不拆成两个 <p> 是因为
+ * .profile-sub-lead 的 14px 下边距会把两行拽成两段不相关的话（相邻兄弟的外边距会取最大值，
+ * 给第二行单独压 margin 也压不掉）—— 这两行本来就是同一段信息。
+ */
 function renderBackgroundStatus(info) {
     var status = document.getElementById('backgroundStatus');
     var hint = document.getElementById('backgroundHint');
@@ -428,6 +443,11 @@ function renderBackgroundStatus(info) {
     if (!status) return;
 
     var parts = [];
+    // 顺序是先「允许后台运行」、后「后台常驻状态」：与下面控件的先后（勾选框在前、按钮在后）
+    // 正好相反，不是写错了 —— 这个顺序是定的，别顺手「修」回去。
+    parts.push(info.ignoringBattery
+        ? '已允许后台运行'
+        : '未允许后台运行，手机放着不动时会收不到通知');
     if (info.enabled) {
         parts.push(info.running
             ? '后台常驻运行中'
@@ -435,12 +455,11 @@ function renderBackgroundStatus(info) {
     } else {
         parts.push('后台常驻已关闭');
     }
-    parts.push(info.ignoringBattery
-        ? '已允许后台运行'
-        : '未允许后台运行，手机放着不动时会收不到通知');
+
+    var lines = parts.join('；') + '。';
     var bucket = STANDBY_LABEL[info.standbyBucket];
-    if (bucket) parts.push(bucket);
-    status.textContent = parts.join('；') + '。';
+    if (bucket) lines += '\n' + bucket + '。';
+    status.textContent = lines;
 
     var btn = document.getElementById('batteryBtn');
     if (btn) btn.textContent = info.ignoringBattery ? '查看电池设置' : '允许后台运行';

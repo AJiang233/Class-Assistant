@@ -421,7 +421,7 @@ function loadApp({ ua, standalone = false, maxTouchPoints = 0, inShell = false, 
     TextDecoder
   };
   const factory = new Function(...Object.keys(sandbox),
-    APP_SOURCE + '\n;return { shouldOfferInstall: shouldOfferInstall, escAttr: escAttr, safeHref: safeHref };');
+    APP_SOURCE + '\n;return { shouldOfferInstall: shouldOfferInstall, escAttr: escAttr, safeHref: safeHref, pushSubscribeError: pushSubscribeError };');
   return factory(...Object.values(sandbox));
 }
 
@@ -470,4 +470,54 @@ test('safeHref 只放行站内路径与 http(s)，挡掉伪协议', () => {
   assert.equal(app.safeHref('javascript:alert(1)'), '');
   assert.equal(app.safeHref('data:text/html,<script>alert(1)</script>'), '');
   assert.equal(app.safeHref('   '), '');
+});
+
+// ===== 开启通知失败时的提示 =====
+// subscribe() 失败时浏览器抛的是英文 DOMException，最典型的一句就是
+// "Registration failed - push service error"（Chrome / Edge 连不上 FCM，国内网络常见）。
+// COPY.md 第 7 节要求这类原文只进 console.error，提示里只留「发生了什么 + 我该做什么」，
+// 所以这里既测分支命中，也守住「英文原文一个字都不许漏出去」。
+
+/** 造一个带指定 name 的异常，模拟浏览器抛出的各种 DOMException */
+const pushError = (name, message) => Object.assign(new Error(message || ''), { name });
+
+test('开启通知失败：按异常类型给出可读中文，且不出现异常原文', () => {
+  const app = loadApp({ ua: UA_PC_CHROME });
+
+  const denied = app.pushSubscribeError(pushError('NotAllowedError', 'Permission denied'));
+  assert.match(denied, /通知权限/);
+
+  const badKey = app.pushSubscribeError(pushError('InvalidAccessError', 'The provided applicationServerKey is not valid'));
+  assert.match(badKey, /联系管理员/);
+
+  const noService = app.pushSubscribeError(pushError('AbortError', 'Registration failed - push service error'));
+  assert.match(noService, /推送服务/);
+
+  for (const text of [denied, badKey, noService]) {
+    assert.ok(!/Registration failed|AbortError|NotAllowedError|DOMException|push service|applicationServerKey/i.test(text),
+      '英文异常原文不应出现在提示里：' + text);
+  }
+});
+
+test('开启通知失败：认不出的异常也有兜底话术，不会把空值甩给用户', () => {
+  const app = loadApp({ ua: UA_PC_CHROME });
+  // undefined / 没有 name 的异常都要落到默认那句，而不是返回空串或抛错
+  assert.ok(app.pushSubscribeError(undefined).length > 0);
+  assert.ok(app.pushSubscribeError(new Error('莫名其妙')).length > 0);
+});
+
+// ===== 后台通知状态行（仅 App 壳） =====
+// 状态行现在是两行：第一行「常驻 / 免电池优化」的现状，第二行「系统目前把本应用算作哪一档待机」。
+// account.js 是带副作用的 IIFE（开头 requireAuth、结尾一串 delegate），测试取不出函数来跑，
+// 所以这里只留一条有意义的源码断言：五档待机必须都能说出来 —— 漏一档，那一行就是空的，
+// 而用户正是靠它判断「是不是被系统压制了」。
+
+test('后台通知：系统待机档五档都能表达出来', () => {
+  const src = readFileSync(join(HERE, '../../assets/js/account.js'), 'utf8');
+  const at = src.indexOf('var STANDBY_LABEL');
+  assert.ok(at >= 0, '找不到档位映射表：可能被改名或搬走了，这条断言需要跟着改');
+  const map = src.slice(at, src.indexOf('function readBackgroundStatus', at));
+  for (const bucket of ['active', 'working_set', 'frequent', 'rare', 'restricted']) {
+    assert.ok(map.includes(bucket + ':'), '缺 ' + bucket + '：原生回这一档时第二行会空着');
+  }
 });
