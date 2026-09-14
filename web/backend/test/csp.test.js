@@ -128,6 +128,14 @@ test("script-src 不放行内联脚本与 eval", () => {
   assert.ok(/'self'/.test(script), 'script-src 至少放行同源脚本');
 });
 
+test('第三方来源白名单只留 Cloudflare 统计那一份', () => {
+  // 来源写死在这里是有意的：以后想再放行一个第三方脚本/接口，必须先改这条用例 ——
+  // 否则 CSP 会在「顺手加个域名」里悄悄退化成没有。
+  const sources = (name) => cspDirectives().get(name).split(/\s+/).filter((s) => s !== name);
+  assert.deepEqual(sources('script-src'), ["'self'", 'https://static.cloudflareinsights.com']);
+  assert.deepEqual(sources('connect-src'), ["'self'", 'https://cloudflareinsights.com']);
+});
+
 test("style-src 保留 'unsafe-inline'（页面里大量 style= 内联属性，去掉会崩版）", () => {
   const style = cspDirectives().get('style-src');
   assert.ok(style, '缺少 style-src');
