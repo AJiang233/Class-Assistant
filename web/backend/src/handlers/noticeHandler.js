@@ -3,7 +3,7 @@ import { success, error, jsonResponse } from '../utils/response.js';
 import { toLocalDateTime } from '../utils/datetime.js';
 import { pageLimit, pageOffset } from '../utils/query.js';
 import { isSafeLink } from '../utils/link.js';
-import { listByAudience } from '../utils/audience.js';
+import { canViewItem, loadViewer, listByAudience, withoutRemindPeople } from '../utils/audience.js';
 import { pushToRemindAudience } from '../utils/push.js';
 
 /**
@@ -71,7 +71,8 @@ export async function handleListNotices(request, env, user) {
 
     const noticeModel = new NoticeModel(env.DB);
     // 提醒对象为空的条目对「不计入班级管理」的人不可见（安卓推送读的也是这个接口）
-    const list = await listByAudience(env, user.positions,
+    const viewer = await loadViewer(env, user);
+    const list = await listByAudience(viewer,
       (l, o) => (scope === 'all' ? noticeModel.listAll(l, o) : noticeModel.list(l, o, date)),
       limit, offset);
 
@@ -114,11 +115,15 @@ export async function handleGetNotice(request, env, user, params) {
     const noticeModel = new NoticeModel(env.DB);
     const notice = await noticeModel.findById(id);
 
-    if (!notice) {
+    // 看不到的条目与不存在的条目回同一个 404：既挡住「不计入班级管理」的人按 id 取全班内容，
+    // 也不从状态码上泄露「这条内容确实存在」
+    const viewer = await loadViewer(env, user);
+    if (!notice || !canViewItem(notice.remind_people, viewer)) {
       return jsonResponse(error('通知不存在', 'NOTICE_NOT_FOUND'), 404);
     }
 
-    return jsonResponse(success(notice));
+    // 定向名单只回给能发文的人（编辑表单要拿它预填）
+    return jsonResponse(success(withoutRemindPeople(notice, viewer)));
   } catch (e) {
     console.error('获取通知失败:', e);
     return jsonResponse(error('获取通知失败', 'GET_NOTICE_FAILED'), 500);

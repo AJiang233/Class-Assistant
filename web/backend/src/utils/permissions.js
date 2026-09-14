@@ -17,21 +17,27 @@
 /** 「不计入班级管理」权限码（见 utils/audience.js 的可见性过滤） */
 export const PERM_EXCLUDE = 'class:exclude';
 
+/** 发布/修改内容权限码 */
+export const PERM_CONTENT_WRITE = 'content:write';
+
+/** 管理班级成员权限码 */
+export const PERM_USER_MANAGE = 'user:manage';
+
 export const ROLE_PERMISSIONS = {
-  '班长': ['content:write', 'user:manage'],
-  '团支书': ['content:write', 'user:manage'],
-  '学习委员': ['content:write']
+  '班长': [PERM_CONTENT_WRITE, PERM_USER_MANAGE],
+  '团支书': [PERM_CONTENT_WRITE, PERM_USER_MANAGE],
+  '学习委员': [PERM_CONTENT_WRITE]
 };
 
 /** 系统预置职位：不允许写进 roles 表覆盖全班权限 */
 export const RESERVED_ROLES = Object.freeze(['学生', '班长', '团支书', '学习委员']);
 
 /** 自定义职位只能拥有这几个权限点，禁止东拼出 admin 之类 */
-export const ALLOWED_PERMISSIONS = Object.freeze(['content:write', 'user:manage', PERM_EXCLUDE]);
+export const ALLOWED_PERMISSIONS = Object.freeze([PERM_CONTENT_WRITE, PERM_USER_MANAGE, PERM_EXCLUDE]);
 
 /**
  * 提醒对象是否等于「默认全班」：null / 空串 / [] 都算全班。
- * 与前端 index.html 的 remindMe()、formHandler 的 parseRemindNames 同一口径。
+ * 与前端 index.html 的 remindMe()、以及 utils/audience.js 的可见性判定同一口径。
  * 坏 JSON 保守按「有名单」处理，避免把定向通知误判成全班。
  */
 export function isEveryoneRemind(raw) {

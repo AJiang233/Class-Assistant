@@ -5,6 +5,7 @@ import { success, error, jsonResponse } from '../utils/response.js';
 import { buildCalendar } from '../utils/ics.js';
 import { parseLocalDateTime, addMinutes } from '../utils/datetime.js';
 import { clampInt } from '../utils/query.js';
+import { canView, loadViewer } from '../utils/audience.js';
 
 const CALENDAR_DOMAIN = 'class.qxwkstudio.top';
 const MAX_EVENTS = 200;
@@ -89,6 +90,9 @@ export async function handleCalendarFeed(request, env) {
     // key 无效是鉴权失败，不是「路由不存在」：用 403 以免和 404 混淆
     if (!user) return new Response('invalid key', { status: 403, headers: textHeaders });
 
+    // 订阅源与网页列表必须同一套可见性：key 只证明「你是谁」，不代表能看到全班内容
+    const viewer = await loadViewer(env, user);
+
     const options = parseOptions(url);
     // 边界按「天」对齐：past=0 表示从今天 0 点起（今天的内容仍然保留，全天事件也才不会被误判为过去）
     const DAY_MS = 24 * 60 * 60 * 1000;
@@ -103,6 +107,7 @@ export async function handleCalendarFeed(request, env) {
     const activityModel = new ActivityModel(env.DB);
     const activities = await activityModel.listAll(MAX_EVENTS, 0);
     for (const item of activities) {
+      if (!canView(item.remind_people, viewer)) continue;
       const start = parseLocalDateTime(item.start_time);
       if (start == null || start < from || start > to) continue;
       events.push({
@@ -121,6 +126,7 @@ export async function handleCalendarFeed(request, env) {
       const noticeModel = new NoticeModel(env.DB);
       const notices = await noticeModel.list(MAX_EVENTS, 0);
       for (const item of notices) {
+        if (!canView(item.remind_people, viewer)) continue;
         const day = String(item.publish_time || '').slice(0, 10);
         if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) continue;
         const at = parseLocalDateTime(`${day} 00:00:00`);
