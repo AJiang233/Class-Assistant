@@ -609,7 +609,7 @@ async function loadProfile() {
             + '<div class="info-list">'
             + '<div class="info-row"><span class="k">职务</span><span class="v">' + positionsChipsHTML(u.positions) + '</span></div>'
             + '<div class="info-row"><span class="k">联系方式</span>'
-            + '<span class="v" style="display:inline-flex;align-items:center;gap:10px;">'
+            + '<span class="v v-actions">'
             + '<span id="contactValue">' + esc(u.contact || '未填写') + '</span>'
             + '<button type="button" class="btn btn-outline btn-sm" data-act="open-contact-edit">修改</button>'
             + '</span></div>'

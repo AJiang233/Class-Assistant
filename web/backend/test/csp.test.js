@@ -1,9 +1,10 @@
 /**
- * CSP 与「内联脚本卫生」的静态检查。
+ * CSP 与「内联脚本 / 内联样式卫生」的静态检查。
  *
- * 为什么需要这组用例：script-src 去掉 'unsafe-inline' 之后，页面里任何内联 <script>
- * 或内联事件处理器（onclick 这类）都会被浏览器直接拦掉 —— 用户看到的是「按钮点了
- * 没反应」，而不是报错弹窗，很容易带着上线；靠手点也覆盖不全，所以直接扫源码。
+ * 为什么需要这组用例：script-src / style-src 去掉 'unsafe-inline' 之后，页面里任何内联
+ * <script>、内联事件处理器（onclick 这类）或内联 style 属性都会被浏览器丢掉 —— 用户看到的是
+ * 「按钮点了没反应」「样式莫名其妙没了」，而不是报错弹窗，很容易带着上线；靠手点也覆盖不全，
+ * 所以直接扫源码。
  *
  * 位置说明：本仓库只有一个测试运行器（`npm test` 跑 backend/test/*.test.js），
  * 所以测前端制品（web/*.html、web/_headers、web/sw.js）的用例也放在这里，读真实文件。
@@ -33,6 +34,10 @@ const handlersIn = (src) => [...src.matchAll(new RegExp(HANDLER_SRC, 'gi'))].map
 const SCRIPT_SRC = String.raw`<script(?![^>]*\bsrc=)[^>]*>`;
 const inlineScriptsIn = (src) => [...src.matchAll(new RegExp(SCRIPT_SRC, 'gi'))].map((m) => m[0]);
 
+/** 内联样式属性：style="..."，同样连 JS 字符串里拼出来的一起扫 */
+const STYLE_ATTR_SRC = String.raw`\sstyle\s*=\s*["']`;
+const styleAttrsIn = (src) => [...src.matchAll(new RegExp(STYLE_ATTR_SRC, 'gi'))].map((m) => m[0]);
+
 /** 前端脚本清单（assets/js 下的真实文件） */
 const scriptFiles = () => readdirSync(join(WEB, 'assets/js')).filter((f) => f.endsWith('.js'));
 
@@ -51,6 +56,25 @@ test('页面里没有内联 <script>（页面逻辑全部外置）', () => {
   for (const page of PAGES) {
     const hits = inlineScriptsIn(read(page + '.html'));
     assert.equal(hits.length, 0, `${page}.html 里还有内联脚本：${hits.join(', ')}`);
+  }
+});
+
+test('页面与脚本里都没有内联 style 属性（CSP 下会被整条丢掉）', () => {
+  // 注意是「整条丢掉」：style-src 不含 'unsafe-inline' 时，标签上的 style="…" 里
+  // 的声明一条都不会生效（不是只丢某一条），表现就是「样式莫名其妙没了」。
+  const files = [
+    ...PAGES.map((p) => p + '.html'),
+    ...scriptFiles().map((f) => 'assets/js/' + f)
+  ];
+  for (const rel of files) {
+    const hits = styleAttrsIn(read(rel));
+    assert.equal(hits.length, 0, `${rel} 里还有内联 style：${hits.join(', ')}`);
+  }
+});
+
+test('页面里没有 <style> 块（样式统一在 assets/css/style.css）', () => {
+  for (const page of PAGES) {
+    assert.equal(/<style[\s>]/i.test(read(page + '.html')), false, `${page}.html 里有内联 <style>`);
   }
 });
 
@@ -136,10 +160,11 @@ test('第三方来源白名单只留 Cloudflare 统计那一份', () => {
   assert.deepEqual(sources('connect-src'), ["'self'", 'https://cloudflareinsights.com']);
 });
 
-test("style-src 保留 'unsafe-inline'（页面里大量 style= 内联属性，去掉会崩版）", () => {
+test("style-src 只放行 'self'（内联样式已全部外置到 style.css）", () => {
   const style = cspDirectives().get('style-src');
   assert.ok(style, '缺少 style-src');
-  assert.ok(/unsafe-inline/.test(style), `style-src 需要 'unsafe-inline'：${style}`);
+  assert.ok(!/unsafe-inline/.test(style), `style-src 不该再放开内联样式：${style}`);
+  assert.ok(/'self'/.test(style), 'style-src 至少要放行同源样式表');
 });
 
 test('点击劫持与传输层相关的头都在，且 X-Frame-Options 用 SAMEORIGIN', () => {

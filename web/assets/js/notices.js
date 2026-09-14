@@ -164,7 +164,7 @@ async function showDetail(id) {
             : '';
         // 站内跳转用 target="_top"：通知页是嵌在主页 iframe 里的，跳外层才不会被套住
         var formBtn = n.link
-            ? '<a class="btn btn-primary btn-block" style="margin-top:12px;" href="' + escAttr(safeHref(n.link)) + '" target="_top">去填写</a>'
+            ? '<a class="btn btn-primary btn-block mt-12" href="' + escAttr(safeHref(n.link)) + '" target="_top">去填写</a>'
             : '';
         card.innerHTML =
             '<div class="detail-head"><div class="detail-title">' + esc(n.title) + '</div>' + badge + '</div>'

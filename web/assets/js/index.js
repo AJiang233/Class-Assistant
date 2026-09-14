@@ -19,7 +19,7 @@ var FRAME_KEYS = { academic: 'frameAcademic', activities: 'frameActivities', not
     fillAuthArea(authed, user);
     // 有发布权限或成员管理权限者可见"管理员"入口（仅侧边栏；手机端底栏不放，改由个人中心进入）
     if (canManageUsers() || canContentWrite()) {
-        document.getElementById('navAdmin').style.display = '';
+        document.getElementById('navAdmin').hidden = false;
     }
     if (authed) {
         loadCalendar().then(function () {
@@ -114,15 +114,15 @@ function switchView(key, slideDir) {
         mItems[mi].classList.toggle('active', mItems[mi].getAttribute('data-nav') === mobileKey);
     }
     moveBottomNavPill();
-    // 显示对应视图
+    // 显示对应视图（隐藏/显示统一走 hidden 属性，样式在 style.css 的 [hidden] 规则里）
     var isHome = key === 'home';
     var isLogin = key === 'login';
-    document.getElementById('homeView').style.display = isHome ? 'block' : 'none';
-    document.getElementById('loginView').style.display = isLogin ? 'block' : 'none';
+    document.getElementById('homeView').hidden = !isHome;
+    document.getElementById('loginView').hidden = !isLogin;
     for (var fk in FRAME_KEYS) {
         var f = document.getElementById(FRAME_KEYS[fk]);
         var show = !isHome && !isLogin && fk === key;
-        f.style.display = show ? 'block' : 'none';
+        f.hidden = !show;
         if (show && f.getAttribute('data-loaded') !== '1') {
             f.src = fk + '.html';
             f.setAttribute('data-loaded', '1');
@@ -542,7 +542,7 @@ async function showNoticeDetail(id) {
             + '<div class="detail-body">' + esc(n.content || '暂无通知内容') + '</div>'
             + byline
             + remindLine
-            + (n.link ? '<a class="btn btn-primary btn-block" style="margin-top:12px;" href="' + escAttr(safeHref(n.link)) + '">去填写</a>' : '');
+            + (n.link ? '<a class="btn btn-primary btn-block mt-12" href="' + escAttr(safeHref(n.link)) + '">去填写</a>' : '');
     } catch (err) {
         card.innerHTML = stateHTML(err.message, true);
     }

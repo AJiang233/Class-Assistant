@@ -33,7 +33,7 @@
                 <div class="split-col">
 
                     <!-- 添加通知 -->
-                    <div class="profile-card collapse" id="addNoticeCard" style="display:none;">
+                    <div class="profile-card collapse" id="addNoticeCard" hidden>
                         <button type="button" class="collapse-head" data-act="toggle-collapse" data-arg="addNoticeCard" aria-expanded="false">
                             <h2>添加通知</h2>
                             <svg class="collapse-arrow" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
@@ -65,7 +65,7 @@
                     </div>
 
                     <!-- 添加活动 -->
-                    <div class="profile-card collapse" id="addActivityCard" style="display:none;">
+                    <div class="profile-card collapse" id="addActivityCard" hidden>
                         <button type="button" class="collapse-head" data-act="toggle-collapse" data-arg="addActivityCard" aria-expanded="false">
                             <h2>添加活动</h2>
                             <svg class="collapse-arrow" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
@@ -101,7 +101,7 @@
                     </div>
 
                     <!-- 添加表单 -->
-                    <div class="profile-card collapse" id="addFormCard" style="display:none;">
+                    <div class="profile-card collapse" id="addFormCard" hidden>
                         <button type="button" class="collapse-head" data-act="toggle-collapse" data-arg="addFormCard" aria-expanded="false">
                             <h2>添加表单</h2>
                             <svg class="collapse-arrow" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
@@ -129,27 +129,27 @@
                                 </select>
                             </div>
                             <div class="form-field">
-                                <label style="display:block; margin:6px 0;"><input type="checkbox" id="fcAnonymous"> 匿名提交（只记录谁已交，不记录谁答了什么）</label>
+                                <label class="field-check"><input type="checkbox" id="fcAnonymous"> 匿名提交（只记录谁已交，不记录谁答了什么）</label>
                             </div>
                             <div class="form-field">
                                 <label class="form-label">字段</label>
                                 <div id="fcFields"></div>
-                                <button type="button" class="btn btn-outline btn-block" data-act="add-field-row" style="margin-top:8px;">添加字段</button>
+                                <button type="button" class="btn btn-outline btn-block mt-8" data-act="add-field-row">添加字段</button>
                             </div>
                             <div class="form-field">
                                 <label class="form-label">提交对象（未勾选则全班，用于算未交名单；不含「不计入班级管理」的职位）</label>
                                 <div id="fcRemind" class="remind-box"></div>
                             </div>
                             <div class="form-field">
-                                <label style="display:block; margin:6px 0;"><input type="checkbox" id="fcNotice"> 同时下发一条通知（带「去填写」按钮）</label>
-                                <input id="fcNoticeContent" class="form-input" type="text" placeholder="通知内容（选填）" autocomplete="off" style="margin-top:6px;">
+                                <label class="field-check"><input type="checkbox" id="fcNotice"> 同时下发一条通知（带「去填写」按钮）</label>
+                                <input id="fcNoticeContent" class="form-input mt-6" type="text" placeholder="通知内容（选填）" autocomplete="off">
                             </div>
                             <button type="button" class="btn btn-primary btn-block" id="fcSubmitBtn" data-act="submit-form-create">创建</button>
                         </div>
                     </div>
 
                     <!-- 管理表单 -->
-                    <div class="profile-card collapse" id="manageFormsCard" style="display:none;">
+                    <div class="profile-card collapse" id="manageFormsCard" hidden>
                         <button type="button" class="collapse-head" data-act="toggle-collapse" data-arg="manageFormsCard" aria-expanded="false">
                             <h2>管理表单</h2>
                             <svg class="collapse-arrow" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
@@ -164,7 +164,7 @@
                 <div class="split-col">
 
                     <!-- 管理成员 -->
-                    <div class="profile-card collapse" id="membersCard" style="display:none;">
+                    <div class="profile-card collapse" id="membersCard" hidden>
                         <button type="button" class="collapse-head" data-act="toggle-collapse" data-arg="membersCard" aria-expanded="false">
                             <h2>管理成员</h2>
                             <svg class="collapse-arrow" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
@@ -178,7 +178,7 @@
                     </div>
 
                     <!-- 添加成员 -->
-                    <div class="profile-card collapse" id="addMemberCard" style="display:none;">
+                    <div class="profile-card collapse" id="addMemberCard" hidden>
                         <button type="button" class="collapse-head" data-act="toggle-collapse" data-arg="addMemberCard" aria-expanded="false">
                             <h2>添加成员</h2>
                             <svg class="collapse-arrow" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
@@ -212,7 +212,7 @@
                     </div>
 
                     <!-- 管理职位 -->
-                    <div class="profile-card collapse" id="manageRolesCard" style="display:none;">
+                    <div class="profile-card collapse" id="manageRolesCard" hidden>
                         <button type="button" class="collapse-head" data-act="toggle-collapse" data-arg="manageRolesCard" aria-expanded="false">
                             <h2>管理职位</h2>
                             <svg class="collapse-arrow" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
@@ -223,7 +223,7 @@
                     </div>
 
                     <!-- 添加职位 -->
-                    <div class="profile-card collapse" id="addRoleCard" style="display:none;">
+                    <div class="profile-card collapse" id="addRoleCard" hidden>
                         <button type="button" class="collapse-head" data-act="toggle-collapse" data-arg="addRoleCard" aria-expanded="false">
                             <h2>添加职位</h2>
                             <svg class="collapse-arrow" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
@@ -236,9 +236,9 @@
                             </div>
                             <div class="form-field">
                                 <label class="form-label">该职位的权限（可选，不勾选则仅为称号）</label>
-                                <label style="display:block; margin:6px 0;"><input type="checkbox" id="rolePermWrite" value="content:write"> 可发布 / 修改 / 删除 活动、通知，创建 / 管理表单</label>
-                                <label style="display:block; margin:6px 0;"><input type="checkbox" id="rolePermManage" value="user:manage"> 可注册账号、管理班级成员、添加 / 管理职位</label>
-                                <label style="display:block; margin:6px 0;"><input type="checkbox" id="rolePermExclude" value="class:exclude"> 不计入班级管理（提醒对象为空时不算全班，需在提醒对象里明确勾选才通知）</label>
+                                <label class="field-check"><input type="checkbox" id="rolePermWrite" value="content:write"> 可发布 / 修改 / 删除 活动、通知，创建 / 管理表单</label>
+                                <label class="field-check"><input type="checkbox" id="rolePermManage" value="user:manage"> 可注册账号、管理班级成员、添加 / 管理职位</label>
+                                <label class="field-check"><input type="checkbox" id="rolePermExclude" value="class:exclude"> 不计入班级管理（提醒对象为空时不算全班，需在提醒对象里明确勾选才通知）</label>
                             </div>
                             <button type="button" class="btn btn-primary btn-block" id="roleAddBtn" data-act="add-role">添加职位</button>
                         </div>
@@ -297,13 +297,13 @@
                     <div class="form-field">
                         <label class="form-label">未交名单</label>
                         <div class="info-list" id="formPendingList"></div>
-                        <button type="button" class="btn btn-outline btn-block" data-act="copy-pending" style="margin-top:8px;">复制未交名单</button>
+                        <button type="button" class="btn btn-outline btn-block mt-8" data-act="copy-pending">复制未交名单</button>
                     </div>
                     <div class="form-field">
                         <label class="form-label">提交明细</label>
                         <!-- 按需加载：明细是「每人一条 × 全部答案」，最重的一个请求，点了才拉（见 loadFormSubs） -->
                         <button type="button" class="btn btn-outline btn-block" id="formSubsBtn" data-act="load-form-subs">查看提交明细</button>
-                        <div id="formSubsList" style="margin-top:8px;"></div>
+                        <div id="formSubsList" class="mt-8"></div>
                     </div>
                 </div>
                 <div class="modal-foot">
@@ -328,7 +328,7 @@
                         <label class="form-label" for="ftDeadline">截止时间（留空则长期开放）</label>
                         <input id="ftDeadline" class="form-input" type="datetime-local" data-empty-hint="未填写（长期开放）" autocomplete="off">
                     </div>
-                    <div class="form-field" style="margin-bottom:0;">
+                    <div class="form-field mb-0">
                         <label class="form-label" for="ftEditPolicy">允许修改</label>
                         <select id="ftEditPolicy" class="form-input">
                             <option value="before_deadline">截止前可修改</option>

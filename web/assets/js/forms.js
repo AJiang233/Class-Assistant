@@ -117,8 +117,8 @@ function applySubmitState() {
 function render(submittedAt, blockedReason) {
     formData.mySubmissionAt = submittedAt || '';
     canSubmitNow = !blockedReason;
-    document.getElementById('loadingView').style.display = 'none';
-    document.getElementById('formView').style.display = 'block';
+    document.getElementById('loadingView').hidden = true;
+    document.getElementById('formView').hidden = false;
     renderForm();
     if (blockedReason) showError(blockedReason);
 }

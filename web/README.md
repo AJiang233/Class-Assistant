@@ -23,7 +23,7 @@ web/                            # Cloudflare Pages 项目根目录（直接部�
 ├── admin.html                  # 管理员面板 —— 左栏 添加通知·添加活动·添加表单·管理表单，右栏 管理成员·添加成员·管理职位·添加职位（折叠区块，按权限显示）
 ├── forms.html                  # 表单填写页（iframe 内容页）—— 由首页「待填表单」或通知里的「去填写」进入，不在导航中
 ├── assets/
-│   ├── css/style.css           # 共享样式（液态玻璃主题变量 + 组件 + 响应式）
+│   ├── css/style.css           # 共享样式（液态玻璃主题变量 + 组件 + 响应式；末尾另有 CSP 配套的工具类/语义类）
 │   └── js/
 │       ├── theme.js            # 主题切换（在 <head> 同步执行，防浅色闪一下）
 │       ├── app.js              # API 封装 + 会话管理 + 权限判断 + 工具 + 事件委托 delegate()
@@ -461,12 +461,14 @@ CREATE INDEX IF NOT EXISTS idx_form_submissions_form ON form_submissions(form_id
   - **课程提醒**（偏好设置卡片里的 `#courseCard`，紧接「App 端通知」）：整块默认 `hidden`，只有检测到 `CAHost.courseReminderSettings` 才显示 —— 上课提醒要到点弹出，靠的是原生 `AlarmManager` 排期，网页版没有这个能力，给个点了没反应的开关不如不给。设置存在原生侧，网页只读写；桥返回 `{"lead":15,"atStart":true,"courseCount":23}`，其中 `courseCount` 是为了区分「今天没课」与「本机根本没有课表数据」——用户把开关打开却什么都没发生，得能看出是哪一种。改完即存（无保存按钮），原生侧立刻重排闹钟
 - **课表与学业**：`academic.html` —— 页内分「课表 / 学业达成」两个子标签（两端统一；切到学业达成时收起只对课表生效的学年学期筛选）；「课表」页为按节次网格渲染的课表（当前周高亮、非本周淡出，窄屏横向滚动）+ 未安排课程（接在课表下方，无数据时整块隐藏）；「学业达成」页为学分看板（要求/已获/在修/还需 + 逐课程体系明细）；未绑定时提供三条绑定路径（App 一键 / 学号密码代登录 / 手动粘贴 Cookie 并附分步指引）；账号开了多因子认证时，学号密码代登录会自动进入第二步（下发验证码 → 回填 → 完成绑定，带 60 秒重发倒计时）
 - **API 封装**：`assets/js/app.js` 提供 `api(path, options)`，自动附带 `Bearer` token、401 自动回登录页
-- **CSP 与事件绑定**：`_headers` 对全站下发 `Content-Security-Policy`，`script-src` 只放行 `'self'`（唯一例外是 Cloudflare 在边缘注入的 Web Analytics beacon 那个来源），因此**页面里不能再写内联 `<script>` 或内联 `onclick`** —— 写了会被浏览器直接拦掉，表现是「按钮点了没反应」（只有控制台有提示），而不是报错弹窗。
+- **CSP 与内联写法**：`_headers` 对全站下发 `Content-Security-Policy`，`script-src` 与 `style-src` 都只放行 `'self'`（唯一例外是 Cloudflare 在边缘注入的 Web Analytics beacon 那个来源），因此**页面里不能再写内联 `<script>`、内联 `onclick` 或内联 `style="..."`** —— 写了会被浏览器整条丢掉，表现是「按钮点了没反应」「样式莫名其妙没了」（只有控制台有提示），而不是报错弹窗。
   - 页面逻辑一律外置到 `assets/js/<页面名>.js`（每页一个），共享部分在 `app.js` / `theme.js`
   - 按钮用 `data-act="动作名"` 标记（带参数用 `data-arg`，带条目 id 用 `data-id`，值走 `escAttr()` 转义），在该页脚本末尾注册一次 `delegate(document, 'click', '[data-act="动作名"]', fn)`；列表 `innerHTML` 重绘后不用重新绑定
   - `index.html` 的视图切换与日历日期分别用 `data-view` / `data-date` 两个通用委托
-  - `style-src` 保留 `'unsafe-inline'`：页面里仍有大量 `style="..."` 内联属性（骨架屏、日历、提醒选择区等），去掉会崩版
-  - `backend/test/csp.test.js` 会扫源码把这类回退挡住（内联事件、内联脚本、`data-act` 双侧对齐、CSP 指令缺失）
+  - 样式一律写在 `assets/css/style.css`：原先散在标签上的边距/尺寸收成了文件末尾那组工具类（`.mt-*` / `.mb-*` / `.grow` / `.w-auto`）与语义类（`.card-title` / `.card-divider` / `.check-row` / `.fld-row` …），清单和取舍都写在文件末尾的注释里
+  - 隐藏/显示统一用 `hidden` 属性（`style.css` 顶部的 `[hidden]{display:none!important}`），JS 侧对应 `el.hidden = true/false`
+  - `el.style.width = …` / `setProperty(…)` 这类 **CSSOM 写法不受 CSP 限制**，滑块定位、学分进度条宽度、层级缩进这些动态值仍然留在 JS 里
+  - `backend/test/csp.test.js` 会扫源码把回退挡住（内联事件、内联脚本、内联 style、`<style>` 块、`data-act` 双侧对齐、CSP 指令与第三方白名单）
 - **主题**：`data-theme` 深浅色（液态玻璃风格），localStorage 记忆；未显式选择时跟随系统 `prefers-color-scheme`，应用壳与各 iframe 子页通过 `storage` 事件保持同步（侧边栏开关或「个性化」的改动会实时反映到另一侧）
 - `API_BASE` 保持 `''`（前后端同域，走 Pages Functions）
 
