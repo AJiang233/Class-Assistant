@@ -6,6 +6,8 @@ import { clampInt, pageLimit, pageOffset } from '../src/utils/query.js';
 import {
   ALLOWED_PERMISSIONS,
   assertCustomRoleName,
+  buildRoleMap,
+  getPermissions,
   isReservedRole,
   sanitizePermissions
 } from '../src/utils/permissions.js';
@@ -53,6 +55,25 @@ describe('自定义职位', () => {
   });
 });
 
+describe('权限查表健壮性', () => {
+  it('职位名撞上原型链成员时不抛错，也不意外授权', () => {
+    assert.deepEqual(Array.from(getPermissions(['constructor'])), []);
+    assert.deepEqual(Array.from(getPermissions(['toString'])), []);
+    assert.deepEqual(Array.from(getPermissions(['hasOwnProperty'])), []);
+  });
+
+  it('自定义职位名写成 __proto__ 既不改原型，也不误伤其它职位', () => {
+    const map = buildRoleMap([{ name: '__proto__', permissions: '["content:write"]' }]);
+    assert.equal(Object.getPrototypeOf(map), null);
+    // 确实是本表登记过的职位，按登记权限返回
+    assert.deepEqual(Array.from(getPermissions(['__proto__'], map)), ['content:write']);
+    // 未登记的名字拿不到任何权限
+    assert.deepEqual(Array.from(getPermissions(['文艺委员'], map)), []);
+    // 内置职位不受自定义表影响
+    assert.deepEqual(Array.from(getPermissions(['班长'], map)).sort(), ['content:write', 'user:manage']);
+  });
+});
+
 describe('密码哈希', () => {
   it('正确密码通过，错误密码拒绝', async () => {
     const { hash, salt } = await hashPassword('hello-world');
@@ -71,6 +92,30 @@ describe('JWT', () => {
     const expired = await sign({ id: 1 }, 'test-secret', -10);
     assert.equal(await verify(expired, 'test-secret'), null);
     assert.equal(await verify(token, 'other-secret'), null);
+  });
+
+  it('缺少 exp 或头部非 HS256 的令牌一律拒绝', async () => {
+    const secret = 'test-secret';
+    const b64u = (obj) => Buffer.from(JSON.stringify(obj)).toString('base64url');
+    const rawSign = async (header, payload) => {
+      const input = b64u(header) + '.' + b64u(payload);
+      const key = await crypto.subtle.importKey(
+        'raw',
+        new TextEncoder().encode(secret),
+        { name: 'HMAC', hash: 'SHA-256' },
+        false,
+        ['sign']
+      );
+      const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(input));
+      return input + '.' + Buffer.from(new Uint8Array(sig)).toString('base64url');
+    };
+
+    const now = Math.floor(Date.now() / 1000);
+    const noExp = await rawSign({ alg: 'HS256', typ: 'JWT' }, { id: 1, iat: now });
+    assert.equal(await verify(noExp, secret), null);
+
+    const wrongAlg = await rawSign({ alg: 'none', typ: 'JWT' }, { id: 1, exp: now + 60 });
+    assert.equal(await verify(wrongAlg, secret), null);
   });
 });
 

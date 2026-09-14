@@ -14,7 +14,9 @@ export function handleCors(request) {
   const headers = {
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    'Access-Control-Max-Age': '86400'
+    'Access-Control-Max-Age': '86400',
+    // 回显随 Origin 变化，必须声明 Vary，否则中间缓存可能把某个源的响应复用给别的源
+    Vary: 'Origin'
   };
   if (origin && allowedOrigins.includes(origin)) {
     headers['Access-Control-Allow-Origin'] = origin;

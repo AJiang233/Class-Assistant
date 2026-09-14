@@ -14,6 +14,8 @@ import {
 
 const PASSWORD_MIN = 6;
 const PASSWORD_MAX = 72;
+const NAME_MAX = 40;
+const CONTACT_MAX = 60;
 
 function publicUser(user, permissions) {
   return {
@@ -41,6 +43,9 @@ async function computePermissions(env, positions) {
     const customMap = buildRoleMap(await roleModel.list());
     return Array.from(getPermissions(positions, customMap));
   } catch (e) {
+    // roles 表读不出来时降级为内置权限，但必须留痕：
+    // 否则返回给前端的权限集与 middleware 实际鉴权结果不一致，问题无从观测
+    console.error('读取自定义职位权限失败，本次按内置职位计算:', e);
     return Array.from(getPermissions(positions));
   }
 }
@@ -57,7 +62,20 @@ export async function handleRegister(request, env) {
     if (!student_id || !name || !password) {
       return jsonResponse(error('学号、姓名、密码为必填字段', 'MISSING_FIELDS'), 400);
     }
-    if (String(password).length < PASSWORD_MIN || String(password).length > PASSWORD_MAX) {
+    // 姓名与联系方式会进成员列表、提醒对象选择器与 CSV 导出，长度必须有上限
+    const nameText = String(name).trim();
+    if (!nameText) {
+      return jsonResponse(error('姓名不能为空', 'MISSING_FIELDS'), 400);
+    }
+    if (nameText.length > NAME_MAX) {
+      return jsonResponse(error(`姓名最多 ${NAME_MAX} 个字符`, 'NAME_TOO_LONG'), 400);
+    }
+    const contactText = String(contact == null ? '' : contact).trim();
+    if (contactText.length > CONTACT_MAX) {
+      return jsonResponse(error(`联系方式最多 ${CONTACT_MAX} 个字符`, 'CONTACT_TOO_LONG'), 400);
+    }
+    const passwordText = String(password);
+    if (passwordText.length < PASSWORD_MIN || passwordText.length > PASSWORD_MAX) {
       return jsonResponse(error(`密码长度须为 ${PASSWORD_MIN}–${PASSWORD_MAX} 位`, 'WEAK_PASSWORD'), 400);
     }
 
@@ -92,16 +110,16 @@ export async function handleRegister(request, env) {
     }
 
     // 哈希密码
-    const { hash, salt } = await hashPassword(password);
+    const { hash, salt } = await hashPassword(passwordText);
     const passwordHash = `${salt}:${hash}`;  // 存储格式：盐值:哈希
 
     // 创建用户
     await userModel.create({
       student_id,
-      name,
+      name: nameText,
       password_hash: passwordHash,
       positions: positionsValue,
-      contact
+      contact: contactText
     });
 
     return jsonResponse(success({ message: '注册成功' }), 201);
@@ -226,7 +244,9 @@ export async function handleChangePassword(request, env, user) {
     if (!old_password || !new_password) {
       return jsonResponse(error('旧密码、新密码为必填字段', 'MISSING_FIELDS'), 400);
     }
-    if (new_password.length < PASSWORD_MIN || new_password.length > PASSWORD_MAX) {
+    // 先转字符串再比长度：非字符串入参的 .length 是 undefined，两个比较会同时为假而绕过校验
+    const newPassword = String(new_password);
+    if (newPassword.length < PASSWORD_MIN || newPassword.length > PASSWORD_MAX) {
       return jsonResponse(error(`新密码长度须为 ${PASSWORD_MIN}–${PASSWORD_MAX} 位`, 'WEAK_PASSWORD'), 400);
     }
 
@@ -242,7 +262,7 @@ export async function handleChangePassword(request, env, user) {
       return jsonResponse(error('旧密码错误', 'INVALID_OLD_PASSWORD'), 400);
     }
 
-    const { hash: newHash, salt: newSalt } = await hashPassword(new_password);
+    const { hash: newHash, salt: newSalt } = await hashPassword(newPassword);
     await userModel.update(existing.id, { password_hash: `${newSalt}:${newHash}` });
 
     return jsonResponse(success({ message: '密码修改成功' }));
@@ -331,13 +351,28 @@ export async function handleUpdateUser(request, env, user, params) {
     }
 
     const data = {};
-    if (name !== undefined) data.name = name;
+    if (name !== undefined) {
+      const value = String(name).trim();
+      if (!value) {
+        return jsonResponse(error('姓名不能为空', 'MISSING_FIELDS'), 400);
+      }
+      if (value.length > NAME_MAX) {
+        return jsonResponse(error(`姓名最多 ${NAME_MAX} 个字符`, 'NAME_TOO_LONG'), 400);
+      }
+      data.name = value;
+    }
     if (positions !== undefined) data.positions = positionsValue;
-    if (contact !== undefined) data.contact = contact;
+    if (contact !== undefined) {
+      const value = String(contact == null ? '' : contact).trim();
+      if (value.length > CONTACT_MAX) {
+        return jsonResponse(error(`联系方式最多 ${CONTACT_MAX} 个字符`, 'CONTACT_TOO_LONG'), 400);
+      }
+      data.contact = value;
+    }
     if (password !== undefined && password !== null && password !== '') {
       const pwd = String(password);
-      if (pwd.length < 6) {
-        return jsonResponse(error('密码长度至少 6 位', 'WEAK_PASSWORD'), 400);
+      if (pwd.length < PASSWORD_MIN || pwd.length > PASSWORD_MAX) {
+        return jsonResponse(error(`密码长度须为 ${PASSWORD_MIN}–${PASSWORD_MAX} 位`, 'WEAK_PASSWORD'), 400);
       }
       const { hash, salt } = await hashPassword(pwd);
       data.password_hash = `${salt}:${hash}`;

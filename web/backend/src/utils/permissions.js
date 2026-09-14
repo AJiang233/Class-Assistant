@@ -94,6 +94,17 @@ export function parsePositions(positions) {
 }
 
 /**
+ * 取某个职位的权限数组。
+ * 职位名来自用户可填的自由文本，一律只认自身属性且必须是数组：
+ * 否则 'constructor' / 'toString' 这类键会顺着原型链取到函数，导致迭代抛错。
+ */
+function rolePermissionList(map, role) {
+  if (!map || !Object.prototype.hasOwnProperty.call(map, role)) return [];
+  const value = map[role];
+  return Array.isArray(value) ? value : [];
+}
+
+/**
  * 汇总某用户可拥有的所有权限
  * @param {string|string[]} positions
  * @param {Object} [customMap] - 自定义职位权限映射 { 职位名: [权限...] }，来自 roles 表
@@ -102,10 +113,10 @@ export function parsePositions(positions) {
 export function getPermissions(positions, customMap = {}) {
   const set = new Set();
   for (const role of parsePositions(positions)) {
-    for (const perm of (ROLE_PERMISSIONS[role] || [])) {
+    for (const perm of rolePermissionList(ROLE_PERMISSIONS, role)) {
       set.add(perm);
     }
-    for (const perm of (customMap[role] || [])) {
+    for (const perm of rolePermissionList(customMap, role)) {
       set.add(perm);
     }
   }
@@ -125,18 +136,28 @@ export function hasPermission(positions, perm, customMap = {}) {
 
 /**
  * 把 roles 表行记录构建为 职位名->权限数组 映射
+ *
+ * 用无原型对象承载：职位名可直接来自客户端（自定义职位），写成 '__proto__' 时
+ * 普通对象会被改掉原型，后续所有查表结果都会跟着错。
  * @param {Array} roleRows - [{ name, permissions }]
  * @returns {Object}
  */
 export function buildRoleMap(roleRows) {
-  const map = {};
+  const map = Object.create(null);
   for (const r of (roleRows || [])) {
-    try {
-      const arr = JSON.parse(r.permissions);
-      map[r.name] = Array.isArray(arr) ? arr : [];
-    } catch {
-      map[r.name] = [];
-    }
+    const name = String(r && r.name != null ? r.name : '').trim();
+    if (!name) continue;
+    map[name] = parsePermissionJson(r.permissions);
   }
   return map;
+}
+
+/** roles.permissions 是 JSON 数组字符串；坏数据一律按空权限处理 */
+function parsePermissionJson(raw) {
+  try {
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
 }
