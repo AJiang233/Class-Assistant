@@ -55,6 +55,33 @@ async function schoolClientFromBinding(env, model, binding) {
 
 // ===== 通用工具 =====
 
+/**
+ * 读缓存 payload。缓存是可能被写坏的：写入被打断、手工改库、字段结构演进。
+ * 坏掉的缓存必须清掉再重抓 —— 否则每次请求都卡在同一个 JSON.parse 上变成 500，
+ * 而代码不会自愈，用户重试多少次都一样。
+ *
+ * 返回 null 表示「这条缓存不可用」，调用方按「没有缓存」继续走实时抓取。
+ * 清除失败也返回 null：这一轮照样能靠重抓给出结果，只是坏数据会留到下次再清。
+ *
+ * @param {{payload: string}} row 缓存行
+ * @param {() => Promise<any>} clear 清除这条缓存的回调
+ */
+export async function readCachePayload(row, clear) {
+  try {
+    const value = JSON.parse(row.payload);
+    if (value && typeof value === 'object' && !Array.isArray(value)) return value;
+    throw new Error(`缓存结构不是对象（${typeof value}）`);
+  } catch (e) {
+    console.error('教务缓存无法解析，清除后重新抓取:', e.message);
+    try {
+      await clear();
+    } catch (clearError) {
+      console.error('清除损坏的教务缓存失败:', clearError);
+    }
+    return null;
+  }
+}
+
 function num(value) {
   const n = Number(value);
   return Number.isFinite(n) ? n : 0;
@@ -522,9 +549,12 @@ export async function handleAcademicTimetable(request, env, user) {
 
   // 2. 缓存命中：未强制刷新且未过期，或教务当前不可达（此时优先把旧数据给出去）
   const cached = await model.getTimetable(user.id, xnxqId);
-  if (cached && (liveError || (!refresh && isFresh(cached.fetched_at)))) {
+  const cachedData = cached
+    ? await readCachePayload(cached, () => model.deleteTimetable(user.id, xnxqId))
+    : null;
+  if (cachedData && (liveError || (!refresh && isFresh(cached.fetched_at)))) {
     return jsonResponse(success({
-      ...JSON.parse(cached.payload),
+      ...cachedData,
       terms: buildTerms(terms, cachedTerms, xnxqId),
       fetchedAt: toIso(cached.fetched_at),
       fromCache: true,
@@ -585,9 +615,10 @@ export async function handleAcademicCredits(request, env, user) {
   if (!binding) return jsonResponse(error('尚未绑定教务系统', 'NOT_BOUND'), 400);
 
   const cached = await model.getCredits(user.id);
-  if (cached && !refresh && isFresh(cached.fetched_at)) {
+  const cachedData = cached ? await readCachePayload(cached, () => model.deleteCredits(user.id)) : null;
+  if (cachedData && !refresh && isFresh(cached.fetched_at)) {
     return jsonResponse(success({
-      ...JSON.parse(cached.payload),
+      ...cachedData,
       fetchedAt: toIso(cached.fetched_at),
       fromCache: true,
       stale: false
@@ -623,9 +654,9 @@ export async function handleAcademicCredits(request, env, user) {
       return jsonResponse(error(e.message, 'ACADEMIC_EXPIRED'), 400);
     }
     // 抓取失败但有旧缓存：先把旧数据给出去，页面标记为过期
-    if (cached) {
+    if (cachedData) {
       return jsonResponse(success({
-        ...JSON.parse(cached.payload),
+        ...cachedData,
         fetchedAt: toIso(cached.fetched_at),
         fromCache: true,
         stale: true,
