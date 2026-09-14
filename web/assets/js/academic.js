@@ -169,7 +169,7 @@ function resetMfaStep() {
 
 /** 第二步：下发验证码（带 60 秒倒计时，避免连点） */
 async function doMfaSend() {
-    if (!mfaToken) { showFormError('bindError', '认证会话已结束，请返回上一步重新输入'); return; }
+    if (!mfaToken) { showFormError('bindError', '二次验证已超时，请返回上一步重新输入'); return; }
     var btn = document.getElementById('mfaSendBtn');
     btn.disabled = true; btn.textContent = '发送中…';
     try {
@@ -204,7 +204,7 @@ function startMfaCountdown(seconds) {
 async function doMfaVerify() {
     var code = document.getElementById('mfaCode').value.trim();
     if (!code) { showFormError('bindError', '请填写验证码'); return; }
-    if (!mfaToken) { showFormError('bindError', '认证会话已结束，请返回上一步重新输入'); return; }
+    if (!mfaToken) { showFormError('bindError', '二次验证已超时，请返回上一步重新输入'); return; }
 
     var btn = document.getElementById('mfaVerifyBtn');
     btn.disabled = true; btn.textContent = '验证中…';

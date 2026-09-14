@@ -245,7 +245,7 @@ export class SyncService {
         continue;
       }
       const title: string = row.title.length > 0 ? row.title : '待填表单';
-      await NoticeService.publishNotice(Constants.TODO_ID_BASE + id, '新表单：' + title,
+      await NoticeService.publishNotice(Constants.TODO_ID_BASE + id, '新的待填表单：' + title,
         '待填表单，点击打开填写', DeepLink.form(id));
     }
 

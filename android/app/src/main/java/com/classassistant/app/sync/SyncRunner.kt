@@ -234,7 +234,7 @@ object SyncRunner {
             Notifier.notifyNotice(
                 context,
                 FORM_ID_BASE + id,
-                "新表单：$title",
+                "新的待填表单：$title",
                 "待填表单，点击打开填写",
                 "forms.html?id=$id"
             )
@@ -328,7 +328,7 @@ object SyncRunner {
             "notice" -> Api.get("/api/notices?scope=all&limit=1", token)
             else -> return "未知的推送类型"
         }
-        if (res is Api.Res.Unauthorized) return "登录态已失效，请重新登录后再试"
+        if (res is Api.Res.Unauthorized) return "登录态已失效，请重新登录"
         // 取最新一条：两个列表接口都是最新在前（活动按 start_time DESC，通知按 publish_time DESC）
         val row = res.listOrNull()?.firstOrNull() ?: return "没有拉到数据，请检查网络"
         val id = row.optInt("id", 0)
@@ -345,7 +345,7 @@ object SyncRunner {
                 if (start != null) "${formatDayClock(start)} 开始" else "即将开始",
                 row.optString("location")
             )
-            "已推送活动：$title"
+            "已发送活动提醒：$title"
         } else {
             val title = row.optString("title").ifBlank { "班级通知" }
             Notifier.notifyNotice(
@@ -355,7 +355,7 @@ object SyncRunner {
                 row.optString("content").replace("\n", " ").take(120).ifBlank { "点击查看详情" },
                 "?view=notices&id=$id"
             )
-            "已推送通知：$title"
+            "已发送通知提醒：$title"
         }
     }
 }

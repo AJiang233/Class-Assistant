@@ -21,10 +21,10 @@ export async function handleCreateNotice(request, env, user, ctx) {
     const { title, content, publish_time, remind_people = null, expire_time = null, link = null } = body;
 
     if (!title || !content || !publish_time) {
-      return jsonResponse(error('标题、内容、发布时间为必填字段', 'MISSING_FIELDS'), 400);
+      return jsonResponse(error('请填写标题、内容和发布时间', 'MISSING_FIELDS'), 400);
     }
     if (!isSafeLink(link)) {
-      return jsonResponse(error('跳转地址只能是站内路径', 'INVALID_LINK'), 400);
+      return jsonResponse(error('跳转地址只能是本站页面', 'INVALID_LINK'), 400);
     }
 
     const remind = remind_people ? JSON.stringify(remind_people) : null;
@@ -54,7 +54,7 @@ export async function handleCreateNotice(request, env, user, ctx) {
     return jsonResponse(success({ message: '通知发布成功' }), 201);
   } catch (e) {
     console.error('发布通知失败:', e);
-    return jsonResponse(error('发布通知失败', 'CREATE_NOTICE_FAILED'), 500);
+    return jsonResponse(error('发布通知失败，请稍后重试', 'CREATE_NOTICE_FAILED'), 500);
   }
 }
 
@@ -117,7 +117,7 @@ export async function handleGetNotice(request, env, user, params) {
   try {
     const id = parseInt(params.id);
     if (!id) {
-      return jsonResponse(error('无效的通知ID', 'INVALID_ID'), 400);
+      return jsonResponse(error('通知不存在', 'INVALID_ID'), 400);
     }
 
     const noticeModel = new NoticeModel(env.DB);
@@ -145,7 +145,7 @@ export async function handleUpdateNotice(request, env, user, params) {
   try {
     const id = parseInt(params.id);
     if (!id) {
-      return jsonResponse(error('无效的通知ID', 'INVALID_ID'), 400);
+      return jsonResponse(error('通知不存在', 'INVALID_ID'), 400);
     }
 
     const noticeModel = new NoticeModel(env.DB);
@@ -159,7 +159,7 @@ export async function handleUpdateNotice(request, env, user, params) {
     // 归属校验：content:write 只说明「能发内容」，不等于「能改别人发的内容」
     const viewer = await loadViewer(env, user);
     if (!canManageItem(existing, viewer)) {
-      return jsonResponse(error('只能修改自己发布的通知', 'FORBIDDEN'), 403);
+      return jsonResponse(error('只能编辑自己发布的通知', 'FORBIDDEN'), 403);
     }
 
     const body = await request.json().catch(() => ({}));
@@ -178,17 +178,17 @@ export async function handleUpdateNotice(request, env, user, params) {
     }
     if (body.link !== undefined) {
       if (!isSafeLink(body.link)) {
-        return jsonResponse(error('跳转地址只能是站内路径', 'INVALID_LINK'), 400);
+        return jsonResponse(error('跳转地址只能是本站页面', 'INVALID_LINK'), 400);
       }
       payload.link = body.link ? String(body.link).trim() : null;
     }
 
     await noticeModel.update(id, payload);
 
-    return jsonResponse(success({ message: '通知更新成功' }));
+    return jsonResponse(success({ message: '通知已保存' }));
   } catch (e) {
     console.error('更新通知失败:', e);
-    return jsonResponse(error('更新通知失败', 'UPDATE_NOTICE_FAILED'), 500);
+    return jsonResponse(error('保存通知失败，请稍后重试', 'UPDATE_NOTICE_FAILED'), 500);
   }
 }
 
@@ -199,7 +199,7 @@ export async function handleDeleteNotice(request, env, user, params) {
   try {
     const id = parseInt(params.id);
     if (!id) {
-      return jsonResponse(error('无效的通知ID', 'INVALID_ID'), 400);
+      return jsonResponse(error('通知不存在', 'INVALID_ID'), 400);
     }
 
     const noticeModel = new NoticeModel(env.DB);

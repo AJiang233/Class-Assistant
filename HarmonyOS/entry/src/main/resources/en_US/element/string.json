@@ -2,7 +2,7 @@
   "string": [
     {
       "name": "module_desc",
-      "value": "Class Assistant for HarmonyOS"
+      "value": "Class Assistant"
     },
     {
       "name": "EntryAbility_desc",
@@ -17,6 +17,10 @@
       "value": "Today's Events"
     },
     {
+      "name": "widget_title_of",
+      "value": "%s's events today"
+    },
+    {
       "name": "widget_desc",
       "value": "Shows today's class events"
     },
@@ -25,16 +29,20 @@
       "value": "Today's Events"
     },
     {
+      "name": "widget_title_of",
+      "value": "%s's events today"
+    },
+    {
       "name": "widget_empty",
       "value": "No events today"
     },
     {
       "name": "channel_activity",
-      "value": "Event reminders"
+      "value": "Class activity reminders"
     },
     {
       "name": "channel_activity_desc",
-      "value": "Remind 30 minutes before an event starts"
+      "value": "Remind 30 minutes before a class activity starts"
     },
     {
       "name": "channel_notice",

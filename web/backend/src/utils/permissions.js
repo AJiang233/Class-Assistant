@@ -73,7 +73,7 @@ export function assertCustomRoleName(name) {
   const trimmed = String(name || '').trim();
   if (!trimmed) return { ok: false, message: '职位名称不能为空', code: 'INVALID_ROLE' };
   if (isReservedRole(trimmed)) {
-    return { ok: false, message: '不能把系统预置职位当自定义职位写入权限表', code: 'RESERVED_ROLE' };
+    return { ok: false, message: '系统预置职位不能改为自定义职位', code: 'RESERVED_ROLE' };
   }
   if (trimmed.length > 20) {
     return { ok: false, message: '职位名称最多 20 个字符', code: 'ROLE_TOO_LONG' };

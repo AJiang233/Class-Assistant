@@ -16,18 +16,18 @@ const MAX_UA_LEN = 200;
 /** 校验订阅对象：endpoint 必须是 https，两个密钥必须是非空字符串 */
 function validSubscription(body) {
   const endpoint = body && typeof body.endpoint === 'string' ? body.endpoint.trim() : '';
-  if (!endpoint || endpoint.length > MAX_ENDPOINT_LEN) return { ok: false, message: '订阅地址不合法' };
+  if (!endpoint || endpoint.length > MAX_ENDPOINT_LEN) return { ok: false, message: '这台设备的订阅信息不完整，请重新开启通知' };
   try {
-    if (new URL(endpoint).protocol !== 'https:') return { ok: false, message: '订阅地址必须是 https' };
+    if (new URL(endpoint).protocol !== 'https:') return { ok: false, message: '这台设备的订阅信息不完整，请重新开启通知' };
   } catch {
-    return { ok: false, message: '订阅地址不合法' };
+    return { ok: false, message: '这台设备的订阅信息不完整，请重新开启通知' };
   }
 
   const keys = (body && body.keys) || {};
   const p256dh = typeof keys.p256dh === 'string' ? keys.p256dh.trim() : '';
   const auth = typeof keys.auth === 'string' ? keys.auth.trim() : '';
-  if (!p256dh || p256dh.length > MAX_KEY_LEN) return { ok: false, message: '公钥不合法' };
-  if (!auth || auth.length > MAX_KEY_LEN) return { ok: false, message: '认证密钥不合法' };
+  if (!p256dh || p256dh.length > MAX_KEY_LEN) return { ok: false, message: '这台设备的订阅信息不完整，请重新开启通知' };
+  if (!auth || auth.length > MAX_KEY_LEN) return { ok: false, message: '这台设备的订阅信息不完整，请重新开启通知' };
 
   return { ok: true, endpoint, p256dh, auth };
 }
@@ -47,7 +47,7 @@ export async function handlePushConfig(request, env, user) {
     }));
   } catch (e) {
     console.error('获取推送配置失败:', e);
-    return jsonResponse(error('获取推送配置失败', 'PUSH_CONFIG_FAILED'), 500);
+    return jsonResponse(error('获取推送配置失败，请稍后重试', 'PUSH_CONFIG_FAILED'), 500);
   }
 }
 
@@ -82,13 +82,13 @@ export async function handlePushUnsubscribe(request, env, user) {
   try {
     const body = await request.json().catch(() => ({}));
     const endpoint = body && typeof body.endpoint === 'string' ? body.endpoint.trim() : '';
-    if (!endpoint) return jsonResponse(error('缺少订阅地址', 'MISSING_ENDPOINT'), 400);
+    if (!endpoint) return jsonResponse(error('这台设备的订阅信息不完整，请重新开启通知', 'MISSING_ENDPOINT'), 400);
 
     await new PushSubscriptionModel(env.DB).removeOwn(user.id, endpoint);
     return jsonResponse(success({ message: '已关闭通知' }));
   } catch (e) {
     console.error('退订失败:', e);
-    return jsonResponse(error('退订失败', 'PUSH_UNSUBSCRIBE_FAILED'), 500);
+    return jsonResponse(error('关闭通知失败，请稍后重试', 'PUSH_UNSUBSCRIBE_FAILED'), 500);
   }
 }
 
@@ -99,11 +99,11 @@ export async function handlePushUnsubscribe(request, env, user) {
 export async function handlePushTest(request, env, user) {
   try {
     const vapid = vapidConfig(env);
-    if (!vapid) return jsonResponse(error('服务端未配置推送密钥', 'PUSH_DISABLED'), 503);
+    if (!vapid) return jsonResponse(error('推送功能暂时不可用，请稍后重试', 'PUSH_DISABLED'), 503);
 
     const model = new PushSubscriptionModel(env.DB);
     const subs = await model.listByUsers([user.id]);
-    if (!subs.length) return jsonResponse(error('本机还没有订阅通知', 'NO_SUBSCRIPTION'), 400);
+    if (!subs.length) return jsonResponse(error('这台设备还没开启通知', 'NO_SUBSCRIPTION'), 400);
 
     const message = {
       title: '测试通知',

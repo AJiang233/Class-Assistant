@@ -32,7 +32,7 @@ describe('全局错误边界', () => {
     assert.match(res.headers.get('Content-Type') || '', /application\/json/);
     assert.deepEqual(await res.json(), {
       success: false,
-      error: '服务器内部错误',
+      error: '服务器出错了，请稍后重试',
       code: 'INTERNAL_ERROR'
     });
   });

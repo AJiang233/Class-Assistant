@@ -623,7 +623,7 @@ class MainActivity : AppCompatActivity() {
             val message = when {
                 ok -> "教务系统绑定成功"
                 parsed != null -> parsed.optString("error").takeIf { it.isNotBlank() } ?: "绑定失败，请重试"
-                res is Api.Res.Unauthorized -> "登录已过期，请重新登录后再绑定"
+                res is Api.Res.Unauthorized -> "登录态已失效，请重新登录"
                 else -> "网络异常，绑定失败"
             }
             runOnUiThread {

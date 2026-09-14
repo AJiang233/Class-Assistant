@@ -19,7 +19,7 @@ export const DESKTOP_UA =
 
 /** 登录态失效（教务重定向到统一身份认证，返回的是 HTML 而不是 JSON） */
 export class SchoolSessionExpired extends Error {
-  constructor(message = '教务系统登录态已失效，请重新绑定') {
+  constructor(message = '教务登录态已过期，请重新登录教务系统') {
     super(message);
     this.name = 'SchoolSessionExpired';
   }
