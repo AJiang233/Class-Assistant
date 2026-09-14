@@ -197,17 +197,10 @@
                     </div>
                 </div>
 
-                <!-- 右列：管理员入口（仅手机端）+ 安装到桌面 + 修改密码 + 退出登录 + 关于软件。
-                     这一串都是「一两行的短卡」，不折叠 —— 收起来省不了多少空间，还多点一下。
-                     它们的高度正好把右列垫到与左列齐平（量过：网页版下左 727 / 右 715）。 -->
+                <!-- 右列：安装到桌面 + 修改密码 + 管理员入口（仅手机端）+ 退出登录 + 关于软件。
+                     手机端会合并成单列，所以这里的顺序就是手机上的顺序：收起来的短卡在上、
+                     带按钮的大卡在下，一路划下来不会忽大忽小；桌面端按高度与左列对齐。 -->
                 <div class="split-col">
-                    <!-- 管理员面板入口（仅手机端；桌面端侧边栏已有该项） -->
-                    <div class="profile-card only-mobile" id="adminEntryCard">
-                        <h2 class="card-title">管理员面板</h2>
-                        <p class="profile-sub profile-sub-wide">发布通知与活动、管理班级成员。</p>
-                        <button class="btn btn-primary btn-block" type="button" data-act="open-admin">进入管理员面板</button>
-                    </div>
-
                     <!-- 安装到桌面：只有 iOS 与 PC 会显示（由 app.js 的 shouldOfferInstall() 判定）。
                          安卓 / 鸿蒙都已有原生 App，壳内靠 CAHost 桥识别后整块隐藏。 -->
                     <div class="profile-card" id="installCard" hidden>
@@ -242,6 +235,14 @@
                                 <button class="btn btn-primary btn-block" id="pwdBtn" type="submit">保存</button>
                             </form>
                         </div>
+                    </div>
+
+                    <!-- 管理员面板入口（仅手机端；桌面端侧边栏已有该项）。
+                         排在修改密码之后：手机端一路划下来，收起的短卡都在上面，带按钮的大卡在下面。 -->
+                    <div class="profile-card only-mobile" id="adminEntryCard">
+                        <h2 class="card-title">管理员面板</h2>
+                        <p class="profile-sub profile-sub-wide">发布通知与活动、管理班级成员。</p>
+                        <button class="btn btn-primary btn-block" type="button" data-act="open-admin">进入管理员面板</button>
                     </div>
 
                     <div class="profile-card card-danger">
