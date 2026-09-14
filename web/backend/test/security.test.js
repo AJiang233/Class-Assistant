@@ -12,6 +12,7 @@ import {
 import { hashPassword, verifyPassword } from '../src/utils/crypto.js';
 import { sign, verify } from '../src/utils/jwt.js';
 import { isSealed, openCookies, sealCookies } from '../src/utils/cookieVault.js';
+import { toLocalDateTime, parseLocalDateTime } from '../src/utils/datetime.js';
 import { MFA_MAX_ATTEMPTS } from '../src/models/academicModel.js';
 
 describe('sameStudentId', () => {
@@ -28,9 +29,30 @@ describe('query clamp', () => {
     assert.equal(clampInt('999999', 1, 100, 50), 100);
     assert.equal(clampInt('-3', 1, 100, 50), 1);
     assert.equal(clampInt('abc', 1, 100, 50), 50);
+    assert.equal(clampInt('10abc', 1, 100, 50), 50);
+    assert.equal(clampInt('1e9', 1, 100, 50), 50);
+    assert.equal(clampInt(' 42 ', 1, 100, 50), 42);
     const url = new URL('https://x.test/api/notices?limit=999999&offset=-10');
     assert.equal(pageLimit(url), 100);
     assert.equal(pageOffset(url), 0);
+  });
+});
+
+describe('本地时间解析', () => {
+  it('格式正确但越界的值一律落空，不静默进位', () => {
+    assert.equal(toLocalDateTime('2026-02-30 10:00'), null);
+    assert.equal(toLocalDateTime('2026-13-01 10:00'), null);
+    assert.equal(toLocalDateTime('2026-01-01 25:00'), null);
+    assert.equal(toLocalDateTime('2026-01-01 10:60'), null);
+    assert.equal(parseLocalDateTime('2026-02-30 10:00'), null);
+  });
+
+  it('合法值照常归一化，秒缺省补 00', () => {
+    assert.equal(toLocalDateTime('2026-09-10T21:09'), '2026-09-10 21:09:00');
+    assert.equal(toLocalDateTime('2026-09-10 21:09:30'), '2026-09-10 21:09:30');
+    assert.equal(toLocalDateTime(''), null);
+    assert.equal(toLocalDateTime('随便写的'), null);
+    assert.equal(toLocalDateTime('2026-09-10 21:09 后面还有字'), null);
   });
 });
 
