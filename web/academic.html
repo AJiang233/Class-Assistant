@@ -529,7 +529,7 @@
         var sel = document.getElementById('termSelect');
         var list = terms || [];
         sel.innerHTML = list.map(function (t) {
-            return '<option value="' + esc(t.id) + '"' + (t.id === current ? ' selected' : '') + '>'
+            return '<option value="' + escAttr(t.id) + '"' + (t.id === current ? ' selected' : '') + '>'
                 + esc(t.name) + (t.current ? '（当前学期）' : '') + '</option>';
         }).join('');
     }

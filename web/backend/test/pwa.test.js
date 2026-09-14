@@ -406,7 +406,7 @@ function loadApp({ ua, standalone = false, maxTouchPoints = 0, inShell = false, 
     TextDecoder
   };
   const factory = new Function(...Object.keys(sandbox),
-    APP_SOURCE + '\n;return { shouldOfferInstall: shouldOfferInstall };');
+    APP_SOURCE + '\n;return { shouldOfferInstall: shouldOfferInstall, escAttr: escAttr, safeHref: safeHref };');
   return factory(...Object.values(sandbox));
 }
 
@@ -433,3 +433,26 @@ for (const [name, opts, want] of INSTALL_CASES) {
     assert.equal(loadApp(opts).shouldOfferInstall(), want);
   });
 }
+
+// ===== 属性转义与 href 白名单 =====
+// esc() 走 textContent→innerHTML，只保证 & < > 安全、不转义引号，所以只能用于文本节点；
+// 插进 ="..." 的属性值必须走 escAttr，否则成员姓名/职位名里的一个 " 就能闭合属性注入脚本。
+
+test('escAttr 转义引号与尖括号，属性无法被闭合', () => {
+  const app = loadApp({ ua: UA_PC_CHROME });
+  assert.equal(app.escAttr('张" onmouseover="alert(1)'), '张&quot; onmouseover=&quot;alert(1)');
+  assert.equal(app.escAttr("a'b"), 'a&#39;b');
+  assert.equal(app.escAttr('<script>'), '&lt;script&gt;');
+  assert.equal(app.escAttr('a&b'), 'a&amp;b');
+  assert.equal(app.escAttr(null), '');
+  assert.equal(app.escAttr(undefined), '');
+});
+
+test('safeHref 只放行站内路径与 http(s)，挡掉伪协议', () => {
+  const app = loadApp({ ua: UA_PC_CHROME });
+  assert.equal(app.safeHref('/forms.html?id=1'), '/forms.html?id=1');
+  assert.equal(app.safeHref('https://github.com/AJiang233/Class-Assistant'), 'https://github.com/AJiang233/Class-Assistant');
+  assert.equal(app.safeHref('javascript:alert(1)'), '');
+  assert.equal(app.safeHref('data:text/html,<script>alert(1)</script>'), '');
+  assert.equal(app.safeHref('   '), '');
+});

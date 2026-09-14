@@ -623,7 +623,7 @@
                     + '<div class="list-row-main">'
                     + '<div class="list-row-title">'
                     + '<span class="list-row-name">' + esc(n.title) + '</span>'
-                    + '<span class="badge badge-' + esc(n.source || 'manual') + '">' + esc(sourceName(n.source)) + '</span>'
+                    + '<span class="badge badge-' + escAttr(n.source || 'manual') + '">' + esc(sourceName(n.source)) + '</span>'
                     + formBadge
                     + '</div>'
                     + '<div class="list-row-meta">'
@@ -757,7 +757,7 @@
         try {
             var res = await api('/api/notices/' + id);
             var n = res.data;
-            var badge = '<span class="badge badge-' + esc(n.source || 'manual') + '">' + esc(sourceName(n.source)) + '</span>'
+            var badge = '<span class="badge badge-' + escAttr(n.source || 'manual') + '">' + esc(sourceName(n.source)) + '</span>'
                 + (n.link ? '<span class="badge badge-form">表单</span>' : '');
             var meta = '<span>' + icon('clock') + '发布 ' + esc(fmtDate(n.publish_time)) + '</span>';
             if (n.expire_time) meta += '<span>' + icon('clock') + '截止 ' + esc(fmtDate(n.expire_time)) + '</span>';
@@ -770,7 +770,7 @@
                 + '<div class="detail-body">' + esc(n.content || '暂无通知内容') + '</div>'
                 + byline
                 + remindLine
-                + (n.link ? '<a class="btn btn-primary btn-block" style="margin-top:12px;" href="' + esc(n.link) + '">去填写</a>' : '');
+                + (n.link ? '<a class="btn btn-primary btn-block" style="margin-top:12px;" href="' + escAttr(safeHref(n.link)) + '">去填写</a>' : '');
         } catch (err) {
             card.innerHTML = stateHTML(err.message, true);
         }
