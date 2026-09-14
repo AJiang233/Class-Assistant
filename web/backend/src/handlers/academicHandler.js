@@ -15,8 +15,14 @@ import { sealCookies, openCookies, isSealed } from '../utils/cookieVault.js';
 /** 课表节次方案 id（教务默认方案） */
 const DEFAULT_KBJCMS_ID = 1;
 
-/** 缓存新鲜期：超过则下次访问自动重新抓取（毫秒） */
-const CACHE_TTL = 6 * 60 * 60 * 1000;
+/**
+ * 缓存新鲜期：超过则下次访问自动重新抓取（毫秒）。
+ *
+ * 三天。教务那边大概一天就会把会话重置一次，所以「抓取失败」是常态而不是异常；
+ * 配上「失败就回缓存」（见下面的 handleAcademicTimetable），用户平时打开看到的
+ * 基本都是本地这份，不必每次翻课表都去教务那儿碰一次运气。想要最新的按「刷新」。
+ */
+const CACHE_TTL = 3 * 24 * 60 * 60 * 1000;
 
 /** 多因子认证中间态有效期（毫秒） */
 const MFA_TTL = 10 * 60 * 1000;
@@ -107,9 +113,38 @@ function toIso(value) {
   return value ? String(value) : '';
 }
 
-function isFresh(fetchedAt) {
+export function isFresh(fetchedAt) {
   const t = parseSqlTime(fetchedAt);
   return t > 0 && Date.now() - t < CACHE_TTL;
+}
+
+/**
+ * 「这一轮为什么给的是缓存」——页面据此决定提示哪一句：
+ *   expired      登录态被教务那边重置了，要用户重新登录才拿得到新数据
+ *   unreachable  教务暂时连不上，过会儿再刷就行
+ * 两者对用户的意思差得远，别混成一句「系统暂时不可用」：前者得给重新登录的入口，
+ * 后者只需要说一句「这是缓存，稍后自动会更新」。
+ */
+export function cacheReasonOf(e) {
+  return e instanceof SchoolSessionExpired ? 'expired' : 'unreachable';
+}
+
+/**
+ * 这一轮到底把缓存给不给出去、给的话是因为什么。
+ *
+ * 顺序是有讲究的：**教务那一趟失败时，缓存无条件优先**（不管新不新鲜、是不是手动刷新）。
+ * 教务登录态大概一天就会被重置一次，抓不到是常态；这时候把手上这份给出去，
+ * 用户至少还能看课表，而不是被一句「请重新绑定」挡住。
+ * 反过来，教务好着的时候只在「没手动刷新 + 缓存还在新鲜期内」才用缓存 ——
+ * 手动刷新就是用户明确说「我要最新的」，这时候不能再拿旧的糊弄。
+ *
+ * @returns {null | {reason: string|null}} null = 不能用缓存（调用方去重抓或报错）
+ */
+export function cacheDecision({ hasCache, liveError, refresh, fetchedAt }) {
+  if (!hasCache) return null;
+  if (liveError) return { reason: cacheReasonOf(liveError) };
+  if (!refresh && isFresh(fetchedAt)) return { reason: null };
+  return null;
 }
 
 /** 学期下拉项：实时列表优先，历次缓存里出现过的学期做兜底 */
@@ -527,7 +562,9 @@ export async function handleAcademicTimetable(request, env, user) {
   }
   const client = opened.client;
 
-  // 1. 取学期列表（顺带校验登录态是否还有效），教务不可达时退回本地缓存
+  // 1. 取学期列表（顺带校验登录态是否还有效）。教务不可达、或者登录态已被那边重置，
+  //    都只记下来、不在这里返回：缓存里那份课表照样能用（见下面的 2.）。
+  //    登录态大概一天就会失效一次，每次都把人打回绑定页的话，这份课表根本没法看。
   let terms = null;
   let liveError = null;
   try {
@@ -535,10 +572,7 @@ export async function handleAcademicTimetable(request, env, user) {
   } catch (e) {
     liveError = e;
   }
-  if (liveError instanceof SchoolSessionExpired) {
-    await model.markExpired(user.id);
-    return jsonResponse(error(liveError.message, 'ACADEMIC_EXPIRED'), 400);
-  }
+  if (liveError instanceof SchoolSessionExpired) await model.markExpired(user.id);
 
   let xnxqId = url.searchParams.get('xnxq') || '';
   if (!xnxqId) {
@@ -547,21 +581,33 @@ export async function handleAcademicTimetable(request, env, user) {
   }
   if (!xnxqId) return jsonResponse(error('未能确定学年学期', 'NO_TERM'), 400);
 
-  // 2. 缓存命中：未强制刷新且未过期，或教务当前不可达（此时优先把旧数据给出去）
+  // 2. 缓存命中：教务那一趟没成（不可达 / 登录态被重置）就无条件把它给出去，
+  //    否则只在「没手动刷新 + 缓存还新鲜」时用
   const cached = await model.getTimetable(user.id, xnxqId);
   const cachedData = cached
     ? await readCachePayload(cached, () => model.deleteTimetable(user.id, xnxqId))
     : null;
-  if (cachedData && (liveError || (!refresh && isFresh(cached.fetched_at)))) {
+  const useCache = cacheDecision({
+    hasCache: !!cachedData,
+    liveError,
+    refresh,
+    fetchedAt: cached ? cached.fetched_at : null
+  });
+  if (useCache) {
     return jsonResponse(success({
       ...cachedData,
       terms: buildTerms(terms, cachedTerms, xnxqId),
       fetchedAt: toIso(cached.fetched_at),
       fromCache: true,
-      stale: !!liveError
+      stale: !!liveError,
+      cacheReason: useCache.reason
     }));
   }
   if (liveError) {
+    // 连缓存都没有：登录态过期仍然引导去重新绑定，教务不可达则只是稍后再试
+    if (liveError instanceof SchoolSessionExpired) {
+      return jsonResponse(error(liveError.message, 'ACADEMIC_EXPIRED'), 400);
+    }
     return jsonResponse(error(`教务系统暂时不可用：${liveError.message}`, 'ACADEMIC_UNREACHABLE'), 502);
   }
 
@@ -649,19 +695,21 @@ export async function handleAcademicCredits(request, env, user) {
       stale: false
     }));
   } catch (e) {
-    if (e instanceof SchoolSessionExpired) {
-      await model.markExpired(user.id);
-      return jsonResponse(error(e.message, 'ACADEMIC_EXPIRED'), 400);
-    }
-    // 抓取失败但有旧缓存：先把旧数据给出去，页面标记为过期
+    if (e instanceof SchoolSessionExpired) await model.markExpired(user.id);
+    // 抓取失败但有旧缓存：先把旧数据给出去，页面标记为「缓存」并带上原因。
+    // 登录态过期也走这一支 —— 课表与学分在同一页，课表能看而学分报错太割裂
     if (cachedData) {
       return jsonResponse(success({
         ...cachedData,
         fetchedAt: toIso(cached.fetched_at),
         fromCache: true,
         stale: true,
+        cacheReason: cacheReasonOf(e),
         warning: e.message
       }));
+    }
+    if (e instanceof SchoolSessionExpired) {
+      return jsonResponse(error(e.message, 'ACADEMIC_EXPIRED'), 400);
     }
     return jsonResponse(error(`抓取学业达成情况失败：${e.message}`, 'ACADEMIC_FETCH_FAILED'), 502);
   }

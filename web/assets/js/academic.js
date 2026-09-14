@@ -84,9 +84,9 @@ async function loadStatus() {
     showOnly('dataView');
     // 分段控件在隐藏状态下量不到尺寸（滑块宽高为 0），显示出来后补量一次
     moveAcSegPill();
-    if (bindStatus.status === 'expired') {
-        showNotice('教务登录态已过期，请重新绑定后查看最新数据。');
-    }
+    // 不再因为 status=expired 就在这里拉红横幅「请重新绑定」：课表接口会把上次的缓存
+    // 给回来，提示交给 loadTimetable 按「为什么给的是缓存」出一行小字（见 cacheHintText）。
+    // 否则用户还没看到课表，就先被告知「出事了、去重新绑定」。
     loadTimetable('', false);
     loadCredits(false);
 }
@@ -261,13 +261,40 @@ function showFormSuccess(id, msg) {
     el.textContent = msg;
     el.classList.add('show');
 }
-function showNotice(msg) {
+/** 顶部提示条。默认是红底横幅（真出错了才用）；quiet=true 走一行小字，只是提醒 */
+function showNotice(msg, quiet) {
     var el = document.getElementById('noticeBox');
+    el.classList.toggle('ac-hint', !!quiet);
     el.textContent = msg;
     el.hidden = false;
 }
 function hideNotice() {
     document.getElementById('noticeBox').hidden = true;
+}
+
+/**
+ * 显示的是缓存课表时的那行小字。
+ *
+ * 不用红横幅：「教务登录态过期」大概一天就会来一次，为它拉一条红底提示，
+ * 用户会以为课表坏了 —— 实际上课表好好的，只是没法去教务那儿拿最新的。
+ * 所以这里只说清两件事：这是哪来的数据、想要最新的该按哪儿。
+ */
+function cacheHintText(reason) {
+    var why = reason === 'expired'
+        ? '教务登录态已过期，当前显示的是上次同步的课表'
+        : '教务系统暂时不可用，当前显示的是上次同步的课表';
+    return why + ' · 课表有变动时请点「刷新」';
+}
+
+/**
+ * 手动刷新没拿到新数据时问一句要不要重新登录教务。
+ *
+ * 只在这一种场景问：用户主动点了「刷新」就是想拿最新的，拉不到只能重新登录。
+ * 自动加载时不问 —— 登录态一天左右就过期一次，每次打开都弹窗没人受得了，
+ * 那种情况下面的小字已经说清了。
+ */
+function askReLogin() {
+    return window.confirm('教务登录态已过期，需要重新登录教务系统才能拉取最新数据。\n\n现在去重新登录？');
 }
 
 // ===== 子标签：课表 / 学业达成 =====
@@ -333,13 +360,33 @@ async function loadTimetable(term, refresh) {
         activeTerm = timetable.xnxqId;
         renderTermSelect(timetable.terms, activeTerm);
         renderSyncMeta(timetable);
-        if (timetable.stale) showNotice('教务系统暂时不可用，当前显示的是缓存数据。');
-        else hideNotice();
         renderTimetable(timetable);
         renderUnscheduled(timetable.unscheduled);
+        if (timetable.stale) {
+            showNotice(cacheHintText(timetable.cacheReason), true);
+            // 手动刷新仍然只拿到缓存：说明教务那边已经拉不动了，问一句要不要重新登录。
+            // 自动加载走到这一支是常态（登录态一天左右就会被重置），小字说明就够了
+            if (refresh && timetable.cacheReason === 'expired' && askReLogin()) {
+                showOnly('bindView');
+            }
+        } else {
+            hideNotice();
+        }
     } catch (err) {
         // 会话过期/未绑定用错误码精确判断（不再靠文案匹配，避免误伤渲染错误）
-        if (err.code === 'ACADEMIC_EXPIRED' || err.code === 'ACADEMIC_DECRYPT_FAILED' || err.code === 'NOT_BOUND') {
+        if (err.code === 'NOT_BOUND') {
+            showOnly('bindView');
+            showFormError('bindError', err.message);
+            return;
+        }
+        if (err.code === 'ACADEMIC_EXPIRED' || err.code === 'ACADEMIC_DECRYPT_FAILED') {
+            // 走到这儿说明连缓存都没有（有的话上面那一支已经把课表给出来了）。
+            // 自动加载时直接引导去重新登录 —— 页面上什么都没有，留着也是白留；
+            // 手动刷新时先问一句，用户可能只是顺手点了一下、并不想现在重新登录
+            if (refresh && !askReLogin()) {
+                view.innerHTML = stateHTML(err.message, true);
+                return;
+            }
             showOnly('bindView');
             showFormError('bindError', err.message);
             return;

@@ -1560,6 +1560,14 @@ body.app-mode { overflow: hidden; }
   font-size: 0.87rem; font-weight: 600; line-height: 1.5;
 }
 
+/* 「当前显示的是缓存」这类提醒：一行小字，不要红底横幅。
+   教务登录态一天左右就会被重置一次，为它拉一条红底提示，用户会以为课表坏了 ——
+   实际上数据好好的，只是这次没去教务拿到最新的。两件事要分开说。 */
+.ac-alert.ac-hint {
+  padding: 0; margin: 0 0 14px; background: none;
+  color: var(--text-tertiary); font-size: 0.79rem; font-weight: 400;
+}
+
 /* 子标签（课表 / 学业达成）：沿用 .tabs 分段控件，仅把与下方工具栏的间距对齐 */
 .ac-seg { margin-bottom: 18px; }
 
