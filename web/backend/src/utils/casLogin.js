@@ -395,6 +395,7 @@ export async function sendMfaCode(state) {
     json = null;
   }
   if (!json || json.res !== 'success') {
+    console.error('验证码发送失败，上游返回：', json ? (json.returnMessage || json.msg) : `HTTP ${res.status}`);
     throw new CasError(
       '验证码发送失败，请稍后重试',
       'MFA_SEND_FAILED'
@@ -459,12 +460,15 @@ export async function verifyMfaCode(state, code) {
     json = null;
   }
   if (!json) {
+    console.error('多因子认证返回异常，上游片段：', String(submitText).slice(0, 160) || `HTTP ${res.status}`);
     throw new CasError('二次验证失败，请重试或改用手动绑定', 'MFA_ERROR');
   }
   if (json.code === 'reAuth_failed') {
+    console.error('验证码校验未通过，上游返回：', json.msg || '(无)');
     throw new CasError('验证码错误', 'MFA_CODE_INVALID');
   }
   if (json.code === 'reAuth_unauthorized') {
+    console.error('二次验证被拒，上游返回：', json.msg || '(无)');
     throw new CasError('二次验证未通过', 'MFA_UNAUTHORIZED');
   }
 
@@ -480,6 +484,8 @@ export async function verifyMfaCode(state, code) {
     return { cookies, hops: chain.map((h) => safeUrl(h.url)), cookieNames, trail: chain.map(describeHop) };
   }
 
+  // 链路与 Cookie 名只写日志（只有名字，没有值）—— 这是排查「换会话失败」的关键信息
+  console.error('二次验证已过但未换到教务会话，链路：', chain.map(describeHop).join(' | '), '；教务 Cookie：', cookieNames.join(',') || '无');
   throw new CasError(
     '登录已通过，但没拿到教务凭据，请重试或改用手动绑定',
     'CAS_NO_SESSION'
@@ -569,6 +575,7 @@ export async function loginWithPassword(studentId, password) {
     if (await needsCaptcha(jar, studentId)) {
       throw new CasError('当前账号或网络需要验证码，请改用手动绑定', 'CAS_NEED_CAPTCHA');
     }
+    console.error('教务登录失败，页面返回片段：', String(text).slice(0, 160));
     throw new CasError('学号或密码不正确', 'CAS_LOGIN_FAILED');
   }
 
@@ -576,10 +583,12 @@ export async function loginWithPassword(studentId, password) {
   //    必须真的落到 szjw；停在 workflow 等中间域只是拿到了中间站的 Cookie，换不到会话
   //    能不能用由调用方再用 sessionUserInfo 验一次
   if (hostOf(result.url) !== hostOf(SCHOOL_ORIGIN)) {
+    console.error('登录流程未回到教务域，跳转：', hops.join(' → '));
     throw new CasError('登录流程没走完，请重试或改用手动绑定', 'CAS_NO_SESSION');
   }
   const cookies = jar.headerFor(SCHOOL_ORIGIN);
   if (!cookies) {
+    console.error('登录已通过但没拿到教务 Cookie，跳转：', hops.join(' → '));
     throw new CasError('登录已通过，但没拿到教务凭据，请重试或改用手动绑定', 'CAS_NO_SESSION');
   }
   return { cookies, hops, cookieNames: jar.namesFor(SCHOOL_ORIGIN) };

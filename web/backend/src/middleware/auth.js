@@ -43,6 +43,7 @@ function jsonError(status, message, code) {
 
 async function loadFreshUser(request, env) {
   if (!env.JWT_SECRET) {
+    console.error('未配置 JWT_SECRET，无法校验登录态');
     return { error: jsonError(500, '服务端暂时不可用，请联系管理员', 'SERVER_MISCONFIGURED') };
   }
   const authResult = await authenticate(request, env.JWT_SECRET);
