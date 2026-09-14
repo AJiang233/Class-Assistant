@@ -133,7 +133,7 @@ document.addEventListener('keydown', function (e) {
 
 async function showDetail(id) {
     var card = document.getElementById('detailCard');
-    card.innerHTML = stateHTML('加载中…');
+    card.innerHTML = stateHTML('正在加载…');
     openDetail();
     try {
         var res = await api('/api/activities/' + id);
@@ -143,12 +143,12 @@ async function showDetail(id) {
         if (a.location) meta += '<span>' + icon('pin') + esc(a.location) + '</span>';
         var byline = '<div class="detail-byline"><span>' + icon('user') + '发布人 ' + esc(a.publisher || '未知') + '</span></div>';
         var remind = fmtRemind(a.remind_people);
-        var remindLine = remind ? '<div class="detail-remind"><span>' + icon('bell') + '被通知人 ' + esc(remind) + '</span></div>' : '';
+        var remindLine = remind ? '<div class="detail-remind"><span>' + icon('bell') + '提醒对象 ' + esc(remind) + '</span></div>' : '';
         // canManage 由服务端算（创建者本人或 user:manage）：不是自己能改的就不显示按钮，
         // 否则点下去只会拿到 403
         var actBtns = canContentWrite() && a.canManage
             ? '<div class="modal-foot">'
-              + '<button type="button" class="btn btn-outline" data-act="edit-activity" data-id="' + escAttr(a.id) + '">修改</button>'
+              + '<button type="button" class="btn btn-outline" data-act="edit-activity" data-id="' + escAttr(a.id) + '">编辑</button>'
               + '<button type="button" class="btn btn-danger" data-act="del-activity" data-id="' + escAttr(a.id) + '">删除</button>'
               + '</div>'
             : '';

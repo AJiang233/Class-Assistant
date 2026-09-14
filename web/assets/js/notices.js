@@ -142,7 +142,7 @@ document.addEventListener('keydown', function (e) {
 
 async function showDetail(id) {
     var card = document.getElementById('detailCard');
-    card.innerHTML = stateHTML('加载中…');
+    card.innerHTML = stateHTML('正在加载…');
     openDetail();
     try {
         var res = await api('/api/notices/' + id);
@@ -151,14 +151,14 @@ async function showDetail(id) {
             + (n.link ? '<span class="badge badge-form">表单</span>' : '');
         var meta = '<span>' + icon('clock') + '发布 ' + esc(fmtDate(n.publish_time)) + '</span>';
         if (n.expire_time) meta += '<span>' + icon('clock') + '截止 ' + esc(fmtDate(n.expire_time)) + '</span>';
-        var byline = '<div class="detail-byline"><span>' + icon('user') + '通知人 ' + esc(n.publisher || '未知') + '</span></div>';
+        var byline = '<div class="detail-byline"><span>' + icon('user') + '发布人 ' + esc(n.publisher || '未知') + '</span></div>';
         var remind = fmtRemind(n.remind_people);
-        var remindLine = remind ? '<div class="detail-remind"><span>' + icon('bell') + '被通知人 ' + esc(remind) + '</span></div>' : '';
+        var remindLine = remind ? '<div class="detail-remind"><span>' + icon('bell') + '提醒对象 ' + esc(remind) + '</span></div>' : '';
         // canManage 由服务端算（创建者本人或 user:manage）：不是自己能改的就不显示按钮，
         // 否则点下去只会拿到 403
         var actBtns = canContentWrite() && n.canManage
             ? '<div class="modal-foot">'
-              + '<button type="button" class="btn btn-outline" data-act="edit-notice" data-id="' + escAttr(n.id) + '">修改</button>'
+              + '<button type="button" class="btn btn-outline" data-act="edit-notice" data-id="' + escAttr(n.id) + '">编辑</button>'
               + '<button type="button" class="btn btn-danger" data-act="del-notice" data-id="' + escAttr(n.id) + '">删除</button>'
               + '</div>'
             : '';
