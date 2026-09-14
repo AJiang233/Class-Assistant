@@ -169,29 +169,6 @@ object SyncRunner {
     }
 
     /**
-     * App 启动时补一次「当天」的两个键（只跑还缺的那条）。
-     *
-     * 后台同步未必在当天跑过 —— 用户几天没联网、或系统把周期任务压后，都会让「今天」的那两个键
-     * 迟迟不存在，而主页当日列表正是靠它们秒开的。缓存键里带着日期，所以「已经在缓存里」
-     * 就等于「今天已经取到过」，靠这个天然节流：冷启动一天可能发生很多次，不必再记时间戳。
-     */
-    internal fun prewarmTodayLists(context: Context) {
-        val ctx = context.applicationContext
-        val token = Store.token(ctx) ?: return
-        // 全在线程里做：连「读缓存看缺不缺」也一并放进去，调用方（Activity.onCreate）零成本
-        Thread {
-            val missing = OfflineApi.todayListPaths(System.currentTimeMillis())
-                .filter { OfflineCache.read(ctx, it) == null }
-            if (missing.isEmpty()) return@Thread
-            for (path in missing) {
-                val res = Api.get(path, token)
-                if (res is Api.Res.Unauthorized) return@Thread
-                cacheResponse(ctx, path, res)
-            }
-        }.start()
-    }
-
-    /**
      * 把教务课表落到本地。
      *
      * **只认解析成功的那一份**，失败时保留上一次的课表：教务没绑定 / 登录态过期时后端回

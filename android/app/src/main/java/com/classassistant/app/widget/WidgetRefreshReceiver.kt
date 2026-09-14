@@ -34,6 +34,16 @@ class WidgetRefreshReceiver : BroadcastReceiver() {
                 Scheduler.scheduleMidnightRefresh(context)
                 // 时间/时区变了，课程闹钟的绝对触发时刻要重算
                 Scheduler.rescheduleCourseAlarms(context)
+                // 换天了，让数据也跟上：同步那一轮会把「今天」那两个列表键按当天日期重新算出来
+                // （OfflineApi.prewarmPaths），早上打开 App 才不用等网络。
+                //
+                // 这一行是「尽量早」，不是唯一保障：周期同步（15 分钟一轮，走的是 deep 轮次）
+                // 本来也会按当天日期预热这两个键 —— 只是深夜设备在 Doze 里，那一轮可能被推迟到早上。
+                //
+                // 两点都不做：**不自己发请求**（被广播拉起的进程还在后台，网络被系统挡着，实测连
+                // DNS 都解析不了）、**不自己起线程**（onReceive 一返回进程就悬了，第一版就是这么
+                // 写的，两个键一个都没补上）。交给 WorkManager 排队：跑得动就跑，跑不动还有周期同步兜着。
+                Scheduler.syncNow(context)
             }
             Intent.ACTION_MY_PACKAGE_REPLACED -> {
                 // 覆盖安装会把闹钟与 AllowedAlarms 一起清掉，得重新排
