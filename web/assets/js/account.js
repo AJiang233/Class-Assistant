@@ -615,35 +615,43 @@ async function loadProfile() {
     card.innerHTML = stateHTML('正在加载…');
     try {
         var res = await api('/api/auth/me');
-        var u = res.data;
-        currentContact = u.contact || '';
-        card.innerHTML =
-            '<div class="profile-head">'
-            + '<div class="profile-avatar">' + esc((u.name || '?').charAt(0)) + '</div>'
-            + '<div>'
-            + '<div class="profile-name">' + esc(u.name || '') + '</div>'
-            + '<div class="profile-sub">学号 ' + esc(u.student_id || '') + '</div>'
-            + '</div>'
-            + '</div>'
-            + '<div class="info-list">'
-            + '<div class="info-row"><span class="k">职位</span><span class="v">' + positionsChipsHTML(u.positions) + '</span></div>'
-            + '<div class="info-row"><span class="k">联系方式</span>'
-            + '<span class="v v-actions">'
-            + '<span id="contactValue">' + esc(u.contact || '未填写') + '</span>'
-            + '<button type="button" class="btn btn-outline btn-sm" data-act="open-contact-edit">编辑</button>'
-            + '</span></div>'
-            + '<div class="info-row"><span class="k">更新时间</span><span class="v">' + esc(fmtBJTime(u.update_time)) + '</span></div>'
-            // 「上次同步时间」不是「这份数据存进后端的时刻」，而是 App 上次成功拉完数据的时刻
-            //（安卓 WorkManager / 鸿蒙 workScheduler，由桥 CAHost.appStatus() 读回）。
-            // 只在 App 里有意义，网页版没有这个桥，整行 hidden 不出现；值由 refreshAppStatus() 填。
-            + '<div class="info-row" id="appSyncRow" hidden><span class="k">上次同步时间</span><span class="v" id="appSyncValue"></span></div>'
-            + '</div>';
-        // 上面这段是新造的 DOM，行内元素要重新取值
-        refreshAppStatus();
+        renderProfile(res.data || {});
     } catch (err) {
         card.innerHTML = stateHTML(err.message, true);
     }
 }
+
+/** 资料卡渲染。首次加载与「原生后台刷新推回」共用这一个入口（网页版不会被推） */
+function renderProfile(u) {
+    var card = document.getElementById('profileCard');
+    currentContact = u.contact || '';
+    card.innerHTML =
+        '<div class="profile-head">'
+        + '<div class="profile-avatar">' + esc((u.name || '?').charAt(0)) + '</div>'
+        + '<div>'
+        + '<div class="profile-name">' + esc(u.name || '') + '</div>'
+        + '<div class="profile-sub">学号 ' + esc(u.student_id || '') + '</div>'
+        + '</div>'
+        + '</div>'
+        + '<div class="info-list">'
+        + '<div class="info-row"><span class="k">职位</span><span class="v">' + positionsChipsHTML(u.positions) + '</span></div>'
+        + '<div class="info-row"><span class="k">联系方式</span>'
+        + '<span class="v v-actions">'
+        + '<span id="contactValue">' + esc(u.contact || '未填写') + '</span>'
+        + '<button type="button" class="btn btn-outline btn-sm" data-act="open-contact-edit">编辑</button>'
+        + '</span></div>'
+        + '<div class="info-row"><span class="k">更新时间</span><span class="v">' + esc(fmtBJTime(u.update_time)) + '</span></div>'
+        // 「上次同步时间」不是「这份数据存进后端的时刻」，而是 App 上次成功拉完数据的时刻
+        //（安卓 WorkManager / 鸿蒙 workScheduler，由桥 CAHost.appStatus() 读回）。
+        // 只在 App 里有意义，网页版没有这个桥，整行 hidden 不出现；值由 refreshAppStatus() 填。
+        + '<div class="info-row" id="appSyncRow" hidden><span class="k">上次同步时间</span><span class="v" id="appSyncValue"></span></div>'
+        + '</div>';
+    // 上面这段是新造的 DOM，行内元素要重新取值
+    refreshAppStatus();
+}
+
+// App 壳：原生层先给缓存（首帧不必等网络），后台刷新完把新数据推回这里重绘
+onApiData('/api/auth/me', function (data) { renderProfile(data || {}); });
 loadProfile();
 
 // ===== 偏好设置：主题外观 =====

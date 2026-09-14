@@ -44,6 +44,16 @@ object OfflineCache {
     /** 超过这个大小的响应不缓存（正常接口都在几十 KB 量级，超了说明形状不对，别把磁盘当垃圾桶） */
     private const val MAX_BODY_CHARS = 512 * 1024
 
+    /**
+     * 在线时允许「先把缓存画出来」的最大年龄。
+     *
+     * 断网时无条件回放缓存 —— 那是当时唯一能给的数据，旧也得给。
+     * 在线时不一样：只是为了让首帧不用等网络（见 sync/OfflineApi 的在线分支），
+     * 一份好几天的通知列表先糊上去，用户会以为看到的是最新的，比多等一次网络更糟。
+     * 所以隔了太久就当作没有缓存，照旧走网络、照旧显示加载态。
+     */
+    private const val RENDER_MAX_AGE_MS = 24 * 60 * 60 * 1000L
+
     private fun dir(context: Context): File = File(context.applicationContext.filesDir, DIR)
 
     /** 文件名取 key 的 SHA-1：key 里带 `?` `&` `=`，不能直接当文件名 */
@@ -69,6 +79,28 @@ object OfflineCache {
         }
         return null
     }
+
+    /**
+     * 缓存年龄（毫秒）；没有这份缓存返回 -1。
+     * 用文件的修改时间，不为它单开一个字段 —— 落盘时间就是「这份数据是什么时候拿到的」。
+     */
+    fun ageMs(context: Context, key: String): Long {
+        for (shape in Shape.values()) {
+            val f = fileFor(context, key, shape)
+            if (f.exists()) return System.currentTimeMillis() - f.lastModified()
+        }
+        return -1
+    }
+
+    /**
+     * 在线首帧能用的那一份：只有够新鲜才给，其余当作没有（调用方去走网络）。
+     * 判断拎成 isFresh 是为了能测：这条规则错了不会报错，只会表现为「有时先闪一下旧数据」。
+     */
+    fun readFresh(context: Context, key: String, maxAgeMs: Long = RENDER_MAX_AGE_MS): String? =
+        if (isFresh(ageMs(context, key), maxAgeMs)) read(context, key) else null
+
+    /** 年龄落在 [0, maxAgeMs] 内才算新鲜；-1（没有这份缓存）与任何异常值都不算 */
+    internal fun isFresh(ageMs: Long, maxAgeMs: Long): Boolean = ageMs in 0..maxAgeMs
 
     fun write(context: Context, key: String, body: String, shape: Shape) {
         if (body.length > MAX_BODY_CHARS) return

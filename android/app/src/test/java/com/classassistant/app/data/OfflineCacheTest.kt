@@ -42,4 +42,25 @@ class OfflineCacheTest {
         )
         assertEquals(listOf("X_a.json", "L_old.json"), OfflineCache.evictionPlan(files, max = 1))
     }
+
+    /**
+     * 「这份缓存够不够新鲜、能不能先画给用户」。
+     *
+     * 在线时先把缓存画出来是为了首帧不等网络，但一份好几天的旧数据先糊上去，
+     * 用户会以为看到的是最新的 —— 比多等一次网络更糟。这条规则错了不报错、只是偶尔闪一下旧数据，
+     * 所以把边界钉住。
+     */
+    @Test
+    fun `年龄在窗口内才算新鲜`() {
+        val day = 24 * 60 * 60 * 1000L
+        assertTrue(OfflineCache.isFresh(0, day))
+        assertTrue(OfflineCache.isFresh(day, day))          // 正好卡在边界上：还算新鲜
+        assertTrue(!OfflineCache.isFresh(day + 1, day))
+    }
+
+    @Test
+    fun `没有这份缓存时一律不算新鲜`() {
+        // ageMs 读不到文件时返回 -1，别让它被当成「刚写进来的一瞬间」
+        assertTrue(!OfflineCache.isFresh(-1, 24 * 60 * 60 * 1000L))
+    }
 }

@@ -12,11 +12,18 @@ import org.json.JSONObject
 import java.io.ByteArrayInputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * 原生离线层：**只做接口**。WebView 里每个请求都会先经过这里（MainActivity 的 shouldInterceptRequest），
  *
- *   /api/ 的只读请求  在线自己拉一份（用本机 token）、成功顺手更新缓存；断网或连不上时回放缓存
+ *   /api/ 的只读请求  在线且本地有一份够新鲜的缓存时，**先把缓存给页面**（首帧不用等网络），
+ *                     同时后台去取最新的、落盘，内容变了的再推回页面重绘（见 refreshInBackground）；
+ *                     没有缓存 / 缓存太旧时按老办法同步取一份
  *   其余              返回 null，交给 WebView 原样走网络 —— 写操作（POST / PUT / DELETE）断网就该失败，
  *                     绝不能假装成功
  *
@@ -78,17 +85,47 @@ object OfflineApi {
 
     /**
      * 后台同步顺手预热的 URL。**必须与网页真实请求的 URL 完全一致**（缓存键就是 URL），
-     * 否则离线时页面按自己的键来取，取不到这一份。
+     * 否则在线时「先回缓存」那一支命中不到，首帧还得等网络；离线时页面按自己的键来取，也取不到。
      * 网页改了参数这里要跟着改 —— 这是「后台同步也写缓存」的代价，换来的是
-     * 「用户没打开过那个页面，离线也能看到最新数据」。
+     * 「用户没打开过那个页面，也能秒开 / 离线看」。
+     *
+     * 主页与列表页请求的是同一张表但参数不同（`limit=200` vs 不带），而缓存键就是 URL，
+     * 所以两条都得存 —— 少一条，那个页面第一次进去就还是加载态。
      */
-    val PREWARM = listOf(
-        "/api/notices?scope=all&limit=200",
-        "/api/activities?scope=all&limit=200",
+    private val FIXED_PATHS = listOf(
+        "/api/notices?scope=all&limit=200",      // 主页：当日通知/活动
+        "/api/notices?scope=all",                // 通知列表页
+        "/api/activities?scope=all&limit=200",   // 主页：当日活动
+        "/api/activities?scope=all",             // 活动列表页
         "/api/academic/status",
         TIMETABLE_PATH,
-        "/api/academic/credits"
+        "/api/academic/credits",
+        "/api/auth/me"                           // 个人中心
     )
+
+    /**
+     * 预热清单 = 固定那几条 + **当天的两个「当日列表」键**。
+     *
+     * 主页的当日列表按日期取（`date=YYYY-MM-DD`），键每天都不一样，写不进固定清单；
+     * 少了它，每天第一次进主页还是得等一次网络。后台同步若在当天跑过（凌晨那次也算），
+     * 就会把当天这两个键存下来 —— 用户白天打开正好命中。
+     */
+    fun prewarmPaths(now: Long = System.currentTimeMillis(), zone: TimeZone = TimeZone.getDefault()): List<String> =
+        FIXED_PATHS + todayListPaths(now, zone)
+
+    /**
+     * 主页当日列表那两个 URL。参数顺序与 `web/assets/js/index.js` 里拼的**必须逐字一致**
+     * （通知是 `?limit=50&date=`、活动是 `?date=…&limit=50`，顺序反了就是另一个键）。
+     *
+     * 日期按设备本地时区算 —— 网页那边用的是 JS 的 `new Date()`，同一个时区。
+     */
+    internal fun todayListPaths(now: Long, zone: TimeZone = TimeZone.getDefault()): List<String> {
+        val day = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply { timeZone = zone }.format(Date(now))
+        return listOf(
+            "/api/notices?limit=50&date=$day",
+            "/api/activities?date=$day&limit=50"
+        )
+    }
 
     /** 是否属于列表形状（决定缓存文件前缀，详情回退据此枚举） */
     fun isListPath(path: String): Boolean = LIST_PATHS.contains(path)
@@ -99,8 +136,16 @@ object OfflineApi {
     /**
      * 入口。返回 null = 不接管，交给 WebView 原样请求（这是绝大多数请求的情况）。
      * 注意本方法在非 UI 线程被调用，同步做网络 I/O 是允许的。
+     *
+     * @param onRefreshed 只有走了「先回缓存」那一支才会用到：后台取到的新数据与缓存不同时，
+     *                    用它把新数据推回页面重绘（实现在 MainActivity.pushApiUpdate）。
+     *                    传 null 就只刷新缓存、不推送。
      */
-    fun intercept(context: Context, request: WebResourceRequest): WebResourceResponse? {
+    fun intercept(
+        context: Context,
+        request: WebResourceRequest,
+        onRefreshed: ((String, String) -> Unit)? = null
+    ): WebResourceResponse? {
         if (request.method != "GET") return null
 
         val url = request.url
@@ -122,6 +167,18 @@ object OfflineApi {
 
         // 在线才需要凭据去取：没有就不接管，让页面自己走网络、按它自己的逻辑报错
         val token = Store.token(context) ?: return null
+
+        // 够新鲜的缓存先给页面：首帧就不必等一次网络往返（进 App 第一次看某个页面时那
+        // 「0.5~1s 的加载动画」等的就是它）。这份数据其实早就在本地 —— 后台同步预热过，
+        // 以前只在断网那一支用得上。给了缓存之后紧接着后台去取最新的，变了再推回页面重绘。
+        if (cacheable) {
+            OfflineCache.readFresh(context, key)?.let { cached ->
+                Log.i(TAG, "  先回缓存（${cached.length} 字），后台刷新")
+                refreshInBackground(context, url.toString(), token, key, path, cached, onRefreshed)
+                return response(cached)
+            }
+        }
+
         return when (val fetched = fetch(url.toString(), token)) {
             is Fetched.Ok -> {
                 // 只为「可缓存」的那些路径落盘。单条详情（cacheable=false）不存：
@@ -150,6 +207,58 @@ object OfflineApi {
                 fromCache(context, key, path, detailSource)
             }
         }
+    }
+
+    /** 同一个 key 已经有后台刷新在飞：页面可能连着请求两次（切页回来），不必重复取 */
+    private val inFlight = ConcurrentHashMap.newKeySet<String>()
+
+    /**
+     * 后台取一次最新的：落盘，并在内容真的变了时推回页面重绘。
+     *
+     * 三种结局刻意区别对待：
+     *   Ok   只有内容变了才推 —— 没变还让页面重绘一次，等于白闪一下
+     *   Http 服务端答了（401 / 5xx）：既不覆盖缓存也不推回。推过去等于把「出错了」伪装成新数据；
+     *        而且此刻用户正看着缓存里的内容，为一条 401 把他踢去登录页，比晚一点发现更糟 ——
+     *        真要失效，页面下一次请求自然会走到它自己的 401 分支
+     *   Down 连不上：保留缓存，什么都不做（页面已经拿到缓存了）
+     */
+    private fun refreshInBackground(
+        context: Context,
+        url: String,
+        token: String,
+        key: String,
+        path: String,
+        cachedBody: String,
+        onRefreshed: ((String, String) -> Unit)?
+    ) {
+        if (!inFlight.add(key)) return
+        Thread {
+            try {
+                when (val fetched = fetch(url, token)) {
+                    is Fetched.Ok -> {
+                        // 内容没变也要落盘：文件时间跟着走，「够不够新鲜」看的就是它
+                        OfflineCache.write(
+                            context,
+                            key,
+                            fetched.text,
+                            if (isListPath(path)) OfflineCache.Shape.LIST else OfflineCache.Shape.OTHER
+                        )
+                        when {
+                            fetched.text == cachedBody -> Log.i(TAG, "  后台刷新：内容没变，不重绘")
+                            onRefreshed == null -> Log.i(TAG, "  后台刷新：内容有变，没有推送通道（缓存已更新）")
+                            else -> {
+                                Log.i(TAG, "  后台刷新：内容有变，推回页面")
+                                onRefreshed(key, fetched.text)
+                            }
+                        }
+                    }
+                    is Fetched.Http -> Log.w(TAG, "  后台刷新：服务端答了 ${fetched.code}，保留缓存、不推回")
+                    Fetched.Down -> Log.w(TAG, "  后台刷新：连不上，保留缓存")
+                }
+            } finally {
+                inFlight.remove(key)
+            }
+        }.start()
     }
 
     /** 精确键优先；详情再退一步，从缓存过的列表里按 id 拼回来 */

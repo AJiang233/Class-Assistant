@@ -87,22 +87,32 @@ async function loadList() {
     el.innerHTML = skeletonHTML(5);
     try {
         var res = await api('/api/notices?scope=all');
-        var list = (res.data && res.data.list) || [];
-        if (!list.length) { el.innerHTML = stateHTML('暂无通知'); return; }
-        var groups = { ongoing: [], upcoming: [], ended: [] };
-        list.forEach(function (n) { groups[statusOf(n)].push(n); });
-        groups.ongoing.sort(byPublishAsc);
-        groups.upcoming.sort(byPublishAsc);
-        groups.ended.sort(byPublishDesc);
-        var html = '';
-        if (groups.ongoing.length) html += groupHTML('正在进行', groups.ongoing, true);
-        if (groups.upcoming.length) html += groupHTML('将要开始', groups.upcoming, false);
-        if (groups.ended.length) html += groupHTML('已经结束', groups.ended, false);
-        el.innerHTML = html;
+        renderList((res.data && res.data.list) || []);
     } catch (err) {
         el.innerHTML = stateHTML(err.message, true);
     }
 }
+
+/** 列表渲染。首次加载与「App 壳里原生后台刷新完推回新数据」共用这一个入口 */
+function renderList(list) {
+    var el = document.getElementById('noticeListView');
+    if (!list.length) { el.innerHTML = stateHTML('暂无通知'); return; }
+    var groups = { ongoing: [], upcoming: [], ended: [] };
+    list.forEach(function (n) { groups[statusOf(n)].push(n); });
+    groups.ongoing.sort(byPublishAsc);
+    groups.upcoming.sort(byPublishAsc);
+    groups.ended.sort(byPublishDesc);
+    var html = '';
+    if (groups.ongoing.length) html += groupHTML('正在进行', groups.ongoing, true);
+    if (groups.upcoming.length) html += groupHTML('将要开始', groups.upcoming, false);
+    if (groups.ended.length) html += groupHTML('已经结束', groups.ended, false);
+    el.innerHTML = html;
+}
+
+// App 壳：原生层先把缓存给页面（首帧不必等网络），后台取到新数据再推回这里重绘。
+// 键必须与上面 api() 的 URL 一字不差 —— 原生那边的缓存键就是它。网页版不会被调用。
+onApiData('/api/notices?scope=all', function (data) { renderList((data && data.list) || []); });
+
 loadList();
 
 // ===== 详情弹窗 =====
