@@ -3,7 +3,13 @@ import { success, error, jsonResponse } from '../utils/response.js';
 import { toLocalDateTime } from '../utils/datetime.js';
 import { pageLimit, pageOffset } from '../utils/query.js';
 import { isSafeLink } from '../utils/link.js';
-import { canViewItem, loadViewer, listByAudience, withoutRemindPeople } from '../utils/audience.js';
+import {
+  canManageItem,
+  canViewItem,
+  itemForViewer,
+  loadViewer,
+  listByAudience
+} from '../utils/audience.js';
 import { pushToRemindAudience } from '../utils/push.js';
 
 /**
@@ -27,7 +33,9 @@ export async function handleCreateNotice(request, env, user, ctx) {
       title,
       content,
       publish_time: toLocalDateTime(publish_time),
+      // 署名与归属都由服务端从登录态写，请求体里传什么都不作数
       publisher: user.name,
+      created_by: user.id,
       remind_people: remind,
       source: 'manual',
       expire_time: toLocalDateTime(expire_time),
@@ -122,8 +130,8 @@ export async function handleGetNotice(request, env, user, params) {
       return jsonResponse(error('通知不存在', 'NOTICE_NOT_FOUND'), 404);
     }
 
-    // 定向名单只回给能发文的人（编辑表单要拿它预填）
-    return jsonResponse(success(withoutRemindPeople(notice, viewer)));
+    // 定向名单只回给能发文的人（编辑表单要拿它预填）；canManage 供前端决定显不显示改/删按钮
+    return jsonResponse(success(itemForViewer(notice, viewer)));
   } catch (e) {
     console.error('获取通知失败:', e);
     return jsonResponse(error('获取通知失败', 'GET_NOTICE_FAILED'), 500);
@@ -131,7 +139,7 @@ export async function handleGetNotice(request, env, user, params) {
 }
 
 /**
- * 更新通知（需登录）
+ * 更新通知（需登录 + content:write + 是自己发布的）
  */
 export async function handleUpdateNotice(request, env, user, params) {
   try {
@@ -140,7 +148,6 @@ export async function handleUpdateNotice(request, env, user, params) {
       return jsonResponse(error('无效的通知ID', 'INVALID_ID'), 400);
     }
 
-    const body = await request.json();
     const noticeModel = new NoticeModel(env.DB);
 
     // 检查通知是否存在
@@ -149,18 +156,31 @@ export async function handleUpdateNotice(request, env, user, params) {
       return jsonResponse(error('通知不存在', 'NOTICE_NOT_FOUND'), 404);
     }
 
-    const { publish_time, expire_time, ...rest } = body;
-    const payload = { ...rest };
-    if (publish_time !== undefined) payload.publish_time = toLocalDateTime(publish_time);
-    if (expire_time !== undefined) payload.expire_time = toLocalDateTime(expire_time);
-    if (payload.link !== undefined) {
-      if (!isSafeLink(payload.link)) {
+    // 归属校验：content:write 只说明「能发内容」，不等于「能改别人发的内容」
+    const viewer = await loadViewer(env, user);
+    if (!canManageItem(existing, viewer)) {
+      return jsonResponse(error('只能修改自己发布的通知', 'FORBIDDEN'), 403);
+    }
+
+    const body = await request.json().catch(() => ({}));
+
+    // 逐字段取，不整包透传：此前 ...rest 会把 publisher 一并写进库，
+    // 于是「改通知」顺带能把署名伪造成别人（见 issue #17）
+    const payload = {};
+    if (body.title !== undefined) payload.title = body.title;
+    if (body.content !== undefined) payload.content = body.content;
+    if (body.publish_time !== undefined) payload.publish_time = toLocalDateTime(body.publish_time);
+    if (body.expire_time !== undefined) payload.expire_time = toLocalDateTime(body.expire_time);
+    if (body.remind_people !== undefined) {
+      payload.remind_people = Array.isArray(body.remind_people)
+        ? JSON.stringify(body.remind_people)
+        : body.remind_people;
+    }
+    if (body.link !== undefined) {
+      if (!isSafeLink(body.link)) {
         return jsonResponse(error('跳转地址只能是站内路径', 'INVALID_LINK'), 400);
       }
-      payload.link = payload.link ? String(payload.link).trim() : null;
-    }
-    if (payload.remind_people !== undefined && payload.remind_people !== null) {
-      payload.remind_people = Array.isArray(payload.remind_people) ? JSON.stringify(payload.remind_people) : payload.remind_people;
+      payload.link = body.link ? String(body.link).trim() : null;
     }
 
     await noticeModel.update(id, payload);
@@ -173,7 +193,7 @@ export async function handleUpdateNotice(request, env, user, params) {
 }
 
 /**
- * 删除通知（需登录）
+ * 删除通知（需登录 + content:write + 是自己发布的）
  */
 export async function handleDeleteNotice(request, env, user, params) {
   try {
@@ -188,6 +208,11 @@ export async function handleDeleteNotice(request, env, user, params) {
     const existing = await noticeModel.findById(id);
     if (!existing) {
       return jsonResponse(error('通知不存在', 'NOTICE_NOT_FOUND'), 404);
+    }
+
+    const viewer = await loadViewer(env, user);
+    if (!canManageItem(existing, viewer)) {
+      return jsonResponse(error('只能删除自己发布的通知', 'FORBIDDEN'), 403);
     }
 
     await noticeModel.delete(id);

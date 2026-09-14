@@ -256,7 +256,9 @@
             var byline = '<div class="detail-byline"><span>' + icon('user') + '发布人 ' + esc(a.publisher || '未知') + '</span></div>';
             var remind = fmtRemind(a.remind_people);
             var remindLine = remind ? '<div class="detail-remind"><span>' + icon('bell') + '被通知人 ' + esc(remind) + '</span></div>' : '';
-            var actBtns = canContentWrite()
+            // canManage 由服务端算（创建者本人或 user:manage）：不是自己能改的就不显示按钮，
+            // 否则点下去只会拿到 403
+            var actBtns = canContentWrite() && a.canManage
                 ? '<div class="modal-foot">'
                   + '<button type="button" class="btn btn-outline" onclick="startEdit(' + a.id + ')">修改</button>'
                   + '<button type="button" class="btn btn-danger" onclick="deleteActivity(' + a.id + ')">删除</button>'

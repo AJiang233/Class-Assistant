@@ -312,6 +312,8 @@ export async function handleCreateForm(request, env, user, ctx) {
           content: noticeContent,
           publish_time: toLocalDateTime(body.notice_publish_time) || nowLocalDateTime(),
           publisher: user.name,
+          // 联动下发的通知同样记归属：否则创建者自己都改不了这条通知（见 issue #17）
+          created_by: user.id,
           remind_people: remind,
           expire_time: toLocalDateTime(body.notice_expire_time),
           link: `/forms.html?id=${formId}`
