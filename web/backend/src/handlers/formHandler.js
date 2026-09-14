@@ -10,7 +10,7 @@ import { NoticeModel } from '../models/noticeModel.js';
 import { success, error, jsonResponse } from '../utils/response.js';
 import { toLocalDateTime, parseLocalDateTime } from '../utils/datetime.js';
 import { pageLimit, pageOffset } from '../utils/query.js';
-import { loadRoleMap, isExcludedFromClass, parseRemindNames } from '../utils/audience.js';
+import { canView, isExcludedFromClass, loadRoleMap, loadViewer, pickAudience } from '../utils/audience.js';
 import { pushToRemindAudience } from '../utils/push.js';
 
 const FIELD_TYPES = ['text', 'textarea', 'radio', 'checkbox', 'number', 'date'];
@@ -54,23 +54,6 @@ function excerptText(text, max = 80) {
   return s.length > max ? s.slice(0, max) + '…' : s;
 }
 
-/**
- * 我是否在这条内容的提醒对象里。空名单 = 全班，但「不计入班级管理」的人不算全班，
- * 只有被明确勾选才通知；excluded 由调用方按最新职位权限算（见 utils/audience.js）。
- */
-function inMyRemindList(raw, user, excluded) {
-  const names = parseRemindNames(raw);
-  if (!names.length) return !excluded;
-  return names.includes(String(user.name)) || names.includes(String(user.id));
-}
-
-/** 应交名单：空 = 全班减去「不计入班级管理」的人；excluded 是按最新职位权限判断的谓词 */
-function rosterFor(users, raw, excluded) {
-  const names = parseRemindNames(raw);
-  if (!names.length) return users.filter((u) => !excluded(u));
-  return users.filter((u) => names.includes(String(u.name)) || names.includes(String(u.id)));
-}
-
 /** 是否已过截止时间（只看 deadline，供列表判断「还能不能填」） */
 function isPastDeadline(form, now = Date.now()) {
   if (!form.deadline) return false;
@@ -105,6 +88,14 @@ function publicForm(form) {
     creator_name: form.creator_name,
     created_at: form.created_at
   };
+}
+
+/**
+ * 这条表单能不能给这位用户看到 / 填写：定向名单里的人（或全班里没被排除的人），
+ * 外加创建者本人 —— 创建者不在自己的定向名单里时，也得能打开看进度、导出。
+ */
+function formVisibleTo(form, viewer) {
+  return form.creator_id === viewer.user.id || canView(form.remind_people, viewer);
 }
 
 /** 取表单并校验调用者是创建者；不满足时返回可直接回给前端的 failure */
@@ -373,13 +364,13 @@ export async function handleListMyForms(request, env, user) {
     const model = new FormModel(env.DB);
     const rows = await model.listMine(user.id);
     const now = Date.now();
-    // 空提醒对象 = 全班，但「不计入班级管理」的职位不算全班（与通知/活动同一口径）
-    const excluded = isExcludedFromClass(user.positions, await loadRoleMap(env));
+    // 空提醒对象 = 全班，但「不计入班级管理」的职位不算全班（与通知/活动同一判定）
+    const viewer = await loadViewer(env, user);
 
     const pending = [];
     const editable = [];
     for (const row of rows) {
-      if (!inMyRemindList(row.remind_people, user, excluded)) continue;
+      if (!canView(row.remind_people, viewer)) continue;
       // 已过截止的表单不再算待办：填不了，列出来只会误导（仍可通过链接打开看到已截止）
       if (isPastDeadline(row, now)) continue;
       const submitted = !!row.my_submitted_at;
@@ -415,6 +406,12 @@ export async function handleGetForm(request, env, user, params) {
     const model = new FormModel(env.DB);
     const form = await model.findById(id);
     if (!form) return jsonResponse(error('表单不存在', 'FORM_NOT_FOUND'), 404);
+
+    // 非定向的人不该能靠 id 打开别人的表单：与不存在回同一个 404（可见性判定见 utils/audience.js）
+    const viewer = await loadViewer(env, user);
+    if (!formVisibleTo(form, viewer)) {
+      return jsonResponse(error('表单不存在', 'FORM_NOT_FOUND'), 404);
+    }
 
     const mine = await model.findMySubmission(id, user.id);
     const gate = submitGate(form, !!mine);
@@ -559,7 +556,7 @@ export async function handleFormProgress(request, env, user, params) {
 
     const userModel = new UserModel(env.DB);
     const roleMap = await loadRoleMap(env);
-    const roster = rosterFor(await userModel.list(), form.remind_people,
+    const roster = pickAudience(await userModel.list(), form.remind_people,
       (u) => isExcludedFromClass(u.positions, roleMap));
     const submittedIds = new Set(await model.listSubmittedUserIds(form.id));
 
@@ -620,6 +617,12 @@ export async function handleSubmitForm(request, env, user, params) {
     const model = new FormModel(env.DB);
     const form = await model.findById(id);
     if (!form) return jsonResponse(error('表单不存在', 'FORM_NOT_FOUND'), 404);
+
+    // 非定向的人不该能提交别人的表单：这里回 403（详情那边已给 404，提交是明确的越权动作）
+    const viewer = await loadViewer(env, user);
+    if (!formVisibleTo(form, viewer)) {
+      return jsonResponse(error('这条表单不在你的提交范围内', 'FORBIDDEN'), 403);
+    }
 
     const mine = await model.findMySubmission(id, user.id);
     const gate = submitGate(form, !!mine);

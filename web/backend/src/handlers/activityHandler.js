@@ -2,7 +2,7 @@ import { ActivityModel } from '../models/activityModel.js';
 import { success, error, jsonResponse } from '../utils/response.js';
 import { toLocalDateTime } from '../utils/datetime.js';
 import { pageLimit, pageOffset } from '../utils/query.js';
-import { listByAudience } from '../utils/audience.js';
+import { canViewItem, loadViewer, listByAudience, withoutRemindPeople } from '../utils/audience.js';
 import { pushToRemindAudience } from '../utils/push.js';
 
 /**
@@ -69,7 +69,8 @@ export async function handleListActivities(request, env, user) {
 
     const activityModel = new ActivityModel(env.DB);
     // 提醒对象为空的条目对「不计入班级管理」的人不可见（安卓推送读的也是这个接口）
-    const list = await listByAudience(env, user.positions,
+    const viewer = await loadViewer(env, user);
+    const list = await listByAudience(viewer,
       (l, o) => (scope === 'all' ? activityModel.listAll(l, o) : activityModel.list(l, o, date)),
       limit, offset);
 
@@ -93,11 +94,14 @@ export async function handleGetActivity(request, env, user, params) {
     const activityModel = new ActivityModel(env.DB);
     const activity = await activityModel.findById(id);
 
-    if (!activity) {
+    // 看不到的条目与不存在的条目回同一个 404（同通知单条读取）
+    const viewer = await loadViewer(env, user);
+    if (!activity || !canViewItem(activity.remind_people, viewer)) {
       return jsonResponse(error('活动不存在', 'ACTIVITY_NOT_FOUND'), 404);
     }
 
-    return jsonResponse(success(activity));
+    // 定向名单只回给能发文的人（编辑表单要拿它预填）
+    return jsonResponse(success(withoutRemindPeople(activity, viewer)));
   } catch (e) {
     console.error('获取活动失败:', e);
     return jsonResponse(error('获取活动失败', 'GET_ACTIVITY_FAILED'), 500);
