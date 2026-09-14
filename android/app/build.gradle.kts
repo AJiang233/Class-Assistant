@@ -32,7 +32,12 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // R8：压缩 + 混淆。收益是体积、方法数，以及最基础的反编译门槛（现在是能直接
+            // 反出可读的 Kotlin 代码）。风险点是**跨语言契约**：网页是按字面量调 CAHost 上的
+            // 方法的，方法名被改名不会报错、只会静默失效，所以 keep 规则写在 proguard-rules.pro 里。
+            isMinifyEnabled = true
+            // 资源收缩，必须与上面的代码收缩一起开：它靠的就是 R8 结果里「哪些资源还被引用」
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

@@ -692,10 +692,12 @@ class MainActivity : AppCompatActivity() {
                 } catch (e) {}
                 return true;
               }
-              // 是否停在「主页」视图（下拉刷新只保留给主页）
+              // 是否停在「主页」视图（下拉刷新只保留给主页）。
+              // 显隐读 hidden 属性：网页那边统一改过（见 index.js 的 switchView），
+              // 内联样式已不再写 —— 再去读内联样式恒为空串，「在不在主页」就永远为真。
               function onHome() {
                 var h = document.getElementById('homeView');
-                return !!h && h.style.display !== 'none';
+                return !!h && !h.hidden;
               }
               // 是否有弹窗打开（.modal-overlay 关闭时 display:none，尺寸为 0）
               function modalOpen(doc) {
@@ -721,7 +723,7 @@ class MainActivity : AppCompatActivity() {
                   var frames = document.querySelectorAll('.app-frame');
                   for (var i = 0; i < frames.length; i++) {
                     var f = frames[i];
-                    if (!f || f.style.display === 'none') continue;
+                    if (!f || f.hidden) continue;
                     try {
                       if (f.contentDocument && !atTop(f.contentDocument)) { ok = false; break; }
                     } catch (e) {}
