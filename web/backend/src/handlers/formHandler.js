@@ -407,12 +407,14 @@ export async function handleGetForm(request, env, user, params) {
 
     const model = new FormModel(env.DB);
     const form = await model.findById(id);
-    if (!form) return jsonResponse(error('表单不存在', 'FORM_NOT_FOUND'), 404);
+    // 与下面「不在定向名单」那一支必须**逐字同句**：两句一旦写得不一样，
+    // 这个差别本身就等于告诉调用方「表单是存在还是不存在」
+    if (!form) return jsonResponse(error('没有找到这个表单 —— 可能已被删除，也可能没发给你', 'FORM_NOT_FOUND'), 404);
 
     // 非定向的人不该能靠 id 打开别人的表单：与不存在回同一个 404（可见性判定见 utils/audience.js）
     const viewer = await loadViewer(env, user);
     if (!formVisibleTo(form, viewer)) {
-      return jsonResponse(error('表单不存在', 'FORM_NOT_FOUND'), 404);
+      return jsonResponse(error('没有找到这个表单 —— 可能已被删除，也可能没发给你', 'FORM_NOT_FOUND'), 404);
     }
 
     const mine = await model.findMySubmission(id, user.id);

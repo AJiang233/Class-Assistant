@@ -5,7 +5,7 @@
 - 前端：`web/` 根目录静态文件 — 原生 HTML/CSS/JS，应用壳布局（左侧固定栏 + 右侧内容区 iframe 嵌入）
 - 后端：`backend/src/` — 经 `functions/api/[[path]].js` 接入 Pages Functions，JWT + PBKDF2 认证，通知 / 活动 / 表单 CRUD、按职位鉴权，运行时零依赖
 - 数据库：Cloudflare D1（SQLite）
-- 文案：面向用户的中文措辞与术语统一口径见 [`COPY.md`](./COPY.md)（新增 / 改动文案前对照一下）
+- 文案：面向用户的中文措辞与术语统一口径见 [`COPY.md`](../COPY.md)（新增 / 改动文案前对照一下）
 
 ---
 

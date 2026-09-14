@@ -177,6 +177,16 @@ describe('单条读取', () => {
     assert.equal(res.status, 404);
     assert.equal((await json(res)).code, 'ACTIVITY_NOT_FOUND');
   });
+
+  it('文案不写死「不存在」：被名单挡在外面的人会以为是链接点错了', async () => {
+    const env = { DB: fakeDb({ roles: [旁听生], notice: { id: 5, title: '全班通知', remind_people: null } }) };
+
+    const res = await handleGetNotice(req('/api/notices/5'), env, 小李, { id: '5' });
+    const { error } = await json(res);
+
+    assert.equal(error.includes('不存在'), false, '两种情形共用一句，不能说死是不存在');
+    assert.ok(error.includes('提醒对象'), '要给出「没提醒你」这个可能');
+  });
 });
 
 describe('表单详情与提交', () => {
@@ -200,6 +210,15 @@ describe('表单详情与提交', () => {
 
     assert.equal(res.status, 404);
     assert.equal((await json(res)).code, 'FORM_NOT_FOUND');
+  });
+
+  it('存在但看不到 / 根本不存在：文案必须逐字相同', async () => {
+    // 分开写的两句话一旦不一致，这个差别本身就等于回答「表单存在吗」
+    const hidden = await handleGetForm(req('/api/forms/9'),
+      { DB: fakeDb({ roles: [旁听生], form: baseForm }) }, 小李, { id: '9' });
+    const missing = await handleGetForm(req('/api/forms/9'), { DB: fakeDb({}) }, 小李, { id: '9' });
+
+    assert.equal((await json(hidden)).error, (await json(missing)).error);
   });
 
   it('不在定向名单里的人提交：403', async () => {

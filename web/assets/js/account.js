@@ -361,13 +361,13 @@ function renderCourseStatus(info, saved) {
     if (!el) return;
     if (!info) { el.textContent = ''; return; }
     if (!info.courseCount) {
-        el.textContent = '本机还没有课表：先到「课表与学业」绑定教务系统，同步成功后这里才有可提醒的课。';
+        el.textContent = '还没有课表：先到「课表与学业」绑定教务系统，同步成功后才有可提醒的课。';
         return;
     }
     var lead = COURSE_LEAD_LABEL[info.lead] || ('提前 ' + info.lead + ' 分钟');
     el.textContent = (saved ? '已保存：' : '当前：') + lead
         + (info.atStart ? '，开课时也提醒' : '，开课时不提醒')
-        + '。本机已同步到 ' + info.courseCount + ' 门课。';
+        + ' · 已同步 ' + info.courseCount + ' 门课';
 }
 
 function refreshCourseCard() {
@@ -408,11 +408,11 @@ refreshCourseCard();
 // 这几项都是 AOSP 公开 API 能如实回答的。厂商的「自启动」读不到，所以**不在**这个 JSON 里，
 // 页面上只能写一句「要你自己去确认」—— 编一个值显示给用户，比承认看不到更糟。
 var STANDBY_LABEL = {
-    active: '系统把它当「活跃应用」',
-    working_set: '系统把它当「常用应用」',
-    frequent: '系统把它当「较常用应用」',
-    rare: '系统把它当「很少用的应用」，后台任务会被明显压制',
-    restricted: '系统把它当「受限应用」，后台任务基本跑不动'
+    active: '系统视作「活跃应用」',
+    working_set: '系统视作「常用应用」',
+    frequent: '系统视作「较常用应用」',
+    rare: '系统视作「很少用的应用」，后台任务会被压制',
+    restricted: '系统视作「受限应用」，后台任务基本跑不动'
 };
 
 function readBackgroundStatus() {
@@ -430,14 +430,14 @@ function renderBackgroundStatus(info) {
     var parts = [];
     if (info.enabled) {
         parts.push(info.running
-            ? '后台常驻：运行中'
-            : '后台常驻：已开启，但服务当前没在跑（可能被系统回收了，重新打开一次 App 就能恢复）');
+            ? '后台常驻运行中'
+            : '后台常驻已开启，但没在跑 —— 重新打开一次 App 可恢复');
     } else {
-        parts.push('后台常驻：已关闭');
+        parts.push('后台常驻已关闭');
     }
     parts.push(info.ignoringBattery
         ? '已允许后台运行'
-        : '还没允许后台运行 —— 手机放着不动时系统会掐掉网络，那种情况下收不到通知');
+        : '未允许后台运行，手机放着不动时会收不到通知');
     var bucket = STANDBY_LABEL[info.standbyBucket];
     if (bucket) parts.push(bucket);
     status.textContent = parts.join('；') + '。';
@@ -446,8 +446,8 @@ function renderBackgroundStatus(info) {
     if (btn) btn.textContent = info.ignoringBattery ? '查看电池设置' : '允许后台运行';
     if (hint) {
         hint.textContent = info.ignoringBattery
-            ? '各家的「自启动 / 后台管理」不对外开放，我们读不到 —— 点右边「自启动设置」去系统里确认一下，把「自启动」或「后台运行」这类开关打开。'
-            : '点左边按钮允许后在系统弹窗里选「允许」，再点右边去把「自启动」打开。两件都做完，App 没打开时也能收到通知。';
+            ? '「自启动」「后台管理」各家不对外开放，我们读不到 —— 点「自启动设置」进去把这类开关打开。'
+            : '先点「允许后台运行」，在系统弹窗里选允许；再点「自启动设置」打开自启动。两件都做完，App 没打开也能收到通知。';
     }
 }
 

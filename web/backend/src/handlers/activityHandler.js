@@ -96,10 +96,10 @@ export async function handleGetActivity(request, env, user, params) {
     const activityModel = new ActivityModel(env.DB);
     const activity = await activityModel.findById(id);
 
-    // 看不到的条目与不存在的条目回同一个 404（同通知单条读取）
+    // 看不到的条目与不存在的条目回同一个 404（同通知单条读取，文案也保持一致）
     const viewer = await loadViewer(env, user);
     if (!activity || !canViewItem(activity.remind_people, viewer)) {
-      return jsonResponse(error('活动不存在', 'ACTIVITY_NOT_FOUND'), 404);
+      return jsonResponse(error('没有找到这条活动 —— 可能已被删除，也可能你不在提醒对象里', 'ACTIVITY_NOT_FOUND'), 404);
     }
 
     // 定向名单只回给能发文的人（编辑表单要拿它预填）；canManage 供前端决定显不显示改/删按钮

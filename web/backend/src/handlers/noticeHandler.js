@@ -124,10 +124,11 @@ export async function handleGetNotice(request, env, user, params) {
     const notice = await noticeModel.findById(id);
 
     // 看不到的条目与不存在的条目回同一个 404：既挡住「不计入班级管理」的人按 id 取全班内容，
-    // 也不从状态码上泄露「这条内容确实存在」
+    // 也不从状态码上泄露「这条内容确实存在」。文案同理 —— 只能写「没找到 + 两种可能」，
+    // 不能写死「不存在」：被定向名单挡在外面的人会以为是自己点错了链接。
     const viewer = await loadViewer(env, user);
     if (!notice || !canViewItem(notice.remind_people, viewer)) {
-      return jsonResponse(error('通知不存在', 'NOTICE_NOT_FOUND'), 404);
+      return jsonResponse(error('没有找到这条通知 —— 可能已被删除，也可能你不在提醒对象里', 'NOTICE_NOT_FOUND'), 404);
     }
 
     // 定向名单只回给能发文的人（编辑表单要拿它预填）；canManage 供前端决定显不显示改/删按钮
