@@ -32,8 +32,13 @@
         <item name="android:layout_height">wrap_content</item>
     </style>
 
-    <!-- 卡片上「已经过去的那一部分」。目前只有课表用（活动缓存里没有下课时间，算不出上到几成）。
-         minHeight/maxHeight 必须显式写：框架的 progressBarStyleHorizontal 把高度夹在 16dip，
+    <!-- 卡片上「已经过去的那一部分」，**课表专用**（活动卡片不设它、默认 gone）：
+         一场活动不是「上到几成」那种东西，卡片也放不下第四行 —— 虽然活动的结束时间
+         现在缓存里确实有（见 sync/Event.kt 与 SyncRunner），用它来判「还算不算在办」，
+         但不用来画进度。
+
+         颜色与底色那点讲究在 widget_card_progress.xml 与 colors.xml 里，这里只管尺寸：
+         minHeight/maxHeight 必须显式写 —— 框架的 progressBarStyleHorizontal 把高度夹在 16dip，
          不覆盖的话进度条只有半条高，跟底下的卡片对不上 -->
     <style name="WidgetCardProgress" parent="@android:style/Widget.ProgressBar.Horizontal">
         <item name="android:layout_width">match_parent</item>
