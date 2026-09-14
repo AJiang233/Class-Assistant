@@ -323,9 +323,6 @@ class MainActivity : AppCompatActivity() {
         Scheduler.refreshWidgets(this)
         // 顺手把下一次零点刷新排上（重复排只是覆盖，不会堆）
         Scheduler.scheduleMidnightRefresh(this)
-        // 再补一次「当天」的两个列表键：主页的当日列表按日期取，键每天都不一样，而后台同步
-        // 未必在当天跑过 —— 补上它，进屋那一下才不用等网络（见 SyncRunner.prewarmTodayLists）
-        SyncRunner.prewarmTodayLists(this)
     }
 
     /**
