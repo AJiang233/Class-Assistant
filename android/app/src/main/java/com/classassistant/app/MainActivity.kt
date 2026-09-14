@@ -13,10 +13,13 @@ import android.net.http.SslError
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.util.Log
 import android.view.KeyEvent
 import android.view.View
+import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.SslErrorHandler
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
@@ -68,6 +71,13 @@ class MainActivity : AppCompatActivity() {
 
     /** WebView 原始 UA，教务登录结束后还原 */
     private var defaultUserAgent: String? = null
+
+    /**
+     * WebView 是否已经销毁过。
+     * 渲染进程没了之后只剩 destroy() 还能用（见 onRenderProcessGone），
+     * 那条路径会先把 WebView 释放掉，onDestroy 就别再碰第二次。
+     */
+    private var webViewReleased = false
 
     /**
      * 桥只服务本应用页面。
@@ -354,15 +364,24 @@ class MainActivity : AppCompatActivity() {
      *
      * MainActivity 是唯一页面，Activity finish 并不会让进程退出，所以不 destroy 的话，
      * 它拉起的渲染进程、以及挂在上面的 JS 桥会一直跟着进程留着 —— 反复进出就是一份份泄漏。
-     * 顺序上先摘桥再 destroy：免得销毁过程中还有页面脚本回调进来。
      */
     override fun onDestroy() {
+        releaseWebView()
+        super.onDestroy()
+    }
+
+    /**
+     * 释放 WebView：先摘桥再 destroy，免得销毁过程中还有页面脚本回调进来。
+     * 幂等 —— 渲染进程先没了的情况下（onRenderProcessGone）已经调用过一次。
+     */
+    private fun releaseWebView() {
+        if (webViewReleased) return
+        webViewReleased = true
         binding.webView.apply {
             stopLoading()
             removeJavascriptInterface(BRIDGE_NAME)
             destroy()
         }
-        super.onDestroy()
     }
 
     private fun requestNotificationPermission() {
@@ -452,6 +471,43 @@ class MainActivity : AppCompatActivity() {
                 ) {
                     // 站点使用合法 HTTPS，不忽略证书错误
                     handler.cancel()
+                }
+
+                /**
+                 * 渲染进程没了（系统回收内存，或者渲染进程自己崩了）。
+                 *
+                 * targetSdk ≥ 26 起，**不处理的话系统会直接结束整个应用进程** —— 表现就是
+                 * 「用着用着闪退」，而且看不到自己的崩溃栈，只能在 logcat 里看到
+                 * Render process gone。低内存机型切到后台再回来是最常见的触发场景。
+                 *
+                 * 两种情况都重建：官方文档对「系统回收内存而杀掉渲染进程」给的办法就是
+                 * 「在前台重建一个新的 WebView」，而崩溃同样只能重建 —— 返回 false 等于把
+                 * 应用进程交出去杀掉，这个 bug 就等于没修。
+                 */
+                override fun onRenderProcessGone(
+                    view: WebView,
+                    detail: RenderProcessGoneDetail?
+                ): Boolean {
+                    // didCrash() 是 API 26 才有的（这个回调本身也是 26 起才会被调到），
+                    // 显式判断版本，别让 minSdk 24 的机器在 lint / 运行时上被卡住
+                    val crashed = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+                        detail?.didCrash() == true
+                    Log.w(TAG, "WebView 渲染进程没了（crashed=$crashed），重建界面")
+
+                    if (isFinishing || isDestroyed) return true
+
+                    // 这个 WebView 已经不可用了：必须从视图树摘掉并销毁，否则它会以
+                    // 一片空白的样子留在界面上 —— 返回 true 之后系统不会再替我们清理。
+                    // 只调 destroy()：摘桥 / 停加载这些留给正常路径，崩溃恢复这一层
+                    // 自己再抛异常就等于恢复失败。
+                    (view.parent as? ViewGroup)?.removeView(view)
+                    webViewReleased = true
+                    view.destroy()
+
+                    Toast.makeText(applicationContext, "页面已重新加载", Toast.LENGTH_SHORT).show()
+                    // 重建 Activity：新 WebView 由 onCreate 正常装配，页面回到首页重新加载
+                    recreate()
+                    return true
                 }
             }
 
@@ -601,6 +657,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private companion object {
+        /** 日志标签，与其它模块的 CAApi / CABackground / CAOffline 同一套命名 */
+        const val TAG = "CAMain"
+
         /**
          * JS 桥挂在页面里的对象名，加桥 / 摘桥两处共用。
          * 注意 PROBE_JS 里是按字面量 `CAHost.xxx` 调的（JS 那边插值不进来），改名要一起改。
