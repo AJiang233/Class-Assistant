@@ -19,7 +19,7 @@ const APP_SOURCE = readFileSync(join(HERE, '../../assets/js/app.js'), 'utf8');
 const ORIGIN = 'https://class.test';
 
 /** 把 sw.js 放进一个带假 caches / fetch / self 的沙箱里执行，取出它注册的各个事件处理器 */
-function loadSW(fetchImpl) {
+function loadSW(fetchImpl, options = {}) {
   const handlers = {};
   const stores = new Map();        // 缓存名 -> Map<绝对URL, Response>
   const deletedCaches = [];
@@ -37,7 +37,11 @@ function loadSW(fetchImpl) {
           if (!res.ok) throw new Error('add 失败：' + res.status);
           entries.set(absolute(path), res);
         },
-        async put(request, response) { entries.set(absolute(request), response); },
+        async put(request, response) {
+          // putDelayMs 用来验证「响应返回前缓存是否已经写完」：默认不延迟
+          if (options.putDelayMs) await new Promise((r) => setTimeout(r, options.putDelayMs));
+          entries.set(absolute(request), response);
+        },
         async keys() { return [...entries.keys()].map((u) => new Request(u)); },
         async match(request) { return entries.get(absolute(request)); }
       };
@@ -108,6 +112,17 @@ test('联网时页面走网络，并写入缓存', async () => {
   assert.equal(await res.text(), 'fresh');
   // 键落到规范地址：/index.html 与 / 是同一份，写 .html 会让离线时按另一种写法取不到
   assert.ok(sw.stores.get('ca-shell-v2').has(ORIGIN + '/'));
+});
+
+test('缓存写入要 await 完成后再返回响应（否则 SW 被回收会静默丢缓存）', async () => {
+  // cache.put 不 await 的话就是个游离 Promise，跑在 respondWith 之外，
+  // SW 线程随时可能被回收 —— 写入被静默丢弃，离线壳表现为「有时有、有时没有」。
+  const sw = loadSW(async () => ok('fresh'), { putDelayMs: 20 });
+  const got = fire(sw.handlers.fetch, new Request(ORIGIN + '/index.html'));
+  const res = await got.promise;
+  assert.equal(await res.text(), 'fresh');
+  // respondWith 的 promise 结算时，缓存写入必须已经落地
+  assert.ok(sw.stores.get('ca-shell-v2').has(ORIGIN + '/'), '响应返回时缓存应已写入');
 });
 
 test('跟过跳转的响应落缓存前去掉 redirected 标记', async () => {

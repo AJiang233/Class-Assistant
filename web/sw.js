@@ -74,9 +74,12 @@ function cacheable(request, response) {
 self.addEventListener('install', function (event) {
   event.waitUntil((async function () {
     const cache = await caches.open(CACHE);
-    // 逐个预热：单个资源失败不影响整体安装（例如某页临时取不到）
+    // 逐个预热：单个资源失败不影响整体安装（例如某页临时取不到），
+    // 但必须留痕 —— 否则某次部署把路由改坏，只在用户断网时才暴露，线上完全无信号
     await Promise.all(PRECACHE.map(function (path) {
-      return cache.add(path).catch(function () {});
+      return cache.add(path).catch(function (e) {
+        console.warn('应用壳预热失败：' + path, e);
+      });
     }));
     // 立即接管，避免用户长期停在旧版本
     await self.skipWaiting();
@@ -117,8 +120,10 @@ self.addEventListener('fetch', function (event) {
       const fresh = await fetch(request, { cache: 'no-cache' });
       if (cacheable(request, fresh)) {
         const cache = await caches.open(CACHE);
-        // 键归到规范地址、响应去掉跳转标记：缓存里始终是「能用于导航」的那一份
-        cache.put(canonical(new URL(request.url)), plain(fresh.clone()));
+        // 键归到规范地址、响应去掉跳转标记：缓存里始终是「能用于导航」的那一份。
+        // 必须 await：不 await 的话这个 Promise 游离在 respondWith 之外，
+        // SW 线程随时可能被回收，写入被静默丢弃 —— 离线缓存就会「有时有、有时没有」
+        await cache.put(canonical(new URL(request.url)), plain(fresh.clone()));
       }
       return fresh;
     } catch (err) {
