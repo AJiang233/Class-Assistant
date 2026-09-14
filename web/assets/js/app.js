@@ -130,6 +130,17 @@ function positionsChipsHTML(p) {
   return list.map(function (n) { return '<span class="pos-tag">' + esc(n) + '</span>'; }).join('');
 }
 
+/* ===== 事件委托 =====
+   CSP 收紧后页面里不能再写内联 onclick（script-src 里没有 'unsafe-inline'），
+   静态按钮与动态生成的列表行统一改成「属性标记 + 委托监听」：
+   整页只挂一个监听，列表 innerHTML 重绘之后不用重新绑定。 */
+function delegate(root, type, selector, handler) {
+  root.addEventListener(type, function (e) {
+    var el = e.target instanceof Element ? e.target.closest(selector) : null;
+    if (el) handler(el, e);
+  });
+}
+
 /** 取某个提醒选择区中「属于指定职位」的成员复选框 */
 function _remindByPosition(boxId, pos) {
   const box = document.getElementById(boxId);
@@ -179,20 +190,40 @@ function renderRemindBox(boxId, members, checkedNames) {
     });
   });
   const quick = positions.map(function (p) {
-    return '<button type="button" class="pos-chip" data-pos="' + escAttr(p) + '" onclick="toggleRemindPosition(\'' + boxId + '\', this)">' + esc(p) + '</button>';
+    return '<button type="button" class="pos-chip" data-pos="' + escAttr(p) + '">' + esc(p) + '</button>';
   }).join('');
   const rows = members.map(function (m) {
     const ps = parsePositionsList(m.positions).join(',');
     const chk = checked[m.name] ? ' checked' : '';
     return '<label class="chip" data-positions="' + escAttr(ps) + '">'
-      + '<input type="checkbox" class="remind-cb" value="' + escAttr(m.name) + '"' + chk
-      + ' onchange="syncRemindQuick(\'' + boxId + '\')">' + esc(m.name) + '</label>';
+      + '<input type="checkbox" class="remind-cb" value="' + escAttr(m.name) + '"' + chk + '>' + esc(m.name) + '</label>';
   }).join('');
   box.innerHTML = (positions.length ? '<div class="remind-quick"><span class="remind-quick-label">按职位选择</span>' + quick + '</div>' : '')
-    + '<div style="margin-bottom:12px;"><input class="form-input" type="search" placeholder="搜索姓名 / 职务" autocomplete="off" oninput="filterRemindMembers(this)"></div>'
+    + '<div style="margin-bottom:12px;"><input class="form-input" type="search" placeholder="搜索姓名 / 职务" autocomplete="off"></div>'
     + '<div class="remind-members">' + rows + '</div>'
     + '<div class="remind-empty" hidden style="font-size:0.85rem; opacity:.6;">没有匹配的成员</div>';
+  bindRemindBox(box, boxId);
   syncRemindQuick(boxId);
+}
+
+/**
+ * 提醒选择区的委托监听。内容每次重绘都会换掉，但外层 .remind-box 容器不变，
+ * 所以监听挂在容器上、只挂一次（挂内层节点的话重绘一次就全丢了）。
+ */
+function bindRemindBox(box, boxId) {
+  if (box.__remindBound) return;
+  box.__remindBound = true;
+  box.addEventListener('click', function (e) {
+    const chip = e.target instanceof Element ? e.target.closest('.pos-chip') : null;
+    if (chip) toggleRemindPosition(boxId, chip);
+  });
+  box.addEventListener('change', function (e) {
+    if (e.target && e.target.classList && e.target.classList.contains('remind-cb')) syncRemindQuick(boxId);
+  });
+  box.addEventListener('input', function (e) {
+    const t = e.target;
+    if (t && t.tagName === 'INPUT' && t.type === 'search') filterRemindMembers(t);
+  });
 }
 
 /**

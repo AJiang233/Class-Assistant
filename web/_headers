@@ -8,9 +8,25 @@
 # 本站页面之间确实互相嵌套（index.html 用 iframe 装 notices / activities / academic /
 # account / admin），DENY 会把自家 iframe 一起挡掉，整个应用直接白屏。
 # 这里要挡的只是外站嵌套（防管理员面板被点击劫持）。
-# 暂未加 CSP：index.html / admin.html 大量使用内联 onclick，
-# 直接上严格 script-src 会让整站脚本失效，需先把内联事件改造成 addEventListener，另见 issue。
+#
+# CSP 逐条说明：
+#   script-src 'self'
+#       页面里已经没有内联 <script>，也没有内联 onclick —— 内联事件处理器（onclick 这类）
+#       用哈希是放行不了的，只有加 'unsafe-inline' 才行，那等于没上 CSP。所以页面逻辑都抽到了
+#       assets/js/{theme,app,index,notices,...}.js，动态生成的按钮统一走 app.js 里的
+#       delegate() 事件委托。以后再往页面里写内联 handler，按钮会静默失效（点了没反应），
+#       别为了图快加 'unsafe-inline'；backend/test/csp.test.js 会把这种回退挡住。
+#   style-src 'self' 'unsafe-inline'
+#       'unsafe-inline' 是必需的：页面里仍有大量 style="..." 内联属性（骨架屏、日历、
+#       提醒选择区、弹窗定位等），去掉之后整站排版会崩。样式不是这条 issue 的收紧对象。
+#   img-src 'self' data:      favicon 用的是 data:image/svg+xml
+#   connect-src 'self'        前端与后端同域（app.js 里 API_BASE 为空）
+#   frame-src 'self'          自家 iframe 之间要能嵌套
+#   object-src 'none'         不用插件（<object>/<embed>/<applet>）
+#   base-uri 'self'           不允许注入 <base> 改写相对地址
+#   form-action 'self'        表单不往站外提交
 /*
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-src 'self'; frame-ancestors 'self'; object-src 'none'; base-uri 'self'; form-action 'self'
   X-Content-Type-Options: nosniff
   X-Frame-Options: SAMEORIGIN
   Referrer-Policy: strict-origin-when-cross-origin
