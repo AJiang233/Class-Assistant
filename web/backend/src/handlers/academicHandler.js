@@ -147,6 +147,57 @@ export function cacheDecision({ hasCache, liveError, refresh, fetchedAt }) {
   return null;
 }
 
+/**
+ * 按当前日期算「现在该看哪一学期」，返回 id（形如 2026-2027-1）。
+ *
+ * 为什么不认教务给的「当前学期」标记：那个标记在学期切换上并不跟着走 —— 2026-2027-2 还没开学，
+ * 它就已经被标成当前学期，于是每次进页面默认展开的是一份还没开始的课表。
+ * 学期 id 自己就带学年与学期序号，按日期推准得多：9 月–次年 1 月是第 1 学期，
+ * 2–8 月是第 2 学期（7、8 月暑假算上学年末尾）。
+ *
+ * 日期按北京时间算：Workers 跑在 UTC，9 月 1 日凌晨那几个小时会差出一天去。
+ */
+export function termIdByDate(now = new Date()) {
+  const bj = new Date(now.getTime() + 8 * 60 * 60 * 1000);
+  const y = bj.getUTCFullYear();
+  const m = bj.getUTCMonth() + 1;
+  const first = m >= 9 || m === 1;
+  const startYear = m >= 9 ? y : y - 1;
+  return startYear + '-' + (startYear + 1) + '-' + (first ? 1 : 2);
+}
+
+/** 教务的「当前学期」标记：接口给过的形态有 '1' / 1 / true，宽松认一下 */
+function isFlaggedCurrent(t) {
+  const v = t && t.dqxqflag;
+  return v === true || String(v) === '1' || String(v) === 'true';
+}
+
+/**
+ * 这一轮看哪一学期。
+ *
+ * 调用方显式指定了学期（`?xnxq=`，用户在下拉里选过、或前端带回上次看的）就先认它，
+ * 但只认在教务列表里的那一个：旧学期被教务清理掉之后，拿一个它不认的 id 去抓，
+ * 抓回来是一份空课表，用户看到的是「这学期没课」而不是「这学期已经不在了」。
+ * 教务那次没成时列表是空的，这时候不能丢人家选的学期 —— 缓存里也许还有。
+ *
+ * 没指定（或指定的学期无效）时才推默认：按日期推出来的学期在教务列表里就用它，这是绝大多数
+ * 情况；不在（教务还没建这份、或 id 规则变了）用教务自己标的；再不行才用列表第一项。
+ * 列表同样为空时退到缓存里出现过的学期 —— 缓存也按学期倒序，直接取第一项会落在
+ * 「最近的未来学期」上，正是这次要修的那个坑。
+ */
+export function resolveCurrentTermId(terms, cachedTerms, requested, now = new Date()) {
+  const live = terms || [];
+  const cachedIds = (cachedTerms || []).map((t) => t.xnxq_id);
+  if (requested && (!live.length || live.some((t) => String(t.id) === requested))) return requested;
+  const wanted = termIdByDate(now);
+  if (live.some((t) => String(t.id) === wanted)) return wanted;
+  const flagged = live.find(isFlaggedCurrent);
+  if (flagged) return flagged.id;
+  if (cachedIds.indexOf(wanted) >= 0) return wanted;
+  if (live[0]) return live[0].id;
+  return cachedIds[0] || '';
+}
+
 /** 学期下拉项：实时列表优先，历次缓存里出现过的学期做兜底 */
 function buildTerms(terms, cachedTerms, currentId) {
   const map = new Map();
@@ -582,11 +633,7 @@ export async function handleAcademicTimetable(request, env, user) {
   }
   if (liveError instanceof SchoolSessionExpired) await model.markExpired(user.id);
 
-  let xnxqId = url.searchParams.get('xnxq') || '';
-  if (!xnxqId) {
-    const current = (terms || []).find((t) => String(t.dqxqflag) === '1') || (terms || [])[0];
-    xnxqId = current ? current.id : (cachedTerms[0] ? cachedTerms[0].xnxq_id : '');
-  }
+  const xnxqId = resolveCurrentTermId(terms, cachedTerms, url.searchParams.get('xnxq') || '');
   if (!xnxqId) return jsonResponse(error('暂时取不到学期信息，请稍后重试', 'NO_TERM'), 400);
 
   // 2. 缓存命中：教务那一趟没成（不可达 / 登录态被重置）就无条件把它给出去，
