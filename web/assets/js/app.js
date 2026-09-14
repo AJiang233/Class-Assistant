@@ -16,12 +16,11 @@ async function api(path, options = {}) {
   const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
   const token = localStorage.getItem(LS_TOKEN);
   if (token) headers['Authorization'] = 'Bearer ' + token;
-  // 前端兜底超时：后端或网络挂起时也能拿到异常回显，而不是无限卡在加载态。
-  // providers 若已带 signal（供手动取消复用）则不覆盖。
-  const init = options.signal ? options : { ...options, signal: AbortSignal.timeout(30000) };
   let res;
   try {
-    res = await fetch(API_BASE + path, { ...init, headers });
+    // 前端兜底超时：后端或网络挂起时也能拿到异常回显，而不是无限卡在加载态。
+    // 构造放在 try 内，旧内核没有 AbortSignal.timeout 时也不会把 api() 整个打挂。
+    res = await fetch(API_BASE + path, { ...withTimeout(options), headers });
   } catch (e) {
     // 超时/断网时 fetch 直接 reject，message 常为空，这里转成可读文案
     const timedOut = !(options.signal) && e && (e.name === 'TimeoutError' || e.name === 'AbortError');
@@ -43,10 +42,33 @@ async function api(path, options = {}) {
   return data;
 }
 
+/** 给请求补一个 30s 兜底超时；旧内核缺 AbortSignal.timeout 时退化为 AbortController */
+function withTimeout(options) {
+  if (options.signal) return options;   // 调用方自带 signal（手动取消）时不覆盖
+  try {
+    if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+      return { ...options, signal: AbortSignal.timeout(30000) };
+    }
+    if (typeof AbortController !== 'undefined') {
+      const controller = new AbortController();
+      setTimeout(function () { controller.abort(); }, 30000);
+      return { ...options, signal: controller.signal };
+    }
+  } catch (e) { /* 特性探测或构造失败：退化成无超时请求，不影响请求本身 */ }
+  return options;
+}
+
 /** 保存登录会话 */
 function saveSession(data) {
-  localStorage.setItem(LS_TOKEN, data.token);
-  localStorage.setItem(LS_USER, JSON.stringify(data.user || {}));
+  // Safari 无痕模式或配额耗尽时 setItem 会抛 QuotaExceededError。
+  // 不区分处理的话，服务端明明已经签发 token，用户却被提示登录失败。
+  try {
+    localStorage.setItem(LS_TOKEN, data.token);
+    localStorage.setItem(LS_USER, JSON.stringify(data.user || {}));
+  } catch (e) {
+    console.warn('无法写入本地存储：', e);
+    throw new Error('浏览器存储不可用，无法保持登录状态，请退出无痕模式后重试');
+  }
 }
 
 /** 读取当前用户（无则 null） */
@@ -157,13 +179,13 @@ function renderRemindBox(boxId, members, checkedNames) {
     });
   });
   const quick = positions.map(function (p) {
-    return '<button type="button" class="pos-chip" data-pos="' + esc(p) + '" onclick="toggleRemindPosition(\'' + boxId + '\', this)">' + esc(p) + '</button>';
+    return '<button type="button" class="pos-chip" data-pos="' + escAttr(p) + '" onclick="toggleRemindPosition(\'' + boxId + '\', this)">' + esc(p) + '</button>';
   }).join('');
   const rows = members.map(function (m) {
     const ps = parsePositionsList(m.positions).join(',');
     const chk = checked[m.name] ? ' checked' : '';
-    return '<label class="chip" data-positions="' + esc(ps) + '">'
-      + '<input type="checkbox" class="remind-cb" value="' + esc(m.name) + '"' + chk
+    return '<label class="chip" data-positions="' + escAttr(ps) + '">'
+      + '<input type="checkbox" class="remind-cb" value="' + escAttr(m.name) + '"' + chk
       + ' onchange="syncRemindQuick(\'' + boxId + '\')">' + esc(m.name) + '</label>';
   }).join('');
   box.innerHTML = (positions.length ? '<div class="remind-quick"><span class="remind-quick-label">按职位选择</span>' + quick + '</div>' : '')
@@ -398,12 +420,19 @@ function clearSession() {
   localStorage.removeItem(LS_USER);
 }
 
+/** 是否已经在跳转回主页的路上：并发多个 401 时避免反复触发顶层跳转 */
+var redirectingToIndex = false;
+
 /** 回到主页引导页（iframe 内则跳外层，避免套娃） */
 function redirectToIndex() {
+  if (redirectingToIndex) return;
+  redirectingToIndex = true;
+  // 由当前目录推导，而不是写死 'index.html'：换到子路径部署时后者会跳到站根
+  var target = window.location.pathname.replace(/[^/]*$/, '') + 'index.html';
   if (window.self !== window.top) {
-    window.top.location.href = 'index.html';
+    window.top.location.href = target;
   } else {
-    window.location.href = 'index.html';
+    window.location.href = target;
   }
 }
 
@@ -428,6 +457,35 @@ function esc(t) {
   const d = document.createElement('div');
   d.textContent = String(t);
   return d.innerHTML;
+}
+
+/**
+ * 属性值转义。
+ * esc() 走 textContent→innerHTML，只保证 & < > 安全，**不会转义引号**；
+ * 放进带引号的属性里时，一个 " 就能闭合属性并注入事件处理器。
+ * 凡是插到 ="..." 里的值都必须走这里，而不是 esc()。
+ */
+function escAttr(t) {
+  if (t == null) return '';
+  return String(t)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+/**
+ * href 白名单：只放行站内相对路径与 http(s)，挡掉 javascript: / data: 这类伪协议。
+ * 属性转义管不了协议型 XSS，两者要一起用。
+ */
+function safeHref(url) {
+  const s = String(url == null ? '' : url).trim();
+  if (!s) return '';
+  if (/^https?:\/\//i.test(s)) return s;
+  if (s.charAt(0) === '/' || s.charAt(0) === '#' || s.charAt(0) === '?') return s;
+  if (/^[a-z][a-z0-9+.-]*:/i.test(s)) return '';
+  return s;
 }
 
 /** 日期显示：空显示"时间未知" */

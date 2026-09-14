@@ -581,7 +581,7 @@
         (selected || []).forEach(function (p) { sel[p] = true; });
         box.innerHTML = allPositionNames(selected).map(function (p) {
             var chk = sel[p] ? ' checked' : '';
-            return '<label class="chip"><input type="checkbox" class="pos-cb" value="' + esc(p) + '"' + chk + '>' + esc(p) + '</label>';
+            return '<label class="chip"><input type="checkbox" class="pos-cb" value="' + escAttr(p) + '"' + chk + '>' + esc(p) + '</label>';
         }).join('');
     }
 

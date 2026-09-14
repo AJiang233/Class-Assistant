@@ -97,22 +97,22 @@
         var body;
 
         if (f.type === 'textarea') {
-            body = '<textarea class="form-input" id="f_' + f.key + '" rows="3" placeholder="' + esc(f.placeholder || '') + '"></textarea>';
+            body = '<textarea class="form-input" id="f_' + f.key + '" rows="3" placeholder="' + escAttr(f.placeholder || '') + '"></textarea>';
         } else if (f.type === 'radio') {
             // 用原生 select：与课表页学期选择同一套 .form-input 样式，移动端也顺手
             body = '<select class="form-input" id="f_' + f.key + '"><option value="">请选择</option>'
-                + (f.options || []).map(function (o) { return '<option value="' + esc(o) + '">' + esc(o) + '</option>'; }).join('')
+                + (f.options || []).map(function (o) { return '<option value="' + escAttr(o) + '">' + esc(o) + '</option>'; }).join('')
                 + '</select>';
         } else if (f.type === 'checkbox') {
             body = '<div class="pos-picker">' + (f.options || []).map(function (o) {
-                return '<label class="chip"><input type="checkbox" data-key="' + f.key + '" value="' + esc(o) + '">' + esc(o) + '</label>';
+                return '<label class="chip"><input type="checkbox" data-key="' + f.key + '" value="' + escAttr(o) + '">' + esc(o) + '</label>';
             }).join('') + '</div>';
         } else if (f.type === 'number') {
-            body = '<input class="form-input" type="number" inputmode="decimal" id="f_' + f.key + '" placeholder="' + esc(f.placeholder || '') + '" autocomplete="off">';
+            body = '<input class="form-input" type="number" inputmode="decimal" id="f_' + f.key + '" placeholder="' + escAttr(f.placeholder || '') + '" autocomplete="off">';
         } else if (f.type === 'date') {
             body = '<input class="form-input" type="date" id="f_' + f.key + '">';
         } else {
-            body = '<input class="form-input" type="text" id="f_' + f.key + '" placeholder="' + esc(f.placeholder || '') + '" autocomplete="off">';
+            body = '<input class="form-input" type="text" id="f_' + f.key + '" placeholder="' + escAttr(f.placeholder || '') + '" autocomplete="off">';
         }
         return '<div class="form-field">' + label + body + '</div>';
     }
