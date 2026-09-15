@@ -164,7 +164,8 @@ submitBtn.addEventListener('click', async function () {
             payload.mySubmission ? (payload.mySubmission.updated_at || payload.mySubmission.created_at) : '',
             payload.canSubmit ? '' : (payload.submitBlockedReason || '当前不可提交')
         );
-        submitBtn.textContent = '已提交';
+        // 文案由 applySubmitState 按「还能不能改」决定（保存修改 / 已提交（不可修改））。
+        // 这里再写死一个「已提交」会和可点状态自相矛盾：按钮显示已定案，却仍能再次提交。
     } catch (err) {
         showError(err.message);
         submitBtn.textContent = original;

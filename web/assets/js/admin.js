@@ -723,6 +723,9 @@ async function openFormTime(id) {
     openModal('formTimeModal');
     try {
         var res = await api('/api/forms/' + id);
+        // 关弹窗不会取消在途请求：回来时先确认还是同一条，否则会把 A 的截止时间
+        // 填进为 B 打开的弹窗，保存时又按 B 提交（静默改掉 B 的时间）
+        if (formTimeId !== id) return;
         var form = res.data.form;
         // 服务端存的是 'YYYY-MM-DD HH:mm:ss'，datetime-local 只认 'YYYY-MM-DDTHH:mm'
         document.getElementById('ftDeadline').value =
@@ -775,6 +778,8 @@ async function openFormResult(id) {
     openModal('formResultModal');
     try {
         var formRes = await api('/api/forms/' + id);
+        // 同 openFormTime：响应回来时弹窗可能已经换成另一张表单，晚到的这一份必须丢弃
+        if (formResultId !== id) return;
         var form = formRes.data.form;
         formResultForm = form;
         document.getElementById('formResultTitle').textContent = form.title;
@@ -785,6 +790,7 @@ async function openFormResult(id) {
         document.getElementById('formResultMeta').textContent = meta.join(' · ');
 
         var prog = await api('/api/forms/' + id + '/progress');
+        if (formResultId !== id) return;
         var p = prog.data || {};
         formPendingText = p.pendingText || '';
         document.getElementById('formPendingList').innerHTML = '<div class="info-row member-row">'
@@ -811,7 +817,11 @@ async function loadFormSubs() {
     var original = btn.textContent;
     btn.textContent = '正在加载…';
     try {
-        var subsRes = await api('/api/forms/' + formResultId + '/submissions');
+        // 明细是按 formResultId 拉的，字段定义却取 formResultForm：期间换过表单就会
+        // 用 A 的字段去解释 B 的答案。所以先把这次请求对应的 id 记下来，回来再核一次
+        var subsReqId = formResultId;
+        var subsRes = await api('/api/forms/' + subsReqId + '/submissions');
+        if (formResultId !== subsReqId || !formResultForm) return;
         var list = (subsRes.data && subsRes.data.list) || [];
         if (!list.length) {
             host.innerHTML = stateHTML('还没有人提交');

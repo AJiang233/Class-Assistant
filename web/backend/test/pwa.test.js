@@ -521,3 +521,22 @@ test('后台通知：系统待机档五档都能表达出来', () => {
     assert.ok(map.includes(bucket + ':'), '缺 ' + bucket + '：原生回这一档时第二行会空着');
   }
 });
+
+// ===== 日历日期展开必须有界 =====
+// 通知/活动的起止时间来自自由填写（截止时间允许填到 9999 年），expand() 会把
+// [开始日, 结束日] 逐天展开进 Set。没有上限时一个远期 expire_time 就是上百万次循环，
+// 主页主线程直接卡死（列表还没渲染出来就先卡住）。expand 是 loadCalendar 里的内层函数，
+// 页面又是带副作用的 IIFE，取不出来跑，所以按本文件既有做法留源码断言。
+
+test('日历日期展开有上限，远期时间不会把主页卡死', () => {
+  const src = readFileSync(join(HERE, '../../assets/js/index.js'), 'utf8');
+
+  const decl = src.match(/var EXPAND_MAX_DAYS\s*=\s*(\d+)/);
+  assert.ok(decl, '找不到展开上限常量：逐天展开的循环次数必须有界');
+  const maxDays = Number(decl[1]);
+  assert.ok(maxDays > 0 && maxDays <= 366 * 100, '展开上限应当是个现实的天数，而不是等于没设');
+
+  // 光定义常量不算数：必须真的用它把 end 收窄，否则循环仍然是无界的
+  assert.match(src, /end\s*=\s*new Date\(cur\.getTime\(\)\s*\+\s*EXPAND_MAX_DAYS/,
+    '上限没有作用在结束日期上，展开仍是无界循环');
+});
