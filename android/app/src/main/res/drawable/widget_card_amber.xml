@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- 「琥珀」卡片的底：与 CARD_BAR_COLORS[3]（#F59E0B）同色系，掺白到 12% 当底色。
-     同组其余五个见 widget_card_sky.xml 的注释 -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android"
-    android:shape="rectangle">
-    <solid android:color="#FEF3E2" />
-    <corners android:radius="8dp" />
-</shape>
