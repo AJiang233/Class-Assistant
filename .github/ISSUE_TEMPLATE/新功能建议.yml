@@ -36,24 +36,6 @@ body:
     validations:
       required: false
 
-  - type: textarea
-    id: implementation
-    attributes:
-      label: 实现方案
-      description: 你是否有什么好的实现方案？可选内容
-      placeholder: 可选，请描述实现思路...
-    validations:
-      required: false
-
-  - type: textarea
-    id: examples
-    attributes:
-      label: 示例 / 参考
-      description: 截图、伪代码、类似项目链接等
-      placeholder: 可选，请提供截图、链接或伪代码...
-    validations:
-      required: false
-
   - type: dropdown
     id: priority
     attributes:
