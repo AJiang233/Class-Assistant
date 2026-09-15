@@ -440,6 +440,14 @@ class MainActivity : AppCompatActivity() {
                         openExternal(url)
                         return true
                     }
+                    // 其余 WebView 打不开的协议（weixin:// / alipays:// / market:// / intent://…，
+                    // 班级通知里真会出现的分享、缴费、应用市场链接）：return false 只会让点击**静默
+                    // 无反应**，所以同样交给系统应用去接，接不住时 openExternal 会提示一句。
+                    // 只管主框架——子框架里的第三方跳转不该把用户弹出去。
+                    if (request.isForMainFrame && !isHandledByWebView(url)) {
+                        openExternal(url)
+                        return true
+                    }
                     // 只管主框架（子框架里的第三方链接不该被踢到浏览器）；
                     // 教务登录期间一律不往外跳——认证过程会跨主机，跳走就把登录流程断了
                     if (!academicLogin && request.isForMainFrame && isExternalLink(url)) {
@@ -460,7 +468,7 @@ class MainActivity : AppCompatActivity() {
                     if (academicLogin) {
                         // 教务登录流程中：回到教务域即视为登录完成，读取 Cookie 上报；
                         // 且不能注入探针——探针在教务页找不到本应用 token 会回传空串，把本地登录态清掉
-                        if (url != null && url.startsWith(SCHOOL_ORIGIN)) uploadAcademicCookies()
+                        if (url != null && isSchoolUrl(url)) uploadAcademicCookies()
                         return
                     }
                     // 安装滚动状态探针（脚本内部幂等，重复注入无副作用）
@@ -555,6 +563,28 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
+     * 这些协议的导航由 WebView 自己处理，**不该往外抛**（抛给系统应用要么没人接，
+     * 要么把页面内部的跳转误伤成「打开某个应用」）。
+     * tel / sms / mailto 不在这里 —— 它们由上面 isSystemScheme 那一支单独接管。
+     */
+    private fun isHandledByWebView(url: Uri): Boolean {
+        // 取不到协议（相对地址之类）时按「自己处理」算：本方法只用来决定「要不要丢给系统」，
+        // 拿不准的时候不丢，比拿不准就丢安全
+        val scheme = url.scheme?.lowercase() ?: return true
+        return scheme in WEBVIEW_SCHEMES
+    }
+
+    /**
+     * 是不是教务系统自己的页面。**按主机名判，不要用 `url.startsWith(SCHOOL_ORIGIN)`**：
+     *   - 教务门户本身还提供 http（见 network_security_config.xml），登录跳回来可能落在
+     *     `http://szjw.njau.edu.cn/…` 上：只比 `https://` 前缀会一直等不到 Cookie 上报，
+     *     用户就卡在「桌面 UA + 教务页」里出不来，绑定也永远完不成；
+     *   - 字符串前缀还会把 `https://szjw.njau.edu.cn.evil.com` 当成教务域。
+     */
+    private fun isSchoolUrl(url: String): Boolean =
+        Uri.parse(url).host?.lowercase() == schoolHost
+
+    /**
      * 交给系统应用打开：站外链接交给浏览器，tel / sms / mailto 交给各自的处理应用
      * （ACTION_VIEW 对这三种协议都能解析到对应应用，浏览器点这类链接也是这么做的）。
      * 外链里的 APK 也一样走这里 —— WebView 自己装不了应用。
@@ -580,6 +610,12 @@ class MainActivity : AppCompatActivity() {
             Uri.parse(SCHOOL_ORIGIN).host?.lowercase()
         )
     }
+
+    /**
+     * 教务系统主机名。从 SCHOOL_ORIGIN 派生，**别在两处各写一份字面量** ——
+     * 两处一旦不一致，「这段 URL 是不是教务页面」的判定会安静地永远为假。
+     */
+    private val schoolHost: String? by lazy { Uri.parse(SCHOOL_ORIGIN).host?.lowercase() }
 
     /** 是否属于「该交给系统浏览器打开」的外链：http(s)，且不在站内 / 教务域内 */
     private fun isExternalLink(url: Uri): Boolean {
@@ -689,6 +725,15 @@ class MainActivity : AppCompatActivity() {
 
         /** 教务系统源（服务端代理与 Cookie 归属域） */
         const val SCHOOL_ORIGIN = "https://szjw.njau.edu.cn"
+
+        /**
+         * 由 WebView 自己处理的协议清单（见 isHandledByWebView）：
+         * 前两个是页面本身，其余是页面内部资源 —— 这些都不能往外抛给系统应用。
+         */
+        val WEBVIEW_SCHEMES = setOf(
+            "http", "https",
+            "about", "data", "blob", "file", "javascript", "content"
+        )
 
         /** 教务系统对手机 UA 兼容有问题，登录流程统一用桌面 UA */
         const val DESKTOP_UA =
