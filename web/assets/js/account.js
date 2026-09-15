@@ -428,8 +428,11 @@ function readBackgroundStatus() {
 
 /**
  * 后台通知状态行：分两行。
- *   第一行 —— 常驻开没开、有没有允许后台运行；
+ *   第一行 —— 常驻开没开；
  *   第二行 —— 系统目前把本应用算作哪一档待机（`standbyBucket`），五档都如实写出来。
+ *
+ * 「有没有允许后台运行」不在这里，它挂在按钮行下面（`#batteryStatus`）：那条只有点完系统弹窗、
+ * 切回页面时才有意义，用户的眼睛就在按钮旁边，别挪回来。
  *
  * 换行用 \n、由 .profile-sub-lines 的 white-space: pre-line 落地。不拆成两个 <p> 是因为
  * .profile-sub-lead 的 14px 下边距会把两行拽成两段不相关的话（相邻兄弟的外边距会取最大值，
@@ -437,26 +440,24 @@ function readBackgroundStatus() {
  */
 function renderBackgroundStatus(info) {
     var status = document.getElementById('backgroundStatus');
+    var battery = document.getElementById('batteryStatus');
     var hint = document.getElementById('backgroundHint');
     var toggle = document.getElementById('backgroundAlwaysOn');
     if (toggle) toggle.checked = !!info.enabled;
-    if (!status) return;
 
-    var parts = [];
-    // 顺序是先「允许后台运行」、后「后台常驻状态」：与下面控件的先后（勾选框在前、按钮在后）
-    // 正好相反，不是写错了 —— 这个顺序是定的，别顺手「修」回去。
-    parts.push(info.ignoringBattery
-        ? '已允许后台运行'
-        : '未允许后台运行，手机放着不动时会收不到通知');
-    if (info.enabled) {
-        parts.push(info.running
-            ? '后台常驻运行中'
-            : '后台常驻已开启，但没在跑 —— 重新打开一次 App 可恢复');
-    } else {
-        parts.push('后台常驻已关闭');
+    if (battery) {
+        battery.textContent = info.ignoringBattery
+            ? '已允许后台运行。'
+            : '未允许后台运行，手机放着不动时会收不到通知。';
     }
 
-    var lines = parts.join('；') + '。';
+    if (!status) return;
+
+    var lines = (info.enabled
+        ? (info.running
+            ? '后台常驻运行中'
+            : '后台常驻已开启，但没在跑 —— 重新打开一次 App 可恢复')
+        : '后台常驻已关闭') + '。';
     var bucket = STANDBY_LABEL[info.standbyBucket];
     if (bucket) lines += '\n' + bucket + '。';
     status.textContent = lines;

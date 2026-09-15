@@ -130,6 +130,9 @@
                                     <button class="btn btn-outline" id="batteryBtn" type="button" data-act="open-battery-action">允许后台运行</button>
                                     <button class="btn btn-outline" id="autoStartBtn" type="button" data-act="open-auto-start">自启动设置</button>
                                 </div>
+                                <!-- 「有没有允许后台运行」紧跟按钮行，不放在上面那段状态里：这一条是用户点完
+                                     系统弹窗、切回页面时最想确认的，放在按钮旁边才对得上眼睛（见 renderBackgroundStatus） -->
+                                <p class="profile-sub profile-sub-tail" id="batteryStatus"></p>
                                 <p class="profile-sub profile-sub-tail" id="backgroundHint"></p>
                             </div>
                         </div>
