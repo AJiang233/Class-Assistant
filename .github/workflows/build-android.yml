@@ -27,7 +27,15 @@ jobs:
           distribution: 'temurin'
 
       - name: Setup Android SDK
+        # packages 必须显式写成 'platform-tools'，不能用这个 action 的默认值。
+        # 它的默认值是 'tools platform-tools'，而 Google 从 2026-09-15 起不再提供 sdkmanager 的
+        # `tools` 包（上游 issue #537）：默认值会让 sdkmanager 报 "Failed to find package 'tools'"
+        # 并直接 exit 1，SDK 根本没装上，后面的 gradlew 全都连不上。只留 platform-tools 就绕开了，
+        # 我们本来也不需要那个已废弃的旧 tools —— cmdline-tools 由这个 action 自己按
+        # cmdline-tools-version 装，不受影响。
         uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools'
 
       - name: Grant execute permission for gradlew
         run: chmod +x android/gradlew
