@@ -43,6 +43,32 @@ async function readBindingCookies(env, model, binding) {
   return plain;
 }
 
+/**
+ * 「手上这份教务会话用不了」—— 密文损坏，或者密钥轮换后再也解不开。
+ *
+ * 单独一类，是为了和 SchoolSessionExpired 分开：那边是教务把登录态踢了，这边是本地
+ * 密文读不出来，要查的是密钥而不是教务。但对用户是同一件事 —— 得重新绑定，
+ * 所以 cacheReasonOf 把它也归到 'expired'（界面据此给出重新登录的入口）。
+ */
+export class AcademicSessionError extends Error {
+  constructor(code, message = '教务登录态已过期，请重新登录教务系统') {
+    super(message);
+    this.name = 'AcademicSessionError';
+    this.code = code;
+    this.status = 400;
+  }
+}
+
+/** 这次失败是不是「会话用不了」（用户得重新绑定教务） */
+function isSessionUnusable(e) {
+  return e instanceof SchoolSessionExpired || e instanceof AcademicSessionError;
+}
+
+/**
+ * 建教务客户端。失败只返回 failure，不在这里 markExpired：
+ * 调用方很可能靠着缓存照样把数据给出去，那种请求不该动绑定状态。
+ * 要标失效，等确认真给不出数据了（缓存也没有）再标。
+ */
 async function schoolClientFromBinding(env, model, binding) {
   let cookies;
   try {
@@ -50,11 +76,10 @@ async function schoolClientFromBinding(env, model, binding) {
   } catch (e) {
     // 密文损坏 / 密钥轮换后解不开：与登录态过期区分开，便于排查是密钥问题而非教务问题
     console.error('教务会话解密失败:', e);
-    await model.markExpired(binding.user_id);
-    return { failure: { message: '教务登录态已过期，请重新登录教务系统', code: 'ACADEMIC_DECRYPT_FAILED', status: 400 } };
+    return { failure: new AcademicSessionError('ACADEMIC_DECRYPT_FAILED') };
   }
   if (!cookies) {
-    return { failure: { message: '教务登录态已过期，请重新登录教务系统', code: 'ACADEMIC_EXPIRED', status: 400 } };
+    return { failure: new AcademicSessionError('ACADEMIC_EXPIRED') };
   }
   return { client: new SchoolClient(cookies) };
 }
@@ -120,13 +145,13 @@ export function isFresh(fetchedAt) {
 
 /**
  * 「这一轮为什么给的是缓存」——页面据此决定提示哪一句：
- *   expired      登录态被教务那边重置了，要用户重新登录才拿得到新数据
+ *   expired      登录态被教务那边重置了（或本地密文解不开），要用户重新登录才拿得到新数据
  *   unreachable  教务暂时连不上，过会儿再刷就行
  * 两者对用户的意思差得远，别混成一句「系统暂时不可用」：前者得给重新登录的入口，
  * 后者只需要说一句「这是缓存，稍后自动会更新」。
  */
 export function cacheReasonOf(e) {
-  return e instanceof SchoolSessionExpired ? 'expired' : 'unreachable';
+  return isSessionUnusable(e) ? 'expired' : 'unreachable';
 }
 
 /**
@@ -615,30 +640,33 @@ export async function handleAcademicTimetable(request, env, user) {
   if (!binding) return jsonResponse(error('还没绑定教务系统，绑定后会自动同步', 'NOT_BOUND'), 400);
 
   const cachedTerms = await model.listTimetableTerms(user.id);
-  const opened = await schoolClientFromBinding(env, model, binding);
-  if (opened.failure) {
-    return jsonResponse(error(opened.failure.message, opened.failure.code), opened.failure.status);
-  }
-  const client = opened.client;
 
-  // 1. 取学期列表（顺带校验登录态是否还有效）。教务不可达、或者登录态已被那边重置，
-  //    都只记下来、不在这里返回：缓存里那份课表照样能用（见下面的 2.）。
-  //    登录态大概一天就会失效一次，每次都把人打回绑定页的话，这份课表根本没法看。
+  // 1. 建客户端 → 取学期列表（顺带校验登录态是否还有效）。
+  //    建客户端失败（会话解不开）、教务不可达、登录态被那边重置，都只记进 liveError、
+  //    不在这里返回：缓存里那份课表照样能用（见下面的 2.）。登录态大概一天就会失效一次，
+  //    每次都把人打回绑定页的话，这份课表根本没法看。
+  //    会话解不开同理 —— 课表缓存 payload 是明文 JSON，与 COOKIE_SECRET 无关，
+  //    密钥轮换或密文损坏不该把这一页锁死（学分接口本来就是先读缓存再建 client）。
+  const opened = await schoolClientFromBinding(env, model, binding);
+  const client = opened.client || null;
   let terms = null;
-  let liveError = null;
-  try {
-    terms = await client.termList();
-  } catch (e) {
-    liveError = e;
+  let liveError = opened.failure || null;
+  if (client) {
+    try {
+      terms = await client.termList();
+    } catch (e) {
+      liveError = e;
+    }
   }
   if (liveError instanceof SchoolSessionExpired) await model.markExpired(user.id);
 
   const xnxqId = resolveCurrentTermId(terms, cachedTerms, url.searchParams.get('xnxq') || '');
-  if (!xnxqId) return jsonResponse(error('暂时取不到学期信息，请稍后重试', 'NO_TERM'), 400);
 
-  // 2. 缓存命中：教务那一趟没成（不可达 / 登录态被重置）就无条件把它给出去，
-  //    否则只在「没手动刷新 + 缓存还新鲜」时用
-  const cached = await model.getTimetable(user.id, xnxqId);
+  // 2. 缓存命中：教务那一趟没成（不可达 / 登录态被重置 / 会话解不开）就无条件把它给出去，
+  //    否则只在「没手动刷新 + 缓存还新鲜」时用。
+  //    学期没定下来时不必查缓存：能查到的学期就来自缓存本身（cachedTerms），
+  //    这里定不下来就说明压根没有这份缓存。
+  const cached = xnxqId ? await model.getTimetable(user.id, xnxqId) : null;
   const cachedData = cached
     ? await readCachePayload(cached, () => model.deleteTimetable(user.id, xnxqId))
     : null;
@@ -659,13 +687,22 @@ export async function handleAcademicTimetable(request, env, user) {
     }));
   }
   if (liveError) {
-    // 连缓存都没有：登录态过期仍然引导去重新绑定，教务不可达则只是稍后再试
+    // 缓存也救不了 —— 到这一步才是真的给不出数据。
+    // 会话解不开（密文损坏 / 密钥轮换）在这里才把绑定标成失效：上面那些靠缓存把课表
+    // 给出去的请求不该动这个状态，否则「教务那边好好的、只是本地密文读不出来」也会
+    // 在状态页上挂成「已失效」。
+    if (liveError instanceof AcademicSessionError) {
+      await model.markExpired(user.id);
+      return jsonResponse(error(liveError.message, liveError.code), 400);
+    }
+    // 登录态过期仍然引导去重新绑定（状态上面已标过），教务不可达则只是稍后再试
     if (liveError instanceof SchoolSessionExpired) {
       return jsonResponse(error(liveError.message, 'ACADEMIC_EXPIRED'), 400);
     }
     console.error('教务接口不可达（课表）:', liveError.message);
     return jsonResponse(error('暂时连不上教务系统，请稍后重试', 'ACADEMIC_UNREACHABLE'), 502);
   }
+  if (!xnxqId) return jsonResponse(error('暂时取不到学期信息，请稍后重试', 'NO_TERM'), 400);
 
   // 3. 实时抓取并落库
   try {
@@ -730,6 +767,8 @@ export async function handleAcademicCredits(request, env, user) {
 
   const opened = await schoolClientFromBinding(env, model, binding);
   if (opened.failure) {
+    // 会话用不了（解不开 / 没有 Cookie），而上面也没能靠缓存把这一轮打发掉：这时候才标失效
+    await model.markExpired(user.id);
     return jsonResponse(error(opened.failure.message, opened.failure.code), opened.failure.status);
   }
   const client = opened.client;
