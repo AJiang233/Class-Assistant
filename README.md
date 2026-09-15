@@ -2,7 +2,7 @@
 
 一个面向「班长」角色的 AI 助理系统：把转发通知、活动提醒、同学答疑、材料催收等机械化的班级事务，逐步交给 AI 与自动化流程完成。
 
-目前状态：**Web 门户与安卓端、鸿蒙端已可用**（账号体系 / 通知与活动管理 / 移动端适配 / 系统日历订阅 / 安卓与鸿蒙的本地提醒、桌面小组件），并已完成一轮安全加固；Go 常驻调度进程已跑通封存自检骨架，Agent / 爬虫 / 知识库等模块在逐步建设中。
+目前状态：**Web 门户与安卓端已可用**（账号体系 / 通知与活动管理 / 移动端适配 / 系统日历订阅 / 安卓的本地提醒、桌面小组件），并已完成一轮安全加固；鸿蒙端**开发已暂停**，代码移至 `harmony` 分支（见下表）；Go 常驻调度进程已跑通封存自检骨架，Agent / 爬虫 / 知识库等模块在逐步建设中。
 
 ## 项目背景
 
@@ -16,7 +16,7 @@
 | --- | --- | --- | --- |
 | `web/` | Cloudflare Pages 门户（静态前端 + Functions 后端 + D1） | ✅ 已上线 `class.qxwkstudio.top` | [web/README.md](web/README.md) |
 | `android/` | 安卓端（Kotlin + WebView 套壳：本地提醒 / 桌面小组件 / 离线缓存 / 后台常驻） | ✅ 已可用 | [android/README.md](android/README.md) |
-| `HarmonyOS/` | 鸿蒙端（ArkTS + ArkWeb 套壳：系统提醒 / 服务卡片） | ✅ 已可用 | [HarmonyOS/README.md](HarmonyOS/README.md) |
+| `HarmonyOS/` | 鸿蒙端（ArkTS + ArkWeb 套壳：系统提醒 / 服务卡片）—— 开发已暂停，代码移出主线 | ⏸ 见 `harmony` 分支 | [harmony 分支](https://github.com/AJiang233/Class-Assistant/tree/harmony/HarmonyOS) |
 | `internal/` | 与 Worker 对齐的 Go 规则（vault / identity / roles / ratelimit） | ✅ 已可用 | [internal/README.md](internal/README.md) |
 | `cmd/` | Go 命令入口，当前只有 `cmd/scheduler` | 🚧 骨架已跑通 | [cmd/README.md](cmd/README.md) |
 | `scheduler/` | 常驻调度进程的说明与现状 | 🚧 只做封存自检 | [scheduler/README.md](scheduler/README.md) |
@@ -30,10 +30,10 @@ Go 模块声明在根目录 `go.mod`（go 1.22，模块路径 `github.com/AJiang
 
 ## 功能规划
 
-- ✅ 日程与提醒： 已落地两条路径 —— 系统日历订阅（全平台通用）、安卓 / 鸿蒙本地到点提醒
+- ✅ 日程与提醒： 已落地两条路径 —— 系统日历订阅（全平台通用）、安卓本地到点提醒
 - ✅ 个性化门户：Cloudflare 网站 + 账号体系，按职位/角色展示内容与权限
 - ✅ 教务数据同步：同步个人课表与学业达成（学分看板）；绑定支持 App 一键、学号密码代登录、手动粘贴 Cookie 三条路径
-- ✅ 移动端：安卓原生套壳（WebView + 本地提醒 + 桌面小组件）、鸿蒙原生套壳（ArkWeb + 系统提醒 + 服务卡片）；iOS 通过 Web + 系统日历订阅覆盖
+- ✅ 移动端：安卓原生套壳（WebView + 本地提醒 + 桌面小组件）；iOS 通过 Web + 系统日历订阅覆盖
 - 通知抓取与归档：轮询班级工作群，拉取新通知并结构化归档（规划中）
 - 智能转发：根据通知内容判断是否需要转发到班级群，并支持人工复核（规划中）
 - 知识库问答：爬取学生手册、教务处文件等归档进 RAG，群内 @ 助手即可答疑（规划中）
@@ -44,9 +44,8 @@ Go 模块声明在根目录 `go.mod`（go 1.22，模块路径 `github.com/AJiang
 | --- | --- |
 | 门户网站（已完成） | Cloudflare Pages（静态前端 + Functions 后端 + D1 数据库） |
 | 鉴权 / 权限 | JWT（HS256）+ PBKDF2 密码哈希；按职位 + 自定义职位分级权限 |
-| 测试 | Web：Node 原生 `node --test`（`web/backend/test/`）；Go：标准库 `testing`（`internal/` 下各包单测）；安卓：JVM 单测 + CI 构建校验；鸿蒙：需用 DevEco 手动构建 |
+| 测试 | Web：Node 原生 `node --test`（`web/backend/test/`）；Go：标准库 `testing`（`internal/` 下各包单测）；安卓：JVM 单测 + CI 构建校验 |
 | 移动端 — 安卓（已完成） | Kotlin + WebView 套壳，WorkManager 定期同步 + AlarmManager 到点提醒 + AppWidget 桌面小组件 |
-| 移动端 — 鸿蒙（已完成） | ArkTS + ArkWeb 套壳，workScheduler 周期同步 + reminderAgentManager 到点提醒 + 服务卡片（Form） |
 | 多端提醒（已完成） | 日历订阅 `.ics`（iOS / 鸿蒙 / Android / 桌面通用，无需安装 App） |
 | 常驻调度（骨架已跑通） | Go 1.22 进程（`cmd/scheduler` + `internal/`）：与 Worker 共用 Cookie 封存 / 学号比对 / 职位白名单 / 限流规则 |
 | Agent 编排 | OpenClaw（规划中） |
@@ -69,7 +68,6 @@ Go 模块声明在根目录 `go.mod`（go 1.22，模块路径 `github.com/AJiang
 
 - [x] 日历 / 待办 + 网站 + 账号体系（Web 基础功能已完成）
 - [x] 移动端：安卓 WebView 应用 + 本地提醒 + 桌面小组件
-- [x] 移动端：鸿蒙 ArkWeb 应用 + 系统提醒 + 服务卡片
 - [x] 多端提醒：系统日历订阅（iOS / 鸿蒙 / 桌面通用）
 - [x] 安全加固：鉴权与提权防护 / 教务越权 / MFA 次数上限
 - [x] Go 常驻调度骨架：封存自检 + 与 Worker 对齐的规则（`internal/`）

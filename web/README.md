@@ -507,7 +507,7 @@ CREATE INDEX IF NOT EXISTS idx_form_submissions_form ON form_submissions(form_id
    `build-android.yml` 注入 `version_name` 并产出 APK，发布 Release 后把 `android` 段的 `version`（与该次 `version_name` 一致）与 `url` 改成该版本的稳定直链
    `https://github.com/AJiang233/Class-Assistant/releases/download/<tag>/<文件名>`。
    不要填 Release 页上 `release-assets.githubusercontent.com/...` 那种带签名的临时地址（几十分钟即过期）。
-   鸿蒙端发版后同样更新 `harmony` 段（`version` 与 `HarmonyOS/AppScope/app.json5` 的 `versionName` 一致）。
+   鸿蒙端发版后同样更新 `harmony` 段（那段对应的代码现在在 `harmony` 分支）。
    个人中心「关于软件 → 检查更新」只认自己那段的 `version` / `url`：缺一或读不到，页面只提示「检查更新失败」，不会退回 Actions 构建产物页。
 
 > `/api/*` 由 `functions/api/[[path]].js` 接管，静态页面与后端同域，无需 CORS / 反向代理。
