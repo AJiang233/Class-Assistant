@@ -50,11 +50,9 @@ var WEEKDAY_NAMES = ['周一', '周二', '周三', '周四', '周五', '周六',
         document.getElementById('pwdLoginBtn').addEventListener('click', doPasswordLogin);
         document.getElementById('mfaSendBtn').addEventListener('click', doMfaSend);
         document.getElementById('mfaVerifyBtn').addEventListener('click', doMfaVerify);
-        document.getElementById('mfaBackBtn').addEventListener('click', function () {
-            mfaToken = '';
-            document.getElementById('mfaStep').hidden = true;
-            document.getElementById('pwdStep').hidden = false;
-        });
+        // 复用 resetMfaStep：它除了切回密码步骤，还会停掉倒计时并把「获取验证码」恢复可点。
+        // 只切 hidden 的话倒计时还在跑，重新进第二步时那个按钮依旧是禁用的（看着像点不动）
+        document.getElementById('mfaBackBtn').addEventListener('click', resetMfaStep);
         document.getElementById('mfaCode').addEventListener('keydown', function (e) {
             if (e.key === 'Enter') doMfaVerify();
         });

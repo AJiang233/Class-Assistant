@@ -26,6 +26,9 @@ var FRAME_KEYS = { academic: 'frameAcademic', activities: 'frameActivities', not
             // 默认选中今天，加载今日活动与通知
             if (!activeDate) activeDate = todayKey();
             refreshDay();
+        }).catch(function (e) {
+            // 日历自己出错不该变成未处理的 rejection：当日列表各有各的错误态，这里只留痕
+            console.warn('日历加载失败：', e);
         });
     } else {
         // 未登录：主页只显示框架，不加载活动
@@ -251,6 +254,10 @@ function moveBottomNavPill() {
 })();
 
 // ===== 日历 =====
+// 逐天展开的上限：起止时间来自自由填写（截止时间允许填到 9999 年），
+// 不设上限时一个远期 expire_time 就是几百万次循环，主页主线程直接卡死
+var EXPAND_MAX_DAYS = 366 * 5;
+
 async function loadCalendar() {
     // 把 [开始日, 结束日] 逐天展开进集合（按天、两端都含；结束为空或早于开始时按单日）
     function expand(set, rawStart, rawEnd) {
@@ -260,6 +267,11 @@ async function loadCalendar() {
         if (!e || e < s) e = s;
         var cur = new Date(s + 'T00:00:00');
         var end = new Date(e + 'T00:00:00');
+        // 超出上限只标到上限那天为止：再远的月份事实上也翻不到，但循环次数必须有界
+        if (isNaN(cur.getTime()) || isNaN(end.getTime())) return;
+        if ((end - cur) / 86400000 > EXPAND_MAX_DAYS) {
+            end = new Date(cur.getTime() + EXPAND_MAX_DAYS * 86400000);
+        }
         while (cur <= end) {
             set.add(dateKey(cur.getFullYear(), cur.getMonth(), cur.getDate()));
             cur.setDate(cur.getDate() + 1);
