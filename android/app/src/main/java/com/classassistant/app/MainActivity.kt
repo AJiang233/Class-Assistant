@@ -333,10 +333,15 @@ class MainActivity : AppCompatActivity() {
      * 所以这一处也覆盖了原来那次「打开就同步」。
      * 不会堆任务：syncNow 用的是唯一名 + KEEP，已经排着的那次不会被叠加。
      * 背景是周期任务在 Doze 下最坏要几小时才跑（见 ensurePeriodic），只靠它会让临近开始的活动漏提醒。
+     *
+     * 小组件也在这一处重绘一次：只写在 onCreate 里的话，从后台切回来（onCreate 不会再跑）
+     * 且 syncNow 又被 60 秒节流挡住时，课表那张卡上的进度条就一动不动 —— 这正是
+     * 「从卡片点进去也不一定更新」（issue #61）。重绘只读本地缓存，不联网、不排任务。
      */
     override fun onResume() {
         super.onResume()
         if (Store.token(this) != null) Scheduler.syncNow(this)
+        Scheduler.refreshWidgets(this)
     }
 
     /**

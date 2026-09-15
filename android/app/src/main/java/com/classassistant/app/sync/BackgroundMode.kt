@@ -37,7 +37,11 @@ object BackgroundMode {
      */
     private const val DOZE_WAKE_MINUTES = 9L
 
-    /** 只用于「深 Doze 唤醒」这一个闹钟，与 Scheduler 里那几个（991 零点、活动用 event.id）错开 */
+    /**
+     * 只用于「深 Doze 唤醒」这一个闹钟。
+     * 号段挨着排，别复用：991 = 零点刷新、993 = 上课期间的重绘、活动闹钟直接用活动 id、
+     * 课程闹钟从 100 万起（见 CourseSchedule.courseAlarmId）。
+     */
     private const val DOZE_WAKE_REQUEST_CODE = 992
 
     fun isEnabled(context: Context): Boolean = Store.backgroundAlwaysOn(context)

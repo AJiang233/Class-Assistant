@@ -14,8 +14,10 @@ import com.classassistant.app.R
 import com.classassistant.app.data.Store
 import com.classassistant.app.notify.Notifier
 import com.classassistant.app.sync.CourseBoardKind
+import com.classassistant.app.sync.Scheduler
 import com.classassistant.app.sync.decideBoard
 import com.classassistant.app.sync.formatMonthDay
+import com.classassistant.app.sync.nextClassTickAt
 import com.classassistant.app.sync.parseTimetableJson
 import com.classassistant.app.sync.weekdayName
 import com.classassistant.app.sync.weekdayOf
@@ -117,6 +119,18 @@ class CoursesWidgetProvider : AppWidgetProvider() {
             // 标题与空态随上一句换掉了，**列表数据只有这一句能刷新**：不给它，
             // 跨天之后标题已经是新的一天、列表还挂着昨天那一屏。
             manager.notifyAppWidgetViewDataChanged(widgetId, R.id.courses_list)
+
+            // 上课期间把进度条往前推（issue #61）：见 Scheduler.scheduleClassTick 与
+            // CourseSchedule.nextClassTickAt。加在 render 末尾而不是某个 onTick 里 —— render 是
+            // 「有人重绘了」的唯一收口，不管这次是谁触发的（同步成功 / 换天 / 上一次的重绘闹钟 /
+            // 用户开 App / 改设置），都会把链子续到下一格，中间漏一次也不会永远断掉；
+            // 反过来，没课可上时也是这一句把上一轮的闹钟撤掉，不让它空转。
+            val nextTick = nextClassTickAt(board.dayStart, board.courses, now)
+            if (nextTick == null) {
+                Scheduler.cancelClassTick(context)
+            } else {
+                Scheduler.scheduleClassTick(context, nextTick)
+            }
         }
 
         /**

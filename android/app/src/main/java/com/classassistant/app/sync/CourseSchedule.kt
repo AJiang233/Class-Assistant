@@ -196,6 +196,33 @@ fun courseProgress(dayStart: Long, course: Course, now: Long): Int? {
     return (((now - startAt) * 100) / span).toInt().coerceIn(0, 100)
 }
 
+/** 上课期间重绘课表小组件的间隔。进度条一格就是一分钟：一节课 45 分钟，误差一分钟看不出来 */
+private const val CLASS_TICK_INTERVAL_MILLIS = 60L * 1000
+
+/**
+ * 下一次该重绘课表小组件的时刻；`null` = 不用再排了（今天没课，或课都上完了）。
+ *
+ * 进度条**不是动画，是渲染那一刻的快照**（见 CoursesWidgetService 里 courseProgress 的用法）：
+ * 它只在列表被重新绑定时才按当时的 now 重算，而小工具能拿到的系统定时档只有
+ * updatePeriodMillis —— 系统夹到最少 30 分钟，一条 45 分钟的课最多蹦一格，看着就是「不动」
+ * （issue #61）。所以上课期间自己排一串闹钟，每一格都问这里「下一次该什么时候」：
+ *
+ *   正在上课 → 一分钟后（进度条每分钟挪一格）
+ *   还没上课 → 直接排在**下一节开课那一刻**（否则进度条要等「碰巧有人重绘」才出现，最坏晚半小时）
+ *   课上完了 → null，接收方把闹钟撤掉，剩下的交给系统那一档与零点换天闹钟
+ *
+ * 纯函数，单测在 CourseScheduleTest —— 时刻排错只会静静地不动，不会崩。
+ */
+fun nextClassTickAt(dayStart: Long, courses: List<Course>, now: Long): Long? {
+    if (courses.any { courseProgress(dayStart, it, now) != null }) {
+        return now + CLASS_TICK_INTERVAL_MILLIS
+    }
+    return courses
+        .mapNotNull { courseStartAt(dayStart, it.start) }
+        .filter { it > now }
+        .minOrNull()
+}
+
 /** "09:50" → 一天中的第几分钟；格式不对返回 null */
 fun minuteOfDay(hhmm: String?): Int? {
     val text = hhmm?.trim().orEmpty()

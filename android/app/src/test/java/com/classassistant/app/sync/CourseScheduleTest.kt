@@ -197,6 +197,51 @@ class CourseScheduleTest {
         assertNull(courseProgress(day, course("怪课", 3, "八点", "十点"), t("2026-09-16 08:00:00")))
     }
 
+    // ===== 上课期间那次重绘该排在什么时候（进度条靠它一格一格往前推，issue #61）=====
+
+    /**
+     * 这个函数决定「下次什么时候重绘」，排错不会崩 —— 只会静静地不动（排太晚）或者
+     * 空转重绘（排太早），在小组件上都看不出来，所以边界全钉住。
+     */
+    @Test
+    fun `正在上课时排一分钟后`() {
+        val day = t("2026-09-16 00:00:00")
+        val courses = listOf(course("高数", 3, "08:00", "10:00"))
+        val now = t("2026-09-16 09:00:00")
+        assertEquals(now + 60_000L, nextClassTickAt(day, courses, now))
+    }
+
+    @Test
+    fun `还没上课时直接排在下一节开课那一刻`() {
+        val day = t("2026-09-16 00:00:00")
+        val courses = listOf(
+            course("高数", 3, "08:00", "10:00"),
+            course("英语", 3, "14:00", "15:40")
+        )
+        // 两节课之间的空档：排在下午那节开课，而不是等「碰巧有人重绘」（最坏晚半小时）
+        assertEquals(t("2026-09-16 14:00:00"), nextClassTickAt(day, courses, t("2026-09-16 12:00:00")))
+        // 凌晨看手机：排在当天第一节课开课那一刻
+        assertEquals(t("2026-09-16 08:00:00"), nextClassTickAt(day, courses, day))
+    }
+
+    @Test
+    fun `课都上完或者根本没课时不用再排`() {
+        val day = t("2026-09-16 00:00:00")
+        val courses = listOf(course("高数", 3, "08:00", "10:00"))
+        // 下课那一刻就不算「正在上」（口径同 courseProgress），当天也没有下一节了
+        assertNull(nextClassTickAt(day, courses, t("2026-09-16 10:00:00")))
+        assertNull(nextClassTickAt(day, courses, t("2026-09-16 23:00:00")))
+        // 今天没课 / 压根没有课表：不能因为「没东西排」就退回 now，那样会变成每分钟空转
+        assertNull(nextClassTickAt(day, emptyList(), t("2026-09-16 09:00:00")))
+    }
+
+    @Test
+    fun `时间串坏掉时排不出重绘时刻`() {
+        val day = t("2026-09-16 00:00:00")
+        val broken = listOf(course("怪课", 3, "八点", "十点"))
+        assertNull(nextClassTickAt(day, broken, t("2026-09-16 09:00:00")))
+    }
+
     // ===== 闹钟编号 =====
 
     /**

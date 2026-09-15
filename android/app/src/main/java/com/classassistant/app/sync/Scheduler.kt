@@ -59,6 +59,23 @@ object Scheduler {
     private const val MIDNIGHT_REQUEST_CODE = 991
 
     /**
+     * 「上课期间每分钟重绘课表小组件」闹钟的 requestCode。
+     *
+     * 号段要挨着排、一处一个，别复用：活动闹钟直接用活动 id（小数值）、课程闹钟从 100 万起
+     * （见 CourseSchedule.courseAlarmId）、深 Doze 兜底闹钟 992（见 BackgroundMode）、
+     * 零点刷新 991 —— 这里取 993。接收方不同（这里发 WidgetRefreshReceiver、Doze 那条发
+     * SyncAlarmReceiver）时就算同号也不会互相顶掉，PendingIntent 的相等判定是带组件的；
+     * 但编号一一对应才好查「系统里到底排着哪些闹钟」，所以照旧错开。
+     */
+    private const val CLASS_TICK_REQUEST_CODE = 993
+
+    /**
+     * 上课重绘的窗口。给一分钟：进度条本身就是一分钟一格，晚一分钟就是差一格，
+     * 再放宽这个闹钟就没意义了（那还不如不排）。
+     */
+    private const val CLASS_TICK_WINDOW_MILLIS = 60 * 1000L
+
+    /**
      * 每 15 分钟后台同步一次。15 已经是 WorkManager 周期任务的下限，所以这是不动推送通道
      * 能达到的最快轮询；但 Doze / 后台限制照样会把它推迟，15 分钟只是正常情况下的上限，不是保证。
      */
@@ -315,6 +332,45 @@ object Scheduler {
             )
         )
     }
+
+    /**
+     * 排下一次「上课期间重绘课表小组件」的闹钟，时刻由调用方按 CourseSchedule.nextClassTickAt
+     * 算好（那里是纯函数，有单测）。
+     *
+     * 为什么需要它：小组件那格的进度条**是渲染那一刻算出来的快照**，只在列表被重新绑定时
+     * 才按当时的 now 重算；而系统给小工具的唯一定时档 updatePeriodMillis 最少 30 分钟 ——
+     * 一条 45 分钟的课最多蹦一格，看着就是「不会动」（issue #61）。所以上课期间自己排一串
+     * 闹钟，每次 render 完顺手续下一格；没课可上时调用方改调 cancelClassTick。
+     *
+     * 与零点刷新同一套路：非唤醒 RTC（手机睡着就等它醒来）+ setWindow（不申请 Android 12+
+     * 的「闹钟与提醒」权限），接收方只重绘、不联网、不排同步。时间排错了只是静静不动，不会崩。
+     */
+    fun scheduleClassTick(context: Context, atMillis: Long) {
+        val manager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        manager.setWindow(
+            AlarmManager.RTC,
+            atMillis,
+            CLASS_TICK_WINDOW_MILLIS,
+            classTickIntent(context)
+        )
+    }
+
+    /** 撤掉上课重绘闹钟。没课表 / 今天没课 / 课都上完时调用，否则它会一直空转重绘下去 */
+    fun cancelClassTick(context: Context) {
+        val manager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        manager.cancel(classTickIntent(context))
+    }
+
+    /** 取消用的 PendingIntent：同样只需 action + requestCode 一致即可匹配 */
+    private fun classTickIntent(context: Context): PendingIntent =
+        PendingIntent.getBroadcast(
+            context,
+            CLASS_TICK_REQUEST_CODE,
+            Intent(context, WidgetRefreshReceiver::class.java).apply {
+                action = WidgetRefreshReceiver.ACTION_CLASS_TICK
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
 
     /** 明天的 00:05。不用 00:00：跨天那一瞬间各种定时任务都在抢，让开一点 */
     private fun nextMidnight(now: Long): Long {

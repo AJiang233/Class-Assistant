@@ -7,17 +7,20 @@ import com.classassistant.app.sync.BackgroundMode
 import com.classassistant.app.sync.Scheduler
 
 /**
- * 小组件的「换天」触发器。
+ * 小组件的定时重绘触发器。
  *
  * 两个小组件的内容都按**设备本地日期**算（今日活动 / 今日课程），但原本没有任何东西会在
  * 零点叫它们一声：后台同步会被 Doze 推迟，updatePeriodMillis 最少也是 30 分钟 ——
  * 于是第二天早上打开手机，桌面还挂着昨天那一屏，而 render() 里的日期过滤根本没机会重跑。
- * 这里接管三类时机：
+ * 这里接管四类时机：
  *
  *   1. Scheduler.scheduleMidnightRefresh 排的本地零点闹钟（主力），刷完自己再排下一次
  *   2. 系统时间被改 / 时区变了 —— RTC 闹钟按绝对毫秒存，时区一变「09:50 上课」的含义就变了，
  *      所以这里连课程闹钟也一起重排
  *   3. 应用被覆盖安装 —— 闹钟与 AllowedAlarms 都会被清掉，得重新排
+ *   4. 上课期间每分钟一次的重绘（Scheduler.scheduleClassTick）—— 只为了把进度条往前推一格
+ *      （issue #61）。它跟上面三条不同：什么也不排、什么也不撤，重绘本身就把下一格续上了
+ *      （见 CoursesWidgetProvider.render 末尾）。
  *
  * 特意**没有**注册 DATE_CHANGED：它不在系统的隐式广播豁免名单里，
  * 清单注册的接收器收不到（Android 8 起隐式广播不再投递给静态接收器）。
@@ -27,6 +30,11 @@ class WidgetRefreshReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         when (intent.action) {
+            ACTION_CLASS_TICK -> {
+                // 纯重绘，**不要**顺手排同步：每分钟排一轮网络任务，代价远大于进度条晚一格。
+                // 也不碰零点闹钟与课程闹钟 —— 时间没变，那不是这个 action 的事。
+                CoursesWidgetProvider.refreshAll(context)
+            }
             ACTION_MIDNIGHT,
             Intent.ACTION_TIME_CHANGED,
             Intent.ACTION_TIMEZONE_CHANGED -> {
@@ -59,5 +67,8 @@ class WidgetRefreshReceiver : BroadcastReceiver() {
     companion object {
         /** 自定义 action，由 Scheduler 用显式 Intent（点名组件）发过来，不需要进清单的 intent-filter */
         const val ACTION_MIDNIGHT = "com.classassistant.app.action.MIDNIGHT_REFRESH"
+
+        /** 同上：上课期间每分钟一次的重绘（进度条往前走一格），由 Scheduler.scheduleClassTick 排 */
+        const val ACTION_CLASS_TICK = "com.classassistant.app.action.CLASS_TICK"
     }
 }
