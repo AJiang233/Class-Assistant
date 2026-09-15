@@ -16,7 +16,7 @@
 | --- | --- | --- | --- |
 | `web/` | Cloudflare Pages 门户（静态前端 + Functions 后端 + D1） | ✅ 已上线 `class.qxwkstudio.top` | [web/README.md](web/README.md) |
 | `android/` | 安卓端（Kotlin + WebView 套壳：本地提醒 / 桌面小组件 / 离线缓存 / 后台常驻） | ✅ 已可用 | [android/README.md](android/README.md) |
-| `HarmonyOS/` | 鸿蒙端（ArkTS + ArkWeb 套壳：系统提醒 / 服务卡片）—— 开发已暂停，代码移出主线 | ⏸ 见 `harmony` 分支 | [harmony 分支](https://github.com/AJiang233/Class-Assistant/tree/harmony/HarmonyOS) |
+| `harmony/` | 鸿蒙端（ArkTS + ArkWeb 套壳：系统提醒 / 服务卡片）—— 开发已暂停，代码移出主线 | ⏸ 见 `harmony` 分支 | [harmony 分支](https://github.com/AJiang233/Class-Assistant/tree/harmony) |
 | `internal/` | 与 Worker 对齐的 Go 规则（vault / identity / roles / ratelimit） | ✅ 已可用 | [internal/README.md](internal/README.md) |
 | `cmd/` | Go 命令入口，当前只有 `cmd/scheduler` | 🚧 骨架已跑通 | [cmd/README.md](cmd/README.md) |
 | `scheduler/` | 常驻调度进程的说明与现状 | 🚧 只做封存自检 | [scheduler/README.md](scheduler/README.md) |
