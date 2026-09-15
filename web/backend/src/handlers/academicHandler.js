@@ -27,6 +27,15 @@ const CACHE_TTL = 3 * 24 * 60 * 60 * 1000;
 /** 多因子认证中间态有效期（毫秒） */
 const MFA_TTL = 10 * 60 * 1000;
 
+/**
+ * kkzc 兜底解析里，单个「起-止」区段最多展开多少周。
+ *
+ * 一学期最多几十周，而 kkzc 是教务下发的自由文本：字段写坏成 "1-50000000" 时，
+ * 逐周 push 会构造出几千万个元素的数组 —— Worker 直接 CPU 超时或 OOM，
+ * 而且这条路径每个学期、每门课都会走一次。数值取 60 只是给脏数据留足余量。
+ */
+const MAX_WEEK_SPAN = 60;
+
 /** 一次性令牌（中间态在前后端之间传递的凭据） */
 function randomToken() {
   const bytes = new Uint8Array(24);
@@ -249,13 +258,14 @@ function parseWeekList(raw) {
 }
 
 /** kkzc 形如 "1-14" / "3-8,10-12" —— kkzcMx 缺失时的兜底解析 */
-function parseWeekRange(text) {
+export function parseWeekRange(text) {
   const out = [];
   for (const seg of String(text || '').split(/[,，;；]/)) {
     const range = seg.match(/(\d+)\s*-\s*(\d+)/);
     if (range) {
       const from = parseInt(range[1], 10);
-      const to = parseInt(range[2], 10);
+      // 跨度封顶：脏数据（"1-50000000"）不能让这里展开成几千万个元素
+      const to = Math.min(parseInt(range[2], 10), from + MAX_WEEK_SPAN);
       for (let i = from; i <= to; i++) out.push(i);
       continue;
     }
