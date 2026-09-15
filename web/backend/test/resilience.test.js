@@ -4,6 +4,7 @@ import { describe, it } from 'node:test';
 import worker from '../src/index.js';
 import { readCachePayload } from '../src/handlers/academicHandler.js';
 import { sign } from '../src/utils/jwt.js';
+import { SchoolClient, SchoolSessionExpired } from '../src/utils/schoolApi.js';
 
 /** 预期内的异常会打日志，这里临时静音，免得把 CI 输出刷满 */
 async function withSilencedErrors(fn) {
@@ -86,5 +87,60 @@ describe('教务缓存自愈', () => {
     );
 
     assert.equal(value, null);
+  });
+});
+
+/**
+ * 教务响应体判定。
+ *
+ * 教务把失败也包在 HTTP 200 里，用 body 的 status 字段表达，所以「算不算失败」
+ * 全靠这里判定。判定必须看 status 的取值，而不是它的真值 —— 写成 `json.status &&`
+ * 时，status 为 0 / '' 的失败响应会被整段跳过，调用方紧接着 `json.data || []`
+ * 就静默降级成「这学期没有课」，用户看到的是空课表而不是「登录态过期」。
+ */
+describe('教务响应体判定', () => {
+  /** 换掉全局 fetch 跑一段断言，跑完复原（不依赖任何 mock 库） */
+  function withFetch(handler, fn) {
+    const original = globalThis.fetch;
+    globalThis.fetch = handler;
+    try {
+      return fn();
+    } finally {
+      globalThis.fetch = original;
+    }
+  }
+
+  const jsonBody = (body) => async () => new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' }
+  });
+
+  it('status 为 "200" 时正常返回 data', async () => {
+    const client = new SchoolClient('a=1');
+    const list = await withFetch(
+      jsonBody({ status: '200', data: [{ id: '2026-2027-1' }] }),
+      () => client.termList()
+    );
+
+    assert.deepEqual(list, [{ id: '2026-2027-1' }]);
+  });
+
+  it('status 是假值（0 / 空串）时不能当成成功吞掉', async () => {
+    for (const status of [0, '']) {
+      const client = new SchoolClient('a=1');
+      await assert.rejects(
+        () => withFetch(jsonBody({ status, message: '查询失败' }), () => client.termList()),
+        /查询失败/,
+        'status=' + JSON.stringify(status) + ' 时应当抛错，而不是静默返回空列表'
+      );
+    }
+  });
+
+  it('body 明确说登录失效时抛会话过期，交给上层引导重新绑定', async () => {
+    const client = new SchoolClient('a=1');
+    await assert.rejects(
+      () => withFetch(jsonBody({ status: '500', message: '登录已失效' }), () => client.termList()),
+      SchoolSessionExpired
+    );
   });
 });

@@ -85,7 +85,11 @@ export class SchoolClient {
       // 返回 HTML = 被重定向到统一身份认证登录页
       throw new SchoolSessionExpired();
     }
-    if (json && json.status && String(json.status) !== '200') {
+    // 教务的成功码是字符串 "200"。这里不能用 `json.status &&` 做短路：
+    // status 为 0 / '' 时整段校验会被跳过，失败响应被当成成功返回，
+    // 调用方紧接着 json.data || [] 就静默降级成「这学期没有课」，
+    // 而不是该有的「登录态过期」或「上游出错」。字段一旦出现就必须是 200。
+    if (json && json.status !== undefined && json.status !== null && String(json.status) !== '200') {
       const message = String(json.message || '');
       if (/登录|认证|超时|session/i.test(message)) throw new SchoolSessionExpired();
       throw new Error(message || `教务接口 ${path} 返回异常`);

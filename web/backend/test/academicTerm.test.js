@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { resolveCurrentTermId, termIdByDate } from '../src/handlers/academicHandler.js';
+import { parseWeekRange, resolveCurrentTermId, termIdByDate } from '../src/handlers/academicHandler.js';
 
 /** 北京时间某日零点（用 UTC 表示），免得测试跟着跑测试机器的时区走 */
 function bjDate(text) {
@@ -94,5 +94,31 @@ describe('指定学期时', () => {
 
   it('教务连不上（列表为空）：仍然用指定的学期，缓存里也许还留着它', () => {
     assert.equal(resolveCurrentTermId(null, [{ xnxq_id: '2025-2026-2' }], '2025-2026-2', now), '2025-2026-2');
+  });
+});
+
+/**
+ * kkzc 兜底解析。这个字段直接来自教务返回体，属于「会写坏的输入」：
+ * 脏数据不能变成无界循环 —— 那一趟是在 Worker 里跑的，涨到几千万元素就是 CPU 超时 / OOM。
+ */
+describe('课表周次兜底解析', () => {
+  it('正常区间与逗号分段都能展开，并去重排序', () => {
+    assert.deepEqual(parseWeekRange('1-3'), [1, 2, 3]);
+    assert.deepEqual(parseWeekRange('3-8,10-12'), [3, 4, 5, 6, 7, 8, 10, 11, 12]);
+    assert.deepEqual(parseWeekRange('5,5,3'), [3, 5]);
+  });
+
+  it('单个值仍按「大于 0」过滤', () => {
+    assert.deepEqual(parseWeekRange('0,5'), [5]);
+    assert.deepEqual(parseWeekRange(''), []);
+    assert.deepEqual(parseWeekRange(null), []);
+  });
+
+  it('跨度封顶：脏数据不会展开成超大数组', () => {
+    const weeks = parseWeekRange('1-50000000');
+    assert.ok(weeks.length <= 61, '应被截断到上限附近，实际 ' + weeks.length + ' 个');
+    assert.equal(weeks[0], 1);
+    // 正常学期范围不受影响（上限只截断异常跨度）
+    assert.deepEqual(parseWeekRange('1-20'), Array.from({ length: 20 }, (_, i) => i + 1));
   });
 });
