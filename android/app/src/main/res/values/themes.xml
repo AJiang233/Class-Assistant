@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources xmlns:tools="http://schemas.android.com/tools">
     <style name="Theme.ClassAssistant" parent="Theme.Material3.DayNight.NoActionBar">
-        <!-- 系统栏配色跟随网页底色（浅色），图标用深色 -->
+        <!-- 系统栏配色：这里只是**网页上报之前**的兜底，跟随的是系统深浅色。
+             网页里自选的主题由探针经 CAHost.setTheme 报上来，MainActivity.applySystemBars 会覆盖 ——
+             两者可以相反（系统浅色 + 网页深色），issue #63 之前没有那一环，于是系统栏会一直是浅的。 -->
         <item name="android:statusBarColor">@color/window_bg_light</item>
         <item name="android:navigationBarColor">@color/window_bg_light</item>
         <item name="android:windowLightStatusBar">true</item>

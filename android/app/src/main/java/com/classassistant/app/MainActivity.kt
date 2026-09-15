@@ -31,6 +31,7 @@ import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
 import com.classassistant.app.data.Store
 import com.classassistant.app.databinding.ActivityMainBinding
 import com.classassistant.app.notify.Notifier
@@ -121,6 +122,22 @@ class MainActivity : AppCompatActivity() {
             BackgroundMode.apply(ctx)
             // 刚换了登录凭据，这一次必须真拉：不能让它被回前台的 60 秒节流挡掉
             Scheduler.syncNow(ctx, force = true)
+        }
+
+        /**
+         * 网页当前是深色还是浅色（个人页「主题外观」选的，或选了「跟随系统」时系统自己变的）。
+         *
+         * 探针每拍读一次 `<html data-theme>` 上报，值没变就不会调到这里（见 PROBE_JS 的 reportTheme）。
+         * 与鸿蒙端同一套契约（那边是 ThemeData.dark → SystemBar.apply）。
+         *
+         * 桥方法跑在非 UI 线程，动系统栏得切回主线程；顺手落盘，冷启动才能先按上，
+         * 不必等这一路上报回来（见 onCreate 与 Store.themeDark）。
+         */
+        @JavascriptInterface
+        fun setTheme(dark: Boolean) {
+            if (!fromAppPage()) return
+            Store.saveThemeDark(applicationContext, dark)
+            runOnUiThread { applySystemBars(dark) }
         }
 
         /** 门户点「一键绑定教务系统」：打开教务登录页，登录完成后自动抓取 Cookie 上报 */
@@ -302,11 +319,39 @@ class MainActivity : AppCompatActivity() {
     private val notificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
+    /**
+     * 系统栏配色跟着**网页**走（issue #63）。
+     *
+     * 资源里那两套（`values/` 与 `values-night/`）跟随的是**系统**深浅色，而网页的主题是用户在
+     * 个人页自选的 —— 两者可以相反，于是过去会出现「深色页面上压一条浅色系统栏」：一条亮带把
+     * 页面顶部切开，顶部图标还跟底色撞在一起。
+     *
+     * 颜色直接复用那两个颜色资源（与 style.css 的底色变量同一个值），不另立一套；图标明暗走
+     * androidx 的兼容层 —— 它自己处理 API 27 以下没有 `windowLightNavigationBar` 这件事，
+     * 也省掉手写 `systemUiVisibility` 那套废弃位标志。
+     */
+    private fun applySystemBars(dark: Boolean) {
+        val bg = ContextCompat.getColor(
+            this,
+            if (dark) R.color.window_bg_dark else R.color.window_bg_light
+        )
+        window.statusBarColor = bg
+        window.navigationBarColor = bg
+        WindowCompat.getInsetsController(window, binding.root).apply {
+            isAppearanceLightStatusBars = !dark
+            isAppearanceLightNavigationBars = !dark
+        }
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        // 网页上次报的明暗先按上：不然冷启动会先按**系统**深浅色画出一帧，再被探针的第一份上报
+        // 改过来 —— 用户看到的就是「自己选了深色、却先闪一下浅色」（issue #63 点名不许闪）。
+        // 还没有缓存（首次安装）时维持资源那两套，等下面探针的首次上报来修正。
+        Store.themeDark(this)?.let { applySystemBars(it) }
         setupWebView()
 
         Notifier.ensureChannels(this)
@@ -746,11 +791,16 @@ class MainActivity : AppCompatActivity() {
                 "Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0"
 
         /**
-         * 下拉刷新探针。
-         * 站点是「固定外壳 + 内层 .app-view 滚动」，子页面又跑在同源 iframe 里，
-         * 因此 webView.scrollY 恒为 0，无法直接判断是否在顶部。
-         * 这里在页面内周期性探测真实滚动位置，通过 CAHost 桥回传给原生层；
+         * 页面探针：每 250ms 探一次，通过 CAHost 桥把三件事回传给原生层 ——
+         *   1. 是否允许下拉刷新（见下）
+         *   2. localStorage 里的登录 token（要扫一遍存储，代价高，所以每 8 拍才做一次）
+         *   3. 页面当前是深色还是浅色（只读一个属性，很便宜，所以每拍都做）
+         *
+         * 下拉刷新这一项单说：站点是「固定外壳 + 内层 .app-view 滚动」，子页面又跑在同源 iframe 里，
+         * 因此 webView.scrollY 恒为 0，无法直接判断是否在顶部 —— 只能在页面里周期性探测滚动位置，
          * 且只有「主页 + 无弹窗 + 已置顶」才判为可下拉刷新。
+         *
+         * 与鸿蒙端的 ProbeJs.ets 是同一份探针（只差主题那一项的实现，见 reportTheme 的注释）。
          */
         val PROBE_JS = """
             (function () {
@@ -801,10 +851,12 @@ class MainActivity : AppCompatActivity() {
                   }
                 }
                 try { CAHost.setPullRefreshReady(ok); } catch (e) {}
+                reportTheme();
                 if (++tick % 8 === 0) reportToken();
               }
               var tick = 0;
               var lastToken = null;
+              var lastDark = null;
               // 登录凭据只存在网页的 localStorage 里，这里按常见键名取，并兜底扫描
               function looksLikeJwt(v) {
                 return typeof v === 'string' && v.length > 40 && v.split('.').length === 3;
@@ -829,6 +881,20 @@ class MainActivity : AppCompatActivity() {
                 if (t === lastToken) return;
                 lastToken = t;
                 try { CAHost.setToken(t); } catch (e) {}
+              }
+              // 页面当前是深色还是浅色（系统栏配色用，见 setTheme）。
+              // 读 <html data-theme> 而不是像鸿蒙端那样按底色亮度算：theme.js 在首帧绘制前就把它
+              // 写成 'dark' / 'light'（选「跟随系统」时也已经在那边解析成具体值），个人页切主题时
+              // 还会直接同步到父窗口这一份（account.js 的 applyTheme）—— 读属性既准又便宜，所以每拍
+              // 都报，不像 token 那样要扫 localStorage、只能每 8 拍一次。
+              // 属性不在时（页面没加载 theme.js）干脆不报：宁可维持现状，也不猜一个值糊上去。
+              function reportTheme() {
+                var attr = document.documentElement.getAttribute('data-theme');
+                if (attr !== 'dark' && attr !== 'light') return;
+                var d = attr === 'dark';
+                if (d === lastDark) return;
+                lastDark = d;
+                try { CAHost.setTheme(d); } catch (e) {}
               }
               setInterval(probe, 250);
               probe();

@@ -25,6 +25,7 @@ object Store {
     private const val KEY_COURSE_AT_START = "course_remind_at_start"
     private const val KEY_COURSE_ALARMS = "scheduled_course_alarm_ids"
     private const val KEY_BACKGROUND_ALWAYS_ON = "background_always_on"
+    private const val KEY_THEME_DARK = "theme_dark"
 
     /** 课程提醒默认提前多少分钟；0 = 不提前提醒 */
     const val DEFAULT_COURSE_LEAD = 15
@@ -195,5 +196,24 @@ object Store {
 
     fun setBackgroundAlwaysOn(context: Context, enabled: Boolean) {
         sp(context).edit().putBoolean(KEY_BACKGROUND_ALWAYS_ON, enabled).apply()
+    }
+
+    // ===== 网页的明暗主题（系统栏配色的兜底，见 MainActivity.applySystemBars） =====
+
+    /**
+     * 网页上次上报的明暗（true = 深色）；**这台设备还没收到过上报**时返回 null。
+     *
+     * 为什么要落盘：主题选择在网页的 localStorage 里，而系统栏配色是 Activity 一创建就画出来的 ——
+     * 不缓存的话，每次冷启动都会先按**系统**的深浅色画一帧、再被探针的第一份上报改过来，
+     * 用户看到的就是「自己选了深色、却先闪一下浅色」（issue #63 的验收标准点名不许闪）。
+     * null 表示没有可用的缓存，那就维持资源里那两套（跟随系统），不猜一个值糊上去。
+     *
+     * 与「后台常驻」一样**不随退出登录清掉**：这是这台设备的偏好，与账号无关。
+     */
+    fun themeDark(context: Context): Boolean? =
+        if (sp(context).contains(KEY_THEME_DARK)) sp(context).getBoolean(KEY_THEME_DARK, false) else null
+
+    fun saveThemeDark(context: Context, dark: Boolean) {
+        sp(context).edit().putBoolean(KEY_THEME_DARK, dark).apply()
     }
 }

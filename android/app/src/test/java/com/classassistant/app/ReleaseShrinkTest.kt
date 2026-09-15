@@ -66,4 +66,34 @@ class ReleaseShrinkTest {
         assertTrue("PROBE_JS 判断主页与子页面显隐要读 hidden 属性", probe.contains("!h.hidden"))
         assertTrue("PROBE_JS 判断子页面（iframe）显隐要读 hidden 属性", probe.contains("f.hidden"))
     }
+
+    /**
+     * 探针里调用的桥方法、README 里列进「JS 桥」清单的桥方法，都必须真的存在。
+     *
+     * issue #63 就是这一类：README 把 `setTheme` 写进了桥方法清单，代码里却没有 ——
+     * 文档与实现各说各话，谁都不报错，一直没人发现系统栏没跟着网页主题走。
+     * 只查这一个方向（实现比文档多是允许的，那份清单是写给网页看的）。
+     */
+    @Test
+    fun `桥方法清单要和实现对得上`() {
+        val main = moduleFile("src/main/java/com/classassistant/app/MainActivity.kt").readText()
+        val bridge = Regex("""@JavascriptInterface\s+fun\s+(\w+)""")
+            .findAll(main).map { it.groupValues[1] }.toSet()
+        assertTrue("没从 MainActivity 里解析出桥方法，正则要跟着代码走", bridge.isNotEmpty())
+
+        val called = Regex("""CAHost\.(\w+)\(""")
+            .findAll(main.substringAfter("val PROBE_JS =")).map { it.groupValues[1] }.toSet()
+        assertTrue("PROBE_JS 调了 HostBridge 上没有的方法：${called - bridge}", bridge.containsAll(called))
+
+        // 工作目录随运行方式变（Gradle 是 android/app，IDE 可能是仓库根），几个候选都试一遍
+        val readme = listOf(File("../README.md"), File("README.md"), File("android/README.md"))
+            .firstOrNull { it.exists() } ?: throw AssertionError("没找到 android/README.md")
+        val line = readme.readText().lineSequence().firstOrNull { it.contains("**JS 桥") }
+            ?: throw AssertionError("android/README.md 里没有「JS 桥」那一行清单了")
+        // 清单写成 `setToken` / `setPullRefreshReady` / … ；开头那个 `CAHost` 是桥对象名，不是方法
+        val listed = Regex("""`([A-Za-z]\w*)`""").findAll(line.substringAfter('：'))
+            .map { it.groupValues[1] }.filterNot { it == "CAHost" }.toSet()
+        assertTrue("README 的桥方法清单没解析出来", listed.isNotEmpty())
+        assertTrue("README 里写了但 HostBridge 上没有：${listed - bridge}", bridge.containsAll(listed))
+    }
 }
