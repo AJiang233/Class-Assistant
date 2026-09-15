@@ -140,7 +140,13 @@ object Notifier {
     }
 
     /**
-     * 前台服务要的那条常驻通知。点击回到通知页，复用与正式提醒同一套深链。
+     * 前台服务要的那条常驻通知。点击回**主页**。
+     *
+     * 文案是「点这里打开应用」，用户点它要的是「回到应用看看」，不是被塞进某个子页面
+     * —— 原来写的是 `?view=notices`（issue #10：点进去会落到一个自己没要去的页面）。
+     *
+     * `?view=home` 不在网页侧 index.js 那张白名单里也不用管：白名单只拦「非主页的直达」，
+     * 主页本就是 `?view=` 取不到合法值时的默认落点。
      *
      * 不复用 send()：那条是「提醒」—— 高重要级 + autoCancel（点掉就消失）；
      * 这条是「公告」—— 最低重要级 + ongoing（不该被顺手划掉，它是服务还在跑的凭据）。
@@ -149,7 +155,7 @@ object Notifier {
         ensureChannels(context)
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            putExtra(EXTRA_DEEP_LINK, "?view=notices")
+            putExtra(EXTRA_DEEP_LINK, "?view=home")
         }
         val pending = PendingIntent.getActivity(
             context,
