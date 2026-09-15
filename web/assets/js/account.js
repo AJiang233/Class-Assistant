@@ -288,7 +288,7 @@ function testPush(kind) {
     var btn = document.getElementById(kind === 'activity' ? 'testActivityBtn' : 'testNoticeBtn');
     pushHint('');
     if (!window.CAHost || typeof CAHost.testNotification !== 'function') {
-        pushHint('网页版没有系统通知通道，请安装安卓 / 鸿蒙 App 后在本页测试。');
+        pushHint('网页版没有系统通知通道，请安装安卓 App 后在本页测试。');
         return;
     }
     var label = btn.textContent;
