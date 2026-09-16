@@ -3,16 +3,22 @@
      它只是兜底：真正的「换天」由 Scheduler.scheduleMidnightRefresh 的零点闹钟负责，
      内容变化则由同步成功后主动刷新（见 CoursesWidgetProvider.refreshAll）。
 
-     尺寸：长 3 格、高 2 格。格子数换算 dp 的公式是 min = 70n − 30（那是 n 格的上限），
-     于是 3 格 180dp、2 格 110dp —— 写大一点就跳成下一格，卡片周围多出整整一格空白。
+     尺寸：长 2 格、高 2 格。格子数换算 dp 的公式是 min = 70n − 30（那是 n 格的上限），
+     于是 2 格 110dp、3 格 180dp —— 写大一点就跳成下一格，卡片周围多出整整一格空白。
 
-     为什么改成 3×2（原先是 4 格 × 3 格 = 250dp × 180dp）：桌面上一格就是一块地方，
-     两块组件（这个 + 今日活动）并排只占 3×4，比原先省下一格宽、一格高。
-     代价是 110dp 扣掉标题与内边距后只完整露得下一张课卡，「今天还剩几节」要靠往下滚 ——
-     课卡本来就是可滚动的列表（见 CoursesWidgetService），课多时不会丢内容。
+     尺寸变更史：4×3（250dp × 180dp）→ 3×2（2026-09-14）→ 2×2（2026-09-16，issue #73）。
+     桌面上一格就是一块地方，两块组件（这个 + 今日活动）并排只占 2×4，比最初省下两格宽。
+
+     2 格的代价，宽度和高度各有一份：
+       - 宽：最窄时 110dp 减掉根布局两侧各 12dp 内边距，只剩 86dp 摆三行字，再减掉卡片
+         自己那 12dp（左侧 4dp 彩条 + 8dp 间距）就更窄。好在三行文字都是单行省略号
+         （WidgetCardTitle / WidgetCardMeta 的 maxLines=1），所以是「长课名看不到尾巴」，
+         不会换行把卡片撑高。110dp 是下限，真机上多数机型的实际宽度比它大。
+       - 高：110dp 扣掉标题与内边距后只完整露得下一张课卡，「今天还剩几节」要靠往下滚 ——
+         课卡本来就是可滚动的列表（见 CoursesWidgetService），课多时不会丢内容。
      改课卡行数 / 字号 / 内边距前先回来看这个算式。 -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
-    android:minWidth="180dp"
+    android:minWidth="110dp"
     android:minHeight="110dp"
     android:updatePeriodMillis="1800000"
     android:initialLayout="@layout/widget_courses"
