@@ -230,7 +230,7 @@ web/                            # Cloudflare Pages 项目根目录（直接部�
     "form":{ "id":1, "title":"国庆聚餐报名", "fields":[...], "edit_policy":"before_deadline",
              "anonymous":false, "status":"open", "deadline":"2026-09-30 18:00:00", "creator_name":"张三" },
     "mySubmission":{ "answers":{...}, "created_at":"...", "updated_at":"..." },  // 未提交则为 null
-    "canSubmit":true, "submitBlockedReason":"", "isCreator":false } }
+    "canSubmit":true, "submitBlockedReason":"" } }
 ```
 
 ### 日历订阅接口

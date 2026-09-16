@@ -285,7 +285,13 @@ export async function handleListMyForms(request, env, user) {
   }
 }
 
-/** 表单详情 + 我的提交 */
+/**
+ * 表单详情 + 我的提交。
+ *
+ * 响应里刻意不带 isCreator / canManage：原先的 isCreator 全仓没人读，而它只答「是不是创建者」，
+ * 比实际能管的范围窄一档（班长能管别人的表单），留着只会被下一个人顺手当成权限判据。
+ * 要判「能不能管」请用 utils/audience.js 的 canManageItem，或列表每行的 can_manage。
+ */
 export async function handleGetForm(request, env, user, params) {
   try {
     const id = parseInt(params.id);
@@ -315,8 +321,7 @@ export async function handleGetForm(request, env, user, params) {
         ? { answers: parseJson(mine.answers, {}), created_at: mine.created_at, updated_at: mine.updated_at }
         : null,
       canSubmit: gate.ok,
-      submitBlockedReason: gate.ok ? '' : gate.message,
-      isCreator: form.creator_id === user.id
+      submitBlockedReason: gate.ok ? '' : gate.message
     }));
   } catch (e) {
     console.error('获取表单失败:', e);
