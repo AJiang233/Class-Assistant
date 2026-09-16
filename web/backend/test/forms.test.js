@@ -7,6 +7,7 @@ import {
 } from '../src/handlers/formExport.js';
 import {
   handleCreateForm,
+  handleDeleteForm,
   handleListForms,
   handleListMyForms,
   handleUpdateForm
@@ -555,5 +556,102 @@ describe('编辑表单：字段锁与写入是同一条语句', () => {
       args.some((v) => typeof v === 'string' && v.includes('"key":"note"')),
       '字段定义也要写进去'
     );
+  });
+});
+
+describe('管理表单列表与归属：与通知 / 活动同一口径', () => {
+  /**
+   * 列表列的是全表，按查看者裁剪落在 handler 里（见 formHandler 的 formForViewer）；
+   * 归属判定要先查一次 roles 表（loadViewer），所以这个假 D1 得把 roles 与 forms 分开答 ——
+   * 一律返回同一批行的话，「用的是不是真的职位权限」就成了一笔糊涂账。
+   */
+  function fakeDb(rows) {
+    return {
+      prepare(sql) {
+        const stmt = {
+          _args: [],
+          bind(...args) { stmt._args = args; return stmt; },
+          async all() {
+            if (/FROM roles/i.test(sql)) return { results: [] };
+            return { results: rows };
+          },
+          async first() {
+            if (/FROM forms/i.test(sql)) return rows[0];
+            return null;
+          },
+          async run() { return {}; }
+        };
+        return stmt;
+      }
+    };
+  }
+
+  const 班长 = { id: 9, name: '班长', positions: '班长' };            // content:write + user:manage
+  const 学习委员 = { id: 8, name: '学习委员', positions: '学习委员' };  // 只有 content:write
+
+  const rows = [
+    {
+      id: 1, title: '班长发的表单', creator_id: 2,
+      remind_people: '["张三"]', submission_count: 3
+    },
+    {
+      id: 2, title: '学委发的表单', creator_id: 3,
+      remind_people: '["李四"]', submission_count: 0
+    }
+  ];
+
+  async function list(user) {
+    const res = await handleListForms(
+      new Request('https://class.example/api/forms'),
+      { DB: fakeDb(rows) },
+      user
+    );
+    assert.equal(res.status, 200);
+    return res.json();
+  }
+
+  it('列表列出全部表单，管不了的行标着 can_manage: false', async () => {
+    const body = await list(学习委员);
+
+    // 面板要能看清班里发过哪些表单（提交数、是否已关闭），所以不做按创建者过滤
+    assert.deepEqual(body.data.list.map((f) => f.id), [1, 2]);
+    // 两行都不是 ta 建的，ta 也没有 user:manage —— 按钮摆出来点了就是 403（issue #71）
+    assert.deepEqual(body.data.list.map((f) => f.can_manage), [false, false]);
+  });
+
+  it('持 user:manage 的班长能管别人的表单，名单也跟着给', async () => {
+    const body = await list(班长);
+
+    assert.deepEqual(body.data.list.map((f) => f.can_manage), [true, true]);
+    // 能管 = 要能编辑，而编辑表单靠 remind_people 预填提醒对象
+    assert.equal(body.data.list[0].remind_people, '["张三"]');
+  });
+
+  it('自己创建的那行照常返回，提交数与定向名单都在', async () => {
+    const body = await list({ id: 3, name: '学委', positions: '学习委员' });
+    const mine = body.data.list[1];
+
+    assert.equal(mine.can_manage, true);
+    assert.equal(mine.submission_count, 0);
+    assert.equal(mine.remind_people, '["李四"]');
+    // 另一行给不了：不是 ta 建的，ta 也没有 user:manage
+    assert.equal(body.data.list[0].can_manage, false);
+    assert.equal('remind_people' in body.data.list[0], false);
+    assert.equal(JSON.stringify(body.data).includes('张三'), false);
+  });
+
+  it('归属判据和通知 / 活动一致：班长能删别人的表单，学习委员 403', async () => {
+    const del = (user) => handleDeleteForm(
+      new Request('https://class.example/api/forms/1', { method: 'DELETE' }),
+      { DB: fakeDb(rows) },
+      user,
+      { id: '1' }
+    );
+
+    assert.equal((await del(班长)).status, 200);
+
+    const denied = await del(学习委员);
+    assert.equal(denied.status, 403);
+    assert.equal((await denied.json()).code, 'FORBIDDEN');
   });
 });

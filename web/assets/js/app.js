@@ -562,7 +562,7 @@ window.addEventListener('offline', renderOfflineNotice);
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', renderOfflineNotice);
 else renderOfflineNotice();
 
-/** 能否发布/取消 通知、活动（权限由后端按职位+自定义职位计算） */
+/** 能否发布/取消 通知、活动，以及创建/管理表单（权限由后端按职位+自定义职位计算） */
 function canContentWrite() {
   const u = getSession();
   if (u && Array.isArray(u.permissions)) return u.permissions.includes('content:write');

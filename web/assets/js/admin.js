@@ -519,6 +519,10 @@ async function loadFormsAdmin() {
 /**
  * 表单管理卡片：标题与按钮占第一行，meta 落到按钮下方一行。
  * 按钮现在有 4 个（多了停止收集），meta 再挤在左栏里会把按钮顶到换行。
+ *
+ * 不是自己发的表单不给按钮：这四个动作后端都要求是创建者（`creator_id === 当前用户`），
+ * 摆在别人的表单上点一下就 403，所以按后端给的 can_manage 藏掉（issue #71）。
+ * 列表本身仍然照常显示 —— 管理面板要能看清班里发过哪些表单、收了多少份。
  */
 function formAdminRowHTML(f) {
     var closed = f.status !== 'open';
@@ -526,17 +530,20 @@ function formAdminRowHTML(f) {
     if (f.deadline) meta.push('截止 ' + fmtDate(f.deadline));
     if (f.anonymous) meta.push('匿名');
     if (closed) meta.push('已关闭');
+    var actions = f.can_manage
+        ? '<div class="member-actions">'
+            + '<button type="button" class="btn btn-outline btn-sm" data-act="toggle-form-status" data-id="' + escAttr(f.id) + '" data-status="' + (closed ? 'open' : 'closed') + '">'
+            + (closed ? '恢复收集' : '停止收集') + '</button>'
+            + '<button type="button" class="btn btn-outline btn-sm" data-act="open-form-time" data-id="' + escAttr(f.id) + '">修改时间</button>'
+            + '<button type="button" class="btn btn-outline btn-sm" data-act="open-form-result" data-id="' + escAttr(f.id) + '">提交明细</button>'
+            + '<button type="button" class="btn btn-danger btn-sm" data-act="del-form" data-id="' + escAttr(f.id) + '">删除</button>'
+            + '</div>'
+        : '';
     return '<div class="info-row member-row form-admin-row">'
         + '<div class="member-main">'
         + '<div class="member-line"><span class="member-name">' + esc(f.title) + '</span></div>'
         + '</div>'
-        + '<div class="member-actions">'
-        + '<button type="button" class="btn btn-outline btn-sm" data-act="toggle-form-status" data-id="' + escAttr(f.id) + '" data-status="' + (closed ? 'open' : 'closed') + '">'
-        + (closed ? '恢复收集' : '停止收集') + '</button>'
-        + '<button type="button" class="btn btn-outline btn-sm" data-act="open-form-time" data-id="' + escAttr(f.id) + '">修改时间</button>'
-        + '<button type="button" class="btn btn-outline btn-sm" data-act="open-form-result" data-id="' + escAttr(f.id) + '">提交明细</button>'
-        + '<button type="button" class="btn btn-danger btn-sm" data-act="del-form" data-id="' + escAttr(f.id) + '">删除</button>'
-        + '</div>'
+        + actions
         + '<div class="member-line form-admin-meta"><span>' + esc(meta.join(' · ')) + '</span></div>'
         + '</div>';
 }

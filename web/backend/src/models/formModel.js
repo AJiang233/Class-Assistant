@@ -66,7 +66,13 @@ export class FormModel {
     return result;
   }
 
-  /** 表单列表（班委管理面板），带提交数 */
+  /**
+   * 表单列表（班委管理面板），带提交数 —— 列出**全部**。
+   *
+   * 每一行按查看者裁剪（谁的能改、谁的名单不给看）在 handler 里做，
+   * 见 formHandler.js 的 formForViewer：面板要能看清「班里发过哪些表单」，
+   * 但四个操作按钮都要求是创建者，所以过滤落在响应的一行而不是这条 SQL 上。
+   */
   async listAll(limit = 50, offset = 0) {
     const result = await this.db.prepare(
       `SELECT ${FORM_COLUMNS},

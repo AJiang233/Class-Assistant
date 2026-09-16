@@ -9,7 +9,14 @@
  * 别在各自的 handler 里重写 —— 之前单条读取、日历订阅、表单详情三处各写各的，
  * 结果就是「不计入班级管理」的规则只挡住了列表，其余三条路径全绕过去了。
  *
- * 归属：通知/活动的改与删只认创建者本人，或持有 user:manage 的班委（见 canManageItem）。
+ * 归属：通知 / 活动 / 表单统一 —— 改与删只认创建者本人，或持有 user:manage 的班委
+ * （见 canManageItem）。三者的归属字段名不同（通知/活动是 created_by、表单是 creator_id），
+ * 由 ownerIdOf 抹平，别在各自的 handler 里各判一遍。
+ *
+ * 读取放宽一档：canViewItem 让能发文的人也能打开自己没被定向到的单条内容，
+ * 否则「编辑入口点进去 404」——列表上看得见、点进去打不开。
+ * 表单详情同理，但它放行的是「能管理的人」（创建者或 user:manage），不是所有 content:write：
+ * 学习委员没有理由打开班长的表单，而班长要能点进「提交明细」。
  */
 import { RoleModel } from '../models/roleModel.js';
 import { UserModel } from '../models/userModel.js';
@@ -91,14 +98,29 @@ export function canViewItem(raw, viewer) {
 }
 
 /**
+ * 这条内容是谁发的。通知 / 活动写的是 `created_by`，表单写的是 `creator_id` ——
+ * 语义相同（发布那一刻的作者），字段名不同只是因为表单表建得更早：
+ * migrations/2026-09-14-content-owner.sql 只给通知 / 活动补了 created_by。
+ * 归属判定要同时认这两处，所以在这里取一次，别在各自的 handler 里各写一份。
+ */
+function ownerIdOf(row) {
+  if (!row) return null;
+  if (row.created_by != null) return row.created_by;
+  if (row.creator_id != null) return row.creator_id;
+  return null;
+}
+
+/**
  * 这条内容能不能被修改 / 删除：创建者本人，或持有 user:manage 的班委。
+ * 通知 / 活动 / 表单共用这一条（表单的改、删、明细、进度、导出都走它）。
  *
- * row.created_by 为空的记录 = 迁移（migrations/2026-09-14-content-owner.sql）之前发的，
+ * 归属字段为空 = 迁移（migrations/2026-09-14-content-owner.sql）之前发的，
  * 不知道归谁，一律按「需要 user:manage」处理 —— 不一刀切拒绝，否则老内容谁都动不了。
  */
 export function canManageItem(row, viewer) {
-  if (!row || row.created_by == null) return viewer.canManageUsers;
-  return Number(row.created_by) === Number(viewer.user.id) || viewer.canManageUsers;
+  const owner = ownerIdOf(row);
+  if (owner == null) return viewer.canManageUsers;
+  return Number(owner) === Number(viewer.user.id) || viewer.canManageUsers;
 }
 
 /**

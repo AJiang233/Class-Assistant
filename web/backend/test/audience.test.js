@@ -246,6 +246,29 @@ describe('表单详情与提交', () => {
 
     assert.equal(res.status, 200);
   });
+
+  /**
+   * 管理面板点「提交明细」要先 GET 这条表单拿字段定义。只按「在不在定向名单」放行的话，
+   * 班长点别人的表单就是 404 —— 列表上看得见、点进去打不开。放行的是「能管的人」，
+   * 不是所有 content:write：学习委员没有理由打开班长的表单。
+   */
+  it('持 user:manage 的班委能打开别人的表单', async () => {
+    const env = { DB: fakeDb({ form: baseForm }) };
+
+    const res = await handleGetForm(req('/api/forms/9'), env, 班长, { id: '9' });
+
+    assert.equal(res.status, 200);
+  });
+
+  it('只有 content:write 的学习委员打不开别人的表单：仍是 404', async () => {
+    const env = { DB: fakeDb({ form: baseForm }) };
+    const 学习委员 = { id: 4, name: '学习委员', positions: '学习委员' };
+
+    const res = await handleGetForm(req('/api/forms/9'), env, 学习委员, { id: '9' });
+
+    assert.equal(res.status, 404);
+    assert.equal((await json(res)).code, 'FORM_NOT_FOUND');
+  });
 });
 
 describe('日历订阅源', () => {
@@ -300,6 +323,19 @@ describe('内容归属', () => {
     // 迁移前的老内容（created_by 为空）：只有 user:manage 能管，不能谁都改不了
     assert.equal(canManageItem({ created_by: null }, await viewer(学习委员)), false);
     assert.equal(canManageItem({ created_by: null }, await viewer(团支书)), true);
+  });
+
+  /**
+   * 表单的本意与通知 / 活动相同，只是字段名叫 creator_id（表单表建得更早）。
+   * 这条判据要是漏认了 creator_id，创建者反而动不了自己的表单 —— 而 user:manage 的人
+   * 却能管，正好是反的。所以两个字段名都钉一遍。
+   */
+  it('表单的 creator_id 与通知/活动的 created_by 是同一条判据', async () => {
+    const viewer = (u) => loadViewer({ DB: fakeDb() }, u);
+
+    assert.equal(canManageItem({ creator_id: 学习委员.id }, await viewer(学习委员)), true);
+    assert.equal(canManageItem({ creator_id: 班长.id }, await viewer(学习委员)), false);
+    assert.equal(canManageItem({ creator_id: 班长.id }, await viewer(班长)), true);
   });
 
   it('学习委员改班长发布的通知：403', async () => {

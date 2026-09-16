@@ -13,7 +13,7 @@ import { NoticeModel } from '../models/noticeModel.js';
 import { success, error, jsonResponse } from '../utils/response.js';
 import { toLocalDateTime } from '../utils/datetime.js';
 import { pageLimit, pageOffset } from '../utils/query.js';
-import { canView, isExcludedFromClass, loadRoleMap, loadViewer, pickAudience } from '../utils/audience.js';
+import { canView, canManageItem, isExcludedFromClass, loadRoleMap, loadViewer, pickAudience } from '../utils/audience.js';
 import { pushToRemindAudience } from '../utils/push.js';
 import {
   parseJson, parseFields, normalizeFields, validateAnswers, submitGate, isPastDeadline
@@ -63,16 +63,24 @@ function formVisibleTo(form, viewer) {
   return form.creator_id === viewer.user.id || canView(form.remind_people, viewer);
 }
 
-/** 取表单并校验调用者是创建者；不满足时返回可直接回给前端的 failure */
-async function loadOwnedForm(env, user, rawId) {
+/**
+ * 取表单并校验调用者能不能管它；不满足时返回可直接回给前端的 failure。
+ *
+ * 判据与通知 / 活动统一：创建者本人，或持 user:manage 的班委（见 utils/audience.js 的
+ * canManageItem）。班长 / 团支书因此能替学委收尾 —— 学委把表单发错了、人又不在，不必
+ * 借账号；而只有 content:write 的学习委员依旧碰不到别人的表单与全班学号名单。
+ */
+async function loadManageableForm(env, user, rawId) {
   const id = parseInt(rawId);
   if (!id) return { failure: { message: '表单不存在', code: 'INVALID_ID', status: 400 } };
 
   const model = new FormModel(env.DB);
   const form = await model.findById(id);
   if (!form) return { failure: { message: '表单不存在', code: 'FORM_NOT_FOUND', status: 404 } };
-  if (form.creator_id !== user.id) {
-    return { failure: { message: '只能管理自己发布的表单', code: 'FORBIDDEN', status: 403 } };
+
+  const viewer = await loadViewer(env, user);
+  if (!canManageItem(form, viewer)) {
+    return { failure: { message: '只能管理自己发布的表单，或需要「管理成员」权限', code: 'FORBIDDEN', status: 403 } };
   }
   return { form, model };
 }
@@ -187,12 +195,36 @@ export async function handleCreateForm(request, env, user, ctx) {
   }
 }
 
-/** 表单列表（班委管理面板） */
+/**
+ * 列表里的一行按查看者裁剪。
+ *
+ * 能不能管的判据与通知 / 活动统一（utils/audience.js 的 canManageItem）：创建者本人，
+ * 或持 user:manage 的班委。前端靠 can_manage 决定显不显示那四个按钮 —— 给了却点不了
+ * 就是一个必然 403 的按钮（issue #71）。
+ *
+ * remind_people 只留给能管的那几行：它是「谁该填」的名单（姓名与用户 id）。
+ * utils/audience.js 的 withoutRemindPeople 在这儿用不上 —— 它判的是 viewer.canWrite，
+ * 而能进这个接口的人必然有 content:write，等于原样返回。
+ */
+function formForViewer(row, viewer) {
+  if (canManageItem(row, viewer)) return { ...row, can_manage: true };
+  const { remind_people, ...rest } = row;
+  return { ...rest, can_manage: false };
+}
+
+/**
+ * 表单列表（班委管理面板）—— 列出全部，但每行带 can_manage。
+ *
+ * 面板要能看清「班里发过哪些表单」（提交数、是否已关闭），所以不做按创建者过滤；
+ * 但操作按钮摆到管不了的表单上就是四个必然 403 的按钮，前端靠 can_manage 把它们藏起来（issue #71）。
+ */
 export async function handleListForms(request, env, user) {
   try {
     const url = new URL(request.url);
     const model = new FormModel(env.DB);
-    const list = await model.listAll(pageLimit(url), pageOffset(url));
+    const viewer = await loadViewer(env, user);
+    const rows = await model.listAll(pageLimit(url), pageOffset(url));
+    const list = rows.map((row) => formForViewer(row, viewer));
     return jsonResponse(success({ list, total: list.length }));
   } catch (e) {
     console.error('获取表单列表失败:', e);
@@ -266,8 +298,11 @@ export async function handleGetForm(request, env, user, params) {
     if (!form) return jsonResponse(error('没有找到这个表单 —— 可能已被删除，也可能没发给你', 'FORM_NOT_FOUND'), 404);
 
     // 非定向的人不该能靠 id 打开别人的表单：与不存在回同一个 404（可见性判定见 utils/audience.js）
+    // 能管这条表单的人（创建者本人，或持 user:manage 的班委）例外：管理面板点「提交明细」要先拿到
+    // 字段定义，不放行就会「列表上看得见、点进去打不开」。放行的是 canManageItem，不是所有
+    // content:write —— 学习委员没有理由打开班长的表单。
     const viewer = await loadViewer(env, user);
-    if (!formVisibleTo(form, viewer)) {
+    if (!formVisibleTo(form, viewer) && !canManageItem(form, viewer)) {
       return jsonResponse(error('没有找到这个表单 —— 可能已被删除，也可能没发给你', 'FORM_NOT_FOUND'), 404);
     }
 
@@ -289,10 +324,10 @@ export async function handleGetForm(request, env, user, params) {
   }
 }
 
-/** 更新表单（只能改自己的；已有人提交后锁字段，避免旧答案的 key 悬空） */
+/** 更新表单（创建者本人或持 user:manage 的班委；已有人提交后锁字段，避免旧答案的 key 悬空） */
 export async function handleUpdateForm(request, env, user, params) {
   try {
-    const owned = await loadOwnedForm(env, user, params.id);
+    const owned = await loadManageableForm(env, user, params.id);
     if (owned.failure) {
       return jsonResponse(error(owned.failure.message, owned.failure.code), owned.failure.status);
     }
@@ -373,10 +408,10 @@ export async function handleUpdateForm(request, env, user, params) {
   }
 }
 
-/** 删除表单（连同提交） */
+/** 删除表单（连同提交）—— 创建者本人或持 user:manage 的班委 */
 export async function handleDeleteForm(request, env, user, params) {
   try {
-    const owned = await loadOwnedForm(env, user, params.id);
+    const owned = await loadManageableForm(env, user, params.id);
     if (owned.failure) {
       return jsonResponse(error(owned.failure.message, owned.failure.code), owned.failure.status);
     }
@@ -388,10 +423,13 @@ export async function handleDeleteForm(request, env, user, params) {
   }
 }
 
-/** 提交明细（含学号姓名；匿名表单不返回这两列） */
+/**
+ * 提交明细（含学号姓名；匿名表单不返回这两列）
+ * 这是全班学号名单的出口，只有创建者本人或持 user:manage 的班委拿得到（见 loadManageableForm）。
+ */
 export async function handleListSubmissions(request, env, user, params) {
   try {
-    const owned = await loadOwnedForm(env, user, params.id);
+    const owned = await loadManageableForm(env, user, params.id);
     if (owned.failure) {
       return jsonResponse(error(owned.failure.message, owned.failure.code), owned.failure.status);
     }
@@ -419,10 +457,10 @@ export async function handleListSubmissions(request, env, user, params) {
   }
 }
 
-/** 已交 / 未交名单（催交用） */
+/** 已交 / 未交名单（催交用）—— 同样是全班学号名单，权限同上 */
 export async function handleFormProgress(request, env, user, params) {
   try {
-    const owned = await loadOwnedForm(env, user, params.id);
+    const owned = await loadManageableForm(env, user, params.id);
     if (owned.failure) {
       return jsonResponse(error(owned.failure.message, owned.failure.code), owned.failure.status);
     }
@@ -447,10 +485,10 @@ export async function handleFormProgress(request, env, user, params) {
   }
 }
 
-/** 导出 CSV（带 UTF-8 BOM，Excel 直接打开不乱码） */
+/** 导出 CSV（带 UTF-8 BOM，Excel 直接打开不乱码）—— 权限同上，名单出口 */
 export async function handleExportForm(request, env, user, params) {
   try {
-    const owned = await loadOwnedForm(env, user, params.id);
+    const owned = await loadManageableForm(env, user, params.id);
     if (owned.failure) {
       return jsonResponse(error(owned.failure.message, owned.failure.code), owned.failure.status);
     }
