@@ -543,7 +543,7 @@ function closeDetail() {
 async function showDetail(id) {
     var card = document.getElementById('detailCard');
     document.getElementById('detailModalTitle').textContent = '活动详情';
-    card.innerHTML = stateHTML('正在加载…');
+    card.innerHTML = stateHTML('正在加载…', false, 'clock');
     openDetail();
     try {
         var res = await api('/api/activities/' + id);
@@ -568,7 +568,7 @@ async function showDetail(id) {
 async function showNoticeDetail(id) {
     var card = document.getElementById('detailCard');
     document.getElementById('detailModalTitle').textContent = '通知详情';
-    card.innerHTML = stateHTML('正在加载…');
+    card.innerHTML = stateHTML('正在加载…', false, 'clock');
     openDetail();
     try {
         var res = await api('/api/notices/' + id);

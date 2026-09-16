@@ -141,7 +141,7 @@ var editingMemberId = null;
 
 async function loadMembers() {
     var el = document.getElementById('memberList');
-    el.innerHTML = stateHTML('正在加载…');
+    el.innerHTML = stateHTML('正在加载…', false, 'clock');
     try {
         var res = await api('/api/auth/users');
         membersCache = (res.data && res.data.list) || [];
@@ -228,7 +228,7 @@ function renderRegPosPicker() {
 // 加载 roles 表已定义的自定义职位（同步「管理职位」列表与各职务选择器）
 async function loadRoles() {
     var el = document.getElementById('roleList');
-    if (el) el.innerHTML = stateHTML('正在加载…');
+    if (el) el.innerHTML = stateHTML('正在加载…', false, 'clock');
     try {
         var res = await api('/api/auth/roles');
         rolesCache = (res.data && res.data.list) || [];
@@ -505,7 +505,7 @@ var fieldSeq = 0;
 
 async function loadFormsAdmin() {
     var el = document.getElementById('formAdminList');
-    el.innerHTML = stateHTML('正在加载…');
+    el.innerHTML = stateHTML('正在加载…', false, 'clock');
     try {
         var res = await api('/api/forms');
         var list = (res.data && res.data.list) || [];

@@ -594,10 +594,17 @@ function skeletonHTML(rows) {
   return '<div class="list">' + out + '</div>';
 }
 
-/** 列表状态提示（空数据/错误）：各页面统一渲染 */
-function stateHTML(text, isError) {
+/**
+ * 列表状态提示（空数据 / 错误 / 加载中）：各页面统一渲染。
+ *
+ * 图标按语义给：错误 = 三角感叹号，空数据 = 收件箱。加载中不属于这两类，由调用方
+ * 传第三个参数指定（那几处 stateHTML('正在加载…', false, 'clock')）。
+ * 形状与颜色全交给 CSS（style.css 的 .state svg / .state.error svg），这里只管挑哪个。
+ */
+function stateHTML(text, isError, iconName) {
   var cls = isError ? 'state error' : 'state';
-  return '<div class="' + cls + '"><p>' + esc(text || '暂无数据') + '</p></div>';
+  var name = iconName || (isError ? 'alert-triangle' : 'inbox');
+  return '<div class="' + cls + '">' + icon(name) + '<p>' + esc(text || '暂无数据') + '</p></div>';
 }
 
 /** 通知来源显示名：手动发布 / 自动拉取 */
@@ -606,13 +613,19 @@ function sourceName(s) {
   return '自动拉取';
 }
 
-/** 详情弹窗小图标（14px 描边风格）：统一图标尺寸、线宽与文字基线对齐 */
+/** 行内描边图标：统一尺寸、线宽与基线对齐 —— 主力是详情弹窗那几处（14px）。
+ *  空态 / 错误态 / 加载中的图标也从这里取，只是尺寸由 CSS 放大到 32px
+ *  （见 style.css 里 .state svg 那条，本来就是为它留的）。 */
 var DETAIL_ICONS = {
   clock: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
   pin: '<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/>',
   user: '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
   bell: '<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>',
-  calendar: '<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>'
+  calendar: '<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>',
+  // 收件箱：空态用。原来的空态是一个 52px 实心圆，形状不带信息又太像 iOS（issue #74）
+  inbox: '<polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>',
+  // 三角感叹号：错误态用。刻意不用圆形的 alert-circle —— 要的就是脱离那个「圆」
+  'alert-triangle': '<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>'
 };
 function icon(name) {
   var p = DETAIL_ICONS[name] || '';

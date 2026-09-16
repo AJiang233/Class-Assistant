@@ -613,7 +613,7 @@ function fmtBJTime(v) {
 }
 async function loadProfile() {
     var card = document.getElementById('profileCard');
-    card.innerHTML = stateHTML('正在加载…');
+    card.innerHTML = stateHTML('正在加载…', false, 'clock');
     try {
         var res = await api('/api/auth/me');
         renderProfile(res.data || {});

@@ -152,7 +152,7 @@ document.addEventListener('keydown', function (e) {
 
 async function showDetail(id) {
     var card = document.getElementById('detailCard');
-    card.innerHTML = stateHTML('正在加载…');
+    card.innerHTML = stateHTML('正在加载…', false, 'clock');
     openDetail();
     try {
         var res = await api('/api/notices/' + id);
