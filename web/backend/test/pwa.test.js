@@ -421,7 +421,7 @@ function loadApp({ ua, standalone = false, maxTouchPoints = 0, inShell = false, 
     TextDecoder
   };
   const factory = new Function(...Object.keys(sandbox),
-    APP_SOURCE + '\n;return { shouldOfferInstall: shouldOfferInstall, escAttr: escAttr, safeHref: safeHref, pushSubscribeError: pushSubscribeError };');
+    APP_SOURCE + '\n;return { shouldOfferInstall: shouldOfferInstall, escAttr: escAttr, safeHref: safeHref, pushSubscribeError: pushSubscribeError, greetingFor: greetingFor };');
   return factory(...Object.values(sandbox));
 }
 
@@ -448,6 +448,34 @@ for (const [name, opts, want] of INSTALL_CASES) {
     assert.equal(loadApp(opts).shouldOfferInstall(), want);
   });
 }
+
+// ===== 主页欢迎文案的分档（issue #75）=====
+// 分档左闭右开：6-11 早上、11-14 中午、14-18 下午、18-23 晚上、23-1 深夜、1-6 午夜。
+// 24 个整点逐个对一遍：这张表是纯数据，错一个边界就有一段时间挂着不对的问候，而 23 点
+// 跨零点那档最容易被写成 [23,1) 这种取不到值的区间（所以要拆成 23-24 与 0-6 两段）。
+// 副标题也一并查空 —— 缺了就是主页白留一行，光看标题的断言发现不了。
+//
+// 下面这张期望表是照着 app.js 的 GREETING_BANDS 抄的，所以改文案时两边要一起改：
+// 抄这一遍就是为了让「改了文案忘了同步」立刻红一次，而不是等到有人拿手机看到才发现。
+
+test('主页问候：0-23 每个整点都在正确的档，且标题副标题都不为空', () => {
+  const app = loadApp({ ua: UA_PC_CHROME });
+  const want = [
+    ...Array(6).fill('午夜时分'),              // 0-5
+    ...Array(5).fill('早上好~'),               // 6-10
+    ...Array(3).fill('中午好呀'),              // 11-13
+    ...Array(4).fill('下午好w'),               // 14-17
+    ...Array(5).fill('晚上好喵~'),             // 18-22
+    '（哈欠）'                                 // 23
+  ];
+  assert.equal(want.length, 24, '期望表本身就写错了：六档合起来必须是 24 小时');
+
+  for (let h = 0; h < 24; h++) {
+    const band = app.greetingFor(h);
+    assert.equal(band.title, want[h], h + ' 点的问候不对');
+    assert.ok(band.desc, h + ' 点没有副标题，主页会白留一行');
+  }
+});
 
 // ===== 属性转义与 href 白名单 =====
 // esc() 走 textContent→innerHTML，只保证 & < > 安全、不转义引号，所以只能用于文本节点；

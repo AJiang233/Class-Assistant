@@ -654,6 +654,43 @@ function todayEnd() {
   return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + 'T23:59';
 }
 
+/* ===== 主页欢迎文案（issue #75）=====
+   主页那两行固定文案改成按时间段变的问候：标题是问候语，副标题是跟同一个语气的下一句。
+
+   分档（左闭右开）：6-11 早上 / 11-14 中午 / 14-18 下午 / 18-23 晚上 / 23-1 深夜 / 1-6 午夜。
+   深夜那档跨零点，所以在表里拆成 [23,24) 与 [0,6) 两段 —— 判定就退化成一句区间比较，
+   不必为「跨零点」单写一个特例。
+
+   口径是北京时间，不是浏览器本地时间：全站的课表 / 通知时间都按 +8 渲染（见 account.js
+   的 fmtTs），主页要是跟着本地时区走，境外的同学会看到「午夜时分，zzzzzz……」配着一整
+   天的课表。换算方式与 fmtTs 一致：先加 8 小时，再取 UTC 字段。
+
+   文案：标题与副标题都按项目自己的语气写（6-11 那档的骨架来自 issue #75 的示例）。
+   改文案就改这张表，同时把 pwa.test.js 里那张期望表一起改 —— 它是按整点逐个对字面量的，
+   专门为了让「文案改了但忘了同步」这种事先红一次。 */
+var GREETING_BANDS = [
+  { from: 6,  to: 11, title: '早上好~',                  desc: '又是全新的一天~  今天要做些什么呢？' },
+  { from: 11, to: 14, title: '中午好呀',                 desc: '饿了饿了，今天中午吃什么呢？  是啊，吃什么（' },
+  { from: 14, to: 18, title: '下午好w',                  desc: '我还想再睡一会午觉……还是好困啊……' },
+  { from: 18, to: 23, title: '晚上好喵~',                desc: '今天还剩什么没做完？趁现在收个尾，明天就轻松了' },
+  { from: 23, to: 24, title: '（哈欠）',                 desc: '这么晚了还不睡觉嘛？明天的事交给明天的自己吧……' },
+  { from: 0,  to: 6,  title: '午夜时分',                 desc: '晚安~  ZZZZZZ ZZZZZZ……' }
+];
+
+/** 当前北京时间的小时数（0-23） */
+function beijingHour() {
+  return new Date(Date.now() + 8 * 3600 * 1000).getUTCHours();
+}
+
+/** 北京时间 hour 点对应的问候文案；六段合起来正好是 [0,24)，不会落空 */
+function greetingFor(hour) {
+  for (var i = 0; i < GREETING_BANDS.length; i++) {
+    var b = GREETING_BANDS[i];
+    if (hour >= b.from && hour < b.to) return b;
+  }
+  return GREETING_BANDS[0];   // 兜底：正常到不了，留着是为了别把 undefined 甩给调用方
+}
+
 /* ===== 移动端安全区转发（iframe 子页面，纯表现层） =====
    通知/活动/教务/个人中心/管理员这几个页面是作为 iframe 嵌在主页里的。
    iframe 内部 env(safe-area-inset-*) 恒为 0，父页面的底部安全区传不进来，

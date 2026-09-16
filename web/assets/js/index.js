@@ -136,8 +136,22 @@ function switchView(key, slideDir) {
             f.addEventListener('load', function () { bindFrameSwipe(this); });
         }
     }
-    if (isHome) document.getElementById('homeView').scrollTop = 0;
+    if (isHome) {
+        document.getElementById('homeView').scrollTop = 0;
+        // 问候语每次切回主页都重算：安卓壳里的 WebView 会常驻过夜，切回来时不该还挂着「早上好」
+        // （不做定时器 —— 停在主页不动时文案不会自己变，这个代价比常驻一个 interval 划算）
+        renderGreeting();
+    }
     slideShownView(isHome, isLogin, key, slideDir);
+}
+
+// ===== 主页欢迎文案（文案表见 app.js 的 GREETING_BANDS）=====
+/** 把当下时段对应的问候填进主页那两行。切到主页视图时由 switchView 调用，
+ *  首屏（switchView('home')）也走这条路径，不需要在初始化里另调一次。 */
+function renderGreeting() {
+    var g = greetingFor(beijingHour());
+    document.getElementById('homeTitle').textContent = g.title;
+    document.getElementById('homeDesc').textContent = g.desc;
 }
 
 // ===== 移动端左右滑动切页 =====

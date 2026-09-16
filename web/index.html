@@ -82,8 +82,12 @@
                 <div class="main">
                     <div class="container">
                     <div class="page-head">
-                        <h1 class="page-title">我的主页</h1>
-                        <p class="page-desc">查看我的活动与通知，点击左侧日历日期可查看当天的安排。</p>
+                        <!-- 前两行是随时间段变的问候（issue #75），由 index.js 的 renderGreeting() 填：
+                             留空而不是写死，是因为过了时段那句写死的文案就变成错的了。
+                             第三行是固定不动的操作提示，不随时间变，直接写死。 -->
+                        <h1 class="page-title" id="homeTitle"></h1>
+                        <p class="page-desc" id="homeDesc"></p>
+                        <p class="page-desc">查看我的活动与通知，点击日历日期可查看当天的安排。</p>
                     </div>
                     <div class="beta-banner">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
