@@ -74,7 +74,13 @@ const apiRenderers = {};
 function onApiData(key, render) {
   if (typeof render === 'function') apiRenderers[key] = render;
 }
-window.__caApiUpdated = function (key, json) {
+/**
+ * 原生推回的新数据：先喂给本窗口注册的渲染函数。
+ *
+ * 键必须与请求 URL 一字不差；注册在这儿的这一份属于**本窗口**，iframe 里那几个页面
+ * 各自加载一份 app.js、各自一份 apiRenderers，所以还有一层转发（见 __caApiUpdated）。
+ */
+function renderApiUpdate(key, json) {
   const render = apiRenderers[key];
   if (!render) return;   // 这一份没人关心（比如页面已经切走）：静默跳过
   let payload;
@@ -90,6 +96,31 @@ window.__caApiUpdated = function (key, json) {
     render(payload.data || {});
   } catch (e) {
     console.warn('回填渲染失败：', key, e);
+  }
+}
+
+/**
+ * 原生后台刷新的入口（见 android 的 MainActivity.pushApiUpdate）。两个动作缺一不可：
+ *
+ *   1) 本窗口自己重绘 —— 主页那几个键就注册在顶层壳里；
+ *   2) **转发给同源的 iframe 子页面** —— 原生那边是 `webView.evaluateJavascript`，只作用于
+ *      顶层文档的 window，而通知/活动/教务/个人中心/管理员这几个页面各自跑在 iframe 里、
+ *      各自一份 app.js、各自一份 apiRenderers。不转发的话它们永远收不到「后台新数据」这一拍，
+ *      只能一直显示上一次会话留下的那份缓存（同一个道理见下面 beforeinstallprompt 那处：
+ *      iframe 收不到顶层的事件，只能主动递进去）。
+ *
+ * 转发用的是 contentWindow 直调，必须 try/catch：frame 还没加载完、或者内容跨域（教务页
+ * 是另一个域）时读 contentWindow 会抛 SecurityError，不能让它把整次回填带崩。
+ */
+window.__caApiUpdated = function (key, json) {
+  renderApiUpdate(key, json);
+
+  var frames = document.querySelectorAll('iframe');
+  for (var i = 0; i < frames.length; i++) {
+    try {
+      var win = frames[i].contentWindow;
+      if (win && win.__caApiUpdated) win.__caApiUpdated(key, json);
+    } catch (e) { /* 还没加载或跨域：忽略 */ }
   }
 };
 
@@ -455,6 +486,48 @@ if ('serviceWorker' in navigator) {
       console.warn('Service Worker 注册失败：', e);
     });
   });
+
+  /* SW 在后台回源时发现这一页的文档真的变了，会发消息过来（见 sw.js 的 notifyChanged），
+     这里让当前这一份文档立刻换成新的 —— 也就是「后台拿到新内容就立刻刷新」。
+
+     为什么可以直接重载：新的那份在发通知之前就已经写进 SW 缓存（先 store 再通知），
+     重载读的是本地那一份，不会再等一次网络往返。
+
+     为什么要挡「用户正在填东西」：重载会把表单、MFA 验证码清空。有未提交的输入就放弃
+     这一次刷新 —— 用户手上的东西比「立刻看到新页面」值钱；页面可以是旧的，下一次跳页
+     或者重开自然就是新的。 */
+  navigator.serviceWorker.addEventListener('message', function (event) {
+    if (!event.data || event.data.type !== 'ca-shell-updated') return;
+    if (hasUnsavedInput()) return;
+    location.reload();
+  });
+}
+
+/**
+ * 有没有「用户改了但还没提交」的输入 —— 决定后台拿到新页面时敢不敢自动重载。
+ *
+ * 拿原生的 defaultValue / defaultChecked 比对，而不是自己记一套「脏标记」：这些页面的表单都是
+ * 各页面脚本动态渲染的，没有统一的脏状态，手写一套就得每个表单跟着改；而 defaultValue 天生
+ * 就是「HTML 里的初值」，value 与它不等就是用户动过。
+ *
+ * 判定故意偏严（宁可少刷一次，不可清空一次）：复选框被点过、下拉被选过都算有输入。
+ * 误判成「有输入」只是晚一次刷新，误判成「没输入」是用户白填一遍表单。
+ */
+function hasUnsavedInput() {
+  var nodes = document.querySelectorAll('input, textarea, select');
+  for (var i = 0; i < nodes.length; i++) {
+    var el = nodes[i];
+    if (el.disabled || el.readOnly) continue;
+    var type = (el.type || '').toLowerCase();
+    // 按钮与隐藏域没有「用户填的内容」可言；文件的 value 是假的路径，比不出用户动没动过
+    if (type === 'hidden' || type === 'submit' || type === 'button' || type === 'reset' || type === 'file') continue;
+    if (type === 'checkbox' || type === 'radio') {
+      if (el.checked !== el.defaultChecked) return true;
+    } else if (el.value !== el.defaultValue) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /* ===== 离线提示 =====

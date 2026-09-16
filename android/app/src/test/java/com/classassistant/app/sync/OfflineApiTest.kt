@@ -54,4 +54,36 @@ class OfflineApiTest {
         assertTrue(paths.contains("/api/notices?limit=50&date=2026-09-14"))
         assertTrue(paths.contains("/api/activities?date=2026-09-14&limit=50"))
     }
+
+    /**
+     * 「刷新」这一类请求（页面在查询串里带 `refresh=1`）。
+     *
+     * 缓存键里要去掉它：同一份数据挂在两个键上，既白占名额，又让「先刷新、后断网」
+     * 读到另一份（很可能压根没写过）的缓存。同时这一类不吃缓存首帧，否则刷新按钮
+     * 在窗口期内等于没反应。键或判定算错了都不报错，只是行为悄悄不对，所以把形状钉住。
+     */
+    @Test
+    fun `刷新请求的缓存键去掉 refresh=1`() {
+        assertEquals("/api/academic/credits", OfflineApi.cacheKey("/api/academic/credits", "refresh=1"))
+        assertEquals(
+            "/api/academic/timetable?xnxq=2025-2026-1",
+            OfflineApi.cacheKey("/api/academic/timetable", "xnxq=2025-2026-1&refresh=1")
+        )
+        // 学期参数是数据的一部分，必须留下
+        assertEquals("/api/notices?scope=all", OfflineApi.cacheKey("/api/notices", "scope=all"))
+        assertEquals("/api/notices", OfflineApi.cacheKey("/api/notices", null))
+        assertEquals("/api/notices", OfflineApi.cacheKey("/api/notices", ""))
+        assertEquals("/api/notices", OfflineApi.cacheKey("/api/notices", "refresh=1"))
+    }
+
+    @Test
+    fun `只有 refresh=1 算强制刷新`() {
+        assertTrue(OfflineApi.isForceRefresh("refresh=1"))
+        assertTrue(OfflineApi.isForceRefresh("xnxq=2025-2026-1&refresh=1"))
+        // 只认整段相等：refresh=12 不是那个开关，别把它也当成「别给我缓存」
+        assertTrue(!OfflineApi.isForceRefresh("refresh=12"))
+        assertTrue(!OfflineApi.isForceRefresh("scope=all"))
+        assertTrue(!OfflineApi.isForceRefresh(null))
+        assertTrue(!OfflineApi.isForceRefresh(""))
+    }
 }

@@ -52,10 +52,13 @@ object OfflineApi {
      * 会被写入缓存的接口路径（正则，不含查询串）。挑选标准：只读，且形状有限 ——
      * 列表、单份快照、单条表单。查出来的键是「路径 + 查询串」，所以 ?scope=all 与
      * ?scope=all&limit=200 各存一份，互不覆盖。
+     *
+     * 只登记**网页真会请求的**路径：缓存键就是页面请求的 URL，没人请求的路径写进来是死登记 ——
+     * 既不落盘、也不会被回放，只在读代码时让人以为这条链路是通的（`/api/notices/archive`
+     * 就是这么一条，已删：那个接口是管理员用的归档列表，网页端没有任何页面调它）。
      */
     private val CACHE_PATHS = listOf(
         Regex("^/api/notices$"),
-        Regex("^/api/notices/archive$"),
         Regex("^/api/activities$"),
         Regex("^/api/academic/status$"),
         Regex("^/api/academic/timetable$"),
@@ -69,7 +72,7 @@ object OfflineApi {
      * 列表形状的路径：这些响应会被当作「详情回退」的数据源（见 OfflineCache.findItem）。
      * 详情接口本身不进 CACHE_PATHS —— 单独缓存每条详情会让文件数随「点开过多少条」无限涨。
      */
-    private val LIST_PATHS = setOf("/api/notices", "/api/notices/archive", "/api/activities")
+    private val LIST_PATHS = setOf("/api/notices", "/api/activities")
 
     /** 详情路径 → 去哪个列表里按 id 找：捕获组 1 是 id */
     private val DETAIL_PATHS = listOf(
@@ -134,6 +137,30 @@ object OfflineApi {
     fun isCacheablePath(path: String): Boolean = CACHE_PATHS.any { it.matches(path) }
 
     /**
+     * 用户主动点「刷新」时，页面会在查询串里带 `refresh=1`（见 web 的 academic.js 课表与学分）。
+     * 这一位不是数据的一部分，只是「别给我缓存」的意图，所以对它的处理是两件事：
+     *
+     *   · **缓存键里去掉它**（见 cacheKey）—— 否则同一份数据会挂在两个键上：
+     *     `?refresh=1` 一份、不带的一份。既白占一个名额，又让「先刷新、后断网」读到的是
+     *     另一份（很可能压根没写过）的缓存。
+     *   · **带它的请求不吃缓存首帧** —— 刷新的语义就是要一份最新的，命中缓存先出首帧等于
+     *     刷新按钮在窗口期内没反应（页面上那个「刷新」点了跟没点一样）。
+     *
+     * 拎成纯函数是为了能测：键算错了不会报错，只会表现成「先回缓存那一支永远不命中」，
+     * 而那种事在现场只能靠猜。
+     */
+    private val REFRESH_PARAM = Regex("(^|&)refresh=1($|&)")
+
+    /** 是不是「用户要求别给我缓存」的那种请求 */
+    internal fun isForceRefresh(query: String?): Boolean = REFRESH_PARAM.containsMatchIn(query.orEmpty())
+
+    /** 缓存键 = 路径 + 查询串，但去掉 refresh=1（理由见 isForceRefresh） */
+    internal fun cacheKey(path: String, query: String?): String {
+        val rest = query.orEmpty().split("&").filter { it.isNotEmpty() && it != "refresh=1" }
+        return if (rest.isEmpty()) path else path + "?" + rest.joinToString("&")
+    }
+
+    /**
      * 入口。返回 null = 不接管，交给 WebView 原样请求（这是绝大多数请求的情况）。
      * 注意本方法在非 UI 线程被调用，同步做网络 I/O 是允许的。
      *
@@ -156,7 +183,7 @@ object OfflineApi {
         val detailSource = DETAIL_PATHS.firstOrNull { it.first.matches(path) }
         if (!cacheable && detailSource == null) return null
 
-        val key = if (url.query.isNullOrEmpty()) path else "$path?${url.query}"
+        val key = cacheKey(path, url.query)
         // 诊断用一行：真机报「离线数据不对」时，先看请求有没有到这一层、走了哪条分支
         Log.i(TAG, "→ $key 在线=${isOnline(context)}")
 
@@ -171,7 +198,8 @@ object OfflineApi {
         // 够新鲜的缓存先给页面：首帧就不必等一次网络往返（进 App 第一次看某个页面时那
         // 「0.5~1s 的加载动画」等的就是它）。这份数据其实早就在本地 —— 后台同步预热过，
         // 以前只在断网那一支用得上。给了缓存之后紧接着后台去取最新的，变了再推回页面重绘。
-        if (cacheable) {
+        // 用户点了「刷新」的那种请求除外：它要的就是最新的（见 isForceRefresh）。
+        if (cacheable && !isForceRefresh(url.query)) {
             OfflineCache.readFresh(context, key)?.let { cached ->
                 Log.i(TAG, "  先回缓存（${cached.length} 字），后台刷新")
                 refreshInBackground(context, url.toString(), token, key, path, cached, onRefreshed)

@@ -51,8 +51,15 @@ object OfflineCache {
      * 在线时不一样：只是为了让首帧不用等网络（见 sync/OfflineApi 的在线分支），
      * 一份好几天的通知列表先糊上去，用户会以为看到的是最新的，比多等一次网络更糟。
      * 所以隔了太久就当作没有缓存，照旧走网络、照旧显示加载态。
+     *
+     * 为什么是 1 小时（原来是 24 小时）：正常情况这份缓存根本用不着这么久 ——
+     * 后台同步 15 分钟一轮、App 回到前台也会同步一次，所以它通常只有几分钟。
+     * 真到了「超过 1 小时还是旧的」，说明后台同步已经连续失败、或者设备离线了很久，
+     * 这时候拿昨天的列表当首帧反而更糟，宁可显示加载态去取一次最新的。
+     * 反过来窗口也不能再往小收：必须比同步周期宽得多，否则会把正常的新鲜缓存误判成过期，
+     * 白白丢掉「首帧不等网络」这份收益。
      */
-    private const val RENDER_MAX_AGE_MS = 24 * 60 * 60 * 1000L
+    private const val RENDER_MAX_AGE_MS = 60 * 60 * 1000L
 
     private fun dir(context: Context): File = File(context.applicationContext.filesDir, DIR)
 

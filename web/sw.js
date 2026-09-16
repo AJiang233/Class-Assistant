@@ -3,12 +3,26 @@
  *
  * 只做三件事：离线壳、让应用可安装、接收推送（阶段三加）。
  *
- * 缓存策略刻意保守 —— 这个项目出现过「用户被旧缓存卡住、完全刷新也不生效」的问题，
- * 所以除了断网兜底，一律不把缓存当首选：
+ * 缓存策略：**缓存先出首帧，网络在后台追**（stale-while-revalidate）：
  *   /api/*          完全不拦截，直接走网络（登录态与数据绝不缓存，断网就该报错）
- *   页面导航         network-first，断网时回退到缓存的页面壳
- *   静态资源         network-first，成功就更新缓存（不用 cache-first，避免样式/脚本改动不生效）
+ *   页面导航         cache-first + 后台回源，**文档真的变了就立刻让页面重载**
+ *   静态资源         cache-first + 后台回源
  *   其他方法/跨域    不拦截
+ *
+ * 为什么又敢把缓存放前面了：这个项目以前出现过「用户被旧缓存卡住、完全刷新也不生效」，
+ * 根因是 **cache-first 且从不回源** —— 缓存一进去就再也出不来。这里每次都照常回源，
+ * 网络那份会覆盖缓存，所以陈旧最多只影响**当次**加载；而且回源时一发现文档变了，
+ * 就顺手让页面自己重载（见 notifyChanged），不用等下一次打开。
+ * （回源这件事有测试钉着，见 pwa.test.js 的「命中缓存后仍在后台回源刷新缓存」。）
+ *
+ * 换来的收益是首帧不再等网络。实测这条链路的单个请求 TTFB 在 1～3.5 秒、偶发 12～31 秒
+ * （上海到 Cloudflare 的 LAX 边缘），而首帧串行依赖 index.html → style.css（95KB，阻塞渲染）
+ * → theme.js（head 里的同步脚本，同样阻塞）三个来回，叠起来就是用户看到的白屏十几秒。
+ * 走缓存后这三份都是本地读取，白屏消失；后台回源该慢还是慢，但不挡人。
+ *
+ * ponytail: 缓存名是固定的、文件名里也没有内容哈希，所以**同一次加载里可能拿到
+ *   「新 HTML + 旧 CSS/JS」**（前一个的后台刷新先落地了），刷新一次即一致。
+ *   要彻底消掉这个窗口，得上构建期给文件名加内容哈希 —— 这个仓库没有构建步骤，先不动。
  *
  * 注意：sw.js 由 _headers 声明为 no-cache，保证脚本本身不会被缓存住。
  */
@@ -97,6 +111,116 @@ function cacheable(request, response) {
     && new URL(request.url).origin === self.location.origin;
 }
 
+/**
+ * 回源时的 fetch 参数。`cache: 'no-cache'` 是必须的，不是可选的优化：
+ * 本域名的 CDN 会把 /assets/*、/sw.js 的 Cache-Control 改写成 max-age=14400（4 小时），
+ * 而 fetch(request) 默认吃浏览器的 HTTP 缓存 —— 那样「回源」会退化成「拿最多 4 小时前的
+ * 旧 CSS/JS」，出现「新页面结构 + 旧样式」。带上 no-cache 强制回源校验：没变就是 304，代价很小。
+ */
+const REFETCH = { cache: 'no-cache' };
+
+/**
+ * 按三级顺序找缓存：
+ *   1) 请求原样命中：静态资源就是按原地址存的（/assets/js/*.js 等）
+ *   2) 规范地址：页面请求的是 .html，缓存里存的是去扩展名的那份
+ *   3) 去掉查询串的规范地址：深链带 ?id= / ?view=，缓存键里没有查询串
+ *
+ * 第 3 级只用于**查找**、不参与写入（理由见 canonicalPath）。命中任一级都算命中：
+ * 这三个地址指向的是同一份文档，交给页面的 HTML 是同一份，路由由 app.js 读 location 决定。
+ */
+async function matchShell(request, url) {
+  return await caches.match(request)
+    || await caches.match(canonical(url))
+    || await caches.match(canonicalPath(url));
+}
+
+/** 落缓存：键归到规范地址、响应去掉跳转标记（理由见 canonical / plain 的注释） */
+async function store(request, response) {
+  if (!cacheable(request, response)) return;
+  const cache = await caches.open(CACHE);
+  await cache.put(canonical(new URL(request.url)), plain(response));
+}
+
+/**
+ * 后台回源刷新缓存。成功就覆盖，失败（断网等）安静收场 ——
+ * 缓存里那份已经交给页面了，刷新失败不该惊动任何人，更不该冒泡成未处理的 rejection。
+ *
+ * cached 是刚交给页面那一份的**副本**（原件的 body 已经被页面吃掉，读不了了）。
+ * 它只做一件事：和网络那份比一比，看这次回源有没有拿到真正的新内容。
+ */
+async function revalidate(request, cached) {
+  try {
+    const fresh = await fetch(request, REFETCH);
+    // 失败响应（500 等）既不覆盖缓存，也谈不上「拿到了新内容」
+    if (!cacheable(request, fresh)) return;
+
+    // 比对必须在 store() 之前留副本：store() 会把 fresh 的 body 交出去，
+    // 之后再读它就是 "body already used"。
+    const probe = fresh.clone();
+    await store(request, fresh);
+
+    // 只有导航请求（HTML 文档）才谈得上「换了一页」：CSS/JS 变了不需要重载页面，
+    // 下一次跳转自然拿到新的，在这里顺手刷反而会变成「刚打开就自己刷新」的鬼畜。
+    if (cached && request.mode === 'navigate' && await changed(cached, probe)) {
+      await notifyChanged(request);
+    }
+  } catch (e) { /* 断网/失败：保留缓存里那份 */ }
+}
+
+/**
+ * 两份响应内容是否不同。读不出内容（流已锁 / 老内核）时一律当「没变」：宁可漏刷一次，不可误刷。
+ *
+ * 比字节这件事只在**静态文件**上发生：会变的内容全在 /api/* 下，而那个前缀在本文件开头
+ * 就被放行了、根本不进这条链路。所以「同一地址 = 同一份字节」是站点的性质，不是假设。
+ * 万一哪天页面改成一请求一变，这里会退化成反复催页面重载 —— 那时候该改成按 ETag 比较。
+ */
+async function changed(a, b) {
+  try {
+    return (await a.text()) !== (await b.text());
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
+ * 一个客户端（窗口或 iframe 文档）当前所在页面的规范地址；取不到（about:blank 之类）返回 null。
+ *
+ * 刻意复用 canonical()：缓存键、离线回退查找、以及「该不该让这个客户端重载」必须用同一套
+ * 地址规则，否则会出现「缓存里明明是新壳、通知却发不到该发的人」这种要查半天的问题。
+ */
+function pagePath(url) {
+  try {
+    return new URL(canonical(new URL(url)).url).pathname;
+  } catch (e) {
+    return null;
+  }
+}
+
+/**
+ * 回源拿到了新文档：让**正停在同一个页面**的客户端立刻重载。
+ *
+ * 只更新缓存的话，用户得关掉再打开一次才看得到新壳 —— 这就是「后台拿到新内容要立刻生效」
+ * 落地的地方。重载读的是本地缓存（store 在通知之前就完成了），不会再等一次网络往返。
+ *
+ * 为什么按页面路径筛客户端：用户在通知页时，主页壳变了不该把他拽着重载；子页是嵌在 iframe 里
+ * 的独立文档，各自算一个客户端，正好各刷各的。同页面开两个窗口则一起刷新。
+ *
+ * 页面那边还有一道闸：有未提交的输入就放弃这次重载（见 app.js 的 hasUnsavedInput），
+ * 这里不替它做决定。
+ */
+async function notifyChanged(request) {
+  const path = pagePath(request.url);
+  if (!path) return;
+
+  const list = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+  await Promise.all(list.map(function (client) {
+    if (pagePath(client.url) !== path) return;
+    try {
+      client.postMessage({ type: 'ca-shell-updated' });
+    } catch (e) { /* 客户端刚好关掉了：忽略 */ }
+  }));
+}
+
 self.addEventListener('install', function (event) {
   event.waitUntil((async function () {
     const cache = await caches.open(CACHE);
@@ -137,34 +261,27 @@ self.addEventListener('fetch', function (event) {
   if (request.method !== 'GET') return;
 
   event.respondWith((async function () {
+    // 先看缓存：命中就把本地那份立刻交出去，不等网络。白屏就是在这里消掉的。
+    const cached = await matchShell(request, url);
+    if (cached) {
+      // 回源刷新放后台，不 await —— 页面已经拿到缓存了，不用陪它等网络。
+      // 必须挂到 waitUntil 上：不挂的话这个 Promise 游离在事件之外，SW 线程随时可能被回收，
+      // 缓存就再也不更新了 —— 那就退回到「旧缓存卡住、完全刷新也不生效」那个老 bug。
+      // 传进去的是**副本**：原件马上要交给页面，body 会被吃掉，回源那边就没得比对了。
+      event.waitUntil(revalidate(request, cached.clone()));
+      return cached;
+    }
+
     try {
-      // cache: 'no-cache' 是必须的，不是可选的优化：
-      // 本域名的 CDN 会把 /assets/*、/sw.js 的 Cache-Control 改写成 max-age=14400（4 小时），
-      // 而 fetch(request) 默认吃浏览器的 HTTP 缓存 —— 那样这里的「network-first」会退化成
-      // 「拿最多 4 小时前的旧 CSS/JS」，出现「新页面结构 + 旧样式」。
-      // 带上 no-cache 强制回源校验：没变就是 304，代价很小。
-      const fresh = await fetch(request, { cache: 'no-cache' });
-      if (cacheable(request, fresh)) {
-        const cache = await caches.open(CACHE);
-        // 键归到规范地址、响应去掉跳转标记：缓存里始终是「能用于导航」的那一份。
-        // 必须 await：不 await 的话这个 Promise 游离在 respondWith 之外，
-        // SW 线程随时可能被回收，写入被静默丢弃 —— 离线缓存就会「有时有、有时没有」
-        await cache.put(canonical(new URL(request.url)), plain(fresh.clone()));
-      }
+      const fresh = await fetch(request, REFETCH);
+      // 必须 await：不 await 的话这个 Promise 游离在 respondWith 之外，
+      // SW 线程随时可能被回收，写入被静默丢弃 —— 离线缓存就会「有时有、有时没有」
+      await store(request, fresh.clone());
       return fresh;
     } catch (err) {
-      // 断网：按三级顺序找缓存（离线壳），都没命中再决定要不要兜底。
-      //   1) 请求原样命中：静态资源就是按原地址存的（/assets/js/*.js 等）
-      //   2) 规范地址：页面请求的是 .html，缓存里存的是去扩展名的那份
-      //   3) 去掉查询串的规范地址：深链带 ?id= / ?view=，缓存键里没有查询串
-      const url = new URL(request.url);
-      const cached = await caches.match(request)
-        || await caches.match(canonical(url))
-        || await caches.match(canonicalPath(url));
-      if (cached) return cached;
-
-      // 统一离线兜底：导航请求三级都没命中时，回退到预缓存的应用壳 '/'。
-      // 为什么兜底而不是如实报错：走到这里最典型的是「点通知 → 打开一个从没访问过的页面」
+      // 走到这里意味着「缓存没有 + 网络也失败」，也就是真正的断网首访。
+      // 统一离线兜底：回退到预缓存的应用壳 '/'。
+      // 为什么兜底而不是如实报错：最典型的是「点通知 → 打开一个从没访问过的页面」
       // （主屏图标装完就断网），如实抛错用户看到的是浏览器错误页；而主页壳本身跑得起来，
       // 它里面的 app.js 会自己调 renderOfflineNotice 渲染「当前无网络」——至少是人话。
       // 为什么只对 navigate 生效：只有页面与 iframe 的加载才是导航，它们拿到 HTML 壳是正常的；

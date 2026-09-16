@@ -25,6 +25,13 @@ function loadSW(fetchImpl, options = {}) {
   const deletedCaches = [];
   const state = { skipped: false, claimed: false };
 
+  // 假装「当前打开着这些页面」：默认一个停在首页的窗口。每条用例都可以自己指定，
+  // 用来验证「回源发现新壳后通知谁」。messages 收下 postMessage 的内容。
+  const clients = (options.clients || [ORIGIN + '/']).map((url) => {
+    const client = { url, messages: [], postMessage(msg) { client.messages.push(msg); } };
+    return client;
+  });
+
   const absolute = (input) => (typeof input === 'string' ? new URL(input, ORIGIN).href : input.url);
 
   const caches = {
@@ -57,22 +64,26 @@ function loadSW(fetchImpl, options = {}) {
 
   const self = {
     location: { origin: ORIGIN },
-    clients: { claim: async () => { state.claimed = true; } },
+    clients: {
+      claim: async () => { state.claimed = true; },
+      matchAll: async () => clients
+    },
     skipWaiting: async () => { state.skipped = true; },
     addEventListener(type, fn) { handlers[type] = fn; }
   };
 
   // sw.js 是纯脚本，用 Function 注入沙箱全局
   new Function('self', 'caches', 'fetch', SOURCE)(self, caches, fetchImpl);
-  return { handlers, stores, deletedCaches, state, self };
+  return { handlers, stores, deletedCaches, state, self, clients };
 }
 
-/** 构造一个 fetch 事件，并捕获 respondWith 的 promise */
+/** 构造一个 fetch 事件，并捕获 respondWith 的 promise 与 waitUntil 的后台任务 */
 function fire(handler, request) {
-  const captured = { called: false, promise: null };
+  const captured = { called: false, promise: null, waits: [] };
   handler({
     request,
-    respondWith(p) { captured.called = true; captured.promise = p; }
+    respondWith(p) { captured.called = true; captured.promise = p; },
+    waitUntil(p) { captured.waits.push(p); }
   });
   return captured;
 }
@@ -148,12 +159,104 @@ test('跟过跳转的响应落缓存前去掉 redirected 标记', async () => {
 
 test('同源请求强制回源校验，不吃浏览器 HTTP 缓存', async () => {
   // 本域名的 CDN 会把 /assets/*、/sw.js 的 Cache-Control 改写成 max-age=14400，
-  // 不带 cache: 'no-cache' 的话「network-first」会退化成拿最多 4 小时前的旧文件。
+  // 不带 cache: 'no-cache' 的话「回源」会退化成拿最多 4 小时前的旧文件。
   const inits = [];
   const sw = loadSW(async (request, init) => { inits.push(init); return ok('fresh'); });
   await fire(sw.handlers.fetch, new Request(ORIGIN + '/assets/css/style.css')).promise;
   assert.equal(inits.length, 1);
   assert.equal(inits[0] && inits[0].cache, 'no-cache');
+});
+
+test('缓存命中时立刻返回缓存，不等网络（首帧的 TTFB 必须消失）', async () => {
+  // 首帧串行依赖 index.html → style.css（95KB，阻塞渲染）→ theme.js（head 里的同步脚本），
+  // 实测单个请求的 TTFB 在 1～3.5 秒、偶发 12～31 秒，叠起来就是用户看到的白屏十几秒。
+  // 命中缓存后这三份必须是本地读取：只要代码还在 await 网络，
+  // 下面那个永不结算的 fetch 就会把这条用例挂到超时。
+  let hang = false;
+  const sw = loadSW(async () => {
+    if (hang) return new Promise(() => {});
+    return ok('v1');
+  });
+  await fire(sw.handlers.fetch, new Request(ORIGIN + '/index.html')).promise;
+
+  hang = true;
+  const got = fire(sw.handlers.fetch, new Request(ORIGIN + '/index.html'));
+  assert.equal(await (await got.promise).text(), 'v1');
+});
+
+test('命中缓存后仍在后台回源刷新缓存（否则就是「旧缓存卡住」那个老 bug）', async () => {
+  // 把缓存放前面，就意味着「当次可能拿到旧的」，那就必须保证旧的活不过一次加载：
+  // 回源要每次都发生、结果要落进缓存，否则就又成了当初那个「cache-first 且从不回源」。
+  let body = 'v1';
+  const sw = loadSW(async () => ok(body));
+  await fire(sw.handlers.fetch, new Request(ORIGIN + '/index.html')).promise;
+
+  body = 'v2';
+  const got = fire(sw.handlers.fetch, new Request(ORIGIN + '/index.html'));
+  assert.equal(await (await got.promise).text(), 'v1', '当次仍回缓存里那份');
+  // 后台刷新必须挂在 waitUntil 上：不挂的话这个 Promise 游离在事件之外，
+  // SW 线程被回收就把这次更新静默丢了 —— 缓存再也不前进。
+  await Promise.all(got.waits);
+  assert.equal(await sw.stores.get('ca-shell-v2').get(ORIGIN + '/').text(), 'v2', '下一次打开就是新的');
+});
+
+test('回源发现页面壳真的变了，立刻让页面重载（不用等下一次打开）', async () => {
+  // 用户的要求：后台拿到新内容要**这次**就生效。只更新缓存的话，他得关掉再打开才看得到。
+  let body = 'v1';
+  const sw = loadSW(async () => ok(body));
+  await fire(sw.handlers.fetch, navigateRequest(ORIGIN + '/index.html')).promise;
+
+  body = 'v2';
+  const got = fire(sw.handlers.fetch, navigateRequest(ORIGIN + '/index.html'));
+  await got.promise;
+  await Promise.all(got.waits);
+
+  assert.deepEqual(sw.clients[0].messages, [{ type: 'ca-shell-updated' }]);
+});
+
+test('页面壳没变就不通知（否则每次打开都在刷用户的表单）', async () => {
+  // 回源是每次命中缓存都会发生的，字节没变也通知的话，页面会跟着无差别重载 ——
+  // 正在填的表单、MFA 验证码全被清掉。通知的语义必须是「拿到了新内容」。
+  const sw = loadSW(async () => ok('same'));
+  await fire(sw.handlers.fetch, navigateRequest(ORIGIN + '/index.html')).promise;
+
+  const got = fire(sw.handlers.fetch, navigateRequest(ORIGIN + '/index.html'));
+  await got.promise;
+  await Promise.all(got.waits);
+
+  assert.deepEqual(sw.clients[0].messages, []);
+});
+
+test('只通知停在同一个页面的客户端', async () => {
+  // 用户在通知页时，主页壳变了不该把他拽着重载（子页是 iframe 里的独立文档，
+  // 各有各的客户端，正好各刷各的）。
+  let body = 'v1';
+  const sw = loadSW(async () => ok(body), {
+    clients: [ORIGIN + '/notices', ORIGIN + '/?view=notices']
+  });
+  await fire(sw.handlers.fetch, navigateRequest(ORIGIN + '/index.html')).promise;
+
+  body = 'v2';
+  const got = fire(sw.handlers.fetch, navigateRequest(ORIGIN + '/index.html'));
+  await got.promise;
+  await Promise.all(got.waits);
+
+  assert.deepEqual(sw.clients[0].messages, [], '通知页不该被主页的更新牵连');
+  assert.deepEqual(sw.clients[1].messages, [{ type: 'ca-shell-updated' }], '带查询串的首页也算首页');
+});
+
+test('样式/脚本变了不通知重载（下一次跳转自然拿到新的）', async () => {
+  // 只有导航请求（HTML 文档）才算「换了一页」。CSS/JS 变了顺手刷会变成「刚打开就自己刷新」。
+  let body = 'a';
+  const sw = loadSW(async () => ok(body));
+  await fire(sw.handlers.fetch, new Request(ORIGIN + '/assets/css/style.css')).promise;
+
+  body = 'b';
+  const got = fire(sw.handlers.fetch, new Request(ORIGIN + '/assets/css/style.css'));
+  await got.promise;
+  await Promise.all(got.waits);
+
+  assert.deepEqual(sw.clients[0].messages, []);
 });
 
 test('失败响应（500）不写入缓存', async () => {
@@ -211,7 +314,7 @@ test('断网时带查询串的深链回退到去掉查询串的预缓存页面',
   online = false;
 
   // 前提：缓存里压根没有带查询串的键，本条断言是用来固定这个前提的
-  // （写缓存仍然走 canonical()，加查询串查找只是回退路径上的补充，没有改写入行为）
+  // （写缓存的键始终走 canonical()，带查询串的查找只用于**读取**，不参与写入）
   assert.equal(sw.stores.get('ca-shell-v2').has(ORIGIN + '/notices?id=123'), false);
 
   const got = fire(sw.handlers.fetch, new Request(ORIGIN + '/notices.html?id=123'));
@@ -434,7 +537,8 @@ function fakeWindow({ ua, maxTouchPoints, standalone, document, localStorage, ca
       userAgent: ua,
       maxTouchPoints,
       standalone,
-      serviceWorker: { register: () => Promise.resolve() }
+      // addEventListener 是 app.js 注册「SW 通知页面刷新」那个监听时要用到的（真实浏览器里一定有）
+      serviceWorker: { register: () => Promise.resolve(), addEventListener: noop }
     },
     matchMedia(query) {
       const q = String(query);
@@ -455,7 +559,7 @@ function fakeWindow({ ua, maxTouchPoints, standalone, document, localStorage, ca
  * inIframe 用来模拟「个人页被装在 iframe 里」：此时 iframe 自己问出来的
  * display-mode / navigator.standalone 可能与顶层不一致，这正是出过 bug 的地方。
  */
-function loadApp({ ua, standalone = false, maxTouchPoints = 0, inShell = false, inIframe = false, topStandalone = false }) {
+function loadApp({ ua, standalone = false, maxTouchPoints = 0, inShell = false, inIframe = false, topStandalone = false, frames = [] }) {
   const noop = () => {};
   const card = { hidden: false, querySelector: () => null };
   const document = {
@@ -463,6 +567,8 @@ function loadApp({ ua, standalone = false, maxTouchPoints = 0, inShell = false, 
     addEventListener: noop,
     getElementById: () => card,
     querySelector: () => null,
+    // 壳里的 iframe 列表：验证「原生推回的数据要转发给子页面」时用
+    querySelectorAll: () => frames,
     createElement: () => ({ style: {}, setAttribute: noop, appendChild: noop }),
     body: { appendChild: noop }
   };
@@ -495,7 +601,7 @@ function loadApp({ ua, standalone = false, maxTouchPoints = 0, inShell = false, 
     TextDecoder
   };
   const factory = new Function(...Object.keys(sandbox),
-    APP_SOURCE + '\n;return { shouldOfferInstall: shouldOfferInstall, escAttr: escAttr, safeHref: safeHref, pushSubscribeError: pushSubscribeError, greetingFor: greetingFor };');
+    APP_SOURCE + '\n;return { shouldOfferInstall: shouldOfferInstall, escAttr: escAttr, safeHref: safeHref, pushSubscribeError: pushSubscribeError, greetingFor: greetingFor, onApiData: onApiData, apiUpdated: window.__caApiUpdated };');
   return factory(...Object.values(sandbox));
 }
 
@@ -641,4 +747,45 @@ test('日历日期展开有上限，远期时间不会把主页卡死', () => {
   // 光定义常量不算数：必须真的用它把 end 收窄，否则循环仍然是无界的
   assert.match(src, /end\s*=\s*new Date\(cur\.getTime\(\)\s*\+\s*EXPAND_MAX_DAYS/,
     '上限没有作用在结束日期上，展开仍是无界循环');
+});
+
+// ===== 原生推回的数据要转给 iframe 子页面 =====
+// 原生那边是 webView.evaluateJavascript，只作用于顶层文档的 window；而通知/活动/教务/
+// 个人中心/管理员这几个页面各自跑在 iframe 里、各自加载一份 app.js、各自一份 apiRenderers。
+// 不转发的话它们的「后台新数据」会被静默丢掉，那几个页面就只看得见上一次会话留下的缓存。
+
+test('原生推回的数据：本窗口照常重绘，并转发给同源 iframe', () => {
+  const got = [];
+  const app = loadApp({
+    ua: UA_PC_CHROME,
+    frames: [
+      { contentWindow: { __caApiUpdated: (key, json) => got.push([key, json]) } },
+      // 还没加载完 / 跨域（教务页是另一个域）：读 contentWindow 会抛，
+      // 必须被吞掉，不能让它把这一次回填整体带崩
+      { get contentWindow() { throw new Error('SecurityError'); } }
+    ]
+  });
+
+  let rendered = null;
+  app.onApiData('/api/auth/me', (data) => { rendered = data; });
+  app.apiUpdated('/api/auth/me', JSON.stringify({ success: true, data: { name: '甲' } }));
+
+  assert.deepEqual(rendered, { name: '甲' }, '顶层壳自己的渲染函数要照常调用');
+  assert.equal(got.length, 1, 'iframe 子页面也得收到这一拍');
+  assert.equal(got[0][0], '/api/auth/me');
+  assert.equal(JSON.parse(got[0][1]).data.name, '甲');
+});
+
+test('原生推回的数据：本窗口没人注册也要照样转发（收件人在子页面）', () => {
+  // 通知/活动这些键只注册在 iframe 里，顶层壳没有它们。转发不能跟着那个 early return
+  // 一起被跳过 —— 跳了就是「推了，但没人重绘」。
+  const got = [];
+  const app = loadApp({
+    ua: UA_PC_CHROME,
+    frames: [{ contentWindow: { __caApiUpdated: (key, json) => got.push([key, json]) } }]
+  });
+
+  app.apiUpdated('/api/notices?scope=all', JSON.stringify({ success: true, data: { list: [] } }));
+  assert.equal(got.length, 1);
+  assert.equal(got[0][0], '/api/notices?scope=all');
 });
