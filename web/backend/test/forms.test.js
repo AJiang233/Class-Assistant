@@ -7,6 +7,7 @@ import {
 } from '../src/handlers/formExport.js';
 import {
   handleCreateForm,
+  handleListForms,
   handleListMyForms,
   handleUpdateForm
 } from '../src/handlers/formHandler.js';
@@ -112,6 +113,26 @@ describe('答案校验', () => {
   it('超长文本被拒', () => {
     const r = validateAnswers(fields, { note: 'x'.repeat(2001), meal: '午餐' });
     assert.equal(r.ok, false);
+  });
+
+  /**
+   * 上限提示必须跟着真正在比的那个常量走。原先这里写的是单字段上限 MAX_VALUE_LEN(2000)，
+   * 比对的却是 MAX_ANSWERS_LEN(32KB)。要走到这条分支，得让每个字段各自都不超 2000，
+   * 只有总数超 32KB —— 单字段超长会先在 normalizeValue 那关就被拦掉。
+   */
+  it('总长度超限时，提示里的数字是总上限而不是单字段上限', () => {
+    const many = [];
+    const answers = {};
+    for (let i = 0; i < 20; i++) {
+      many.push({ key: `f${i}`, label: `甲${i}`, type: 'textarea' });
+      answers[`f${i}`] = 'x'.repeat(2000);
+    }
+
+    const r = validateAnswers(many, answers);
+    assert.equal(r.ok, false);
+    assert.equal(r.code, 'INVALID_ANSWERS');
+    assert.match(r.message, /32768/, '提示要说出真正的上限');
+    assert.doesNotMatch(r.message, /2000/, '不能拿单字段的上限冒充总长度上限');
   });
 
   it('定义外的多余键被忽略', () => {

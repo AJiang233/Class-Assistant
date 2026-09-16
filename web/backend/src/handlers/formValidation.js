@@ -164,8 +164,10 @@ export function validateAnswers(fields, raw) {
     answers[field.key] = r.value;
   }
 
+  // 提示里的数字必须跟着真正在比的那个常量走。原先写的是单字段上限 MAX_VALUE_LEN（2000），
+  // 比的却是 MAX_ANSWERS_LEN（32KB）—— 提示会把人引到错的方向（issue #22 顺带发现）。
   if (JSON.stringify(answers).length > MAX_ANSWERS_LEN) {
-    return { ok: false, message: `答案总长度超出上限（最多 ${MAX_VALUE_LEN} 个字符）`, code: 'INVALID_ANSWERS' };
+    return { ok: false, message: `答案总长度超出上限（最多 ${MAX_ANSWERS_LEN} 个字符）`, code: 'INVALID_ANSWERS' };
   }
   return { ok: true, answers };
 }
