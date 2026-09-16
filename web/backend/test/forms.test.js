@@ -3,15 +3,19 @@ import { describe, it } from 'node:test';
 
 import {
   buildCsv,
-  csvCell,
+  csvCell
+} from '../src/handlers/formExport.js';
+import {
   handleCreateForm,
   handleListMyForms,
-  handleUpdateForm,
+  handleUpdateForm
+} from '../src/handlers/formHandler.js';
+import {
   normalizeFields,
   parseFields,
   submitGate,
   validateAnswers
-} from '../src/handlers/formHandler.js';
+} from '../src/handlers/formValidation.js';
 import { EDIT_POLICY } from '../src/models/formModel.js';
 import { isSafeLink } from '../src/utils/link.js';
 
@@ -471,18 +475,41 @@ describe('编辑表单：字段锁与写入是同一条语句', () => {
     fields: [{ key: 'note', label: '备注', type: 'text' }]
   });
 
-  function update(env) {
+  function update(env, body = BODY) {
     return handleUpdateForm(
       new Request('https://class.example/api/forms/5', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: BODY
+        body
       }),
       env,
       { id: 2, name: '班长' },
       { id: '5' }
     );
   }
+
+  /**
+   * 一个字段都没带时必须报错。以前这里会走到 model.update(id, {})，
+   * 模型层拼不出 SET 子句就 return {success:true}，于是回 200「表单已保存」——
+   * 调用方以为存上了、库里一个字没动（issue #22）。
+   */
+  it('没带任何字段：回 400 而不是把「一个字没写」报成保存成功', async () => {
+    const db = fakeDb();
+    const res = await update({ DB: db }, '{}');
+
+    assert.equal(res.status, 400);
+    assert.equal((await res.json()).code, 'MISSING_FIELDS');
+    assert.equal(db.writes.length, 0, '空请求不该碰数据库');
+  });
+
+  it('请求体不是合法 JSON：同样按「没字段」挡回去', async () => {
+    const db = fakeDb();
+    const res = await update({ DB: db }, 'not json');
+
+    assert.equal(res.status, 400);
+    assert.equal((await res.json()).code, 'MISSING_FIELDS');
+    assert.equal(db.writes.length, 0);
+  });
 
   it('已有人提交：改了字段就被挡回去，同一请求里的标题也不落库', async () => {
     const db = fakeDb({ submitted: true });

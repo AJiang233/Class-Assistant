@@ -194,7 +194,7 @@ web/                            # Cloudflare Pages 项目根目录（直接部�
 | GET | `/api/forms` | `content:write` | 表单列表（管理面板用，带提交数） |
 | GET | `/api/forms/mine` | 登录 | 我的表单：`pending`（待填）+ `editable`（已填且允许修改）；每条带 `created_at`（下发时刻，App 端据此判断这条表单提醒过没有，与通知的 `publish_time` 同一口径） |
 | GET | `/api/forms/:id` | 登录 | 表单详情 + 我的提交 + `canSubmit` / `submitBlockedReason` |
-| PUT | `/api/forms/:id` | `content:write` | 更新表单（只能改自己创建的；已有人提交则字段锁定） |
+| PUT | `/api/forms/:id` | `content:write` | 更新表单（只能改自己创建的；已有人提交则字段锁定；一个字段都没带回 400 `MISSING_FIELDS`） |
 | DELETE | `/api/forms/:id` | `content:write` | 删除表单（连同其全部提交） |
 | POST | `/api/forms/:id/submit` | 登录 | 提交 / 覆盖提交（每人每表一条，学号姓名取登录态） |
 | GET | `/api/forms/:id/submissions` | `content:write` | 提交明细（匿名表单不返回学号姓名） |

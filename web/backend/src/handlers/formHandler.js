@@ -1,6 +1,9 @@
 /**
  * 表单：班委下发、同学填写、导出、未交名单。
  *
+ * 字段与答案的校验、CSV 格式化分别拆到了 formValidation.js / formExport.js（issue #22），
+ * 这里只留 CRUD、通知联动与推送编排。
+ *
  * 学号与姓名一律由服务端从登录态注入（见 handleSubmitForm），
  * 请求体里若带同名字段会被忽略 —— 前端 readonly 挡不住伪造请求。
  */
@@ -8,37 +11,20 @@ import { FormModel, EDIT_POLICY } from '../models/formModel.js';
 import { UserModel } from '../models/userModel.js';
 import { NoticeModel } from '../models/noticeModel.js';
 import { success, error, jsonResponse } from '../utils/response.js';
-import { toLocalDateTime, parseLocalDateTime } from '../utils/datetime.js';
+import { toLocalDateTime } from '../utils/datetime.js';
 import { pageLimit, pageOffset } from '../utils/query.js';
 import { canView, isExcludedFromClass, loadRoleMap, loadViewer, pickAudience } from '../utils/audience.js';
 import { pushToRemindAudience } from '../utils/push.js';
+import {
+  parseJson, parseFields, normalizeFields, validateAnswers, submitGate, isPastDeadline
+} from './formValidation.js';
+import { answerText, buildCsv } from './formExport.js';
 
-const FIELD_TYPES = ['text', 'textarea', 'radio', 'checkbox', 'number', 'date'];
 const EDIT_POLICIES = Object.values(EDIT_POLICY);
-const MAX_FIELDS = 50;
-const MAX_OPTIONS = 50;
-const MAX_LABEL_LEN = 50;
-const MAX_VALUE_LEN = 2000;
-const MAX_ANSWERS_LEN = 32 * 1024;
 const MAX_TITLE_LEN = 100;
 const MAX_DESC_LEN = 1000;
 
 // ===== 通用工具 =====
-
-function parseJson(raw, fallback) {
-  try {
-    const v = JSON.parse(raw);
-    return v == null ? fallback : v;
-  } catch {
-    return fallback;
-  }
-}
-
-/** 解析字段定义 JSON；坏数据返回空数组 */
-export function parseFields(raw) {
-  const arr = parseJson(raw, []);
-  return Array.isArray(arr) ? arr : [];
-}
 
 /** 服务端补「当前本地时间」字符串，与 SQL 里的 datetime('now','+8 hours') 同一口径 */
 function nowLocalDateTime() {
@@ -52,29 +38,6 @@ function nowLocalDateTime() {
 function excerptText(text, max = 80) {
   const s = String(text == null ? '' : text).replace(/\s+/g, ' ').trim();
   return s.length > max ? s.slice(0, max) + '…' : s;
-}
-
-/** 是否已过截止时间（只看 deadline，供列表判断「还能不能填」） */
-function isPastDeadline(form, now = Date.now()) {
-  if (!form.deadline) return false;
-  const ms = parseLocalDateTime(form.deadline);
-  return ms != null && ms < now;
-}
-
-/** 是否还能提交/覆盖。导出是为了让测试盯住「always 过截止也放行」这条口径 */
-export function submitGate(form, hasSubmitted, now = Date.now()) {
-  if (form.status !== 'open') {
-    return { ok: false, message: '表单已关闭，如需补交请联系发布人', code: 'FORM_CLOSED' };
-  }
-  // 「随时可修改」不受截止时间约束：名单上的人过多久都能补交或改答案。
-  // 必须与 handleListMyForms 的过滤同一口径，否则会「列表里列出来了却点不动」。
-  if (form.edit_policy !== EDIT_POLICY.ALWAYS && isPastDeadline(form, now)) {
-    return { ok: false, message: '表单已过截止时间，如需补交请联系发布人', code: 'FORM_CLOSED' };
-  }
-  if (hasSubmitted && form.edit_policy === EDIT_POLICY.NONE) {
-    return { ok: false, message: '这条表单提交后不能再编辑', code: 'FORM_LOCKED' };
-  }
-  return { ok: true };
 }
 
 function publicForm(form) {
@@ -112,149 +75,6 @@ async function loadOwnedForm(env, user, rawId) {
     return { failure: { message: '只能管理自己发布的表单', code: 'FORBIDDEN', status: 403 } };
   }
   return { form, model };
-}
-
-// ===== 字段与答案校验（只在服务端生效） =====
-
-/** 校验并规范化字段定义 */
-export function normalizeFields(raw) {
-  if (!Array.isArray(raw) || raw.length === 0) {
-    return { ok: false, message: '表单至少需要一个字段', code: 'INVALID_FIELDS' };
-  }
-  if (raw.length > MAX_FIELDS) {
-    return { ok: false, message: `字段数不能超过 ${MAX_FIELDS} 个`, code: 'INVALID_FIELDS' };
-  }
-
-  const out = [];
-  const seen = new Set();
-  for (const item of raw) {
-    if (!item || typeof item !== 'object' || Array.isArray(item)) {
-      return { ok: false, message: '字段定义格式不正确', code: 'INVALID_FIELDS' };
-    }
-    const key = String(item.key == null ? '' : item.key).trim();
-    const label = String(item.label == null ? '' : item.label).trim();
-    const type = String(item.type == null ? 'text' : item.type);
-
-    if (!/^[A-Za-z][A-Za-z0-9_]{0,29}$/.test(key)) {
-      return { ok: false, message: '字段标识只能以英文字母开头，只含英文字母、数字和下划线，最长 30 位', code: 'INVALID_FIELDS' };
-    }
-    if (seen.has(key)) {
-      return { ok: false, message: '字段标识重复了，请换一个', code: 'INVALID_FIELDS' };
-    }
-    seen.add(key);
-    if (!label) return { ok: false, message: '字段名称不能为空', code: 'INVALID_FIELDS' };
-    if (label.length > MAX_LABEL_LEN) {
-      return { ok: false, message: `字段名称最多 ${MAX_LABEL_LEN} 个字符`, code: 'INVALID_FIELDS' };
-    }
-    if (!FIELD_TYPES.includes(type)) {
-      return { ok: false, message: '不支持这种字段类型', code: 'INVALID_FIELDS' };
-    }
-
-    const field = { key, label, type, required: !!item.required };
-    if (type === 'radio' || type === 'checkbox') {
-      const options = Array.isArray(item.options)
-        ? item.options.map((o) => String(o).trim()).filter(Boolean)
-        : [];
-      if (options.length < 2) {
-        return { ok: false, message: `字段「${label}」的选项至少要有 2 个`, code: 'INVALID_FIELDS' };
-      }
-      if (options.length > MAX_OPTIONS) {
-        return { ok: false, message: `字段「${label}」的选项不能超过 ${MAX_OPTIONS} 个`, code: 'INVALID_FIELDS' };
-      }
-      field.options = options;
-    }
-    if (item.placeholder) field.placeholder = String(item.placeholder).slice(0, 100);
-    out.push(field);
-  }
-  return { ok: true, fields: out };
-}
-
-/** 单个字段取值规范化 */
-function normalizeValue(field, value) {
-  if (field.type === 'checkbox') {
-    const arr = Array.isArray(value) ? value : (value == null || value === '' ? [] : [value]);
-    const list = [];
-    for (const item of arr) {
-      const s = String(item);
-      if (!field.options.includes(s)) {
-        return { ok: false, message: `字段「${field.label}」的选项不合法`, code: 'INVALID_ANSWERS' };
-      }
-      if (!list.includes(s)) list.push(s);
-    }
-    return { ok: true, value: list };
-  }
-
-  const s = value == null ? '' : String(value).trim();
-
-  if (field.type === 'radio') {
-    if (s && !field.options.includes(s)) {
-      return { ok: false, message: `字段「${field.label}」的选项不合法`, code: 'INVALID_ANSWERS' };
-    }
-    return { ok: true, value: s };
-  }
-  if (field.type === 'number') {
-    if (s && !/^-?\d+(\.\d+)?$/.test(s)) {
-      return { ok: false, message: `字段「${field.label}」必须是数字`, code: 'INVALID_ANSWERS' };
-    }
-    return { ok: true, value: s };
-  }
-  if (field.type === 'date') {
-    if (s && !/^\d{4}-\d{2}-\d{2}$/.test(s)) {
-      return { ok: false, message: `字段「${field.label}」的日期请按 2026-09-14 这样的格式填写`, code: 'INVALID_ANSWERS' };
-    }
-    return { ok: true, value: s };
-  }
-  if (s.length > MAX_VALUE_LEN) {
-    return { ok: false, message: `字段「${field.label}」最多 ${MAX_VALUE_LEN} 个字符`, code: 'INVALID_ANSWERS' };
-  }
-  return { ok: true, value: s };
-}
-
-/** 校验整套答案：只保留定义内的字段，忽略多余键 */
-export function validateAnswers(fields, raw) {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
-    return { ok: false, message: '答案格式不正确', code: 'INVALID_ANSWERS' };
-  }
-
-  const answers = {};
-  for (const field of fields) {
-    const r = normalizeValue(field, raw[field.key]);
-    if (!r.ok) return r;
-    const empty = Array.isArray(r.value) ? r.value.length === 0 : r.value === '';
-    if (field.required && empty) {
-      return { ok: false, message: `请填写「${field.label}」`, code: 'INVALID_ANSWERS' };
-    }
-    answers[field.key] = r.value;
-  }
-
-  if (JSON.stringify(answers).length > MAX_ANSWERS_LEN) {
-    return { ok: false, message: `答案总长度超出上限（最多 ${MAX_VALUE_LEN} 个字符）`, code: 'INVALID_ANSWERS' };
-  }
-  return { ok: true, answers };
-}
-
-// ===== 导出 =====
-
-function answerText(value) {
-  if (Array.isArray(value)) return value.join('、');
-  if (value == null) return '';
-  if (typeof value === 'object') return JSON.stringify(value);
-  return String(value);
-}
-
-/** CSV 单元格：中和公式注入 + 标准转义 */
-export function csvCell(value) {
-  let s = value == null ? '' : String(value);
-  // Excel 会把 = + - @ 开头的单元格当公式执行，导出的是全班学号姓名，必须先中和
-  if (/^[=+\-@]/.test(s)) s = "'" + s;
-  if (/[",\r\n]/.test(s)) s = '"' + s.replace(/"/g, '""') + '"';
-  return s;
-}
-
-export function buildCsv(header, rows) {
-  const lines = [header.map(csvCell).join(',')];
-  for (const row of rows) lines.push(row.map(csvCell).join(','));
-  return lines.join('\r\n');
 }
 
 // ===== 表单管理（content:write） =====
@@ -520,6 +340,14 @@ export async function handleUpdateForm(request, env, user, params) {
       const nf = normalizeFields(body.fields);
       if (!nf.ok) return jsonResponse(error(nf.message, nf.code), 400);
       data.fields = JSON.stringify(nf.fields);
+    }
+
+    // 一个字段都没带就没什么可写：以前会走到 model.update(id, {})，那里 buildSet 拼不出 SET
+    // 子句便直接 return {success:true}，于是回 200「表单已保存」—— 前端以为存上了、库里
+    // 一个字没动（issue #22）。空请求是调用方写错了（漏字段名、序列化成了 {}），不是成功。
+    // 放在写入之前，免得 updateIfUnsubmitted 那条 NOT EXISTS 也被空请求白跑一趟。
+    if (Object.keys(data).length === 0) {
+      return jsonResponse(error('没有需要更新的字段', 'MISSING_FIELDS'), 400);
     }
 
     // 动到字段时改走条件更新：把「还没有人提交」并进 UPDATE 的 WHERE，判定与写入落成同一条语句。
