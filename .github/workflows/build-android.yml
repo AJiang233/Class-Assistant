@@ -45,7 +45,6 @@ jobs:
           VERSION_CODE: ${{ github.event.inputs.version_code }}
           VERSION_NAME: ${{ github.event.inputs.version_name }}
         run: |
-          # Kotlin 没有前导零字面量，00101 会让脚本编译直接失败，所以先规整成纯十进制整数
           if ! [[ "$VERSION_CODE" =~ ^[0-9]+$ ]]; then
             echo "::error::version_code 必须是纯数字，收到：$VERSION_CODE"
             exit 1

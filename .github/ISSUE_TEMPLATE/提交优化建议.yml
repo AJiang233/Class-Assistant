@@ -4,7 +4,6 @@ title: "优化："
 labels:
   - 未分类
 assignees: []
-type: Feature
 
 body:
   - type: checkboxes
@@ -23,7 +22,7 @@ body:
     id: optimization_target
     attributes:
       label: 需要优化的部分
-      description: 请指出功能、页面、流程、文档或交互中需要优化的地方
+      description: 请指出功能、页面、流程、文档或交互中需要优化的地方（仅输入文本，请勿粘贴图片）
       placeholder: 例如：设置页面的保存流程、文档中的安装说明...
     validations:
       required: true
@@ -32,7 +31,7 @@ body:
     id: current_behavior
     attributes:
       label: 当前表现
-      description: 目前是什么样？存在哪些不便、低效或不合理之处？
+      description: 目前是什么样？存在哪些不便、低效或不合理之处？（仅输入文本，请勿粘贴图片）
       placeholder: 当前...
     validations:
       required: true
@@ -54,7 +53,7 @@ body:
     id: additional_info
     attributes:
       label: 补充信息 / 截图
-      description: 可粘贴截图、录屏、相关链接等。请勿包含密钥、Token 等敏感信息
+      description: 可粘贴截图、录屏、相关链接等，支持直接拖拽或粘贴图片。请勿包含密钥、Token 等敏感信息
       placeholder: 粘贴补充信息，或将截图拖拽到此处...
       render: markdown
     validations:
