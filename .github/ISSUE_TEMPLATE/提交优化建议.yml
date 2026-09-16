@@ -48,7 +48,7 @@ body:
         - 高：明显影响使用体验或效率，建议尽快处理
         - 紧急：阻塞核心流程或存在较大风险，需优先处理
     validations:
-      required: false
+      required: true
 
   - type: textarea
     id: additional_info
