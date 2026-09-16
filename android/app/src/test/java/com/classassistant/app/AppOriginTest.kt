@@ -1,0 +1,69 @@
+package com.classassistant.app
+
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+/**
+ * 桥的来源校验（issue #28）：门户自己的页面才放行。
+ *
+ * 能被真正执行的前提是 isAppOrigin() 被抽成了纯函数 —— 只吃 scheme/host/port 三个基础类型，
+ * 不碰 android.net.Uri。本模块没有 Robolectric、也没开 isReturnDefaultValues，单测里一调
+ * Uri.parse 就会抛「Method parse in android.net.Uri not mocked」，所以原来那句
+ * `url.startsWith(startUrl)` 是测不到的（ReleaseShrinkTest 那种读源码钉形状的写法也钉不出
+ * 「某个 URL 到底算不算站内」）。解析仍由调用方交给平台，这里只钉规则。
+ *
+ * 用例集中在「字符串前缀判不出来」的那几种构造上：伪造主机、非默认端口、明文 http。
+ */
+class AppOriginTest {
+
+    private val host = "class.qxwkstudio.top"
+
+    @Test
+    fun `门户自己的页面放行`() {
+        // https://class.qxwkstudio.top、带路径 / 查询串 / 锚点的页面都是它自己
+        assertTrue(isAppOrigin("https", host, -1, host))
+        // 显式写 :443 与省略端口是同一个 origin
+        assertTrue(isAppOrigin("https", host, 443, host))
+        // 协议与主机名大小写不敏感（Uri 已规范化，但规则本身也不该依赖调用方）
+        assertTrue(isAppOrigin("HTTPS", "CLASS.QXWKSTUDIO.TOP", -1, host))
+    }
+
+    @Test
+    fun `同前缀的伪造主机不放行`() {
+        // 前缀比较的经典漏洞：站内主机名被别人当成了前缀
+        assertFalse(isAppOrigin("https", "$host.evil.com", -1, host))
+        // Uri.parse("https://class.qxwkstudio.top@evil.com") 的 host 是 evil.com ——
+        // 用户信息那一截看起来像站内，真正的目标却不是
+        assertFalse(isAppOrigin("https", "evil.com", -1, host))
+        assertFalse(isAppOrigin("https", "evil-$host", -1, host))
+    }
+
+    @Test
+    fun `子域不放行`() {
+        // 与 isExternalLink 故意相反：那边对教务域要放宽子域（别把站内页面丢给系统浏览器），
+        // 这边决定的是「要不要把桥交给这个页面」，只能收紧 —— 子域可能由别的内容托管
+        assertFalse(isAppOrigin("https", "sub.$host", -1, host))
+    }
+
+    @Test
+    fun `http 与非默认端口不放行`() {
+        // 门户只有 https，放行 http 等于一次明文降级就能拿到桥
+        assertFalse(isAppOrigin("http", host, -1, host))
+        // 非默认端口在浏览器眼里是另一个来源
+        assertFalse(isAppOrigin("https", host, 8443, host))
+        // 非 http(s) 协议更不行
+        assertFalse(isAppOrigin("javascript", host, -1, host))
+    }
+
+    @Test
+    fun `主机缺失或门户主机没配好时不放行`() {
+        // about:blank / data: 这类页面 Uri.host 为 null，桥绝不能挂在那儿
+        assertFalse(isAppOrigin("about", null, -1, host))
+        assertFalse(isAppOrigin(null, host, -1, host))
+        assertFalse(isAppOrigin("https", null, -1, host))
+        // 门户主机取不到（startUrl 写坏）时必须一律拒绝：宁可桥失效，也不能全放行
+        assertFalse(isAppOrigin("https", host, -1, null))
+        assertFalse(isAppOrigin("https", host, -1, ""))
+    }
+}

@@ -144,6 +144,9 @@ export class AcademicModel {
    * 取中间态：只认本人的、未过期、未超尝试上限的；过期/超限即删并返回 null。
    * state 解不开（密钥缺失/密文损坏）按「会话无效」处理，删掉并返回 null，
    * 不把内部异常直接抛成 500。
+   *
+   * 只给「不消耗尝试名额」的读路径用（如下发验证码）。提交验证码那条路必须先
+   * claimMfaAttempt 原子占坑，否则这里判出来的「未超限」在并发下人人有份。
    */
   async getMfaSession(userId, token, ttlMs, env) {
     const row = await this.db.prepare(
@@ -159,21 +162,39 @@ export class AcademicModel {
       await this.deleteMfaSession(token);
       return null;
     }
-    try {
-      const raw = await openCookies(env, row.state);
-      return JSON.parse(raw);
-    } catch {
-      // 密文损坏或密钥轮换后解不开：中间态已无意义，清掉让用户重新登录
-      await this.deleteMfaSession(token);
-      return null;
-    }
+    return decodeMfaState(this, token, env, row.state);
   }
 
-  /** 验证码每错一次记一笔，超上限后 getMfaSession 直接作废 */
-  async bumpMfaAttempts(token) {
-    return this.db.prepare(
-      `UPDATE academic_mfa_sessions SET attempts = attempts + 1 WHERE token = ?`
-    ).bind(token).run();
+  /**
+   * 原子占一次验证码尝试名额：把「读 attempts → 判是否超限/过期 → 计数 +1」压成一条 UPDATE。
+   *
+   * 为什么必须原子：调用方原来是「先读状态判上限，验码失败再回来累加」，读与写之间隔着
+   * 一次验码，并发请求都会读到同一个未超限的 attempts，上限被轻松绕过。把判定条件放进
+   * WHERE，交给 D1 串行执行的写入去筛选命中行：同一 token 上只有前 MFA_MAX_ATTEMPTS 次
+   * 能真正改动行，之后 changes 恒为 0，多出来的并发请求拿不到名额。
+   *
+   * 返回 false 即 changes === 0，说明「已达上限或已过期」，调用方应当作废会话。
+   * 过期判定沿用 datetime('now', ?) 的相对时间写法，与 purgeExpiredMfaSessions 同一套时间语义。
+   */
+  async claimMfaAttempt(userId, token, ttlMs) {
+    const res = await this.db.prepare(
+      `UPDATE academic_mfa_sessions SET attempts = attempts + 1
+        WHERE token = ? AND user_id = ? AND attempts < ? AND created_at >= datetime('now', ?)`
+    ).bind(token, userId, MFA_MAX_ATTEMPTS, `-${Math.floor(ttlMs / 1000)} seconds`).run();
+    return (res?.meta?.changes ?? 0) > 0;
+  }
+
+  /**
+   * 占坑成功后取中间态。上限与有效期已由 claimMfaAttempt 的 WHERE 判过，这里不能再按
+   * attempts 判一次：第 MFA_MAX_ATTEMPTS 次占坑恰好把 attempts 抬到上限，重复判定会把
+   * 这唯一合法的一次也判死；此处只负责解封，解不开照样作废。
+   */
+  async getClaimedMfaSession(userId, token, env) {
+    const row = await this.db.prepare(
+      `SELECT state FROM academic_mfa_sessions WHERE token = ? AND user_id = ?`
+    ).bind(token, userId).first();
+    if (!row) return null;
+    return decodeMfaState(this, token, env, row.state);
   }
 
   async deleteMfaSession(token) {
@@ -193,5 +214,19 @@ export class AcademicModel {
     await this.db.prepare('DELETE FROM academic_timetable WHERE user_id = ?').bind(userId).run();
     await this.db.prepare('DELETE FROM academic_credits WHERE user_id = ?').bind(userId).run();
     await this.db.prepare('DELETE FROM academic_mfa_sessions WHERE user_id = ?').bind(userId).run();
+  }
+}
+
+/**
+ * 解封中间态 state 并解析成对象。
+ * 密文损坏、密钥轮换后解不开：中间态已无意义，统一按「会话无效」清掉并返回 null，
+ * 不把内部异常直接抛成 500。占坑前后的两条读路径共用同一份解密与失败处理。
+ */
+async function decodeMfaState(model, token, env, state) {
+  try {
+    return JSON.parse(await openCookies(env, state));
+  } catch {
+    await model.deleteMfaSession(token);
+    return null;
   }
 }

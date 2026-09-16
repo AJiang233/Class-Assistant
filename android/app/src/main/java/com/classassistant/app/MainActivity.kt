@@ -54,7 +54,12 @@ import org.json.JSONObject
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
-    private val startUrl = "https://class.qxwkstudio.top"
+
+    /**
+     * 门户根地址。字面量只留 Api.BASE 一份 —— 这里再抄一遍的话，两处一旦漂移，
+     * 「这个页面是不是我们自己的」判定会安静地永远为假，也就是桥整个失效。
+     */
+    private val startUrl = Api.BASE
 
     /** 当前 WebView 主文档 URL，桥方法据此判断调用方是不是本应用页面 */
     @Volatile
@@ -85,13 +90,17 @@ class MainActivity : AppCompatActivity() {
      * WebView 会导航到教务系统这类外部站点，而 addJavascriptInterface 挂上的对象
      * 在那些页面里同样可调用 —— 不校验的话，外部页面可以改本地 token、
      * 甚至触发教务绑定流程（拿到教务 Cookie 后上报到当前本地 token 名下）。
+     *
+     * **按主机名判，不要用 `url.startsWith(startUrl)`**（理由同 isSchoolUrl 那条注释）：
+     * 前缀写法把「什么算本站」绑死在字面量的拼写上，不看协议、不看端口，也不看主机边界 ——
+     * `https://class.qxwkstudio.top.evil.com` 只是恰好因为第 25 个字符是 `.` 而不是 `/`
+     * 才没被放行，靠的是运气而不是规则。规则本身抽成了文件末尾的 isAppOrigin()，
+     * 纯字符串比较、无安卓依赖，所以能在 JVM 单测里直接跑（见 AppOriginTest）。
      */
     private fun fromAppPage(): Boolean {
         val url = currentUrl ?: return false
-        return url == startUrl ||
-            url.startsWith("$startUrl/") ||
-            url.startsWith("$startUrl?") ||
-            url.startsWith("$startUrl#")
+        val u = Uri.parse(url)
+        return isAppOrigin(u.scheme, u.host, u.port, portalHost)
     }
 
     /** 页面与原生之间的 JS 桥（桥方法运行在非 UI 线程，操作 UI 需切回主线程） */
@@ -654,12 +663,13 @@ class MainActivity : AppCompatActivity() {
      * edu.cn，那样任何 *.edu.cn 都会被当成站内。教务登录会跳到同域别的主机（认证页 / SSO），
      * 那边由 shouldOverrideUrlLoading 里的 academicLogin 判断兜住：登录流程中一律不往外跳。
      */
-    private val inAppHosts: List<String> by lazy {
-        listOfNotNull(
-            Uri.parse(startUrl).host?.lowercase(),
-            Uri.parse(SCHOOL_ORIGIN).host?.lowercase()
-        )
-    }
+    private val inAppHosts: List<String> by lazy { listOfNotNull(portalHost, schoolHost) }
+
+    /**
+     * 门户主机名。从 startUrl 派生，比照下面 schoolHost 的写法 —— 导航判定（isExternalLink）
+     * 与桥的来源校验（fromAppPage）用的是同一个 host，不必各自从 URL 里再切一遍。
+     */
+    private val portalHost: String? by lazy { Uri.parse(startUrl).host?.lowercase() }
 
     /**
      * 教务系统主机名。从 SCHOOL_ORIGIN 派生，**别在两处各写一份字面量** ——
@@ -902,4 +912,32 @@ class MainActivity : AppCompatActivity() {
             })();
         """.trimIndent()
     }
+}
+
+/**
+ * 「这个地址算不算门户自己」—— 桥的来源校验规则（issue #28）。
+ *
+ * 为什么单独抽成一个纯函数：安卓侧没有 Robolectric，单测里一碰 android.net.Uri 就抛
+ * 「Method parse in android.net.Uri not mocked」，所以私有方法的判定逻辑根本测不到，
+ * 只能像 ReleaseShrinkTest 那样去读源码文本、钉形状。这里把规则做成只吃三个基础类型的函数，
+ * 解析仍交给平台（调用方用 Uri.parse，与 isSchoolUrl 同一套），于是规则本身可以真正被单测执行。
+ *
+ * 三条都必须满足，缺一条就是「另一个来源」：
+ *   - **https**：门户只有 https。放行 http 等于允许一次明文降级就把桥拿到手 —— 教务那边确实
+ *     有 http 页面（见 isSchoolUrl 的注释），所以这条不能靠「反正没人用 http」混过去；
+ *   - **主机精确相等**：不做子域放宽。子域可能由别的内容托管，桥只服务门户自己
+ *     （对比 isExternalLink 对教务域反而要放宽子域 —— 那里的目标是「别把站内丢给浏览器」，
+ *     方向相反，所以两处的口径本来就该不同，别为了「统一」把它们合并）；
+ *   - **默认端口**：同源策略里 scheme + host + port 才算一个 origin，非默认端口是另一个来源。
+ *
+ * @param scheme 访问协议（Uri.scheme，可能为 null）
+ * @param host   主机名（Uri.host，可能为 null；大小写不敏感）
+ * @param port   端口（Uri.port，未显式写时为 -1）
+ * @param siteHost 门户主机名（见 MainActivity.portalHost）
+ */
+internal fun isAppOrigin(scheme: String?, host: String?, port: Int, siteHost: String?): Boolean {
+    if (siteHost.isNullOrEmpty()) return false
+    return scheme.equals("https", ignoreCase = true) &&
+        host.equals(siteHost, ignoreCase = true) &&
+        (port == -1 || port == 443)
 }

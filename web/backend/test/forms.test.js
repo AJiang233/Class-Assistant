@@ -4,7 +4,9 @@ import { describe, it } from 'node:test';
 import {
   buildCsv,
   csvCell,
+  handleCreateForm,
   handleListMyForms,
+  handleUpdateForm,
   normalizeFields,
   parseFields,
   submitGate,
@@ -349,5 +351,161 @@ describe('提交闸门', () => {
 
   it('关闭的表单一律不可提交，与策略无关', () => {
     assert.equal(submitGate({ ...pastForm, status: 'closed' }, false).ok, false);
+  });
+});
+
+describe('创建表单：联动通知失败时的回滚', () => {
+  /**
+   * 内存假 D1：INSERT 记行、DELETE 删行，`UPDATE forms` 一律抛错。
+   * 这样能停在 issue #72 那一刻 —— 通知已经落库，回写 forms.notice_id 失败 ——
+   * 只盯住「回滚后两张表还剩什么」。假表只存 id，够用来判残留。
+   */
+  function fakeDb() {
+    const forms = [];
+    const notices = [];
+    let nextId = 1;
+
+    return {
+      forms,
+      notices,
+      prepare(sql) {
+        const stmt = {
+          _args: [],
+          bind(...args) { stmt._args = args; return stmt; },
+          async all() { return { results: [] }; },
+          async first() {
+            if (/INSERT INTO forms/i.test(sql)) {
+              const id = nextId++;
+              forms.push({ id });
+              return { id };
+            }
+            if (/INSERT INTO notices/i.test(sql)) {
+              const id = nextId++;
+              notices.push({ id });
+              return { id };
+            }
+            return null;
+          },
+          async run() {
+            if (/UPDATE forms/i.test(sql)) throw new Error('D1_ERROR: 回写 notice_id 失败');
+            const [id] = stmt._args;
+            const table = /DELETE FROM notices/i.test(sql) ? notices
+              : /DELETE FROM forms/i.test(sql) ? forms : null;
+            if (table) {
+              const i = table.findIndex((row) => row.id === id);
+              if (i >= 0) table.splice(i, 1);
+            }
+            return {};
+          }
+        };
+        return stmt;
+      }
+    };
+  }
+
+  it('通知已写入但回写 notice_id 失败：通知与表单都不留残留', async () => {
+    const db = fakeDb();
+    const res = await handleCreateForm(
+      new Request('https://class.example/api/forms', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: '聚餐报名',
+          fields: [{ key: 'note', label: '备注', type: 'text' }],
+          notice: true
+        })
+      }),
+      { DB: db },
+      { id: 2, name: '班长' }
+    );
+
+    assert.equal(res.status, 500);
+    assert.equal((await res.json()).code, 'NOTICE_LINK_FAILED');
+    assert.deepEqual(db.notices, [], '通知已落库却只删表单，就会留下指向已删表单的孤儿通知');
+    assert.deepEqual(db.forms, [], '表单也要回滚干净');
+  });
+});
+
+describe('编辑表单：字段锁与写入是同一条语句', () => {
+  /**
+   * 内存假 D1：`SELECT ... FROM forms` 回一行表单（给 loadOwnedForm 用），
+   * `UPDATE forms` 按真语句里的 NOT EXISTS(form_submissions) 决定改几行。
+   *
+   * 假 D1 必须真按 WHERE 算 —— 一律返回 changes > 0 的话，这条用例就只是自说自话，
+   * 证明不了闸门（判定并进 WHERE 之后，能不能挡住全靠 changes === 0 是算出来的）。
+   */
+  function fakeDb({ submitted = false } = {}) {
+    const writes = [];
+    return {
+      writes,
+      prepare(sql) {
+        const stmt = {
+          _args: [],
+          bind(...args) { stmt._args = args; return stmt; },
+          async all() { return { results: [] }; },
+          async first() {
+            if (/FROM forms/i.test(sql)) {
+              return {
+                id: 5, title: '聚餐报名', description: '', fields: '[]', edit_policy: 'always',
+                anonymous: 0, status: 'open', deadline: null, creator_id: 2,
+                creator_name: '班长', remind_people: null, notice_id: null
+              };
+            }
+            return null;
+          },
+          async run() {
+            if (!/UPDATE forms/i.test(sql)) throw new Error('假 D1 不认识的 SQL: ' + sql);
+            const guarded = /NOT EXISTS/i.test(sql);
+            if (guarded && submitted) return { meta: { changes: 0 } };
+            writes.push({ sql, args: stmt._args });
+            return { meta: { changes: 1 } };
+          }
+        };
+        return stmt;
+      }
+    };
+  }
+
+  const BODY = JSON.stringify({
+    title: '聚餐报名（改）',
+    fields: [{ key: 'note', label: '备注', type: 'text' }]
+  });
+
+  function update(env) {
+    return handleUpdateForm(
+      new Request('https://class.example/api/forms/5', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: BODY
+      }),
+      env,
+      { id: 2, name: '班长' },
+      { id: '5' }
+    );
+  }
+
+  it('已有人提交：改了字段就被挡回去，同一请求里的标题也不落库', async () => {
+    const db = fakeDb({ submitted: true });
+    const res = await update({ DB: db });
+
+    assert.equal(res.status, 409);
+    assert.equal((await res.json()).code, 'FORM_FIELDS_LOCKED');
+    // 判定与写入同一条语句，所以「字段被锁」时标题也一起没写 —— 这正是把两步合成一步要的效果：
+    // 拆成两次写的话，就会出现「字段被拒、标题却改了」这种半截状态。
+    assert.equal(db.writes.length, 0, '被 WHERE 挡住的 UPDATE 不该留下任何写入');
+  });
+
+  it('还没人提交：标题与字段在同一次写入里一起保存', async () => {
+    const db = fakeDb();
+    const res = await update({ DB: db });
+
+    assert.equal(res.status, 200);
+    assert.equal(db.writes.length, 1);
+    const args = db.writes[0].args;
+    assert.ok(args.includes('聚餐报名（改）'), '标题应该和字段在同一条 UPDATE 里');
+    assert.ok(
+      args.some((v) => typeof v === 'string' && v.includes('"key":"note"')),
+      '字段定义也要写进去'
+    );
   });
 });

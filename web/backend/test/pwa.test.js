@@ -86,6 +86,17 @@ function followedRedirect(body) {
   return res;
 }
 
+/**
+ * 造一个导航请求（页面 / iframe 的加载）。
+ * Request 构造函数明确禁止 init.mode = 'navigate'（浏览器只把它发给真实导航），
+ * 所以只能在构造完之后再把 mode 打上去。
+ */
+function navigateRequest(url) {
+  const req = new Request(url);
+  Object.defineProperty(req, 'mode', { value: 'navigate' });
+  return req;
+}
+
 test('接口请求完全不拦截（断网时必须如实报错，不能拿旧数据糊弄）', () => {
   const sw = loadSW(async () => ok('x'));
   const got = fire(sw.handlers.fetch, new Request(ORIGIN + '/api/notices'));
@@ -182,6 +193,69 @@ test('断网时 .html 请求回退到规范地址的缓存', async () => {
   const got = fire(sw.handlers.fetch, new Request(ORIGIN + '/notices.html'));
   const res = await got.promise;
   assert.equal(await res.text(), 'shell');
+});
+
+test('断网时带查询串的深链回退到去掉查询串的预缓存页面', async () => {
+  // 深链天然带查询串：App 点提醒时把 iframe 的 src 指到 notices.html?id=123，推送载荷里的
+  // data.url 同样是带 ?id= 的地址。而预热清单与落缓存用的键都不带查询串，
+  // 只按 /notices?id=123 找必然落空 —— 现场就是断网时点通知直接进浏览器错误页。
+  let online = true;
+  const sw = loadSW(async (path) => {
+    if (!online) throw new TypeError('Failed to fetch');
+    return ok('壳：' + path);
+  });
+  // 照真实场景预热：断网前的那次安装已经把 /notices 存进去了
+  let installWork = null;
+  sw.handlers.install({ waitUntil(p) { installWork = p; } });
+  await installWork;
+  online = false;
+
+  // 前提：缓存里压根没有带查询串的键，本条断言是用来固定这个前提的
+  // （写缓存仍然走 canonical()，加查询串查找只是回退路径上的补充，没有改写入行为）
+  assert.equal(sw.stores.get('ca-shell-v2').has(ORIGIN + '/notices?id=123'), false);
+
+  const got = fire(sw.handlers.fetch, new Request(ORIGIN + '/notices.html?id=123'));
+  const res = await got.promise;
+  assert.equal(await res.text(), '壳：/notices');
+});
+
+test('断网导航到从没缓存过的地址时回退到主页壳，而不是把网络错误甩给用户', async () => {
+  // 典型现场：从主屏图标装完就断网，然后点一条推送 —— 通知指向的详情页从没被访问过，
+  // 缓存里自然没有。如实抛错的话用户看到的是浏览器错误页；回退主页壳则能跑起 app.js 的
+  // renderOfflineNotice，把「当前无网络」说出来。
+  let online = true;
+  const sw = loadSW(async (path) => {
+    if (!online) throw new TypeError('Failed to fetch');
+    return ok('壳：' + path);
+  });
+  let installWork = null;
+  sw.handlers.install({ waitUntil(p) { installWork = p; } });
+  await installWork;
+  online = false;
+
+  const got = fire(sw.handlers.fetch, navigateRequest(ORIGIN + '/never-visited'));
+  const res = await got.promise;
+  assert.equal(await res.text(), '壳：/');
+});
+
+test('断网时非导航请求缺缓存仍如实失败，不会被主页壳顶替', async () => {
+  // 主页壳兜底只对导航请求生效：脚本/样式缺了就得知趣地失败。
+  // 拿一份 HTML 去顶替 JS 会让浏览器按脚本语法解析 HTML，报出一串与被改坏的代码
+  // 毫无关系的语法错误 —— 比干脆的失败更难排查，所以这条边界必须钉住。
+  let online = true;
+  const sw = loadSW(async (path) => {
+    if (!online) throw new TypeError('Failed to fetch');
+    return ok('壳：' + path);
+  });
+  let installWork = null;
+  sw.handlers.install({ waitUntil(p) { installWork = p; } });
+  await installWork;
+  online = false;
+
+  // 主页壳确实在缓存里（上一个用例已证明它可用），这里要的正是「它在也不许顶替」
+  assert.ok(sw.stores.get('ca-shell-v2').has(ORIGIN + '/'));
+  const got = fire(sw.handlers.fetch, new Request(ORIGIN + '/assets/js/missing.js'));
+  await assert.rejects(() => got.promise, /Failed to fetch/);
 });
 
 test('断网且没有缓存时，如实抛出网络错误', async () => {

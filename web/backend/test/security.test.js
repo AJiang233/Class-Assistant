@@ -15,7 +15,7 @@ import { hashPassword, verifyPassword } from '../src/utils/crypto.js';
 import { sign, verify } from '../src/utils/jwt.js';
 import { isSealed, openCookies, sealCookies } from '../src/utils/cookieVault.js';
 import { toLocalDateTime, parseLocalDateTime } from '../src/utils/datetime.js';
-import { MFA_MAX_ATTEMPTS } from '../src/models/academicModel.js';
+import { MFA_MAX_ATTEMPTS, AcademicModel } from '../src/models/academicModel.js';
 
 describe('sameStudentId', () => {
   it('trim 后精确匹配', () => {
@@ -180,5 +180,50 @@ describe('Cookie 封存', () => {
 describe('MFA 尝试上限', () => {
   it('上限为 5 次', () => {
     assert.equal(MFA_MAX_ATTEMPTS, 5);
+  });
+
+  it('并发占坑只放行 5 次，第 6 次拿不到名额', async () => {
+    // 内存假 D1：只维护一行中间态，UPDATE 真的按 WHERE 里的条件（未超上限且未过期）
+    // 决定改几行。若假 D1 不看条件、一律返回 changes > 0，这条用例就只是自说自话，
+    // 证明不了上限——必须让「changes === 0」是算出来的。
+    const TOKEN = 'mfa-token';
+    const USER_ID = 7;
+    const row = { attempts: 0, created_at: Date.now() };
+
+    const db = {
+      prepare(sql) {
+        if (!/UPDATE academic_mfa_sessions/i.test(sql)) {
+          throw new Error('假 D1 不认识的 SQL: ' + sql);
+        }
+        const stmt = {
+          _args: [],
+          bind(...args) { stmt._args = args; return stmt; },
+          async run() {
+            const [token, userId, maxAttempts, ttl] = stmt._args;
+            // ttl 形如 '-600 seconds'，与 SQL 里的 datetime('now', ?) 对应：
+            // 真语句是 created_at >= datetime('now', ttl)，即 created_at >= now + ttlMs。
+            // 别再顺手写成 `created_at + ttlMs <= now` —— 负偏移下那个式子恒为真，
+            // 到期判断就变成了摆设，用例看着在管上限其实什么都没管。
+            const ttlMs = Number(String(ttl).match(/-?\d+/)[0]) * 1000;
+            const hit = token === TOKEN
+              && userId === USER_ID
+              && row.attempts < maxAttempts
+              && row.created_at >= Date.now() + ttlMs;
+            if (hit) row.attempts += 1;
+            return { meta: { changes: hit ? 1 : 0 } };
+          }
+        };
+        return stmt;
+      }
+    };
+
+    const model = new AcademicModel(db);
+    const claimed = await Promise.all(
+      Array.from({ length: 6 }, () => model.claimMfaAttempt(USER_ID, TOKEN, 10 * 60 * 1000))
+    );
+
+    assert.equal(claimed.filter(Boolean).length, MFA_MAX_ATTEMPTS);
+    assert.equal(claimed[claimed.length - 1], false);
+    assert.equal(row.attempts, MFA_MAX_ATTEMPTS);
   });
 });

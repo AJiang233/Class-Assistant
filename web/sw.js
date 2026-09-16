@@ -60,6 +60,22 @@ function canonical(url) {
 }
 
 /**
+ * 连查询串也去掉的规范地址：/notices.html?id=123 → /notices（/ 页面带 ?view= 同理 → /）。
+ *
+ * 深链天然带查询串：App 点提醒时 iframe 的地址就是 notices.html?id=123，推送载荷里的
+ * data.url 也是 /?view=notices&id=3。而预热清单与落缓存用的都是不带查询串的键，
+ * 所以只按 canonical() 再找一次仍然落空 —— 断网时点通知直接进浏览器错误页。
+ *
+ * 只用于**回退查找**，不参与写缓存：带查询串的地址代表另一份内容（同一路径不同 id），
+ * 拿它当键存会把规范地址那份覆盖掉，反而让普通离线访问失效。
+ */
+function canonicalPath(url) {
+  const trimmed = new URL(canonical(url).url);
+  trimmed.search = '';
+  return new Request(trimmed.href);
+}
+
+/**
  * 去掉 redirected 标记的副本。
  *
  * 这是上面那条规范限制的兜底：在线访问 /notices.html 时网络返回的是「跟过跳转」的响应，
@@ -137,11 +153,28 @@ self.addEventListener('fetch', function (event) {
       }
       return fresh;
     } catch (err) {
-      // 断网：命中缓存就回退（离线壳），否则把网络错误如实抛回去。
-      // 按请求地址找不到就按规范地址再找一次（页面请求 .html、缓存里存的是去扩展名的那份）
+      // 断网：按三级顺序找缓存（离线壳），都没命中再决定要不要兜底。
+      //   1) 请求原样命中：静态资源就是按原地址存的（/assets/js/*.js 等）
+      //   2) 规范地址：页面请求的是 .html，缓存里存的是去扩展名的那份
+      //   3) 去掉查询串的规范地址：深链带 ?id= / ?view=，缓存键里没有查询串
+      const url = new URL(request.url);
       const cached = await caches.match(request)
-        || await caches.match(canonical(new URL(request.url)));
+        || await caches.match(canonical(url))
+        || await caches.match(canonicalPath(url));
       if (cached) return cached;
+
+      // 统一离线兜底：导航请求三级都没命中时，回退到预缓存的应用壳 '/'。
+      // 为什么兜底而不是如实报错：走到这里最典型的是「点通知 → 打开一个从没访问过的页面」
+      // （主屏图标装完就断网），如实抛错用户看到的是浏览器错误页；而主页壳本身跑得起来，
+      // 它里面的 app.js 会自己调 renderOfflineNotice 渲染「当前无网络」——至少是人话。
+      // 为什么只对 navigate 生效：只有页面与 iframe 的加载才是导航，它们拿到 HTML 壳是正常的；
+      // 脚本、样式、图标、manifest 这些非导航请求缺了就该如实失败 —— 拿主页壳顶替的话，
+      // 浏览器会把一份 HTML 当 JS/CSS 解析，报出一串与被改坏的代码毫无关系的语法错误，
+      // 比干脆的失败更难排查。（/api/ 与跨域请求在本函数开头就放行了，不会走到这里。）
+      if (request.mode === 'navigate') {
+        const shell = await caches.match('/');
+        if (shell) return shell;
+      }
       throw err;
     }
   })());

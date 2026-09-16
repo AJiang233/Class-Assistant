@@ -542,10 +542,29 @@ export async function handleAcademicPasswordLogin(request, env, user) {
   return jsonResponse(success({ ...result.data, via: 'password' }));
 }
 
-/** 中间态共用：取出本人在有效期内的 CAS 会话 */
-async function loadMfaState(env, user, token) {
+/**
+ * 中间态共用：取出本人在有效期内的 CAS 会话。
+ *
+ * claim=true 供「提交验证码」路径使用：先原子占一次尝试名额再验码（见 claimMfaAttempt），
+ * 占不到（已达上限或已过期）就作废会话并按 MFA_EXPIRED 返回，并发下也只有前
+ * MFA_MAX_ATTEMPTS 个请求拿得到名额。下发验证码等只读步骤不动名额，走普通读取。
+ */
+async function loadMfaState(env, user, token, { claim = false } = {}) {
   if (!token) return { failure: { message: '登录已超时，请重新输入学号与密码', code: 'MISSING_TOKEN', status: 400 } };
   const model = new AcademicModel(env.DB);
+
+  if (claim) {
+    if (!(await model.claimMfaAttempt(user.id, token, MFA_TTL))) {
+      await model.deleteMfaSession(token);
+      return { failure: { message: '登录已超时，请重新输入学号与密码', code: 'MFA_EXPIRED', status: 400 } };
+    }
+    const state = await model.getClaimedMfaSession(user.id, token, env);
+    if (!state) {
+      return { failure: { message: '登录已超时，请重新输入学号与密码', code: 'MFA_EXPIRED', status: 400 } };
+    }
+    return { model, state };
+  }
+
   const state = await model.getMfaSession(user.id, token, MFA_TTL, env);
   if (!state) {
     return { failure: { message: '登录已超时，请重新输入学号与密码', code: 'MFA_EXPIRED', status: 400 } };
@@ -577,7 +596,7 @@ export async function handleAcademicMfaVerify(request, env, user) {
   const code = String(body.code || '').trim();
   if (!code) return jsonResponse(error('请填写验证码', 'MISSING_CODE'), 400);
 
-  const loaded = await loadMfaState(env, user, String(body.token || ''));
+  const loaded = await loadMfaState(env, user, String(body.token || ''), { claim: true });
   if (loaded.failure) {
     return jsonResponse(error(loaded.failure.message, loaded.failure.code), loaded.failure.status);
   }
@@ -586,11 +605,8 @@ export async function handleAcademicMfaVerify(request, env, user) {
   try {
     session = await verifyMfaCode(loaded.state, code);
   } catch (e) {
-    // 验证码错误时保留中间态，让用户直接重试；但记一次尝试，超限后中间态作废
-    if (e instanceof CasError) {
-      await loaded.model.bumpMfaAttempts(String(body.token || ''));
-      return jsonResponse(error(e.message, e.code), 400);
-    }
+    // 验证码错误时保留中间态，让用户直接重试；本次尝试名额已在验码前原子占掉，这里不再累加
+    if (e instanceof CasError) return jsonResponse(error(e.message, e.code), 400);
     console.error('二次验证失败:', e.message);
     return jsonResponse(error('二次验证失败，请重试或改用手动绑定', 'MFA_ERROR'), 502);
   }

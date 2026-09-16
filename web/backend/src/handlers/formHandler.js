@@ -261,7 +261,7 @@ export function buildCsv(header, rows) {
 
 /**
  * 创建表单；body.notice 为真时同时下发一条通知，link 指向填写页。
- * D1 没有事务：通知写失败就把刚建的表单删掉，不留半成品。
+ * D1 没有事务：通知一环失败就按「写入的逆序」把这一次已经落库的行清掉，不留半成品。
  */
 export async function handleCreateForm(request, env, user, ctx) {
   try {
@@ -304,12 +304,17 @@ export async function handleCreateForm(request, env, user, ctx) {
 
     let linkedNotice = null;
     if (body.notice) {
+      const noticeModel = new NoticeModel(env.DB);
+      // 通知 id 必须留在 try 外面：create() 成功而 update() 失败时通知已经落库，
+      // 只在 catch 里删表单会留下一条指向已删表单的孤儿通知（issue #72）。
+      let linkedNoticeId = null;
       try {
-        const noticeModel = new NoticeModel(env.DB);
         const noticeTitle = String(body.notice_title || title).trim().slice(0, MAX_TITLE_LEN) || title;
         const noticeContent = String(body.notice_content == null ? '' : body.notice_content).trim().slice(0, MAX_DESC_LEN)
           || `请填写表单《${title}》`;
-        const noticeId = await noticeModel.create({
+        // 这里有个关不上的窗口：create() 若在 INSERT 之后才抛错，我们拿不到 id，
+        // 没有事务就清不掉那条通知。这是 D1 无事务的已知代价，不是「已完全解决」。
+        linkedNoticeId = await noticeModel.create({
           title: noticeTitle,
           content: noticeContent,
           publish_time: toLocalDateTime(body.notice_publish_time) || nowLocalDateTime(),
@@ -320,11 +325,24 @@ export async function handleCreateForm(request, env, user, ctx) {
           expire_time: toLocalDateTime(body.notice_expire_time),
           link: `/forms.html?id=${formId}`
         });
-        if (noticeId) await model.update(formId, { notice_id: noticeId });
+        if (linkedNoticeId) await model.update(formId, { notice_id: linkedNoticeId });
         linkedNotice = { title: noticeTitle, content: noticeContent };
       } catch (e) {
         console.error('表单下发通知失败，回滚表单:', e);
-        await model.remove(formId);
+        // 逆序回滚：先删通知再删表单。两步各自包 try —— 删通知失败不能连表单也不删，
+        // 删表单失败也不能把上面那个原始错误盖成另一条，否则排查时看到的是假现场。
+        if (linkedNoticeId) {
+          try {
+            await noticeModel.delete(linkedNoticeId);
+          } catch (cleanupError) {
+            console.error('回滚通知失败，可能残留孤儿通知 notice_id=', linkedNoticeId, cleanupError);
+          }
+        }
+        try {
+          await model.remove(formId);
+        } catch (cleanupError) {
+          console.error('回滚表单失败，可能残留表单 form_id=', formId, cleanupError);
+        }
         return jsonResponse(error('下发通知失败，表单未创建', 'NOTICE_LINK_FAILED'), 500);
       }
     }
@@ -499,19 +517,27 @@ export async function handleUpdateForm(request, env, user, params) {
       data.remind_people = r;
     }
     if (body.fields !== undefined) {
-      const submitted = await model.listSubmittedUserIds(form.id);
-      if (submitted.length > 0) {
-        return jsonResponse(
-          error('已有同学提交，不能再编辑字段（标题、说明、截止时间可改）', 'FORM_FIELDS_LOCKED'),
-          409
-        );
-      }
       const nf = normalizeFields(body.fields);
       if (!nf.ok) return jsonResponse(error(nf.message, nf.code), 400);
       data.fields = JSON.stringify(nf.fields);
     }
 
-    await model.update(form.id, data);
+    // 动到字段时改走条件更新：把「还没有人提交」并进 UPDATE 的 WHERE，判定与写入落成同一条语句。
+    // 原来是先 listSubmittedUserIds 判锁、再 update —— 两步之间的窗口里刚好有人提交，字段照样
+    // 改得掉，而这条闸门存在的意义正是「已提交的旧答案 key 不能悬空」，靠时序保证就不算闸门。
+    // 同一请求里的标题/说明改动也跟着这条语句一起被判掉（要么都写、要么都不写），与旧行为一致：
+    // 旧写法在锁住时同样是整条 409、一个字段都不改。
+    if (data.fields !== undefined) {
+      const wrote = await model.updateIfUnsubmitted(form.id, data);
+      if (!wrote) {
+        return jsonResponse(
+          error('已有同学提交，不能再编辑字段（标题、说明、截止时间可改）', 'FORM_FIELDS_LOCKED'),
+          409
+        );
+      }
+    } else {
+      await model.update(form.id, data);
+    }
     return jsonResponse(success({ message: '表单已保存' }));
   } catch (e) {
     console.error('更新表单失败:', e);
