@@ -124,8 +124,24 @@ class MainActivity : AppCompatActivity() {
                 return
             }
             if (token == Store.token(ctx)) return
+
+            // 换了账号（不是换了 token）就先把上一个账号的本地数据清掉，再落新凭据。
+            // 不清的话课表小组件会继续显示上一个账号的课、课程提醒按 ta 的课表响，
+            // 断网时页面翻到的也是 ta 的通知（issue #64）。
+            //
+            // 为什么要按用户 id 判、而不是按 token 字符串判：同一个人重新登录也会拿到一条新的 JWT，
+            // 按 token 判等于每次重新登录都把课表与离线缓存清空。
+            // 而网页登录是直接覆盖 localStorage 里的 ca_token（app.js 的 saveSession），
+            // 不会先走一次登出 —— 所以这条不是边角路径，换账号就是从这里进来的。
+            val decoded = Api.decodeUser(token)
+            if (SyncRunner.isAccountSwitch(Store.userId(ctx), decoded?.first)) {
+                // 与登出共用同一套清理（见 SyncRunner.logOutSession 的注释）：
+                // 它内部「先撤闹钟再清存储」的顺序不能反，反了闹钟就撤不掉、会继续按上一个账号的课表响
+                SyncRunner.logOutSession(ctx)
+            }
+
             Store.saveToken(ctx, token)
-            Api.decodeUser(token)?.let { Store.saveUser(ctx, it.first, it.second) }
+            if (decoded != null) Store.saveUser(ctx, decoded.first, decoded.second)
             Scheduler.ensurePeriodic(ctx)
             // 登录态变了：后台常驻服务该起了（它只在登录后才跑得动）
             BackgroundMode.apply(ctx)

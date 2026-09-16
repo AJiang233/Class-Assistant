@@ -320,6 +320,23 @@ object SyncRunner {
     }
 
     /**
+     * 换了一份登录凭据，要不要把上一个账号的本地数据清掉（issue #64）。
+     *
+     * 判据是**用户 id**，不是 token 字符串：同一个人重新登录也会拿到一条新的 JWT，
+     * 按 token 判的话每次重新登录都会把课表与离线缓存清空。三种情况：
+     *  - 本地没记过 id（首次登录，或从没写过这个字段的旧版本升上来）：没东西可清，返回 false；
+     *  - 新 token 解不出 id：**按换人处理**。正规签发的 token 一定带 id（见后端
+     *    authHandler 的 sign({ id, student_id, name })），解不出来就说明这份凭据不可信 ——
+     *    宁可多清一次（数据下次同步就回来了），也不能让上一个账号的课表与离线缓存留下来；
+     *  - 两个 id 相同：同一个人换了 JWT，本地数据原样留着。
+     */
+    internal fun isAccountSwitch(prevUserId: String?, nextUserId: String?): Boolean {
+        if (prevUserId.isNullOrBlank()) return false
+        if (nextUserId.isNullOrBlank()) return true
+        return prevUserId != nextUserId
+    }
+
+    /**
      * 个人页「推送通知测试」用：拉最新一条真实活动 / 通知，按其 id 与深链发一条本地通知，
      * 让用户自查推送是否可达、点通知能否跳到对应详情。
      * kind 为 "activity" / "notice"；返回值是一句结果提示，网页直接展示（不做二次判断）。
