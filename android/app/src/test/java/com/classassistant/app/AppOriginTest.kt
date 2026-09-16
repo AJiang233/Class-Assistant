@@ -1,8 +1,10 @@
 package com.classassistant.app
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
 
 /**
  * 桥的来源校验（issue #28）：门户自己的页面才放行。
@@ -66,4 +68,40 @@ class AppOriginTest {
         assertFalse(isAppOrigin("https", host, -1, null))
         assertFalse(isAppOrigin("https", host, -1, ""))
     }
+
+    /**
+     * 另一条期望：桥的挂载范围跟着文档走（issue #28）。
+     *
+     * 这段胶水碰的是 WebView，本模块没有 Robolectric、执行不了，只能像 ReleaseShrinkTest 那样
+     * 读源码钉形状。它值得钉：这层保护被拆掉**没有任何外部症状** —— 页面照常工作，只是教务 /
+     * CAS 页面上又能摸到 CAHost 了，回归时只能靠人记得。
+     */
+    @Test
+    fun `桥的挂载范围跟着文档走`() {
+        val main = moduleFile("src/main/java/com/classassistant/app/MainActivity.kt").readText()
+
+        // 主框架新文档开始的那一刻同步一次，摘与挂都在那一个入口发生
+        val started = main.substringAfter("override fun onPageStarted")
+            .substringBefore("override fun onPageFinished")
+        assertTrue(
+            "onPageStarted 里没同步桥的挂载：离开本站时桥会一直挂着（issue #28）",
+            started.contains("syncBridgeMount(")
+        )
+
+        // 挂 / 摘只该有一处实现。散在别处（比如 setupWebView 里再来一次无条件的 add）就会
+        // 各记一份状态，迟早与 bridgeAttached 对不上；releaseWebView 那次摘是销毁路径，另算。
+        // 匹配带左括号的调用，免得把注释里提到的名字也数进来。
+        assertEquals(
+            "addJavascriptInterface 只应在 syncBridgeMount 里调用一次",
+            1, Regex("""addJavascriptInterface\(""").findAll(main).count()
+        )
+        assertEquals(
+            "removeJavascriptInterface 只应在 syncBridgeMount 与 releaseWebView 里各一次",
+            2, Regex("""removeJavascriptInterface\(""").findAll(main).count()
+        )
+    }
+
+    /** 单测的工作目录是模块目录（android/app）；从 IDE 直接跑时可能是仓库根，两种都认（同 ReleaseShrinkTest） */
+    private fun moduleFile(name: String): File =
+        File(name).takeIf { it.exists() } ?: File("app", name)
 }

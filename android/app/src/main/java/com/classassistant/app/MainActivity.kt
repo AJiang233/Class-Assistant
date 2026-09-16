@@ -86,6 +86,14 @@ class MainActivity : AppCompatActivity() {
     private var webViewReleased = false
 
     /**
+     * 桥当前是不是挂在 WebView 上。让 syncBridgeMount 幂等用 —— 开关桥是跨进程的 WebView
+     * 调用，不必在每次导航时无脑调一遍。
+     * 初值 false：真正的挂载由 setupWebView 里的 syncBridgeMount(initialUrl()) 完成，
+     * 这样「挂 / 摘」只有一处实现，两边不会各记一份状态。
+     */
+    private var bridgeAttached = false
+
+    /**
      * 桥只服务本应用页面。
      * WebView 会导航到教务系统这类外部站点，而 addJavascriptInterface 挂上的对象
      * 在那些页面里同样可调用 —— 不校验的话，外部页面可以改本地 token、
@@ -101,6 +109,41 @@ class MainActivity : AppCompatActivity() {
         val url = currentUrl ?: return false
         val u = Uri.parse(url)
         return isAppOrigin(u.scheme, u.host, u.port, portalHost)
+    }
+
+    /**
+     * 把桥的挂载范围收窄到「当前文档是本站」—— 该挂就挂、该摘就摘（issue #28）。
+     *
+     * 为什么要摘，而不是只靠每个桥方法开头的 fromAppPage()：addJavascriptInterface 挂上的
+     * 对象在整个 WebView 生命周期里都在，而这个 WebView 会跑到教务 / CAS 域（schoolHost）。
+     * 那些页面上调 CAHost 只能被 fromAppPage() 在当时拦下 —— 而这个兜底的前提是
+     * 「currentUrl 与正在执行的文档一致」，一旦出现重定向窗口或页面里塞的 iframe 就不成立。
+     * 摘掉之后外部页面连这个对象都不存在，不再依赖任何运行时判断 —— 两层一起在。
+     *
+     * 只在 onPageStarted 里调用，**不要**挪进 shouldOverrideUrlLoading：那里返回 true 的分支
+     * （交给系统浏览器的外链、weixin:// 这类）根本不会导航，当前文档还是我们自己那一页，
+     * 在那儿摘就是「页面还在、桥没了」，而下一个 onPageStarted 之前没人补回来。
+     * （后退 / 前进同样会走 onPageStarted —— 下拉刷新的那个转圈本来就依赖这一点，所以历史回退
+     * 之后桥也会照常挂回来，不必额外挂 doUpdateVisitedHistory。）
+     *
+     * host 判定复用 isAppOrigin（AppOriginTest 钉的就是它），与 isExternalLink 的 inAppHosts
+     * **故意不同**：那边对教务域要放宽子域（目标是「别把站内页面丢给系统浏览器」），这边决定的是
+     * 「把桥交给谁」，只能收紧到主机精确相等。
+     *
+     * 已知边界：removeJavascriptInterface 只对**之后**加载的文档生效，不会把已注入进当前文档的
+     * 对象撤销 —— 这恰好是本方法要的语义（它总在新文档开始前被调用），所以 fromAppPage() 那层
+     * 不能省。
+     */
+    private fun syncBridgeMount(url: String?) {
+        if (webViewReleased) return
+        val target = url?.let { Uri.parse(it) }
+        val isOurs = target != null && isAppOrigin(target.scheme, target.host, target.port, portalHost)
+        if (isOurs == bridgeAttached) return
+        binding.webView.apply {
+            if (isOurs) addJavascriptInterface(HostBridge(), BRIDGE_NAME)
+            else removeJavascriptInterface(BRIDGE_NAME)
+        }
+        bridgeAttached = isOurs
     }
 
     /** 页面与原生之间的 JS 桥（桥方法运行在非 UI 线程，操作 UI 需切回主线程） */
@@ -487,7 +530,10 @@ class MainActivity : AppCompatActivity() {
             // Kotlin 合成不出属性，写成 settings.supportMultipleWindows = false 编译不过。
             settings.setSupportMultipleWindows(false)
 
-            addJavascriptInterface(HostBridge(), BRIDGE_NAME)
+            // 首个文档必然是门户自己的（初始地址由 startUrl 派生），先按同一套判定挂上；
+            // 之后离开本站 / 回到本站由 onPageStarted 里的 syncBridgeMount 负责摘与挂（issue #28）。
+            // 挂 / 摘只有 syncBridgeMount 一处实现，别在这儿直接 add —— 那样状态会有两份。
+            syncBridgeMount(initialUrl())
 
             webViewClient = object : WebViewClient() {
                 /**
@@ -535,6 +581,10 @@ class MainActivity : AppCompatActivity() {
                 override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
                     // 桥的来源校验依赖这个值，必须在本页脚本执行之前更新
                     currentUrl = url
+                    // 同一时刻把桥的挂载范围收窄到这一份文档（issue #28）。onPageStarted 是主框架
+                    // 「新文档开始」的那一刻，此时摘掉，接下来的文档就注入不到这个对象 —— 教务 /
+                    // CAS 页面上拿到的不是「调了被拒」，而是根本没有 CAHost。
+                    syncBridgeMount(url)
                     binding.swipeRefresh.isRefreshing = true
                 }
 

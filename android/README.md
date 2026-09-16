@@ -73,7 +73,7 @@ cd android
 
 - WebView 套壳加载线上门户：登录态持久化、下拉刷新（仅在页面置顶时触发）、返回键回退；站内与教务域留在 WebView，其它外链（含 APK 下载）交给系统浏览器
 - **系统栏配色**：状态栏 / 导航栏跟随网页底色（浅色 / 深色各自适配，图标明暗自动切换）
-- **JS 桥 `CAHost`**：`setToken` / `setPullRefreshReady` / `setTheme` / `startAcademicLogin` / `platform` / `appVersion` / `appStatus` / `testNotification` —— 与鸿蒙端同一套契约（网页按字面量调用，所以 R8 的 keep 规则不能少，见下面「体积与混淆」）
+- **JS 桥 `CAHost`**：`setToken` / `setPullRefreshReady` / `setTheme` / `startAcademicLogin` / `platform` / `appVersion` / `appStatus` / `testNotification` —— 与鸿蒙端同一套契约（网页按字面量调用，所以 R8 的 keep 规则不能少，见下面「体积与混淆」）。**桥只挂在本站文档上**：离开门户 host（教务 / CAS 域）时 `removeJavascriptInterface`，回到本站再挂回来，判定与桥方法开头的 `fromAppPage()` 共用 `isAppOrigin`（主机精确相等，不放宽子域）—— 外部页面上拿到的不是「调了被拒」而是根本没有这个对象，不再依赖「`currentUrl` 与正在执行的文档一致」这个前提（issue #28）
 - **通知深链**：点提醒直达对应活动 / 通知详情，App 未打开（冷启动读启动 Intent）与已在运行（`onNewIntent`）都生效；表单在 App 里没有列表页，通知直接开网页填写页（`forms.html?id=`，与 Web Push 同一个落地页）
 
 ### 本地提醒与通知
