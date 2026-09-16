@@ -745,7 +745,7 @@ var GREETING_BANDS = [
   { from: 6,  to: 11, title: '早上好~',                  desc: '又是全新的一天~  今天要做些什么呢？' },
   { from: 11, to: 14, title: '中午好呀',                 desc: '饿了饿了，今天中午吃什么呢？  是啊，吃什么（' },
   { from: 14, to: 18, title: '下午好w',                  desc: '我还想再睡一会午觉……还是好困啊……' },
-  { from: 18, to: 23, title: '晚上好喵~',                desc: '今天还剩什么没做完？趁现在收个尾，明天就轻松了' },
+  { from: 18, to: 23, title: '晚上好喵~',                desc: '今天还剩什么没做完哎？趁现在收个尾，明天就轻松了吧？' },
   { from: 23, to: 24, title: '（哈欠）',                 desc: '这么晚了还不睡觉嘛？明天的事交给明天的自己吧……' },
   { from: 0,  to: 6,  title: '午夜时分',                 desc: '晚安~  ZZZZZZ ZZZZZZ……' }
 ];
