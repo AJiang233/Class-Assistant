@@ -7,20 +7,25 @@
 import { PushSubscriptionModel } from '../models/pushSubscriptionModel.js';
 import { success, error, jsonResponse } from '../utils/response.js';
 import { vapidConfig } from '../utils/push.js';
-import { sendWebPush } from '../utils/webpush.js';
+import { sendWebPush, isAllowedPushEndpoint, hostOfEndpoint } from '../utils/webpush.js';
 
 const MAX_ENDPOINT_LEN = 1000;
 const MAX_KEY_LEN = 200;
 const MAX_UA_LEN = 200;
 
-/** 校验订阅对象：endpoint 必须是 https，两个密钥必须是非空字符串 */
+/**
+ * 校验订阅对象：endpoint 必须是 https 且落在已知推送服务白名单内，两个密钥必须是非空字符串。
+ *
+ * 白名单存在的理由见 utils/webpush.js 的 PUSH_HOST_SUFFIXES（issue #21）：endpoint 由客户端提供，
+ * 只校验 https 的话，一个指向私网的地址也能存进库，之后由服务端去 POST。
+ */
 function validSubscription(body) {
   const endpoint = body && typeof body.endpoint === 'string' ? body.endpoint.trim() : '';
   if (!endpoint || endpoint.length > MAX_ENDPOINT_LEN) return { ok: false, message: '这台设备的订阅信息不完整，请重新开启通知' };
-  try {
-    if (new URL(endpoint).protocol !== 'https:') return { ok: false, message: '这台设备的订阅信息不完整，请重新开启通知' };
-  } catch {
-    return { ok: false, message: '这台设备的订阅信息不完整，请重新开启通知' };
+  if (!isAllowedPushEndpoint(endpoint)) {
+    // 只记主机名（endpoint 路径里的 token 是发送凭据，不进日志），好定位「白名单少写了谁」
+    console.warn('拒绝不在白名单内的推送端点:', hostOfEndpoint(endpoint));
+    return { ok: false, message: '这台设备的推送地址不受支持，暂时无法开启通知' };
   }
 
   const keys = (body && body.keys) || {};

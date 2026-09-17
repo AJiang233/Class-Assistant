@@ -526,5 +526,9 @@ CREATE INDEX IF NOT EXISTS idx_form_submissions_form ON form_submissions(form_id
   写入口（`assertCustomRoleName` / `handleCreateRole`）会拒绝，读表时 `buildRoleMap` 也忽略预置名
   —— 就算库里残留一行同名的（如早期建的「学生」），它也不会叠加到全班同名职位上
 - 内容写操作（发布/编辑/删除）与成员管理均按职位鉴权
+- **对外请求都带目标约束**（issue #21），三处出口各自钉住，改动时别拆：
+  - **推送端点白名单**：`endpoint` 完全由客户端提供，只校验 `https:` 是不够的 —— 一个指向私网 / 环回 / 云元数据地址的端点存进来后，服务端会带着 VAPID 头去 POST 它（盲 SSRF），而「测试推送」还会把状态码回读给用户（等于端口探测器）。现在订阅时（`pushHandler.validSubscription`）与投递时（`sendWebPush`，两个调用方都走它）都只认 `utils/webpush.js` 的 `PUSH_HOST_SUFFIXES`（fcm.googleapis.com / push.services.mozilla.com / push.apple.com / notify.windows.com）。**每条只写厂商专属的推送区，或实测确认过的那一个主机，别放行混着别的服务的宽域**（比如 `googleapis.com`）；Apple 那条刻意留了整段 `push.apple.com`（Safari 实测端点是 `web.push.apple.com`）—— 清单写窄了的代价是那台设备从此静默收不到通知，而 iOS 最依赖 Web Push；日志里只记主机名，端点路径里的发送凭据不进日志。
+  - **教务接口同源**：`new URL(path, SCHOOL_ORIGIN)` 遇到绝对地址会整体替换 origin，而请求头里带着教务会话 Cookie。`SchoolClient.request` 现在断言 `url.origin === SCHOOL_ORIGIN`（在拼 Cookie 之前），所以「以后谁把动态片段拼进 path」会当场报错，而不是安静地把 Cookie 发出去。
+  - **代登录跳转白名单与 Cookie 域**：跳转链上的每一跳都带着 CAS 会话 Cookie，所以「跟到哪」由 `casLogin.js` 的 `CAS_CHAIN_HOSTS`（authserver / workflow / szjw，见 `network_security_config.xml` 与文件头那条链路）决定，检查卡在 `send()` —— 它是所有对外请求的必经之路（跟随 Location 与 MFA 那几处直接发的请求都走它）。Cookie 的 `Domain` 只接受「请求主机自己或它的父域」且**至少 3 段标签**（近似公共后缀判定，`Domain=cn` / `Domain=edu.cn` 这类会让 Cookie 匹配到任意同后缀主机；没引入公共后缀表，理由是那个 jar 只服务于这三台主机）。校方换认证主机时会在 `CAS_UNEXPECTED_HOST` 处中止，日志里有主机名 —— 加一行即可。
 - **表单导出 CSV 防公式注入**：以 `= + - @` 开头的单元格会先加 `'` 中和（导出的是全班学号姓名，Excel 会当公式执行）
 - 前端所有用户输入经 `esc()` 转义，防止 XSS

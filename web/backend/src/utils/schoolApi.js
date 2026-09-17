@@ -42,6 +42,13 @@ export class SchoolClient {
   async request(path, options = {}) {
     const method = options.method || 'POST';
     const url = new URL(path, SCHOOL_ORIGIN);
+    // path 必须留在教务站内（issue #21）。`new URL('/api/x', SCHOOL_ORIGIN)` 与
+    // `new URL('https://evil.com/x', SCHOOL_ORIGIN)` 都是合法调用，后者会把带教务会话 Cookie
+    // 的请求整个发到外站。当前所有调用方都传硬编码常量，所以现实不可达，但这条断言必须放在
+    // 拼 Cookie 之前 —— 以后谁把动态片段拼进 path，这里要当场报错，而不是安静地把 Cookie 送出去。
+    if (url.origin !== SCHOOL_ORIGIN) {
+      throw new Error(`教务接口路径不能指向站外：${String(path).slice(0, 80)}`);
+    }
     if (options.params) {
       for (const [key, value] of Object.entries(options.params)) {
         if (value !== undefined && value !== null && value !== '') {

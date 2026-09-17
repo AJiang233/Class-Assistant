@@ -144,3 +144,28 @@ describe('教务响应体判定', () => {
     );
   });
 });
+
+/**
+ * 教务接口的同源断言（issue #21）。
+ *
+ * `new URL(path, SCHOOL_ORIGIN)` 遇到绝对地址会**整体替换** origin，而请求头里带着教务会话 Cookie
+ * —— 也就是说「path 被拼成外站 URL」的后果是把会话交出去。当前调用方全传硬编码常量，所以这条
+ * 断言今天打不到，属于「一旦有人改动调用方式就变高危」的隐患，用一条用例把它钉住。
+ */
+describe('教务接口同源', () => {
+  it('path 指向站外时抛错，且一个请求都不发出去', async () => {
+    const client = new SchoolClient('SESSION=secret');
+    let called = 0;
+    const orig = globalThis.fetch;
+    globalThis.fetch = async () => { called++; return new Response('{}', { status: 200 }); };
+    try {
+      // 绝对外站地址、协议相对地址（//evil.com）、以及明文降级到 http 的同一个主机
+      for (const bad of ['https://evil.com/x', '//evil.com/x', 'http://szjw.njau.edu.cn/x']) {
+        await assert.rejects(() => client.request(bad), /不能指向站外/, bad);
+      }
+    } finally {
+      globalThis.fetch = orig;
+    }
+    assert.equal(called, 0, '被拒的路径不能真的发出去：Cookie 就在头里');
+  });
+});

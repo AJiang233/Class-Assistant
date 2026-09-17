@@ -14,6 +14,64 @@ const encoder = new TextEncoder();
 /** 推送端点由用户上报，慢或恶意的端点不能一直挂住尾部的 waitUntil 任务 */
 const PUSH_TIMEOUT_MS = 10000;
 
+/**
+ * 允许投递的推送服务主机（含子域）。
+ *
+ * 为什么需要白名单（issue #21）：endpoint 完全由客户端提供，过去只校验了 `https:`，
+ * 于是一个 `https://127.0.0.1:xxxx/`、内网主机名或任意公网地址都能存进库，之后由服务端
+ * 带着 VAPID 头去 POST —— 盲 SSRF，而「测试推送」还会把状态码回读给用户，等于一个端口探测器。
+ *
+ * 白名单之外一律拒绝，所以不需要再单独判私网 / 环回 / 链路本地地址：那些地址本来就不在清单里。
+ *
+ * 代价说清楚：某个浏览器换了推送服务域名，那台设备就会订阅不上（现象是订阅被拒 + 日志里有域名），
+ * 往清单里加一行即可。**每条只写厂商专属的推送区，或实测确认过的那一个主机 —— 别放行混着别的
+ * 服务的宽域**（比如 `googleapis.com`：那底下不只有 FCM，放行等于把整个 Google API 域打开）。
+ *
+ * 为什么 Apple 那条是整段 `push.apple.com` 而不是只写 `web.push.apple.com`（后者是 Safari / iOS
+ * 主屏 App 实测会给出的端点主机，见下）：清单写窄了的代价是**那台设备从此收不到通知**，而 iOS
+ * 正是最依赖 Web Push 的平台，写错了没人会来报；`push.apple.com` 只承载 Apple 自己的推送，
+ * 放宽的收益（不会漏）大于代价。同理 `notify.windows.com` 与 `push.services.mozilla.com` 也是整段区。
+ * 拿不准的第三方域名宁可不加：少一台能收通知是可观测、可补救的。
+ */
+export const PUSH_HOST_SUFFIXES = Object.freeze([
+  'fcm.googleapis.com',         // Chromium 系（Chrome / Edge / Opera…，安卓与桌面）
+  'push.services.mozilla.com',  // Firefox（实测端点主机是它的子域 updates.push.services.mozilla.com）
+  'push.apple.com',             // Apple 推送区：Safari / iOS 主屏 App 的端点是 web.push.apple.com
+  'notify.windows.com'          // 旧版 Edge（WNS：实测端点是 <hash>.notify.windows.com）
+]);
+
+/**
+ * 推送端点是否可信：必须是 https，且主机在白名单内（精确匹配或作为子域）。
+ * 纯函数，便于单测。
+ */
+export function isAllowedPushEndpoint(endpoint) {
+  let url;
+  try {
+    url = new URL(String(endpoint == null ? '' : endpoint));
+  } catch {
+    return false;
+  }
+  if (url.protocol !== 'https:') return false;
+  const host = url.hostname.toLowerCase();
+  return PUSH_HOST_SUFFIXES.some((s) => host === s || host.endsWith('.' + s));
+}
+
+/**
+ * 端点的主机名，**只给日志和报错用**。
+ *
+ * 为什么只取主机名：endpoint 的路径里那串 token 就是发送凭据，谁能看到谁就能给这台设备发通知，
+ * 所以它不能进日志。主机名足够定位「白名单少写了谁」这件事。
+ * 解析失败（本来就是要拒掉的坏输入）时回一段截断的原文，且绝不因此抛错。
+ */
+export function hostOfEndpoint(endpoint) {
+  const raw = String(endpoint == null ? '' : endpoint);
+  try {
+    return new URL(raw).hostname || '(取不到主机名)';
+  } catch {
+    return `(不是合法 URL) ${raw.slice(0, 40)}`;
+  }
+}
+
 /** base64url 字符串 → 字节 */
 export function b64uToBytes(input) {
   const s = String(input == null ? '' : input).replace(/-/g, '+').replace(/_/g, '/');
@@ -158,6 +216,11 @@ export async function buildVapidHeader(endpoint, vapid) {
  * 端点返回 404 / 410 表示订阅已失效，调用方应删除该订阅。
  */
 export async function sendWebPush(subscription, payloadObject, vapid) {
+  // 投递前再过一道白名单：库里的行可能是加白名单之前存下的（issue #21），
+  // 而这里是「带着 VAPID 头往任意地址发 POST」的唯一出口，两个调用方都走它。
+  if (!isAllowedPushEndpoint(subscription.endpoint)) {
+    throw new Error(`推送端点不在白名单内，已跳过：${hostOfEndpoint(subscription.endpoint)}`);
+  }
   const body = await encryptPayload(subscription, JSON.stringify(payloadObject));
   const authorization = await buildVapidHeader(subscription.endpoint, vapid);
   return fetch(subscription.endpoint, {

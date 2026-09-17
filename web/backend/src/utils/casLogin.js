@@ -20,6 +20,52 @@ const AUTH_ORIGIN = 'https://authserver.njau.edu.cn';
 const AUTH_HOST = 'authserver.njau.edu.cn';
 
 /**
+ * 代登录允许经过的主机（见文件头那条链路）。
+ *
+ * 跳转链上的每一跳都会带上 CookieJar 里已经攒下的 Cookie（含 CAS 会话），
+ * 所以「跟到哪」必须是白名单，而不是「Location 说去哪就去哪」（issue #21）：
+ * 服务端被诱导跟着一个外站 Location 走，等于把 CAS 会话 Cookie 和一次性 ticket 交出去。
+ *
+ * 这份清单来自实测跳转链（与 res/xml/network_security_config.xml 里那三个主机一致）。
+ * 校方换认证主机时会在这里中止并抛出 CAS_UNEXPECTED_HOST，日志里有主机名 —— 加一行即可。
+ */
+const CAS_CHAIN_HOSTS = Object.freeze([
+  AUTH_HOST,
+  'workflow.njau.edu.cn',
+  new URL(SCHOOL_ORIGIN).hostname.toLowerCase()
+]);
+
+/** 该 URL 是否落在代登录白名单内（纯函数，便于单测） */
+export function isCasChainHost(url) {
+  try {
+    return CAS_CHAIN_HOSTS.includes(new URL(url).hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 响应下发的 Cookie 域是否可接受。
+ *
+ * 规则两条（issue #21）：
+ *   1. 只能是「请求主机自己」或它的父域 —— 否则一个 `Domain=evil.com` 的响应就能往 jar 里塞一份
+ *      会在访问 evil.com 时被带出去的 Cookie；
+ *   2. 至少 3 段标签 —— 近似「不是公共后缀」。`Domain=cn` / `Domain=edu.cn` 这类公共后缀会让
+ *      这份 Cookie 匹配到任意同后缀主机（matchesFor 是纯后缀匹配），而校内链路上真实会出现的
+ *      也就 `njau.edu.cn` 这一级（3 段）。
+ *
+ * 为什么不用公共后缀表：那要引入一个依赖（或一份要长期维护的清单），而这个 jar 只服务于
+ * 上面那三个主机，规则 1 已经把可见域收窄到了 `*.njau.edu.cn`。真要在别处复用这个 jar，
+ * 得换成正经的公共后缀判定。
+ */
+export function acceptCookieDomain(requestHost, domain) {
+  const host = String(requestHost || '').toLowerCase();
+  const d = String(domain || '').toLowerCase();
+  if (!d || d.split('.').length < 3) return false;
+  return host === d || host.endsWith('.' + d);
+}
+
+/**
  * 统一身份认证入口：必须从教务侧的 SSO 地址进，不能直接拿 CAS 登录页当入口。
  *
  * 该地址取自教务的公开配置接口 POST /api/qsmart/common/sysConfig/white（key = SsoUrl），
@@ -131,15 +177,23 @@ class CookieJar {
       let path = defaultPath;
       let maxAge = null;
       let expires = null;
+      let rejected = false;
       for (const attr of attrs) {
         const i = attr.indexOf('=');
         const k = (i < 0 ? attr : attr.slice(0, i)).trim().toLowerCase();
         const v = i < 0 ? '' : attr.slice(i + 1).trim();
-        if (k === 'domain' && v) domain = v.replace(/^\./, '').toLowerCase();
+        if (k === 'domain' && v) {
+          const d = v.replace(/^\./, '').toLowerCase();
+          // 只采信「自己或父域、且不是公共后缀」的域（issue #21，规则见 acceptCookieDomain）。
+          // 不合规的整条丢弃而不是降级成 host-only —— RFC 6265 与浏览器都是直接拒绝这条 Set-Cookie
+          if (!acceptCookieDomain(host, d)) { rejected = true; break; }
+          domain = d;
+        }
         else if (k === 'path' && v) path = normalizeCookiePath(v);
         else if (k === 'max-age') maxAge = Number(v);
         else if (k === 'expires') expires = Date.parse(v);
       }
+      if (rejected) continue;
       const key = `${domain}\t${path}\t${name}`;
       const expired =
         value === '' ||
@@ -210,6 +264,15 @@ function hostOf(url) {
 }
 
 async function send(url, jar, options = {}) {
+  // 白名单卡在这一层：它是所有对外请求的必经之路（跟随 Location 的跳转链、以及 MFA 那几处
+  // 直接发的请求都走它），所以「带着 jar 里的 Cookie 去链外主机」在这里就过不去了（issue #21）。
+  // 不放 followRedirects：跟随 Location 只是入口之一，而且它也是靠 send 发出去的。
+  if (!isCasChainHost(url)) {
+    throw new CasError(
+      `登录流程跳到了未知站点（${hostOf(url)}），已中止以免泄露会话，请改用手动绑定`,
+      'CAS_UNEXPECTED_HOST'
+    );
+  }
   const headers = { 'User-Agent': DESKTOP_UA, Accept: '*/*', ...(options.headers || {}) };
   const cookie = jar.headerFor(url);
   if (cookie) headers.Cookie = cookie;

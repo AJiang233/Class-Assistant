@@ -163,8 +163,8 @@ describe('推送发送', () => {
     const db = fakeDb({
       users: [{ id: 2, name: '张三', positions: '学生' }],
       subs: [
-        { id: 1, user_id: 2, endpoint: 'https://push.example/ok', p256dh: P256DH, auth: AUTH },
-        { id: 2, user_id: 2, endpoint: 'https://push.example/dead', p256dh: P256DH, auth: AUTH }
+        { id: 1, user_id: 2, endpoint: 'https://fcm.googleapis.com/fcm/send/ok', p256dh: P256DH, auth: AUTH },
+        { id: 2, user_id: 2, endpoint: 'https://fcm.googleapis.com/fcm/send/dead', p256dh: P256DH, auth: AUTH }
       ]
     });
 
@@ -187,8 +187,43 @@ describe('推送发送', () => {
     assert.ok(seen.every((s) => s.auth.startsWith('vapid t=')));
 
     const left = db.state.subs.map((s) => s.endpoint);
-    assert.deepEqual(left, ['https://push.example/ok']);
+    assert.deepEqual(left, ['https://fcm.googleapis.com/fcm/send/ok']);
     assert.equal(db.state.subs[0].last_ok_at, 'now');
+  });
+
+  /**
+   * 库里可能还留着「加白名单之前」存下的端点（issue #21）。投递是带着 VAPID 头出去的出口，
+   * 所以 sendWebPush 里还有一道白名单：不在名单里的那条不发，其余照发。
+   */
+  it('库里遗留的非白名单端点不投递，其余照发', async () => {
+    const db = fakeDb({
+      users: [{ id: 2, name: '张三', positions: '学生' }],
+      subs: [
+        { id: 1, user_id: 2, endpoint: 'https://fcm.googleapis.com/fcm/send/ok', p256dh: P256DH, auth: AUTH },
+        { id: 2, user_id: 2, endpoint: 'https://127.0.0.1:8500/steal', p256dh: P256DH, auth: AUTH }
+      ]
+    });
+
+    const seen = [];
+    const errors = [];
+    const origFetch = globalThis.fetch;
+    const origError = console.error;
+    globalThis.fetch = async (url) => { seen.push(String(url)); return new Response('', { status: 201 }); };
+    console.error = (...args) => errors.push(args.join(' '));
+    try {
+      await pushToRemindAudience({ DB: db, ...VAPID }, null, null, { title: 't', body: 'b', url: '/' });
+    } finally {
+      globalThis.fetch = origFetch;
+      console.error = origError;
+    }
+
+    assert.deepEqual(seen, ['https://fcm.googleapis.com/fcm/send/ok'], '只该发白名单内的那条');
+    // 行留着不删：404/410 才是「订阅失效」的证据，这里只是我们拒绝投递
+    assert.equal(db.state.subs.length, 2);
+    assert.ok(
+      errors.some((e) => e.includes('127.0.0.1')),
+      '被跳过的端点要留痕（含主机名），否则线上只看得到「没收到通知」'
+    );
   });
 
   it('没有订阅时不发请求', async () => {
@@ -209,7 +244,7 @@ describe('推送发送', () => {
   it('设备多时按批投递，同时在飞的请求不超过 6 个', async () => {
     const users = Array.from({ length: 20 }, (_, i) => ({ id: i + 1, name: 'u' + (i + 1), positions: '学生' }));
     const subs = users.map((u) => ({
-      id: u.id, user_id: u.id, endpoint: 'https://push.example/' + u.id, p256dh: P256DH, auth: AUTH
+      id: u.id, user_id: u.id, endpoint: 'https://fcm.googleapis.com/fcm/send/' + u.id, p256dh: P256DH, auth: AUTH
     }));
     const db = fakeDb({ users, subs });
 
@@ -250,7 +285,7 @@ describe('订阅接口', () => {
   it('合法订阅落库，同一个端点在换账号后改绑', async () => {
     const db = fakeDb({ subs: [] });
     const env = { DB: db, ...VAPID };
-    const payload = { endpoint: 'https://push.example/x', keys: { p256dh: 'pk', auth: 'au' } };
+    const payload = { endpoint: 'https://fcm.googleapis.com/fcm/send/x', keys: { p256dh: 'pk', auth: 'au' } };
 
     const res = await handlePushSubscribe(post(payload), env, user);
     assert.equal(res.status, 201);
@@ -265,22 +300,55 @@ describe('订阅接口', () => {
 
   it('非 https 或字段缺失被拒', async () => {
     const env = { DB: fakeDb(), ...VAPID };
-    assert.equal((await handlePushSubscribe(post({ endpoint: 'http://push.example/x', keys: { p256dh: 'p', auth: 'a' } }), env, user)).status, 400);
-    assert.equal((await handlePushSubscribe(post({ endpoint: 'https://push.example/x', keys: { p256dh: 'p' } }), env, user)).status, 400);
+    assert.equal((await handlePushSubscribe(post({ endpoint: 'http://fcm.googleapis.com/fcm/send/x', keys: { p256dh: 'p', auth: 'a' } }), env, user)).status, 400);
+    assert.equal((await handlePushSubscribe(post({ endpoint: 'https://fcm.googleapis.com/fcm/send/x', keys: { p256dh: 'p' } }), env, user)).status, 400);
     assert.equal((await handlePushSubscribe(post({}), env, user)).status, 400);
+  });
+
+  /**
+   * 白名单之外的端点必须在这里就被拒（issue #21）：以往只校验 https，存进来之后服务端会
+   * 带着 VAPID 头去 POST 它 —— 盲 SSRF，「测试推送」还把状态码回读给用户，等于端口探测器。
+   * 顺带钉住日志口径：定位「白名单少写了谁」只要主机名，endpoint 路径里的发送凭据不能落日志。
+   */
+  it('白名单外的端点被拒，且一行都不落库', async () => {
+    const db = fakeDb();
+    const env = { DB: db, ...VAPID };
+    const keys = { p256dh: 'p', auth: 'a' };
+
+    const warned = [];
+    const originalWarn = console.warn;
+    console.warn = (...args) => warned.push(args.join(' '));
+    try {
+      for (const endpoint of [
+        'https://127.0.0.1:8500/admin',
+        'https://169.254.169.254/latest/meta-data/',
+        'https://evil.com/x',
+        'https://fcm.googleapis.com.evil.com/x'
+      ]) {
+        const res = await handlePushSubscribe(post({ endpoint, keys }), env, user);
+        assert.equal(res.status, 400, endpoint);
+        assert.equal((await res.json()).code, 'INVALID_SUBSCRIPTION', endpoint);
+      }
+    } finally {
+      console.warn = originalWarn;
+    }
+
+    assert.equal(db.state.subs.length, 0, '被拒的端点一行都不该落库');
+    assert.ok(warned.some((w) => w.includes('127.0.0.1')), '日志里要有主机名，否则不知道白名单少写了谁');
+    assert.ok(warned.every((w) => !w.includes('secret')), '端点里的发送凭据不能进日志');
   });
 
   it('退订只删自己那一条', async () => {
     const db = fakeDb({
       subs: [
-        { id: 1, user_id: 7, endpoint: 'https://push.example/mine', p256dh: 'p', auth: 'a' },
-        { id: 2, user_id: 8, endpoint: 'https://push.example/other', p256dh: 'p', auth: 'a' }
+        { id: 1, user_id: 7, endpoint: 'https://fcm.googleapis.com/fcm/send/mine', p256dh: 'p', auth: 'a' },
+        { id: 2, user_id: 8, endpoint: 'https://fcm.googleapis.com/fcm/send/other', p256dh: 'p', auth: 'a' }
       ]
     });
     const env = { DB: db };
-    const res = await handlePushUnsubscribe(post({ endpoint: 'https://push.example/mine' }), env, user);
+    const res = await handlePushUnsubscribe(post({ endpoint: 'https://fcm.googleapis.com/fcm/send/mine' }), env, user);
     assert.equal(res.status, 200);
-    assert.deepEqual(db.state.subs.map((s) => s.endpoint), ['https://push.example/other']);
+    assert.deepEqual(db.state.subs.map((s) => s.endpoint), ['https://fcm.googleapis.com/fcm/send/other']);
   });
 });
 
@@ -354,7 +422,7 @@ describe('推送发送加固', () => {
     globalThis.fetch = async (url, init) => { inits.push(init); return new Response('', { status: 201 }); };
     try {
       await sendWebPush(
-        { endpoint: 'https://push.example/x', p256dh: P256DH, auth: AUTH },
+        { endpoint: 'https://fcm.googleapis.com/fcm/send/x', p256dh: P256DH, auth: AUTH },
         { title: 't' },
         { publicKey: VAPID.VAPID_PUBLIC_KEY, privateKey: VAPID.VAPID_PRIVATE_KEY, subject: VAPID.VAPID_SUBJECT }
       );
@@ -366,7 +434,7 @@ describe('推送发送加固', () => {
 
   it('VAPID 公钥不是 65 字节未压缩点时给出明确报错', async () => {
     await assert.rejects(
-      () => buildVapidHeader('https://push.example/x', {
+      () => buildVapidHeader('https://fcm.googleapis.com/fcm/send/x', {
         publicKey: 'AAAA',
         privateKey: VAPID.VAPID_PRIVATE_KEY,
         subject: VAPID.VAPID_SUBJECT

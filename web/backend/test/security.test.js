@@ -14,6 +14,8 @@ import {
   STUDENT_ROLE
 } from '../src/utils/permissions.js';
 import { hashPassword, verifyPassword } from '../src/utils/crypto.js';
+import { hostOfEndpoint, isAllowedPushEndpoint } from '../src/utils/webpush.js';
+import { acceptCookieDomain, isCasChainHost } from '../src/utils/casLogin.js';
 import { sign, verify } from '../src/utils/jwt.js';
 import { isSealed, openCookies, sealCookies } from '../src/utils/cookieVault.js';
 import { toLocalDateTime, parseLocalDateTime } from '../src/utils/datetime.js';
@@ -262,5 +264,93 @@ describe('MFA 尝试上限', () => {
     assert.equal(claimed.filter(Boolean).length, MFA_MAX_ATTEMPTS);
     assert.equal(claimed[claimed.length - 1], false);
     assert.equal(row.attempts, MFA_MAX_ATTEMPTS);
+  });
+});
+
+/**
+ * 推送端点白名单（issue #21）。
+ *
+ * endpoint 完全由客户端提供，服务端只负责拿它去 POST —— 不过白名单就是一个盲 SSRF：
+ * 存一个 `https://127.0.0.1:8500/…` 再点「测试推送」，状态码还被回读给用户，等于端口探测器。
+ */
+describe('推送端点白名单', () => {
+  it('主流浏览器的推送服务放行（含子域）', () => {
+    assert.equal(isAllowedPushEndpoint('https://fcm.googleapis.com/fcm/send/abc'), true);
+    assert.equal(isAllowedPushEndpoint('https://updates.push.services.mozilla.com/wpush/v2/x'), true);
+    assert.equal(isAllowedPushEndpoint('https://web.push.apple.com/Qx'), true);
+    assert.equal(isAllowedPushEndpoint('https://db5.notify.windows.com/w/?token=x'), true);
+    // Apple 那条留给整段推送区：万一 Safari 的端点落在别的主机上（写窄了 iOS 就静默收不到通知，
+    // 见 webpush.js 里的取舍说明），这里得兜住 —— 这条断言就是那次放宽的凭据
+    assert.equal(isAllowedPushEndpoint('https://abcd1234.push.apple.com/Qx'), true);
+  });
+
+  it('混着别的服务的宽域不放行', () => {
+    // FCM 只在 fcm.googleapis.com 这一个主机上，放行 googleapis.com 等于打开整个 Google API 域
+    assert.equal(isAllowedPushEndpoint('https://storage.googleapis.com/bucket'), false);
+    assert.equal(isAllowedPushEndpoint('https://www.googleapis.com/x'), false);
+  });
+
+  it('私网 / 环回 / 云元数据 / IP 字面量 / 任意域名一律拒绝', () => {
+    for (const bad of [
+      'https://127.0.0.1:8500/admin',
+      'https://localhost/x',
+      'https://10.0.0.5/x',
+      'https://[::1]/x',
+      'https://169.254.169.254/latest/meta-data/',   // 云厂商元数据地址，SSRF 的经典目标
+      'http://fcm.googleapis.com/fcm/send/abc',      // 明文：推送服务也不会这么给
+      'https://evil.com/x',
+      'https://fcm.googleapis.com.evil.com/x',       // 把白名单域名当成前缀套
+      'ftp://fcm.googleapis.com/x',
+      'not a url',
+      '',
+      null,
+      undefined
+    ]) {
+      assert.equal(isAllowedPushEndpoint(bad), false, JSON.stringify(bad));
+    }
+  });
+
+  it('日志只取主机名：端点路径里的发送凭据不能进日志', () => {
+    assert.equal(hostOfEndpoint('https://fcm.googleapis.com/fcm/send/secret-token'), 'fcm.googleapis.com');
+    assert.ok(!hostOfEndpoint('https://evil.com/secret-token').includes('secret-token'));
+    // 坏输入（本来就要拒掉）也得给得出定位用的字样，且不能因此抛错
+    assert.match(hostOfEndpoint('不是 URL'), /^\(不是合法 URL\)/);
+    assert.equal(hostOfEndpoint(null), '(不是合法 URL) ');
+  });
+});
+
+/**
+ * 代登录的跳转链白名单与 Cookie 域规则（issue #21）。
+ *
+ * 这两条管的是同一件事：服务端被诱导「跟着 Location 走」时，别把 CAS 会话 Cookie 与一次性
+ * ticket 发给链外主机。
+ */
+describe('代登录链路白名单', () => {
+  it('只放行认证链路里的三个主机', () => {
+    assert.equal(isCasChainHost('https://authserver.njau.edu.cn/authserver/login'), true);
+    assert.equal(isCasChainHost('https://workflow.njau.edu.cn/cas/login'), true);
+    assert.equal(isCasChainHost('https://szjw.njau.edu.cn/api/login/sso/cas/login'), true);
+
+    assert.equal(isCasChainHost('https://evil.com/'), false);
+    assert.equal(isCasChainHost('https://szjw.njau.edu.cn.evil.com/'), false, '把站内域名当前缀套');
+    assert.equal(isCasChainHost('https://authserver.njau.edu.cn.evil.com/'), false);
+    assert.equal(isCasChainHost('https://sub.szjw.njau.edu.cn/'), false, '只认这一个主机，不认子域');
+    assert.equal(isCasChainHost('不是 URL'), false);
+    // 只比主机名、不看协议：这条链路上教务门户本身就有 http 页面（见 network_security_config.xml
+    // 里那条 http://szjw.njau.edu.cn/login/login.html 的跳转），拦 http 就等于把代登录拦死。
+    // 这里要拦的是「跟到别的站」，不是「同一站降级成明文」。
+    assert.equal(isCasChainHost('http://szjw.njau.edu.cn/login/login.html'), true);
+  });
+
+  it('Cookie 域只接受自己或父域，且不接受公共后缀', () => {
+    assert.equal(acceptCookieDomain('szjw.njau.edu.cn', 'szjw.njau.edu.cn'), true);
+    assert.equal(acceptCookieDomain('workflow.njau.edu.cn', 'njau.edu.cn'), true, '父域：CAS 的 TGC 要靠它跨主机');
+
+    assert.equal(acceptCookieDomain('szjw.njau.edu.cn', 'evil.com'), false, '不是自己也不是父域');
+    assert.equal(acceptCookieDomain('szjw.njau.edu.cn', 'edu.cn'), false, '公共后缀：会让这份 Cookie 匹配任意 *.edu.cn');
+    assert.equal(acceptCookieDomain('evil.com', 'com'), false, 'issue 里举的那个例子');
+    assert.equal(acceptCookieDomain('xnjau.edu.cn', 'jau.edu.cn'), false, '按标签边界比，不是字符后缀');
+    assert.equal(acceptCookieDomain('szjw.njau.edu.cn', ''), false);
+    assert.equal(acceptCookieDomain('', 'njau.edu.cn'), false);
   });
 });
