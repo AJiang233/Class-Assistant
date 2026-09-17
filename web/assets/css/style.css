@@ -611,9 +611,10 @@ a.list-row { color: inherit; text-decoration: none; }
 @media (max-width: 640px) {
   .modal-overlay { padding: 12px; align-items: center; }
   .modal { max-height: 90vh; border-radius: var(--radius-lg); }
-  .modal-body { padding: 18px; }
-  .modal-head { padding: 15px 18px; }
-  .modal-foot { padding: 12px 18px; }
+  /* 弹窗是手机上的表单容器，内边距跟着「元素内边距收一档」一起收（桌面的 22px 偏肥） */
+  .modal-body { padding: 16px; }
+  .modal-head { padding: 14px 16px; }
+  .modal-foot { padding: 12px 16px; }
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -1392,24 +1393,35 @@ body.app-mode { overflow: hidden; }
   ::-webkit-scrollbar { width: 0; height: 0; }
 
   /* 底部让出底栏高度 + 安全区 + 一点呼吸空间（内容会从底栏下方滚过）；
-     左右用 max() 兼顾横屏刘海遮挡。 */
+     左右用 max() 兼顾横屏刘海遮挡。
+     页面内边距比桌面端给得更足（上 24 / 左右 20，桌面是 40/28，但手机屏更窄、更容易觉得贴边）：
+     边缘留白够，卡片才不像被屏幕裁掉。相应地下面各元素的内边距再收一档 ——
+     一增一减之后，卡片里的正文宽度基本没变，变的是「屏幕边到卡片」与「卡片边到文字」的分配。 */
   .main {
-    padding: 20px max(16px, var(--safe-right)) calc(var(--nav-height) + var(--safe-bottom) + 20px) max(16px, var(--safe-left));
+    padding: 24px max(20px, var(--safe-right)) calc(var(--nav-height) + var(--safe-bottom) + 24px) max(20px, var(--safe-left));
   }
   .page-head { margin-bottom: 18px; }
   .page-title { font-size: 1.45rem; }
   .page-desc { font-size: 0.88rem; margin-top: 5px; }
 
-  .profile-card, .split-grid .profile-card { padding: 18px 16px; }
-  .profile-head { gap: 14px; padding-bottom: 16px; }
+  /* ── 元素内边距整体收一档（配合上面 .main 加宽）──
+     卡片、行、按钮、输入框各减 1~2px，把留白从元素内部挪到屏幕边缘。
+     命中区不受影响：.form-input / .btn / .chip 都有 min-height 兜着，收掉的只是文字到边框的距离。
+     唯一没动的是下面分段控件的 .tab —— 它没有 min-height，那 11px 内边距**就是**它的命中区。 */
+  .profile-card, .split-grid .profile-card { padding: 16px 14px; }
+  /* 日历是手机首页最上面那张大卡，桌面的 22px 在手机上偏肥。学业卡片 .ac-card 同理，
+     但它的基础规则定义在文件更后面（源码顺序），写在会被那里盖掉，只能放到 ≤640 那块去——
+     那边有说明。这两张卡的目标值保持一致。 */
+  .calendar { padding: 16px 14px; }
+  .profile-head { gap: 14px; padding-bottom: 14px; }
   .profile-avatar { width: 46px; height: 46px; font-size: 1.06rem; }
   .profile-name { font-size: 1.07rem; }
   .profile-sub { font-size: 0.84rem; }
-  .info-row { padding: 11px 2px; font-size: 0.89rem; }
+  .info-row { padding: 9px 2px; font-size: 0.89rem; }
   /* .card-title 与 .collapse-body 一起跟着缩，两处始终同值 */
   :root { --card-title-gap: 12px; }
 
-  .list-row { padding: 14px 15px; gap: 12px; }
+  .list-row { padding: 12px 13px; gap: 12px; }
   .list-row-title { font-size: 0.98rem; margin-bottom: 4px; }
   .list-row-meta { font-size: 0.82rem; gap: 11px; }
   .badge { padding: 3px 8px; font-size: 0.74rem; }
@@ -1419,7 +1431,7 @@ body.app-mode { overflow: hidden; }
   /* 关键：iOS Safari 在聚焦 font-size < 16px 的输入框时会强制放大整个页面。
      用 max() 兜住 16px 下限 —— 字号只会变大不会变小，从而消除聚焦缩放跳动。 */
   .form-input {
-    padding: 10px 12px;
+    padding: 9px 11px;
     font-size: max(16px, 0.95rem);
     min-height: var(--tap-min);
   }
@@ -1427,11 +1439,12 @@ body.app-mode { overflow: hidden; }
      特异度更高会盖掉上面的 16px，这里显式加一级权重复位，同样避开聚焦缩放。 */
   .form-input.ac-select { font-size: max(16px, 0.95rem); }
   select.form-input { padding-right: 36px; background-position: right 11px center; }
-  /* 按钮纵向收紧：min-height 44→40，padding 同步减小（与 chip 的 38px 折中同一量级） */
-  .btn { padding: 8px 16px; font-size: 0.89rem; min-height: 40px; }
+  /* 按钮纵向收紧：min-height 44→40，padding 同步减小（与 chip 的 38px 折中同一量级）。
+     左右再各收 2px：min-height 兜住命中区，收掉的只是文字到边框的距离。 */
+  .btn { padding: 7px 14px; font-size: 0.89rem; min-height: 40px; }
   .btn-row .btn { padding-left: 4px; padding-right: 4px; font-size: 0.84rem; }
   /* chip 是多选标签，成组密集排列，取 38px 折中（仍明显大于桌面端） */
-  .chip { padding: 7px 12px; font-size: 0.85rem; min-height: 38px; }
+  .chip { padding: 6px 10px; font-size: 0.85rem; min-height: 38px; }
   .tabs { padding: 3px; margin-bottom: 18px; }
   .tab { padding: 11px 0; font-size: 0.88rem; }
 
@@ -1441,9 +1454,9 @@ body.app-mode { overflow: hidden; }
   .cal-today-btn { height: var(--tap-min); padding: 0 14px; }
 
   .detail-title { font-size: 1.34rem; margin-bottom: 10px; }
-  .detail-meta { font-size: 0.84rem; gap: 6px 16px; padding-bottom: 14px; margin-bottom: 18px; }
+  .detail-meta { font-size: 0.84rem; gap: 6px 16px; padding-bottom: 12px; margin-bottom: 18px; }
   .detail-body { font-size: 1rem; line-height: 1.8; }
-  .detail-byline { margin-top: 18px; padding-top: 14px; }
+  .detail-byline { margin-top: 18px; padding-top: 12px; }
 
   .beta-banner { padding: 10px 12px; font-size: 0.84rem; margin-bottom: 16px; }
 
@@ -1459,11 +1472,11 @@ body.app-mode { overflow: hidden; }
 /* ── 21.3 小屏手机（≤400px，如 iPhone SE / mini）────────────────── */
 @media (max-width: 400px) {
   .main {
-    padding: 16px max(12px, var(--safe-right)) calc(var(--nav-height) + var(--safe-bottom) + 16px) max(12px, var(--safe-left));
+    padding: 20px max(16px, var(--safe-right)) calc(var(--nav-height) + var(--safe-bottom) + 20px) max(16px, var(--safe-left));
   }
   .page-title { font-size: 1.32rem; }
 
-  .calendar, .ac-card, .profile-card, .split-grid .profile-card { padding: 15px 13px; }
+  .calendar, .ac-card, .profile-card, .split-grid .profile-card { padding: 14px 12px; }
   .cal-day { font-size: 0.78rem; }
   .cal-nav .icon-btn { width: 40px; height: 40px; }
 
@@ -1471,8 +1484,8 @@ body.app-mode { overflow: hidden; }
   .credit-row { grid-template-columns: minmax(0, 1fr) 34px 34px 34px 34px 56px; font-size: 0.76rem; }
   .credit-row-head { font-size: 0.7rem; }
 
-  .modal-head { padding: 14px 15px; }
-  .modal-body { padding: 15px; }
+  .modal-head { padding: 13px 14px; }
+  .modal-body { padding: 14px; }
 }
 
 /* ── 21.4 手机横屏（高度被压得很矮，底栏需收窄）────────────────── */
@@ -1688,7 +1701,11 @@ body.app-mode { overflow: hidden; }
 .cr-state { text-align: right; }
 
 @media (max-width: 640px) {
-  .ac-card { padding: 18px 16px; }
+  /* ⚠️ 这条必须留在 .ac-card **基础规则之后**：那条基础规则（22px）定义在文件更后面，
+     同特异度下按源码顺序它会盖掉写在前面那些 21.x 手机端块里的值 —— 写在那儿等于没写。
+     ≤400 那块里的 .ac-card 也是因此失效的，所以小屏手机上这张卡取的是这一档，而不是 14px 12px；
+     日历 .calendar 不受这个约束（基础规则在手机端块之前），它的手机端值放在 21.2 里。 */
+  .ac-card { padding: 16px 14px; }
   .credit-stats { grid-template-columns: repeat(2, 1fr); }
   .credit-row { grid-template-columns: minmax(0, 1fr) 38px 38px 38px 38px 62px; gap: 2px; font-size: 0.79rem; padding: 8px 4px; }
   .credit-row-head { font-size: 0.73rem; }

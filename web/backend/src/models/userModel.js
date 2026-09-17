@@ -53,17 +53,19 @@ export class UserModel {
    */
   async findById(id) {
     const result = await this.db.prepare(
-      'SELECT id, student_id, name, positions, contact, update_time FROM users WHERE id = ?'
+      'SELECT id, student_id, name, positions, contact FROM users WHERE id = ?'
     ).bind(id).first();
     return result;
   }
 
   /**
    * 获取全部班级成员（不含敏感字段）
+   * 注意 handleListUsers 是整行展开（{ ...u }）下发的，这里选了什么字段就等于对外发了什么，
+   * 所以 update_time 也从这里拿掉，免得绕过 publicUser 从成员列表漏出去
    */
   async list() {
     const result = await this.db.prepare(
-      'SELECT id, student_id, name, positions, contact, update_time FROM users ORDER BY id ASC'
+      'SELECT id, student_id, name, positions, contact FROM users ORDER BY id ASC'
     ).all();
     return result.results;
   }

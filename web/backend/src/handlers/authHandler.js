@@ -17,6 +17,12 @@ const PASSWORD_MAX = 72;
 const NAME_MAX = 40;
 const CONTACT_MAX = 60;
 
+/**
+ * 对外暴露的用户信息（登录响应、/api/auth/me、成员列表共用）
+ * 这里不再带 update_time：它原本唯一的消费点是个人资料卡片上的「更新时间」那一行，
+ * 那行已按需求删除，全仓再没有读它的地方。数据库那一列照旧保留
+ * （userModel.update 每次写入都会刷新它），删的是响应字段，不是表结构。
+ */
 function publicUser(user, permissions) {
   return {
     id: user.id,
@@ -24,7 +30,6 @@ function publicUser(user, permissions) {
     name: user.name,
     positions: user.positions,
     contact: user.contact,
-    update_time: user.update_time,
     permissions
   };
 }
@@ -225,8 +230,7 @@ export async function handleUpdateProfile(request, env, user) {
     const fresh = await userModel.findById(user.id);
     return jsonResponse(success({
       message: '已保存',
-      contact: fresh ? fresh.contact : value,
-      update_time: fresh ? fresh.update_time : null
+      contact: fresh ? fresh.contact : value
     }));
   } catch (e) {
     console.error('更新个人资料失败:', e);

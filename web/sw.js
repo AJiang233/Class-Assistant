@@ -21,13 +21,23 @@
  * 走缓存后这三份都是本地读取，白屏消失；后台回源该慢还是慢，但不挡人。
  *
  * ponytail: 缓存名是固定的、文件名里也没有内容哈希，所以**同一次加载里可能拿到
- *   「新 HTML + 旧 CSS/JS」**（前一个的后台刷新先落地了），刷新一次即一致。
- *   要彻底消掉这个窗口，得上构建期给文件名加内容哈希 —— 这个仓库没有构建步骤，先不动。
+ *   「新 HTML + 旧 CSS/JS」**（前一个的后台刷新先落地了）。现在这个窗口只存在于
+ *   「发现部署的那一刻正在加载的那一页」：一发现文档真的变了就把整个壳重取一遍
+ *   （见 revalidate），下一次加载起就是整份新的。要彻底消掉这个窗口，得上构建期给
+ *   文件名加内容哈希 —— 这个仓库没有构建步骤，先不动。
  *
  * 注意：sw.js 由 _headers 声明为 no-cache，保证脚本本身不会被缓存住。
  */
 
-const CACHE = 'ca-shell-v2';
+/**
+ * 缓存名。**不带版本号，也不需要按发版手改**（issue #23）—— 以前靠人记得把 `-v2` 改成 `-v3`，
+ * 忘掉就是「新页面结构 + 旧样式」的混合壳，全靠人肉纪律。现在有两件事各自兜住它：
+ *   1) 每条缓存在被用到的时候都会回源刷新（stale-while-revalidate，见 fetch 处理器）；
+ *   2) 一旦发现文档真的变了（等于「部署了」），就把整个壳按清单重新取一遍（见 revalidate）。
+ * 真要强制全量重来（比如缓存被写坏），改一下这个名字就行：sw.js 的字节一变，install /
+ * activate 会重跑，旧缓存由 activate 清掉。
+ */
+const CACHE = 'ca-shell';
 
 /**
  * 首次安装时预热的应用壳，保证从主屏图标打开即离线可用（不依赖用户是否访问过某个页面）。
@@ -142,6 +152,27 @@ async function store(request, response) {
 }
 
 /**
+ * 把清单里的资源取一遍存进缓存：安装时预热、以及发现部署后整壳重刷，都走这里。
+ *
+ * 用 REFETCH 而不是 cache.add()：默认 fetch 会吃 CDN 那份 max-age=14400 的 HTTP 缓存，
+ * 「重新取一遍」会取出 4 小时前的旧文件，等于没刷 —— 而重刷的全部意义就在于拿到新的。
+ *
+ * 单个资源失败不影响其它（某页临时取不到、中途断网），但必须留痕：某个路由被改坏
+ * 只会在用户断网打开那一页时暴露，线上完全没有信号。清单与真实路由对不对得上，
+ * pwa.test.js 里另有断言钉着。
+ */
+async function precache(paths) {
+  const cache = await caches.open(CACHE);
+  await Promise.all(paths.map(function (path) {
+    return fetch(path, REFETCH).then(function (res) {
+      if (res.ok) return cache.put(path, plain(res));
+    }).catch(function (e) {
+      console.warn('应用壳预热失败：' + path, e);
+    });
+  }));
+}
+
+/**
  * 后台回源刷新缓存。成功就覆盖，失败（断网等）安静收场 ——
  * 缓存里那份已经交给页面了，刷新失败不该惊动任何人，更不该冒泡成未处理的 rejection。
  *
@@ -163,6 +194,13 @@ async function revalidate(request, cached) {
     // 下一次跳转自然拿到新的，在这里顺手刷反而会变成「刚打开就自己刷新」的鬼畜。
     if (cached && request.mode === 'navigate' && await changed(cached, probe)) {
       await notifyChanged(request);
+      // 文档变了 = 部署了：顺手把**整个壳**按清单重取一遍（issue #23）。
+      // 这是「改了页面结构不必手改缓存版本号」的落点：清单里的资源平时只在被请求到时才
+      // 回源刷新，没人打开的页面（比如管理页）会一直留着旧的，靠人手记得版本号 +1 又不可靠。
+      // 顺序是先通知、后重刷：通知会让页面立刻重载，不能被这十几次抓取拖住 —— 万一有一次
+      // fetch 卡住，等在它后面的通知就永远发不出去。所以这次重载仍可能拿到旧 CSS/JS
+      // （就是文件开头那条 ponytail 的窗口），重刷完成后下一次加载起才是整份新的。
+      await precache(PRECACHE);
     }
   } catch (e) { /* 断网/失败：保留缓存里那份 */ }
 }
@@ -223,14 +261,8 @@ async function notifyChanged(request) {
 
 self.addEventListener('install', function (event) {
   event.waitUntil((async function () {
-    const cache = await caches.open(CACHE);
-    // 逐个预热：单个资源失败不影响整体安装（例如某页临时取不到），
-    // 但必须留痕 —— 否则某次部署把路由改坏，只在用户断网时才暴露，线上完全无信号
-    await Promise.all(PRECACHE.map(function (path) {
-      return cache.add(path).catch(function (e) {
-        console.warn('应用壳预热失败：' + path, e);
-      });
-    }));
+    // 预热清单：失败的资源在 precache 里各自留痕，不影响整体安装
+    await precache(PRECACHE);
     // 立即接管，避免用户长期停在旧版本
     await self.skipWaiting();
   })());

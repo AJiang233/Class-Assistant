@@ -9,7 +9,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -133,7 +133,7 @@ test('联网时页面走网络，并写入缓存', async () => {
   const res = await got.promise;
   assert.equal(await res.text(), 'fresh');
   // 键落到规范地址：/index.html 与 / 是同一份，写 .html 会让离线时按另一种写法取不到
-  assert.ok(sw.stores.get('ca-shell-v2').has(ORIGIN + '/'));
+  assert.ok(sw.stores.get('ca-shell').has(ORIGIN + '/'));
 });
 
 test('缓存写入要 await 完成后再返回响应（否则 SW 被回收会静默丢缓存）', async () => {
@@ -144,7 +144,7 @@ test('缓存写入要 await 完成后再返回响应（否则 SW 被回收会静
   const res = await got.promise;
   assert.equal(await res.text(), 'fresh');
   // respondWith 的 promise 结算时，缓存写入必须已经落地
-  assert.ok(sw.stores.get('ca-shell-v2').has(ORIGIN + '/'), '响应返回时缓存应已写入');
+  assert.ok(sw.stores.get('ca-shell').has(ORIGIN + '/'), '响应返回时缓存应已写入');
 });
 
 test('跟过跳转的响应落缓存前去掉 redirected 标记', async () => {
@@ -152,7 +152,7 @@ test('跟过跳转的响应落缓存前去掉 redirected 标记', async () => {
   // 导航请求（页面/iframe 的加载），原样存下来断网回放时会直接变成「网页无法打开」。
   const sw = loadSW(async () => followedRedirect('shell'));
   await fire(sw.handlers.fetch, new Request(ORIGIN + '/notices.html')).promise;
-  const stored = sw.stores.get('ca-shell-v2').get(ORIGIN + '/notices');
+  const stored = sw.stores.get('ca-shell').get(ORIGIN + '/notices');
   assert.ok(stored, '应存在规范地址 /notices 下');
   assert.equal(stored.redirected, false, '存下来的必须是能应答导航的那一份');
 });
@@ -197,7 +197,7 @@ test('命中缓存后仍在后台回源刷新缓存（否则就是「旧缓存�
   // 后台刷新必须挂在 waitUntil 上：不挂的话这个 Promise 游离在事件之外，
   // SW 线程被回收就把这次更新静默丢了 —— 缓存再也不前进。
   await Promise.all(got.waits);
-  assert.equal(await sw.stores.get('ca-shell-v2').get(ORIGIN + '/').text(), 'v2', '下一次打开就是新的');
+  assert.equal(await sw.stores.get('ca-shell').get(ORIGIN + '/').text(), 'v2', '下一次打开就是新的');
 });
 
 test('回源发现页面壳真的变了，立刻让页面重载（不用等下一次打开）', async () => {
@@ -225,6 +225,38 @@ test('页面壳没变就不通知（否则每次打开都在刷用户的表单�
   await Promise.all(got.waits);
 
   assert.deepEqual(sw.clients[0].messages, []);
+});
+
+test('回源发现部署了，就把整个壳按清单重取一遍（issue #23）', async () => {
+  // 以前「改了页面结构」要靠人记得把缓存版本号 +1，忘掉就是「新页面结构 + 旧样式」的混合壳。
+  // 现在只要任何一个页面文档被发现变了（＝部署了），就把预热清单整体刷一遍 ——
+  // 包括用户从没打开过的页面（例如管理页），而不是留着旧的等谁踩上去。
+  let body = 'v1';
+  const asked = [];
+  const caches = [];
+  // 回源那一支传进来的可能是 Request 对象（不是路径字符串），要按 .url 取路径
+  const sw = loadSW(async (input, init) => {
+    const path = typeof input === 'string' ? input : new URL(input.url).pathname;
+    asked.push(path);
+    caches.push(init && init.cache);
+    return ok(path === '/index.html' ? body : '壳：' + path);
+  });
+
+  await fire(sw.handlers.fetch, navigateRequest(ORIGIN + '/index.html')).promise;
+
+  body = 'v2';
+  asked.length = 0;
+  const got = fire(sw.handlers.fetch, navigateRequest(ORIGIN + '/index.html'));
+  await got.promise;
+  await Promise.all(got.waits);
+
+  const refreshed = [...new Set(asked)];
+  assert.ok(refreshed.includes('/notices'), '用户没打开的页面也要刷新，实际取了：' + refreshed.join(' '));
+  assert.ok(refreshed.includes('/assets/js/admin.js'), '没进过管理页的用户，那份 admin.js 也得换新');
+  assert.ok(caches.every((c) => c === 'no-cache'),
+    '重刷必须绕开 CDN 那份 max-age=14400 的 HTTP 缓存，否则取回来的还是旧的');
+  // 落缓存的键是规范地址（不带 .html）—— 与预热、与离线回退查找共用同一套键
+  assert.equal(await sw.stores.get('ca-shell').get(ORIGIN + '/notices').text(), '壳：/notices');
 });
 
 test('只通知停在同一个页面的客户端', async () => {
@@ -264,7 +296,7 @@ test('失败响应（500）不写入缓存', async () => {
   const got = fire(sw.handlers.fetch, new Request(ORIGIN + '/index.html'));
   await got.promise;
   // 500 时压根不会 open 缓存，所以这里用可选链判断
-  assert.equal(sw.stores.get('ca-shell-v2')?.has(ORIGIN + '/') ?? false, false);
+  assert.equal(sw.stores.get('ca-shell')?.has(ORIGIN + '/') ?? false, false);
 });
 
 test('断网且缓存命中时回退到缓存（离线壳）', async () => {
@@ -315,7 +347,7 @@ test('断网时带查询串的深链回退到去掉查询串的预缓存页面',
 
   // 前提：缓存里压根没有带查询串的键，本条断言是用来固定这个前提的
   // （写缓存的键始终走 canonical()，带查询串的查找只用于**读取**，不参与写入）
-  assert.equal(sw.stores.get('ca-shell-v2').has(ORIGIN + '/notices?id=123'), false);
+  assert.equal(sw.stores.get('ca-shell').has(ORIGIN + '/notices?id=123'), false);
 
   const got = fire(sw.handlers.fetch, new Request(ORIGIN + '/notices.html?id=123'));
   const res = await got.promise;
@@ -356,7 +388,7 @@ test('断网时非导航请求缺缓存仍如实失败，不会被主页壳顶�
   online = false;
 
   // 主页壳确实在缓存里（上一个用例已证明它可用），这里要的正是「它在也不许顶替」
-  assert.ok(sw.stores.get('ca-shell-v2').has(ORIGIN + '/'));
+  assert.ok(sw.stores.get('ca-shell').has(ORIGIN + '/'));
   const got = fire(sw.handlers.fetch, new Request(ORIGIN + '/assets/js/missing.js'));
   await assert.rejects(() => got.promise, /Failed to fetch/);
 });
@@ -376,7 +408,7 @@ test('安装时预热应用壳，且单个资源失败不影响整体', async ()
   sw.handlers.install({ waitUntil(p) { installWork = p; } });
   await installWork;
 
-  const entries = sw.stores.get('ca-shell-v2');
+  const entries = sw.stores.get('ca-shell');
   assert.ok(entries.size >= 9, '预热的资源数量应接近清单长度（10 条里故意失败 1 条）');
   // 预热用规范地址：写成 .html 会让站点 308 跳转，存下来的响应带着 redirected 标记，
   // 断网时交给导航请求会被浏览器判成网络错误 —— 也就是「断网后除主页都打不开」
@@ -396,8 +428,61 @@ test('激活时清掉旧版本缓存，并接管页面', async () => {
   await activateWork;
 
   assert.deepEqual(sw.deletedCaches.sort(), ['ca-shell-v1', 'some-other-cache']);
-  assert.equal(sw.stores.has('ca-shell-v2'), false, '当前版本缓存不应被清掉（activate 只删旧的）');
+  assert.equal(sw.stores.has('ca-shell'), false, '当前缓存不应被清掉（activate 只删别的）');
   assert.equal(sw.state.claimed, true);
+});
+
+// ===== 预热清单必须与真实路由对得上（issue #23）=====
+// 清单里写错一个路径，只有用户断网打开那一页时才暴露 —— 线上完全没有信号，而那时才发现
+// 等于当天没有离线壳。所以下面两条是拿着真实文件系统与页面 HTML 去核对，而不是把清单再抄一遍。
+
+const WEB_ROOT = join(HERE, '../..');
+
+/** sw.js 里 PRECACHE 那份字面量清单（先去掉注释行：注释里有 `'self'` 这种带引号的内容） */
+function precacheList() {
+  const at = SOURCE.indexOf('const PRECACHE');
+  const src = SOURCE.slice(at, SOURCE.indexOf('];', at))
+    .split('\n').filter((line) => !line.trim().startsWith('//')).join('\n');
+  const list = [...src.matchAll(/'([^']+)'/g)].map((m) => m[1]);
+  assert.ok(list.length >= 10, '预热清单没解析出来，正则要跟着 sw.js 走');
+  return list;
+}
+
+test('预热清单里的每一条都对应仓库里真实存在的文件', () => {
+  for (const path of precacheList()) {
+    // 页面写的是规范地址（/notices），磁盘上那份叫 notices.html；'/' 对应 index.html
+    const candidates = path === '/' ? ['index.html'] : [path.slice(1), path.slice(1) + '.html'];
+    assert.ok(candidates.some((p) => existsSync(join(WEB_ROOT, p))),
+      path + ' 在仓库里找不到对应文件：路由改了没同步清单，只有断网的用户会发现');
+  }
+});
+
+test('每个页面自身、以及它引用的脚本与样式，都在预热清单里', () => {
+  const list = precacheList();
+  const pages = readdirSync(WEB_ROOT).filter((f) => f.endsWith('.html'));
+  assert.ok(pages.length >= 6, '没扫到页面文件，测试的路径要跟着仓库结构走');
+
+  for (const page of pages) {
+    // 页面自身：缓存键、预热键、离线回退查找用的都是规范地址
+    const canonicalPath = page === 'index.html' ? '/' : '/' + page.replace(/\.html$/, '');
+    assert.ok(list.includes(canonicalPath), page + ' 不在预热清单里：断网打开它就是浏览器错误页');
+
+    const html = readFileSync(join(WEB_ROOT, page), 'utf8');
+    // 只核对脚本与样式：这两个缺了页面直接不可用（CSP 只放行 'self'，脚本全部外置）。
+    // 图标、apple-touch-icon 不在此列 —— 那是系统「加到主屏」时取的，不影响离线可用性。
+    const refs = [
+      ...[...html.matchAll(/<script[^>]+src="([^"]+)"/g)].map((m) => m[1]),
+      ...[...html.matchAll(/<link[^>]+rel="stylesheet"[^>]+href="([^"]+)"/g)].map((m) => m[1])
+    ];
+    assert.ok(refs.length > 0, page + ' 里没扫到脚本或样式引用，正则要跟着页面走');
+
+    for (const ref of refs) {
+      // 页面里写的是相对路径（assets/js/app.js），清单里是站内绝对路径
+      const abs = ref.startsWith('/') ? ref : '/' + ref;
+      assert.ok(list.includes(abs),
+        page + ' 引用了 ' + ref + '，它却不在预热清单里：断网时这一页会缺' + (abs.endsWith('.css') ? '样式' : '脚本'));
+    }
+  }
 });
 
 // ===== 推送 =====

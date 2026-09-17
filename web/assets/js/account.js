@@ -313,10 +313,10 @@ function testPush(kind) {
 //   {"notifications":true,"lastSyncAt":1789300000000}
 // 用字符串传是刻意的 —— 桥的返回值类型在各端解释不完全一致，字符串最稳；
 // 而且两个值一次取回，省掉一次桥调用。网页版没有这个桥 → 两处都不显示。
-// 两个值落在两个位置：上次同步时间贴着资料卡的「更新时间」（都在回答「这份数据什么时候新鲜过」，
-// 所以时间写法也跟它共用 fmtBJTime —— 都是北京时间、YYYY-MM-DD HH:MM:SS，两行并排读着不打架），
-// 通知开关留在「偏好设置 → App 端通知」的两个测试按钮上面 —— 被系统关掉后本地提醒会被静默丢弃，
-// 用户点测试没反应时看的就是那儿，得把真实原因说清而不是留白。
+// 两个值落在两个位置：上次同步时间进资料卡的信息列表（回答「这份数据什么时候新鲜过」，
+// 时间写法见 fmtBJTime），通知开关留在「偏好设置 → App 端通知」的两个测试按钮上面 ——
+// 被系统关掉后本地提醒会被静默丢弃，用户点测试没反应时看的就是那儿，
+// 得把真实原因说清而不是留白。
 
 function readAppStatus() {
     if (!window.CAHost || typeof CAHost.appStatus !== 'function') return null;
@@ -597,14 +597,15 @@ async function checkUpdate() {
 // ===== 加载我的资料 =====
 var currentContact = '';
 /**
- * 北京时间 `YYYY-MM-DD HH:MM:SS`，给资料卡的「更新时间」与「上次同步时间」共用 —— 两行挨着，
- * 写法必须一致，所以别在这里按调用方分支。两种入参：
- *   字符串 = 后端存的时间（UTC，形如 "2026-09-13 06:32:07"，必须拼上 Z 才按 UTC 解析）
- *   数字   = 毫秒时间戳（App 壳经桥回传的 lastSyncAt，本身就是绝对时刻）
- * 取到绝对时刻后统一 +8 小时、再按 UTC 字段读出来，得到的就是北京墙上时间。
+ * 北京时间 `YYYY-MM-DD HH:MM:SS`，给资料卡的「上次同步时间」用。
+ * 入参是毫秒时间戳（App 壳经桥回传的 lastSyncAt，本身就是绝对时刻）：
+ * 取到绝对时刻后 +8 小时、再按 UTC 字段读出来，得到的就是北京墙上时间。
+ *
+ * 它原先还兼着格式化「更新时间」那个字符串（后端存的 UTC，形如 "2026-09-13 06:32:07"，
+ * 必须拼上 Z 才按 UTC 解析）—— 那行删掉之后这个分支就成了死代码，一并去掉。
  */
-function fmtBJTime(v) {
-    var t = typeof v === 'number' ? v : Date.parse(String(v).replace(' ', 'T') + 'Z');
+function fmtBJTime(ms) {
+    var t = Number(ms);
     if (isNaN(t)) return '时间未知';
     var bj = new Date(t + 8 * 3600 * 1000);
     var p = function (n) { return (n < 10 ? '0' : '') + n; };
@@ -641,10 +642,11 @@ function renderProfile(u) {
         + '<span id="contactValue">' + esc(u.contact || '未填写') + '</span>'
         + '<button type="button" class="btn btn-outline btn-sm" data-act="open-contact-edit">编辑</button>'
         + '</span></div>'
-        + '<div class="info-row"><span class="k">更新时间</span><span class="v">' + esc(fmtBJTime(u.update_time)) + '</span></div>'
-        // 「上次同步时间」不是「这份数据存进后端的时刻」，而是 App 上次成功拉完数据的时刻
-        //（安卓 WorkManager / 鸿蒙 workScheduler，由桥 CAHost.appStatus() 读回）。
-        // 只在 App 里有意义，网页版没有这个桥，整行 hidden 不出现；值由 refreshAppStatus() 填。
+        // 「上次同步时间」= App 上次成功拉完数据的时刻（安卓 WorkManager / 鸿蒙 workScheduler，
+        // 由桥 CAHost.appStatus() 读回），只在 App 里有意义：网页版没有这个桥，整行 hidden
+        // 不出现，值由 refreshAppStatus() 填。
+        // 这行旁边原有一条「更新时间」（u.update_time = 这份资料存进后端的时刻），已按需求删除；
+        // 那两个时刻通常只差几分钟，并排放着反而让人分不清哪个才代表「我的数据有多新」。
         + '<div class="info-row" id="appSyncRow" hidden><span class="k">上次同步时间</span><span class="v" id="appSyncValue"></span></div>'
         + '</div>';
     // 上面这段是新造的 DOM，行内元素要重新取值
