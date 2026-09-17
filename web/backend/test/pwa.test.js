@@ -654,7 +654,18 @@ function loadApp({ ua, standalone = false, maxTouchPoints = 0, inShell = false, 
     querySelector: () => null,
     // 壳里的 iframe 列表：验证「原生推回的数据要转发给子页面」时用
     querySelectorAll: () => frames,
-    createElement: () => ({ style: {}, setAttribute: noop, appendChild: noop }),
+    createElement: () => {
+      // esc() 是 textContent→innerHTML 走真实 DOM 的转义，沙箱里得能跑：
+      // 真实 div 也就只有 & < > 三条（引号不转义，那才另有 escAttr），照抄即可
+      const el = { style: {}, setAttribute: noop, appendChild: noop, textContent: '' };
+      Object.defineProperty(el, 'innerHTML', {
+        get() {
+          return String(el.textContent)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        }
+      });
+      return el;
+    },
     body: { appendChild: noop }
   };
   const localStorage = { getItem: () => null, setItem: noop };
@@ -686,7 +697,7 @@ function loadApp({ ua, standalone = false, maxTouchPoints = 0, inShell = false, 
     TextDecoder
   };
   const factory = new Function(...Object.keys(sandbox),
-    APP_SOURCE + '\n;return { shouldOfferInstall: shouldOfferInstall, escAttr: escAttr, safeHref: safeHref, pushSubscribeError: pushSubscribeError, greetingFor: greetingFor, onApiData: onApiData, apiUpdated: window.__caApiUpdated };');
+    APP_SOURCE + '\n;return { shouldOfferInstall: shouldOfferInstall, escAttr: escAttr, safeHref: safeHref, pushSubscribeError: pushSubscribeError, greetingFor: greetingFor, positionsChipsHTML: positionsChipsHTML, onApiData: onApiData, apiUpdated: window.__caApiUpdated };');
   return factory(...Object.values(sandbox));
 }
 
@@ -754,6 +765,26 @@ test('escAttr 转义引号与尖括号，属性无法被闭合', () => {
   assert.equal(app.escAttr('a&b'), 'a&amp;b');
   assert.equal(app.escAttr(null), '');
   assert.equal(app.escAttr(undefined), '');
+});
+
+// ===== 职务徽章 =====
+// 「学生」不在职务选择器里（allPositionNames 排除了它），没勾任何职务的人存进来就是空的；
+// 而库里新旧两种写法都有：注册走的是 '学生'，编辑成员那条路写的是 '[]'。徽章渲染原来对空值
+// 直接 return 裸文本「学生」，成员列表于是变成一半徽章一半裸字 —— 三种形状都要落到同一个 chip。
+
+test('职务徽章：没有职务的人也要出 chip，不能落成裸文本', () => {
+  const app = loadApp({ ua: UA_PC_CHROME });
+  const student = '<span class="pos-tag">学生</span>';
+  for (const raw of ['', '[]', '[""]', [], null, undefined]) {
+    assert.equal(app.positionsChipsHTML(raw), student, JSON.stringify(raw) + ' 应渲染成「学生」徽章');
+  }
+  assert.equal(app.positionsChipsHTML('班长'), '<span class="pos-tag">班长</span>');
+  assert.equal(
+    app.positionsChipsHTML('["班长","学习委员"]'),
+    '<span class="pos-tag">班长</span><span class="pos-tag">学习委员</span>',
+    '多职务仍逐个出 chip'
+  );
+  assert.equal(app.positionsChipsHTML('<b>'), '<span class="pos-tag">&lt;b&gt;</span>', '职务名照旧转义');
 });
 
 test('safeHref 只放行站内路径与 http(s)，挡掉伪协议', () => {

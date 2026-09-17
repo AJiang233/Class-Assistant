@@ -192,8 +192,13 @@ function parsePositionsList(p) {
 /** 职务标签（chip）样式展示，多个职务并列显示 */
 function positionsChipsHTML(p) {
   const list = parsePositionsList(p);
-  if (!list.length) return '学生';
-  return list.map(function (n) { return '<span class="pos-tag">' + esc(n) + '</span>'; }).join('');
+  // 没有职务的人也要出同一个 chip。原来这里空值直接 return 裸文本「学生」，
+  // 于是成员列表里就一半是徽章、一半是光秃秃的「学生」两个字。
+  // 为什么会空：「学生」不在职务选择器里（allPositionNames 把它排除了），不勾任何职务
+  // 的人存进来就是空的；而数据库里新旧两种写法都有（'学生' / '[]' / 空串），
+  // 所以兜底只能放在这个所有调用点共用的渲染函数里，不能在写入端统一了事。
+  const names = list.length ? list : ['学生'];
+  return names.map(function (n) { return '<span class="pos-tag">' + esc(n) + '</span>'; }).join('');
 }
 
 /* ===== 事件委托 =====
