@@ -75,6 +75,19 @@ class MainActivity : AppCompatActivity() {
     /** 上报 Cookie 期间避免重复触发 */
     private var bindingInProgress = false
 
+    /**
+     * 本次登录流程里是否**离开过教务主机**（去 CAS / 统一身份认证那几跳）。
+     *
+     * 「URL 落在教务域」不等于「用户已经登录」（issue #29）：流程第一步加载的就是 SCHOOL_ORIGIN
+     * 本身，而 Cookie 罐里往往还留着上一次的会话 —— 只看 host 就会在第一页拿一份未认证的 Cookie
+     * 去上报，后端拉不到课表，于是刚点「一键绑定」就弹「绑定失败」并把用户踢回门户。
+     *
+     * 登录链路是 authserver（CAS 登录页）→ workflow（中转）→ szjw（教务门户），前后两个主机不同，
+     * 所以「离开过 szjw 又被送回来」是能观测到的事实。它只会漏判（同主机的登录页 → 不自动上报，
+     * 用户按返回键放弃），不会误判成「已登录」—— 上报与否最终仍以后端能不能拉到数据为准。
+     */
+    private var leftSchoolHost = false
+
     /** WebView 原始 UA，教务登录结束后还原 */
     private var defaultUserAgent: String? = null
 
@@ -581,6 +594,10 @@ class MainActivity : AppCompatActivity() {
                 override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
                     // 桥的来源校验依赖这个值，必须在本页脚本执行之前更新
                     currentUrl = url
+                    // 教务登录期间离开教务主机（去 CAS / 统一身份认证）就记一笔：
+                    // onPageFinished 靠它区分「认证走完被送回来了」和「页面本来就停在教务域」
+                    // （issue #29，见 leftSchoolHost 的注释）
+                    if (academicLogin && url != null && !isSchoolUrl(url)) leftSchoolHost = true
                     // 同一时刻把桥的挂载范围收窄到这一份文档（issue #28）。onPageStarted 是主框架
                     // 「新文档开始」的那一刻，此时摘掉，接下来的文档就注入不到这个对象 —— 教务 /
                     // CAS 页面上拿到的不是「调了被拒」，而是根本没有 CAHost。
@@ -591,9 +608,15 @@ class MainActivity : AppCompatActivity() {
                 override fun onPageFinished(view: WebView, url: String?) {
                     binding.swipeRefresh.isRefreshing = false
                     if (academicLogin) {
-                        // 教务登录流程中：回到教务域即视为登录完成，读取 Cookie 上报；
-                        // 且不能注入探针——探针在教务页找不到本应用 token 会回传空串，把本地登录态清掉
-                        if (url != null && isSchoolUrl(url)) uploadAcademicCookies()
+                        // 教务登录流程中：不能注入探针——探针在教务页找不到本应用 token 会回传空串，
+                        // 把本地登录态清掉。
+                        // 上报条件必须带上 leftSchoolHost：光看 host 会在点进来第一页就上报（issue #29，
+                        // 见该字段的注释）。上报后立刻清掉它，用户在教务站里接着翻页时不会反复上报 ——
+                        // 每次上报后端都要真去拉一次课表，不能每翻一页来一发。
+                        if (url != null && isSchoolUrl(url) && leftSchoolHost) {
+                            leftSchoolHost = false
+                            uploadAcademicCookies(announceFailure = true)
+                        }
                         return
                     }
                     // 安装滚动状态探针（脚本内部幂等，重复注入无副作用）
@@ -774,7 +797,10 @@ class MainActivity : AppCompatActivity() {
 
     /**
      * 进入教务系统登录：教务对手机 UA 有兼容问题（页面错乱），因此整个过程固定用桌面 UA。
-     * 登录成功后由 onPageFinished 触发 Cookie 上报，再回到门户。
+     * 结束有两条路（都是「没成功就不结束」）：
+     *   - 上报成功：`uploadAcademicCookies` 里落到课表页
+     *   - 用户按返回键放弃：`onKeyDown` 里回门户
+     * 另外开流程时先拿现有 Cookie 试一次，会话还有效就直接绑好，不必再登一遍（见下）。
      */
     private fun beginAcademicLogin() {
         if (academicLogin) return
@@ -784,14 +810,25 @@ class MainActivity : AppCompatActivity() {
         }
         academicLogin = true
         bindingInProgress = false
+        leftSchoolHost = false
         if (defaultUserAgent == null) defaultUserAgent = binding.webView.settings.userAgentString
         binding.webView.settings.userAgentString = DESKTOP_UA
         binding.webView.loadUrl(SCHOOL_ORIGIN)
         Toast.makeText(this, "请登录教务系统，登录完成后会自动返回", Toast.LENGTH_LONG).show()
+        // 顺手拿现有 Cookie 试一次：教务会话还没过期的话（之前绑过、只是重装或换了设备）这一步
+        // 就直接绑好了，用户不必白登一遍。失败**不提示** —— 用户马上要看到登录页，这时弹一句
+        // 「绑定失败」正是 issue #29 里那个让人以为坏了的提示
+        uploadAcademicCookies(announceFailure = false)
     }
 
-    /** 读取教务域下的会话 Cookie（含 HttpOnly），交给后端代拉课表与学分 */
-    private fun uploadAcademicCookies() {
+    /**
+     * 读取教务域下的会话 Cookie（含 HttpOnly），交给后端代拉课表与学分。
+     *
+     * @param announceFailure 失败时要不要弹提示。进流程时那一次是「顺手试试」，没成也不必说
+     *   （见 beginAcademicLogin）；走完 CAS 又被送回教务之后失败，才是真出了问题 —— 账号都认了，
+     *   后端却仍拉不到数据，这时候得让用户知道。
+     */
+    private fun uploadAcademicCookies(announceFailure: Boolean) {
         if (bindingInProgress) return
         val cookies = CookieManager.getInstance().getCookie(SCHOOL_ORIGIN)
         if (cookies.isNullOrBlank()) return
@@ -810,13 +847,29 @@ class MainActivity : AppCompatActivity() {
                 else -> "网络异常，绑定失败"
             }
             runOnUiThread {
-                Toast.makeText(this, message, Toast.LENGTH_LONG).show()
-                finishAcademicLogin(ok)
+                if (ok) {
+                    Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+                    finishAcademicLogin(true)
+                    return@runOnUiThread
+                }
+                // 失败**不能结束流程**（issue #29）：用户很可能还停在教务登录页上，把他踢回门户
+                // 就变成「点一下、什么都没做、直接失败」。留在教务页继续等下一次上报（重新登录会
+                // 再绕一遍 CAS，leftSchoolHost 会重新置位），想放弃就按返回键。
+                // 后端是「校验通过才落库」（academicHandler 的 bindWithCookies），所以这次失败不会
+                // 覆盖掉原有的绑定。
+                bindingInProgress = false
+                if (announceFailure) Toast.makeText(this, message, Toast.LENGTH_LONG).show()
             }
         }.start()
     }
 
-    /** 结束教务登录流程：还原 UA 并回到门户（成功则直接落到课表页） */
+    /**
+     * 结束教务登录流程：还原 UA 并回到门户（成功则直接落到课表页）。
+     *
+     * 只有两处调用：上报成功后（`success = true`）与用户按返回键放弃（`false`）。
+     * **上报失败不进这里** —— 失败就留在教务页继续等（issue #29），这条是那个 bug 的底线：
+     * 只要失败还能走到这里，用户就会看到「点一下、什么都没做、直接失败」。
+     */
     private fun finishAcademicLogin(success: Boolean) {
         academicLogin = false
         bindingInProgress = false
@@ -826,7 +879,8 @@ class MainActivity : AppCompatActivity() {
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         if (keyCode == KeyEvent.KEYCODE_BACK) {
-            // 教务登录中途返回 = 放弃绑定，直接回门户
+            // 教务登录中途返回 = 放弃绑定，直接回门户（也是 issue #29 之后唯一的退出口：
+            // 没走完 CAS 就不会自动上报，用户想不绑了就从这里走）
             if (academicLogin) {
                 finishAcademicLogin(false)
                 return true
