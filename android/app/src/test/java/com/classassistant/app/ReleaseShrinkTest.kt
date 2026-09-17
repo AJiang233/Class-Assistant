@@ -90,8 +90,14 @@ class ReleaseShrinkTest {
             .firstOrNull { it.exists() } ?: throw AssertionError("没找到 android/README.md")
         val line = readme.readText().lineSequence().firstOrNull { it.contains("**JS 桥") }
             ?: throw AssertionError("android/README.md 里没有「JS 桥」那一行清单了")
-        // 清单写成 `setToken` / `setPullRefreshReady` / … ；开头那个 `CAHost` 是桥对象名，不是方法
-        val listed = Regex("""`([A-Za-z]\w*)`""").findAll(line.substringAfter('：'))
+        // 清单写成 `setToken` / `setPullRefreshReady` / … ，以 ` —— ` 收尾，后面是说明文字。
+        // **只取分隔符之前那一段**：这一行是讲桥的地方，说明里顺手用反引号写别的标识符很正常
+        // （issue #28 那会儿就加了 removeJavascriptInterface / isAppOrigin / currentUrl），
+        // 整行扫会把它们全当成桥方法名，报出「README 写了但代码里没有」的假红。
+        // 清单若真被挪到分隔符后面，这里会一个都解析不出来 —— 下面那句「没解析出来」先红，
+        // 所以不会变成「悄悄不检查了」。开头那个 `CAHost` 是桥对象名，不是方法。
+        val listed = Regex("""`([A-Za-z]\w*)`""")
+            .findAll(line.substringAfter('：').substringBefore(" —— "))
             .map { it.groupValues[1] }.filterNot { it == "CAHost" }.toSet()
         assertTrue("README 的桥方法清单没解析出来", listed.isNotEmpty())
         assertTrue("README 里写了但 HostBridge 上没有：${listed - bridge}", bridge.containsAll(listed))
