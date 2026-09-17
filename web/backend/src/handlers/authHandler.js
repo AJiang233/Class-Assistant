@@ -9,7 +9,9 @@ import {
   buildRoleMap,
   isReservedRole,
   sanitizePermissions,
-  assertCustomRoleName
+  assertCustomRoleName,
+  positionsToStore,
+  STUDENT_ROLE
 } from '../utils/permissions.js';
 
 const PASSWORD_MIN = 6;
@@ -61,7 +63,7 @@ async function computePermissions(env, positions) {
 export async function handleRegister(request, env) {
   try {
     const body = await request.json();
-    const { student_id, name, password, positions = '学生', contact = '', role_permissions, role_name } = body;
+    const { student_id, name, password, positions = STUDENT_ROLE, contact = '', role_permissions, role_name } = body;
 
     // 校验必填字段
     if (!student_id || !name || !password) {
@@ -102,9 +104,9 @@ export async function handleRegister(request, env) {
       }
     }
 
-    // positions 兼容数组（自动转 JSON 字符串）或字符串，D1 不接受 object 类型；空数组回退为「学生」
-    const posArr = Array.isArray(positions) ? positions.filter(Boolean) : null;
-    const positionsValue = posArr ? (posArr.length ? JSON.stringify(posArr) : '学生') : positions;
+    // D1 不接受 object 类型，且「没有职务」的历史写法（[] / '' / '[]'）都在这里归一成 '学生'，
+    // 与编辑成员那条路共用同一个函数（utils/permissions.js 的 positionsToStore）
+    const positionsValue = positionsToStore(positions);
 
     const userModel = new UserModel(env.DB);
 
@@ -346,7 +348,8 @@ export async function handleUpdateUser(request, env, user, params) {
           return jsonResponse(error(named.message, named.code), 400);
         }
       }
-      positionsValue = Array.isArray(positions) ? JSON.stringify(positions) : positions;
+      // 与注册同一口径：空的一律存 '学生'，别在这里自己 stringify 出一个 '[]'
+      positionsValue = positionsToStore(positions);
     }
 
     const userModel = new UserModel(env.DB);

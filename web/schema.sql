@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS users (
   name           TEXT NOT NULL,
   password_hash  TEXT NOT NULL,
   auth_key       TEXT,
-  positions      TEXT DEFAULT '学生',
+  positions      TEXT DEFAULT '学生',        -- 职位：单个字符串或 JSON 数组字符串；没有职务一律存 '学生'（唯一写法）
   contact        TEXT,
   update_time    DATETIME DEFAULT CURRENT_TIMESTAMP
 );

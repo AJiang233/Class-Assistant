@@ -73,6 +73,7 @@ web/                            # Cloudflare Pages 项目根目录（直接部�
 | 其它成员 | ❌（只读） | ❌ |
 
 - **自定义职位（增删需 `user:manage`）**：「添加职位」卡片可新建职位并勾选权限（可发布内容 / 可管理成员 / 不计入班级管理），存入 `roles` 表持久化；「管理职位」卡片列出默认职位（不可修改 / 删除）与自定义职位（可删除）。**职位列表对所有登录用户可读**，因此这两张卡片对任何可进入管理页的成员都正常显示；而**新增 / 删除职位需 `user:manage`（管理成员）权限**，无权限者点击提交会收到 403「没有操作权限」。无权限要求的自定义职位（如「团员」）直接写进 `positions` 即可，无需建 `roles`。注册 / 编辑成员时，可选项会自动包含**预设职位 + `roles` 表已定义的自定义职位 + 成员表中已在用的自定义职位**。
+- **没有职务的人一律存 `学生`，只有这一种写法**：注册与编辑成员两条写入路径都过 `positionsToStore`，空数组 / 空串 / `[]` 在入库前就归一成它（存量由 `migrations/2026-09-17-student-role.sql` 刷平）。它不在上面的预设权限表里，所以**不代表任何权限**——作用只是职务徽章的兜底文案与「按职位选择」的分组名。`roles` 表里的预置职位同名行**一律不生效**（读表时 `buildRoleMap` 直接忽略预置名，不管库里有没有这行），写入口也不允许新增。
 - **不计入班级管理（`class:exclude`，只能挂在自定义职位上）**：带该权限的人**不算「默认全班」的一员**——通知 / 活动 / 表单的提醒对象为空（默认全班）时，列表里看不到、安卓 / 鸿蒙也不推送，只有把他**明确勾选**进提醒对象才通知；表单的「未交名单」同样不把他算作应交人员（但通过链接打开仍可提交）。判断都在服务端做（`utils/audience.js`），网页列表与两端 App 推送读的是同一接口，因此客户端不需要各自再算一遍。
 - **按职位一键选择提醒对象**：发布 / 编辑 通知·活动时，提醒对象选择区顶部会按成员职位生成快捷标签，点击即全选该职位的成员（最终保存为成员姓名快照）。点「不计入班级管理」职位的标签属于**明确勾选**，这些人会照常收到。
 - 登录 / `me` 接口会返回当前用户的 `permissions` 数组，前端据此显隐发布/编辑/删除/成员管理入口。
@@ -356,7 +357,7 @@ CREATE TABLE users (
   name           TEXT NOT NULL,
   password_hash  TEXT NOT NULL,             -- "盐值:PBKDF2哈希"
   auth_key       TEXT,                      -- 预留（Agent/Webhook 认证）
-  positions      TEXT DEFAULT '学生',        -- 职位：单个字符串或 JSON 数组字符串（可多职位）
+  positions      TEXT DEFAULT '学生',        -- 职位：单个字符串或 JSON 数组字符串；没有职务一律存 '学生'（唯一写法）
   contact        TEXT,
   update_time    DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -457,7 +458,7 @@ CREATE TABLE form_submissions (             -- 表单提交：每人每表一条
 CREATE INDEX IF NOT EXISTS idx_form_submissions_form ON form_submissions(form_id);
 ```
 
-> 新库直接用 `schema.sql` 建表；已有库执行 `migrations/2026-09-11-security.sql`（清掉误写入的预置职位）、
+> 新库直接用 `schema.sql` 建表；已有库执行 `migrations/2026-09-17-student-role.sql`（把「没有职务」归一到存 `'学生'`、并清掉误写入的预置职位）、
 > `migrations/2026-09-12-mfa-attempts.sql`（MFA 验证码试错计数）、`migrations/2026-09-12-forms.sql`
 > （表单 `forms` / `form_submissions` 两张表 + 通知 `link` 列），以及历史迁移：
 > `ALTER TABLE notices ADD COLUMN expire_time DATETIME;`、创建 `roles` 表，
@@ -521,7 +522,9 @@ CREATE INDEX IF NOT EXISTS idx_form_submissions_form ON form_submissions(form_id
 - JWT / 教务 Cookie 密钥只放 Pages Secrets 或本地 `.dev.vars`，**不要写进 `wrangler.toml`**
 - **教务代登录**：学号密码只在单次请求内存里用于换取会话，**不落库、不打日志、不返回前端**；
   绑定强制校验「教务学号 = 当前门户学号」；落库的会话 Cookie 与 MFA 中间态使用 AES-GCM 封存
-- 系统预置职位（学生/班长/团支书/学习委员）不允许写入 `roles` 表覆盖全班权限
+- 系统预置职位（学生/班长/团支书/学习委员）不允许写入 `roles` 表覆盖全班权限；
+  写入口（`assertCustomRoleName` / `handleCreateRole`）会拒绝，读表时 `buildRoleMap` 也忽略预置名
+  —— 就算库里残留一行同名的（如早期建的「学生」），它也不会叠加到全班同名职位上
 - 内容写操作（发布/编辑/删除）与成员管理均按职位鉴权
 - **表单导出 CSV 防公式注入**：以 `= + - @` 开头的单元格会先加 `'` 中和（导出的是全班学号姓名，Excel 会当公式执行）
 - 前端所有用户输入经 `esc()` 转义，防止 XSS

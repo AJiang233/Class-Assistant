@@ -9,7 +9,9 @@ import {
   buildRoleMap,
   getPermissions,
   isReservedRole,
-  sanitizePermissions
+  sanitizePermissions,
+  positionsToStore,
+  STUDENT_ROLE
 } from '../src/utils/permissions.js';
 import { hashPassword, verifyPassword } from '../src/utils/crypto.js';
 import { sign, verify } from '../src/utils/jwt.js';
@@ -75,6 +77,19 @@ describe('自定义职位', () => {
     );
     assert.ok(ALLOWED_PERMISSIONS.includes('content:write'));
   });
+
+  it('没有职务只有一种存法：空的一律落到「学生」', () => {
+    // 历史上三种写法都进过库：注册走 '学生'、编辑成员不勾任何职务走 '[]'、更早的还有空串 / NULL。
+    // 注册与编辑成员两条写入路径现在共用 positionsToStore，所以这里逐个形状过一遍。
+    for (const raw of [[], [''], '', '   ', '[]', null, undefined]) {
+      assert.equal(positionsToStore(raw), STUDENT_ROLE, JSON.stringify(raw) + ' 应存成「学生」');
+    }
+    // 有职务的照旧：数组转 JSON 字符串；单个职位的纯字符串保持原样（老写法 parsePositions 仍能读）
+    assert.equal(positionsToStore(['班长']), '["班长"]');
+    assert.equal(positionsToStore(['班长', '学习委员']), '["班长","学习委员"]');
+    assert.equal(positionsToStore('班长'), '班长');
+    assert.equal(positionsToStore('["班长"]'), '["班长"]');
+  });
 });
 
 describe('权限查表健壮性', () => {
@@ -93,6 +108,28 @@ describe('权限查表健壮性', () => {
     assert.deepEqual(Array.from(getPermissions(['文艺委员'], map)), []);
     // 内置职位不受自定义表影响
     assert.deepEqual(Array.from(getPermissions(['班长'], map)).sort(), ['content:write', 'user:manage']);
+  });
+
+  it('预置职位行即使混进了 roles 表也不生效（尤其历史遗留的「学生」行）', () => {
+    // 写入口已经拒绝写入预置名（见上一个 describe），但存量行可能还在库里。
+    // 一行「学生」不会报错，只会顺着 buildRoleMap 叠加到全班默认成员身上 —— 这条就是防它。
+    const map = buildRoleMap([
+      { name: '学生', permissions: '["content:write","user:manage"]' },
+      { name: ' 班长 ', permissions: '["class:exclude"]' },
+      { name: '文艺委员', permissions: '["content:write"]' }
+    ]);
+    assert.deepEqual(Object.keys(map), ['文艺委员'], '预置名不该进映射表，且名字要先 trim');
+    assert.deepEqual(Array.from(getPermissions([STUDENT_ROLE], map)), [], '默认的「学生」不能被提权');
+    assert.deepEqual(
+      Array.from(getPermissions(['班长'], map)).sort(),
+      ['content:write', 'user:manage'],
+      '班长只拿内置权限，行里多加的 class:exclude 不生效'
+    );
+    assert.deepEqual(
+      Array.from(getPermissions([' 班长 '], map)).sort(),
+      [],
+      '查表不做 trim：职务名在写入时就已经归一，这里不额外宽容'
+    );
   });
 });
 
