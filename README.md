@@ -55,13 +55,13 @@ Go 模块声明在根目录 `go.mod`（go 1.22，模块路径 `github.com/AJiang
 
 ## 协作分工
 
-> 依据本仓库的提交记录（`git shortlog -sn`，以及各目录下的 author）整理，**截至 0.3.2**；同一人可能留下过多个提交身份（`TidalStarNan` 与 `汐星楠`），已合并统计。
+> 依据本仓库的提交记录（`git shortlog -sn`，以及各目录下的 author）整理，**截至 0.5.4**；同一人可能留下过多个提交身份（`TidalStarNan` 与 `汐星楠`），已合并统计。
 
 | 贡献者 | 主要工作 |
 | --- | --- |
 | AJiang233 | 后端 API / 鉴权与权限体系 / 通知与活动数据模型、CAS 代登录的 Cookie 罐与会话换取判定、课表页错误分支兜底、前端 API 超时兜底；Web 课表与学分看板、班级主页与管理员页面、移动端适配、个人中心卡片折叠与两列排布；安全加固（全站 CSP、内联脚本与内联事件处理器全部外置）；安卓端（WebView 套壳、下拉刷新、本地提醒、桌面小组件、日历订阅、离线可用、后台常驻与深 Doze 兜底）；安卓到鸿蒙的交接文档 |
 | TsoiTZF | Go 常驻调度（`cmd/scheduler` + `internal/`：Cookie 封存 / 学号比对 / 职位白名单 / 进程内限流，密文格式与 Worker 交叉验证）、安全审查与加固（教务越权、自定义职位提权、密码长度、MFA 次数上限） |
-| TidalStarNan | 架构迁移到 Cloudflare Pages（`functions/` 接管 `/api/*`）、Web 前端主体开发与移动端布局适配修复（班级主页 / 通知 / 活动 / 账号 / 管理员页面 / 弹窗 / 表单）；安卓端 GitHub Actions 打包、通知渠道改弹横幅与通知 / 活动深链、按提醒对象过滤与推送扇出分批、后台同步压到各自的周期下限、图标统一、制作「检查更新」功能；鸿蒙端后续对齐；桌面小组件改版；模块 README 拆分与各次发版记账（`version.json`） |
+| TidalStarNan | 架构迁移到 Cloudflare Pages（`functions/` 接管 `/api/*`）、Web 前端主体开发与移动端布局适配修复（班级主页 / 通知 / 活动 / 账号 / 管理员页面 / 弹窗 / 表单）；安卓端 GitHub Actions 打包、通知渠道改弹横幅与通知 / 活动深链、按提醒对象过滤与推送扇出分批、后台同步压到各自的周期下限、图标统一、制作「检查更新」功能；桌面小组件改版；模块 README 拆分与各次发版记账（`version.json`）；0.3.2 之后的三端审计与修复批次与通知渠道 v3+MAX 升级、推送测试异步化及回调转发 |
 | juuuua | 鸿蒙端**初版**（ArkTS + ArkWeb 套壳与 `CAHost` JS 桥、workScheduler 后台同步、reminderAgentManager 到点提醒、服务卡片「今日活动」、教务绑定流程）；之后各轮的端到端对齐与修补见 `TidalStarNan` 一行 |
 
 ## Roadmap

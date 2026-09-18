@@ -1012,7 +1012,10 @@ input[type="checkbox"]:disabled { opacity: 0.5; cursor: not-allowed; }
   border-radius: var(--radius-md);
   background: var(--danger-soft); color: var(--danger);
   font-size: 0.85rem; font-weight: 600; line-height: 1.5;
+  /* 断网图标 + 文案一行排开（图标取 currentColor，继承 danger 色） */
+  display: flex; align-items: center; gap: 7px;
 }
+.offline-notice svg { flex-shrink: 0; }
 
 /* ═══════════════════════════════════════════════════════════════════
    18 · 应用壳

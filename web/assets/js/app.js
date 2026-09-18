@@ -588,9 +588,10 @@ function renderOfflineNotice() {
   var el = document.createElement('div');
   el.id = 'offlineNotice';
   el.className = 'offline-notice';
-  el.textContent = inNativeShell()
+  // 文案是固定的（无用户输入），可以直接拼 icon()；用 innerHTML 是为了在文字前放断网图标
+  el.innerHTML = icon('wifi-off') + '<span>' + (inNativeShell()
     ? '当前无网络，显示的是缓存数据'
-    : '当前无网络，部分内容可能无法加载';
+    : '当前无网络，部分内容可能无法加载') + '</span>';
   host.insertBefore(el, host.firstChild);
 }
 
@@ -749,7 +750,9 @@ var DETAIL_ICONS = {
   // 收件箱：空态用。原来的空态是一个 52px 实心圆，形状不带信息又太像 iOS（issue #74）
   inbox: '<polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>',
   // 三角感叹号：错误态用。刻意不用圆形的 alert-circle —— 要的就是脱离那个「圆」
-  'alert-triangle': '<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>'
+  'alert-triangle': '<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
+  // 断网提示条用（renderOfflineNotice）：Wi-Fi 上画一道斜杠，一眼即「没网」
+  'wifi-off': '<line x1="1" y1="1" x2="23" y2="23"/><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"/><path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"/><path d="M10.71 5.05A16 16 0 0 1 22.58 9"/><path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/>'
 };
 function icon(name) {
   var p = DETAIL_ICONS[name] || '';
