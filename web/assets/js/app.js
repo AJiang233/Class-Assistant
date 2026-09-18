@@ -26,16 +26,18 @@ async function api(path, options = {}) {
     const timedOut = !(options.signal) && e && (e.name === 'TimeoutError' || e.name === 'AbortError');
     throw new Error(timedOut ? '请求超时（>30s），请检查网络后重试' : ('网络错误：' + (e.message || '无法连接服务器')));
   }
-  const data = await res.json().catch(() => ({}));
+  // raw 模式（导出二进制 / 需要自己消费 Response 的调用）直接给回 Response，不做 JSON 解析
+  const data = options.raw ? res : await res.json().catch(() => ({}));
   if (!res.ok) {
     // 登录态失效（token 过期/无效）：清除本地会话，回主页引导页
     if (res.status === 401 && token) {
       clearSession();
       redirectToIndex();
     }
-    // 透传后端错误码与 HTTP 状态，供前端按 code 精确分支（不再靠文案匹配）
-    const err = new Error(data.error || '请求失败（' + res.status + '）');
-    err.code = data.code || '';
+    // 透传后端错误码与 HTTP 状态，供前端按 code 精确分支（不再靠文案匹配）；
+    // raw 模式下 data 就是 Response，没有 .error / .code，统一退化成状态码文案
+    const err = new Error(data && data.error ? data.error : '请求失败（' + res.status + '）');
+    err.code = data && data.code ? data.code : '';
     err.httpStatus = res.status;
     throw err;
   }
@@ -165,17 +167,7 @@ function userPositions() {
   return [s];
 }
 
-/** 职务字段为 JSON 字符串（如 ["班长","学习委员"]），展示时转为可读文本 */
-function fmtPositions(p) {
-  if (!p) return '学生';
-  const s = String(p);
-  if (s.charAt(0) === '[') {
-    try { return JSON.parse(s).join('、') || '学生'; } catch { return s; }
-  }
-  return s;
-}
-
-/** 解析职务字段为数组（兼容 JSON 数组字符串 / 逗号·顿号·空格分隔 / 普通字符串） */
+/** 职务字段为 JSON 字符串（如 ["班长","学习委员"]），解析为数组（兼容逗号·顿号·空格分隔） */
 function parsePositionsList(p) {
   if (p == null) return [];
   const s = String(p).trim();
@@ -515,9 +507,16 @@ if ('serviceWorker' in navigator) {
      这一次刷新 —— 用户手上的东西比「立刻看到新页面」值钱；页面可以是旧的，下一次跳页
      或者重开自然就是新的。 */
   navigator.serviceWorker.addEventListener('message', function (event) {
-    if (!event.data || event.data.type !== 'ca-shell-updated') return;
-    if (hasUnsavedInput()) return;
-    location.reload();
+    if (!event.data) return;
+    if (event.data.type === 'ca-shell-updated') {
+      if (hasUnsavedInput()) return;
+      location.reload();
+    } else if (event.data.type === 'ca-shell-navigate' && event.data.url) {
+      // 点通知的兜底路由（issue #84 项 11）：老 Safari 没有 client.navigate，SW 把目标地址
+      // 交到这里自己跳。location.href 带查询串（如 /?view=notices&id=3），加载后由
+      // index.js / 子页面按深链自行路由，与 client.navigate 的效果一致。
+      location.href = event.data.url;
+    }
   });
 }
 
@@ -593,6 +592,20 @@ function canManageUsers() {
   const u = getSession();
   if (u && Array.isArray(u.permissions)) return u.permissions.includes('user:manage');
   return userPositions().some(r => r === '班长' || r === '团支书');
+}
+
+/** 能否进入管理员面板：发布权限或成员管理权限任一即可（侧栏入口 / 个人页入口 / 管理页闸门三处共用） */
+function canManagePanel() {
+  return canContentWrite() || canManageUsers();
+}
+
+/** 卡片折叠（默认收起，点击标题行展开/收起）—— 个人页与管理员页各一份的旧实现已收敛到这里 */
+function toggleCollapse(id) {
+  const card = document.getElementById(id);
+  if (!card) return;
+  const open = card.classList.toggle('open');
+  const head = card.querySelector('.collapse-head');
+  if (head) head.setAttribute('aria-expanded', open ? 'true' : 'false');
 }
 
 /** 清除会话 */

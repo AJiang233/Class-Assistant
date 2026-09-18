@@ -121,8 +121,8 @@ function closeDetail() {
     modalOverlay.classList.remove('show');
     document.body.style.overflow = '';
 }
-// 点遮罩空白处关闭
-modalOverlay.addEventListener('click', function (e) {
+// 点遮罩空白处关闭（空值守卫：弹窗节点漂移时别让这句把文件后半段的绑定打死，issue #84 项 6）
+if (modalOverlay) modalOverlay.addEventListener('click', function (e) {
     if (e.target === modalOverlay) closeDetail();
 });
 // ESC 关闭
@@ -140,7 +140,7 @@ function closeEdit() {
     editOverlay.classList.remove('show');
     document.body.style.overflow = '';
 }
-editOverlay.addEventListener('click', function (e) {
+if (editOverlay) editOverlay.addEventListener('click', function (e) {
     if (e.target === editOverlay) cancelEdit();
 });
 document.addEventListener('keydown', function (e) {
@@ -252,7 +252,8 @@ async function submitEdit() {
 // ===== 事件绑定 =====
 // CSP 的 script-src 只放行 'self'，页面里不能再写内联 onclick：
 // 动态列表行用 data-act 标记 + 委托（列表重绘也不用重新绑），静态按钮直接按 id 绑。
-document.getElementById('editSubmitBtn').addEventListener('click', submitEdit);
+var editSubmitBtn = document.getElementById('editSubmitBtn');
+if (editSubmitBtn) editSubmitBtn.addEventListener('click', submitEdit);
 delegate(document, 'click', '[data-act="close-detail"]', function () { closeDetail(); });
 delegate(document, 'click', '[data-act="cancel-edit"]', function () { cancelEdit(); });
 delegate(document, 'click', '[data-act="edit-activity"]', function (el) { startEdit(el.getAttribute('data-id')); });

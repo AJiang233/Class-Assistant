@@ -2,17 +2,8 @@
 // ===== 需要登录 =====
 if (!requireAuth()) return;
 
-// ===== 卡片折叠（默认收起，点击标题行展开/收起） =====
-function toggleCollapse(id) {
-    var card = document.getElementById(id);
-    if (!card) return;
-    var open = card.classList.toggle('open');
-    var head = card.querySelector('.collapse-head');
-    if (head) head.setAttribute('aria-expanded', open ? 'true' : 'false');
-}
-
 // ===== 管理员面板入口（仅手机端显示；无权限则直接移除该卡片） =====
-if (!(canManageUsers() || canContentWrite())) {
+if (!canManagePanel()) {
     var adminEntry = document.getElementById('adminEntryCard');
     if (adminEntry) adminEntry.remove();
 }
@@ -60,9 +51,10 @@ async function saveContact() {
         btn.disabled = false; btn.textContent = t;
     }
 }
-// 点遮罩 / 按 ESC 关闭；输入框回车即保存
+// 点遮罩 / 按 ESC 关闭；输入框回车即保存（空值守卫：节点漂移时别让这段把文件后半段绑定打死，issue #84 项 6）
 (function bindContactModal() {
     var overlay = document.getElementById('contactModal');
+    if (!overlay) return;
     overlay.addEventListener('click', function (e) { if (e.target === overlay) closeContactEdit(); });
     document.addEventListener('keydown', function (e) {
         if (e.key === 'Escape' && overlay.classList.contains('show')) closeContactEdit();
@@ -305,18 +297,20 @@ function testPush(kind) {
     var label = btn.textContent;
     btn.disabled = true;
     btn.textContent = '推送中…';
-    // 桥方法是同步阻塞的（原生那边要发请求），延时一拍先把按钮状态画出来再调
-    setTimeout(function () {
-        var msg = '';
-        try {
-            msg = CAHost.testNotification(kind);
-        } catch (e) {
-            msg = '推送失败：' + (e && e.message ? e.message : e);
-        }
+    // 桥方法从「同步阻塞返回结果」改成「立刻返回、结果回调」：原生那边要发网络请求，
+    // 同步等会让页面假死最多 35 秒（issue #84 项 17）。回调先挂好，再调桥。
+    window.__caTestNotifyResult = function (msg) {
         btn.disabled = false;
         btn.textContent = label;
         pushHint(msg || '已发送，请查看通知栏。');
-    }, 0);
+    };
+    try {
+        CAHost.testNotification(kind);
+    } catch (e) {
+        btn.disabled = false;
+        btn.textContent = label;
+        pushHint('推送失败：' + (e && e.message ? e.message : e));
+    }
 }
 
 // ===== 本机状态：通知有没有被系统关掉 + 上次同步时间 =====
@@ -729,7 +723,7 @@ function moveThemeSegPill() {
 
 // ===== 修改密码 =====
 var pwdForm = document.getElementById('pwdForm');
-pwdForm.addEventListener('submit', async function (e) {
+if (pwdForm) pwdForm.addEventListener('submit', async function (e) {
     e.preventDefault();
     var errBox = document.getElementById('pwdError');
     errBox.classList.remove('show');

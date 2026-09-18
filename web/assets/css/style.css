@@ -27,14 +27,9 @@
 :root {
   color-scheme: light;
 
-  /* ── Apple 系统色（HIG System Colors） ── */
+  /* ── Apple 系统色（HIG System Colors）── */
   --sys-blue: #007aff;
   --sys-blue-dark: #0a84ff;
-  --sys-green: #34c759;
-  --sys-red: #ff3b30;
-  --sys-orange: #ff9500;
-  --sys-indigo: #5856d6;
-  --sys-teal: #5ac8fa;
 
   /* ── 背景层级（systemGroupedBackground / secondarySystemGroupedBackground） ── */
   --bg: #f2f2f7;
@@ -59,7 +54,6 @@
 
   /* ── 强调色 ── */
   --accent: var(--sys-blue);
-  --accent-hover: #0069d9;
   --accent-soft: rgba(0, 122, 255, 0.10);
   --accent-ring: rgba(0, 122, 255, 0.28);
 
@@ -126,7 +120,6 @@
   --dur-base: 250ms;
   --dur-slow: 350ms;
   --dur-press: 160ms;
-  --transition: var(--dur-base) var(--ease-standard);
 
   --container: 1160px;
   --nav-height: 60px;
@@ -160,7 +153,6 @@
   --separator: rgba(255, 255, 255, 0.09);
 
   --accent: var(--sys-blue-dark);
-  --accent-hover: #3b9bff;
   --accent-soft: rgba(10, 132, 255, 0.18);
   --accent-ring: rgba(10, 132, 255, 0.42);
 

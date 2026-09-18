@@ -330,6 +330,21 @@ function normalizeUnscheduled(c) {
   };
 }
 
+/**
+ * 把教务的开学日期（ksrq）统一成 YYYY-MM-DD。
+ * 前端拿 firstDate 拼 'T00:00:00' 喂 new Date()（academic.js 的 currentWeek），
+ * Safari 只认连字符格式 —— 教务若给 '2026/09/01' 之类，会静默 Invalid Date 退成
+ * 「学期未开始」。认不出来的值原样透传，至少不再拼错（issue #84 项 12）。
+ */
+function normalizeKsrq(raw) {
+  const s = String(raw == null ? '' : raw).trim();
+  if (!s) return '';
+  const m = s.match(/(\d{4})[-/.年](\d{1,2})[-/.月](\d{1,2})/);
+  if (!m) return s;
+  const pad = (n) => String(n).padStart(2, '0');
+  return m[1] + '-' + pad(m[2]) + '-' + pad(m[3]);
+}
+
 /** 递归展开学分树的叶子节点（只有叶子带学分数字） */
 function collectCreditRows(nodes, level, out) {
   for (const node of nodes || []) {
@@ -742,7 +757,7 @@ export async function handleAcademicTimetable(request, env, user) {
     const payload = {
       xnxqId,
       periods: normalizePeriods(periods),
-      firstDate: (weekCal && weekCal.ksrq) || '',
+      firstDate: normalizeKsrq(weekCal && weekCal.ksrq),
       weekCount: num(weekCal && weekCal.jzzc),
       courses: (courses || []).map(normalizeCourse),
       unscheduled: (unscheduled || []).map(normalizeUnscheduled)
