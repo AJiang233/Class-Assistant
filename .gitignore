@@ -24,3 +24,11 @@ Thumbs.db
 # 安卓签名凭据（正式 keystore 只以 base64 存 GitHub Secrets，绝不进仓库）
 *.jks
 *.keystore
+
+# 上线评审留档：这两份写到了教务链路的接口与登录细节（CAS 的几台主机、pwdEncryptSalt、
+# querywdcj 之类），与「教务实现不进公开仓」的取舍一致，只留在本地当参考，别提交
+.claude/artifacts/plans/web-launch-review.md
+.claude/artifacts/plans/android-launch-review.md
+
+# 临时截图与调试脚本
+a杂物/
