@@ -22,7 +22,7 @@
         <div class="container">
             <div class="page-head">
                 <h1 class="page-title">学业</h1>
-                <p class="page-desc">从教务系统同步个人课表、未安排课程与学分达成情况。</p>
+                <p class="page-desc">从教务系统同步个人课表、未安排课程、学分达成情况与课程成绩。</p>
             </div>
 
             <!-- 加载中 -->
@@ -107,6 +107,7 @@
                     <span class="tab-pill" id="acSegPill" aria-hidden="true"></span>
                     <button type="button" class="tab" data-ac-tab="timetable">课表</button>
                     <button type="button" class="tab" data-ac-tab="credits">学业达成</button>
+                    <button type="button" class="tab" data-ac-tab="grades">成绩</button>
                 </div>
 
                 <div class="ac-toolbar">
@@ -150,6 +151,18 @@
                             <span class="section-count" id="creditHint"></span>
                         </div>
                         <div id="creditsView"></div>
+                    </div>
+                </div>
+
+                <!-- 课程成绩（汇总卡 + 按学期分组的成绩列表，点一行展开详情） -->
+                <div id="paneGrades" hidden>
+                    <div class="section-block mt-0">
+                        <div class="section-head">
+                            <h2 class="section-title">课程成绩</h2>
+                            <span class="section-count" id="gradeHint"></span>
+                        </div>
+                        <div id="gradeSummary"></div>
+                        <div id="gradesView"></div>
                     </div>
                 </div>
             </div>

@@ -75,6 +75,15 @@ CREATE TABLE IF NOT EXISTS academic_credits (
   fetched_at    DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 课程成绩缓存：按学期一份，xnxq_id 为空串表示「全部学期」
+CREATE TABLE IF NOT EXISTS academic_grades (
+  user_id       INTEGER NOT NULL,
+  xnxq_id       TEXT NOT NULL,             -- 如 2025-2026-2；'' = 全部学期
+  payload       TEXT NOT NULL,             -- 归一化成绩 JSON（rows + summary）
+  fetched_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (user_id, xnxq_id)
+);
+
 -- 多因子认证中间态：代登录被要求二次验证时，暂存 CAS 会话，等用户回填验证码
 CREATE TABLE IF NOT EXISTS academic_mfa_sessions (
   token         TEXT PRIMARY KEY,          -- 一次性令牌，前端持有并回传

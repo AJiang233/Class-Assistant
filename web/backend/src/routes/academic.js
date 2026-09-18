@@ -4,6 +4,7 @@ import {
   handleAcademicStatus,
   handleAcademicTimetable,
   handleAcademicCredits,
+  handleAcademicGrades,
   handleAcademicPasswordLogin,
   handleAcademicMfaSend,
   handleAcademicMfaVerify
@@ -21,6 +22,7 @@ import { withAuth } from '../middleware/auth.js';
  * - DELETE /api/academic/bind       解绑并清缓存
  * - GET    /api/academic/timetable  课表（?xnxq= 学期，?refresh=1 强制重抓）
  * - GET    /api/academic/credits    学业达成 / 学分（?refresh=1 强制重抓）
+ * - GET    /api/academic/grades     课程成绩（?xnxq= 学期，省略/留空 = 全部学期；?refresh=1 强制重抓）
  */
 export async function academicRoutes(request, env, ctx) {
   const path = new URL(request.url).pathname;
@@ -56,6 +58,10 @@ export async function academicRoutes(request, env, ctx) {
 
   if (path === '/api/academic/credits' && method === 'GET') {
     return withAuth(handleAcademicCredits)(request, env, ctx);
+  }
+
+  if (path === '/api/academic/grades' && method === 'GET') {
+    return withAuth(handleAcademicGrades)(request, env, ctx);
   }
 
   return null;

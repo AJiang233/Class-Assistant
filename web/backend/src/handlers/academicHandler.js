@@ -132,6 +132,11 @@ function round1(value) {
   return Math.round(value * 10) / 10;
 }
 
+/** 保留两位小数（绩点用） */
+function round2(value) {
+  return Math.round(value * 100) / 100;
+}
+
 /** D1 的 CURRENT_TIMESTAMP 是 UTC 的 "YYYY-MM-DD HH:MM:SS"，这里统一转成时间戳 */
 function parseSqlTime(value) {
   if (!value) return 0;
@@ -398,6 +403,159 @@ function normalizeCredits(data) {
     rows,
     summary
   };
+}
+
+// ===== 成绩 =====
+
+/** 「全部学期」在接口与缓存里的表示：空串（教务页面上的那一项 id 也是空串） */
+export const ALL_TERM_ID = '';
+
+/** 单次向教务要多少条成绩（一个学期通常二三十门，一页就够；不够会继续翻页） */
+const GRADE_PAGE_SIZE = 100;
+
+/** 翻页上限：教务的 rowCount 若给出脏值，不能让这里变成一个无界循环 */
+const GRADE_MAX_PAGES = 20;
+
+/** 课程串形如 "[BIOL3102]植物学Ⅱ"，把课程号摘出来；没有方括号就退化为整个串 */
+export function courseCodeOf(text) {
+  const m = String(text || '').match(/^\s*\[([^\]]+)\]/);
+  return m ? m[1].trim() : String(text || '').trim();
+}
+
+/** 课程串里的课程名（去掉 "[课程号]" 前缀），取不到就原样返回 */
+export function courseNameOf(text) {
+  const s = String(text || '');
+  const m = s.match(/^\s*\[[^\]]+\]\s*([\s\S]*)$/);
+  return m ? m[1].trim() : s.trim();
+}
+
+/**
+ * 这一条成绩算不算进均分 / 绩点。
+ *
+ * 三条排除规则都是有真实数据支撑的，不是提前防御：
+ *   · 成绩统计说明里写着「不参与所有成绩统计计算」—— 教务自己在说这门别算
+ *     （实测：人工智能通识、军事技能训练这类）
+ *   · 成绩标识是缓考 / 缺考 —— 成绩位的 0 是占位符，不是真考了 0 分
+ *     （实测：体育Ⅱ 缓考，成绩 0、绩点 0；照算能把均分拉下来好几分）
+ *   · 成绩本身不是数字 —— 合格 / A / 优秀 这类没有可比的分值
+ *     （实测：军事技能训练成绩 "A"、人工智能通识成绩 "合格"）
+ */
+export function isCountedForStats(row) {
+  if (/不参与/.test(row.statisticNote || '')) return false;
+  if (/缓考|缺考/.test(row.scoreMark || '')) return false;
+  return row.scoreNum !== null;
+}
+
+/** 成绩单条 → 界面要用的字段（教务原始字段有十几个，只留用得上的） */
+export function normalizeGradeItem(g) {
+  const score = (g && g.zcj != null) ? String(g.zcj).trim() : '';
+  const point = (g && g.jd != null) ? String(g.jd).trim() : '';
+  const scoreNum = score === '' ? NaN : Number(score);
+  const pointNum = point === '' ? NaN : Number(point);
+  const kcxx = (g && g.kcxx) || '';
+  return {
+    code: courseCodeOf(kcxx),
+    name: courseNameOf(kcxx) || kcxx,
+    credit: num(g && g.xf),
+    score,
+    scoreNum: Number.isFinite(scoreNum) ? scoreNum : null,
+    point,
+    pointNum: Number.isFinite(pointNum) ? pointNum : null,
+    scoreType: (g && g.cjxzmc) || '',
+    scoreMark: (g && g.cjbzmc) || '',
+    termId: (g && g.cxxnxq) || '',
+    termName: (g && g.zsxnxqmc) || '',
+    category: (g && g.kclbmc) || '',
+    nature: (g && g.kcsxmc) || '',
+    generalCategory: (g && g.tsklbmc) || '',
+    statisticNote: (g && g.cjtjsm) || '',
+    remark: (g && g.bz) || ''
+  };
+}
+
+/**
+ * 成绩列表 + 汇总。
+ *
+ * 汇总口径（两条都只统计 isCountedForStats 为真的记录）：
+ *   · 均分 —— 算术平均，四舍五入到一位小数
+ *   · 绩点 —— **学分加权**平均（Σ 学分×绩点 ÷ Σ 学分），两位小数。不等权是因为
+ *     一门 5 学分的课和一门 0.5 学分的课对 GPA 的影响本来就不该一样
+ *
+ * 同一门课出现多条（补重）时，统计只留**分数最高的那条** —— 教务页面上「显示补重成绩」
+ * 默认是开的，列表里原成绩与补重成绩会一起出现；照单全收会让这门课的学分被算两遍，
+ * 均分也被两条平均一次。列表本身照旧全部展示（那是用户要看的原始记录）。
+ */
+export function normalizeGrades(items) {
+  const rows = (items || []).map(normalizeGradeItem);
+
+  const best = new Map();
+  for (const r of rows) {
+    if (!isCountedForStats(r)) continue;
+    const key = r.code || r.name;
+    const prev = best.get(key);
+    if (!prev || r.scoreNum > prev.scoreNum) best.set(key, r);
+  }
+
+  let scoreSum = 0;
+  let scoreCount = 0;
+  let pointWeighted = 0;
+  let creditSum = 0;
+  for (const r of best.values()) {
+    scoreSum += r.scoreNum;
+    scoreCount += 1;
+    if (r.pointNum !== null) {
+      pointWeighted += r.credit * r.pointNum;
+      creditSum += r.credit;
+    }
+  }
+
+  return {
+    rows,
+    summary: {
+      // 一门可统计的课都没有时给 null，而不是 0 —— 界面上 0 分和「算不出来」是两回事
+      average: scoreCount ? round1(scoreSum / scoreCount) : null,
+      gpa: creditSum > 0 ? round2(pointWeighted / creditSum) : null,
+      counted: scoreCount,
+      total: rows.length,
+      // 列表里有、但被排除在统计外的条数（界面据此说明「为什么均分是按 N 门算的」）
+      excluded: rows.length - scoreCount
+    }
+  };
+}
+
+/**
+ * 成绩页的学期下拉：最前面多一项「全部学期」（id 为空串），其余与课表同源。
+ *
+ * 为什么不复用课表的 buildTerms：课表那份不该出现「全部学期」——
+ * 课表按学期取数，没有「全部」这一档，多一个选项只会点出一份空课表。
+ */
+export function buildGradeTerms(terms, cachedTerms, currentId) {
+  return [
+    { id: ALL_TERM_ID, name: '全部学期', current: currentId === ALL_TERM_ID },
+    ...buildTerms(terms, cachedTerms, currentId)
+  ];
+}
+
+/**
+ * 把某学期的成绩翻页取全。
+ *
+ * 「到底了没有」以教务自述的 rowCount 为准：它可能不认我们给的 pageSize 而按自己的页长
+ * 返回（那样「返回不足一页」就是误判，会提前收工漏掉后面的课）。拿不到 rowCount 时才
+ * 退回「不满一页即到底」，再不行还有 GRADE_MAX_PAGES 兜底。
+ */
+async function fetchAllGrades(client, xnxqId) {
+  const all = [];
+  let total = 0;
+  for (let page = 1; page <= GRADE_MAX_PAGES; page++) {
+    const data = await client.gradeList({ xnxqId, pageNumber: page, pageSize: GRADE_PAGE_SIZE });
+    const items = (data && data.items) || [];
+    if (!items.length) break;
+    if (page === 1) total = num(data.rowCount);
+    all.push(...items);
+    if (total > 0 && all.length >= total) break;
+    if (total <= 0 && items.length < GRADE_PAGE_SIZE) break;
+  }
+  return all;
 }
 
 // ===== 绑定 =====
@@ -837,5 +995,115 @@ export async function handleAcademicCredits(request, env, user) {
     }
     console.error('获取学业达成数据失败:', e.message);
     return jsonResponse(error('获取学业达成数据失败，请稍后重试', 'ACADEMIC_FETCH_FAILED'), 502);
+  }
+}
+
+// ===== 成绩 =====
+
+/**
+ * 课程成绩（默认走缓存，refresh=1 强制重抓）
+ * 参数：xnxq=2026-2027-1 指定学期，**省略或留空 = 全部学期**；refresh=1 强制刷新
+ *
+ * 与课表的差别只有一处：课表的学期是「一定要有一个」，这里多一档「全部学期」，
+ * 而且是默认档 —— 当前学期开学初通常一门成绩都没有，默认落在它上面等于让人看空页。
+ *
+ * 缓存决策、失败回缓存、登录态失效的标记，全部与课表/学分同一套（见 cacheDecision）：
+ * 教务登录态大概一天重置一次，「抓不到就回缓存」在这里同样是常态而不是异常。
+ */
+export async function handleAcademicGrades(request, env, user) {
+  const model = new AcademicModel(env.DB);
+  const url = new URL(request.url);
+  const refresh = url.searchParams.get('refresh') === '1';
+  // 没给 xnxq 或给了空串都按「全部学期」（空串正是教务页面上那一项的 id）
+  const xnxqId = url.searchParams.get('xnxq') || ALL_TERM_ID;
+
+  const binding = await model.getBinding(user.id);
+  if (!binding) return jsonResponse(error('还没绑定教务系统，绑定后会自动同步', 'NOT_BOUND'), 400);
+
+  const cachedTerms = await model.listGradeTerms(user.id);
+  const cached = await model.getGrades(user.id, xnxqId);
+  const cachedData = cached ? await readCachePayload(cached, () => model.deleteGrades(user.id, xnxqId)) : null;
+
+  // 建客户端 + 取学期列表（顺带校验登录态）。教务那一趟失败只记进 liveError，不在这里返回：
+  // 缓存里那份成绩照样能用（与课表同一处考虑，注释见 handleAcademicTimetable）
+  const opened = await schoolClientFromBinding(env, model, binding);
+  const client = opened.client || null;
+  let terms = null;
+  let liveError = opened.failure || null;
+  if (client) {
+    try {
+      terms = await client.termList();
+    } catch (e) {
+      liveError = e;
+    }
+  }
+  if (liveError instanceof SchoolSessionExpired) await model.markExpired(user.id);
+
+  const useCache = cacheDecision({
+    hasCache: !!cachedData,
+    liveError,
+    refresh,
+    fetchedAt: cached ? cached.fetched_at : null
+  });
+  if (useCache) {
+    return jsonResponse(success({
+      ...cachedData,
+      xnxqId,
+      terms: buildGradeTerms(terms, cachedTerms, xnxqId),
+      fetchedAt: toIso(cached.fetched_at),
+      fromCache: true,
+      stale: !!liveError,
+      cacheReason: useCache.reason
+    }));
+  }
+  if (liveError) {
+    // 缓存也救不了才是真的给不出数据。此时才把「会话解不开」记成绑定失效 ——
+    // 上面那些靠缓存把成绩给出去的请求不该动这个状态
+    if (liveError instanceof AcademicSessionError) {
+      await model.markExpired(user.id);
+      return jsonResponse(error(liveError.message, liveError.code), 400);
+    }
+    if (liveError instanceof SchoolSessionExpired) {
+      return jsonResponse(error(liveError.message, 'ACADEMIC_EXPIRED'), 400);
+    }
+    console.error('教务接口不可达（成绩）:', liveError.message);
+    return jsonResponse(error('暂时连不上教务系统，请稍后重试', 'ACADEMIC_UNREACHABLE'), 502);
+  }
+
+  try {
+    const items = await fetchAllGrades(client, xnxqId);
+    const payload = normalizeGrades(items);
+    await model.saveGrades(user.id, xnxqId, JSON.stringify(payload));
+    await model.touchBinding(user.id);
+
+    return jsonResponse(success({
+      ...payload,
+      xnxqId,
+      terms: buildGradeTerms(terms, cachedTerms, xnxqId),
+      fetchedAt: new Date().toISOString(),
+      fromCache: false,
+      stale: false
+    }));
+  } catch (e) {
+    if (e instanceof SchoolSessionExpired) await model.markExpired(user.id);
+    // 抓取失败但有旧缓存：先把旧数据给出去，页面标成「缓存」并带上原因。
+    // 与学业达成同一条原则 —— 课表/学分/成绩在同一页，一块报错整页看着就像坏了
+    if (cachedData) {
+      console.error('成绩抓取失败，回缓存:', e.message);
+      return jsonResponse(success({
+        ...cachedData,
+        xnxqId,
+        terms: buildGradeTerms(null, cachedTerms, xnxqId),
+        fetchedAt: toIso(cached.fetched_at),
+        fromCache: true,
+        stale: true,
+        cacheReason: cacheReasonOf(e)
+      }));
+    }
+    if (e instanceof SchoolSessionExpired) {
+      return jsonResponse(error(e.message, 'ACADEMIC_EXPIRED'), 400);
+    }
+    console.error('获取成绩失败:', e.message);
+    return jsonResponse(error('获取成绩失败，请稍后重试', 'ACADEMIC_FETCH_FAILED'), 502);
   }
 }

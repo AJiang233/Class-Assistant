@@ -63,6 +63,7 @@ object OfflineApi {
         Regex("^/api/academic/status$"),
         Regex("^/api/academic/timetable$"),
         Regex("^/api/academic/credits$"),
+        Regex("^/api/academic/grades$"),
         Regex("^/api/forms/mine$"),
         Regex("^/api/forms/\\d+$"),
         Regex("^/api/auth/me$")
@@ -103,6 +104,7 @@ object OfflineApi {
         "/api/academic/status",
         TIMETABLE_PATH,
         "/api/academic/credits",
+        "/api/academic/grades",                  // 学业页：成绩（不带 xnxq 即「全部学期」）
         "/api/auth/me"                           // 个人中心
     )
 

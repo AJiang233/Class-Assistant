@@ -9,6 +9,7 @@ export const MFA_MAX_ATTEMPTS = 5;
  *   academic_bindings  (user_id, student_no, real_name, school_uid, cookies, status, bound_at, checked_at)
  *   academic_timetable (user_id, xnxq_id, payload, fetched_at)  主键 (user_id, xnxq_id)
  *   academic_credits   (user_id, payload, fetched_at)
+ *   academic_grades    (user_id, xnxq_id, payload, fetched_at)  主键 (user_id, xnxq_id)
  */
 export class AcademicModel {
   constructor(db) {
@@ -125,6 +126,41 @@ export class AcademicModel {
     return this.db.prepare('DELETE FROM academic_credits WHERE user_id = ?').bind(userId).run();
   }
 
+  // ===== 成绩缓存 =====
+  // 按学期一份，与学生课表同一套形状。xnxq_id 为空串表示「全部学期」——
+  // 那是页面上的一个真实选项（见 academicHandler 的 ALL_TERM_ID），不是「没指定」。
+
+  async getGrades(userId, xnxqId) {
+    return this.db.prepare(
+      `SELECT payload, fetched_at FROM academic_grades WHERE user_id = ? AND xnxq_id = ?`
+    ).bind(userId, xnxqId).first();
+  }
+
+  /** 已缓存的成绩学期（教务不可用时，界面仍要能列出「看过哪些学期」） */
+  async listGradeTerms(userId) {
+    const result = await this.db.prepare(
+      `SELECT xnxq_id, fetched_at FROM academic_grades WHERE user_id = ? ORDER BY xnxq_id DESC`
+    ).bind(userId).all();
+    return result.results;
+  }
+
+  async saveGrades(userId, xnxqId, payload) {
+    return this.db.prepare(
+      `INSERT INTO academic_grades (user_id, xnxq_id, payload, fetched_at)
+       VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+       ON CONFLICT(user_id, xnxq_id) DO UPDATE SET
+         payload = excluded.payload,
+         fetched_at = CURRENT_TIMESTAMP`
+    ).bind(userId, xnxqId, payload).run();
+  }
+
+  /** 丢弃某个学期的成绩缓存（payload 损坏时清掉，让下一次请求重抓） */
+  async deleteGrades(userId, xnxqId) {
+    return this.db.prepare(
+      'DELETE FROM academic_grades WHERE user_id = ? AND xnxq_id = ?'
+    ).bind(userId, xnxqId).run();
+  }
+
   // ===== 多因子认证中间态 =====
 
   /** 覆盖写入中间态（state 里只有 Cookie 罐与 reAuthParams，不含密码） */
@@ -213,6 +249,7 @@ export class AcademicModel {
   async clearCache(userId) {
     await this.db.prepare('DELETE FROM academic_timetable WHERE user_id = ?').bind(userId).run();
     await this.db.prepare('DELETE FROM academic_credits WHERE user_id = ?').bind(userId).run();
+    await this.db.prepare('DELETE FROM academic_grades WHERE user_id = ?').bind(userId).run();
     await this.db.prepare('DELETE FROM academic_mfa_sessions WHERE user_id = ?').bind(userId).run();
   }
 }
