@@ -231,12 +231,25 @@ class MainActivity : AppCompatActivity() {
         /**
          * 个人页「推送通知测试」：用最新一条真实活动 / 通知发一条本地通知，
          * 让用户自查推送是否可达、点通知能否跳到对应详情。kind 为 "activity" / "notice"。
-         * 桥方法不在 UI 线程，这里同步发请求没问题（网页那边会先把按钮置灰）。
+         *
+         * 桥方法跑在非 UI 线程，但这里**不能同步等**：后端请求带 15s / 20s 超时，
+         * 同步返回结果会让页面假死最多 35 秒（issue #84 项 17）。改为立刻返回、
+         * 结果经 evaluateJavascript 回调 `window.__caTestNotifyResult(msg)` 交回页面
+         * （契约见 web/account.js 的 testPush）。
          */
         @JavascriptInterface
-        fun testNotification(kind: String): String {
-            if (!fromAppPage()) return ""
-            return SyncRunner.pushTestNotification(applicationContext, kind)
+        fun testNotification(kind: String) {
+            if (!fromAppPage()) return
+            Thread {
+                val result = SyncRunner.pushTestNotification(applicationContext, kind)
+                runOnUiThread {
+                    if (webViewReleased) return@runOnUiThread
+                    binding.webView.evaluateJavascript(
+                        "window.__caTestNotifyResult&&window.__caTestNotifyResult(${JSONObject.quote(result)})",
+                        null
+                    )
+                }
+            }.start()
         }
 
         /** 关于软件卡片显示的 App 版本号；网页版没有原生桥，拿不到会退回「网页版」 */
@@ -707,6 +720,10 @@ class MainActivity : AppCompatActivity() {
      */
     internal fun pushApiUpdate(key: String, json: String) {
         runOnUiThread {
+            // WebView 可能已被 onRenderProcessGone / onDestroy 释放：destroy() 之后再调
+            // evaluateJavascript 会抛 IllegalStateException。检查必须在 UI 线程这一拍做 ——
+            // 只看函数入口那一处挡不住「检查后、执行前」之间被销毁的竞态（issue #84 项 15）。
+            if (webViewReleased) return@runOnUiThread
             binding.webView.evaluateJavascript(
                 "window.__caApiUpdated&&window.__caApiUpdated(${JSONObject.quote(key)},${JSONObject.quote(json)})",
                 null

@@ -127,7 +127,9 @@
         <!-- 小组件换天 / 系统时间变更 / 覆盖安装：刷新小组件并重排闹钟。
              TIME_SET 与 TIMEZONE_CHANGED 属于系统「隐式广播豁免」名单，清单注册收得到；
              DATE_CHANGED 不在名单里（静态接收器收不到），换天由 Scheduler 的零点闹钟负责。
-             exported 保持 true，与上面的 BootReceiver 一致：这三条都是受保护广播，只有系统能发。 -->
+             exported 保持 true，与上面的 BootReceiver 一致：这三条都是受保护广播，只有系统能发。
+             零点 / 上课重绘那两个自定义 action 在 WidgetAlarmReceiver（exported=false）——
+             挂在这里等于让第三方也能触发（issue #84 项 14）。 -->
         <receiver
             android:name=".widget.WidgetRefreshReceiver"
             android:exported="true">
@@ -137,6 +139,12 @@
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
+
+        <!-- 小组件的闹钟接收器（零点换天 / 上课每分钟重绘）：只由 Scheduler 用显式 Intent
+             点名发送，exported=false 且不带 intent-filter（见 WidgetAlarmReceiver 的注释） -->
+        <receiver
+            android:name=".widget.WidgetAlarmReceiver"
+            android:exported="false" />
     </application>
 
 </manifest>
