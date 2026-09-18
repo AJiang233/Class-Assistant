@@ -1,8 +1,11 @@
 # =============================================================
 # Class Assistant · Pages 本地开发配置（仅 wrangler pages dev 使用）
 # 生产环境的绑定在 Cloudflare Pages 面板配置：
-#   Settings → Functions → D1 database bindings（变量名 DB）
-#   Settings → Environment variables（JWT_SECRET）
+#   Settings → Bindings → D1 database bindings（变量名 DB）
+#   Settings → Bindings → Service bindings（变量名 ACADEMIC_API → class-assistant-private-api）
+#   Settings → Environment variables（JWT_SECRET / INTERNAL_TOKEN / VAPID_*）
+# 注意：本文件没有 pages_build_output_dir，按 Cloudflare 的规则它**不是**项目的
+# source of truth（部署时 wrangler 会提示并忽略它），线上配置一律以面板为准。
 # 构建根目录：web/（Pages 项目根目录，直接部署本层）
 # =============================================================
 
@@ -15,9 +18,19 @@ database_name = "class-assistant-db"
 # 替换为你的真实 D1 数据库 ID（Cloudflare Dashboard → D1 → 选择数据库）
 database_id = "6444f4bb-5197-4a53-a12b-264410e99f81"
 
+# 教务访问私有 Worker 走 Service Binding（绑定名 ACADEMIC_API），生产在 Pages 面板配。
+# 本地 `wrangler pages dev` 想联调教务功能时，取消下面三行的注释即可；
+# 默认保持关闭 —— 本地跑不起那个 Worker 时会连不上上游，而没有绑定时
+# 教务接口统一返回 503 ACADEMIC_UNAVAILABLE，其余功能都不受影响
+# （见 backend/src/routes/academic.js）。另外本地还需要 INTERNAL_TOKEN（.dev.vars）。
+#
+# [[services]]
+# binding = "ACADEMIC_API"
+# service = "class-assistant-private-api"
+
 [vars]
 # JWT 过期时间（秒），默认 7 天
 JWT_EXPIRES_IN = "604800"
-# JWT_SECRET / COOKIE_SECRET 不进仓库。
+# JWT_SECRET / INTERNAL_TOKEN / COOKIE_SECRET / VAPID_* 不进仓库。
 # 本地：复制 .dev.vars.example 为 .dev.vars
-# 生产：Pages → Settings → Environment variables（Secrets）
+# 生产：Pages → Settings → Bindings / Environment variables（Secrets）

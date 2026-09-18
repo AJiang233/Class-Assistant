@@ -1,17 +1,19 @@
 # internal —— 与 Worker 对齐的 Go 规则
 
-`cmd/scheduler`（以及将来的 `crawler/`）共用的内部包。原则只有一条：**同一套规则只写一份** —— 调度进程和门户（`web/backend`）不能各写各的，不然两边的判定迟早对不上。
+`cmd/scheduler`（以及将来的 `crawler/`）共用的内部包。原则只有一条：**同一套规则只写一份** —— 调度进程和 Worker 不能各写各的，不然两边的判定迟早对不上。
+
+这里的「Worker」现在有两个：门户（`web/backend`），以及管教务的私有仓 `Class-Assistant-Private-API`（教务代码拆分出去之后，与教务有关的那几条规则都归它了）。下表右列写的是各自的对应实现。
 
 | 包 | 作用 | 与 Worker 的对应 |
 | --- | --- | --- |
-| `vault/` | 教务会话 Cookie 的 AES-256-GCM 封存 / 解封 | `web/backend/src/utils/cookieVault.js` |
-| `identity/` | 教务绑定必须是本人学号 | `web/backend/src/utils/identity.js` |
+| `vault/` | 教务会话 Cookie 的 AES-256-GCM 封存 / 解封 | 私有仓 `src/utils/cookieVault.js` |
+| `identity/` | 教务绑定必须是本人学号 | 私有仓 `src/utils/identity.js` |
 | `roles/` | 预置职位不可写入 `roles` 表、自定义权限白名单 | `web/backend/src/utils/permissions.js` |
 | `ratelimit/` | 进程内固定窗口限流 | 无（Worker 无状态，限流归常驻进程） |
 
 ## `vault/`
 
-- 密文格式与 Worker 的 `cookieVault.js` **一致**：`v1.<iv>.<ciphertext>`，AES-256-GCM
+- 密文格式与教务 Worker 的 `cookieVault.js` **一致**：`v1.<iv>.<ciphertext>`，AES-256-GCM
 - 密钥取 `COOKIE_SECRET`，缺省回退 `JWT_SECRET` + `":academic-cookie-v1"` 派生；**解密时两个都试** —— 否则后加 `COOKIE_SECRET` 会把旧记录锁死
 - 导出：`IsSealed` / `Seal` / `Open`（`Seal` 遇到已是密文的值原样返回；`Open` 兼容读取历史的明文记录）
 - 单测里有一条专测「与 Worker 产出的密文互解」（`TestOpenWorkerCiphertext`）和一条「后加密钥不锁死旧记录」（`TestFallbackAfterAddingCookieSecret`）

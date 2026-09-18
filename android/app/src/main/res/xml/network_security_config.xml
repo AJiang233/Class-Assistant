@@ -12,7 +12,7 @@
       教务系统的登录链路里还有 http 页面，不放行就是：
       「位于 http://szjw.njau.edu.cn/login/login.html 的网页无法加载，net::ERR_CLEARTEXT_NOT_PERMITTED」。
 
-      链路见 web/backend/src/utils/casLogin.js：
+      登录链路的实现（CAS 代登录）在私有仓 class-assistant-private-api 里，这三台主机分别是：
         authserver.njau.edu.cn  统一身份认证（CAS）登录页
         workflow.njau.edu.cn    CAS 与教务之间的中转
         szjw.njau.edu.cn        教务门户 —— MainActivity 打开的是 https://szjw.njau.edu.cn，

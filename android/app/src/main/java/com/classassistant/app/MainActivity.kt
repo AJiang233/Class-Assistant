@@ -855,7 +855,7 @@ class MainActivity : AppCompatActivity() {
                 // 失败**不能结束流程**（issue #29）：用户很可能还停在教务登录页上，把他踢回门户
                 // 就变成「点一下、什么都没做、直接失败」。留在教务页继续等下一次上报（重新登录会
                 // 再绕一遍 CAS，leftSchoolHost 会重新置位），想放弃就按返回键。
-                // 后端是「校验通过才落库」（academicHandler 的 bindWithCookies），所以这次失败不会
+                // 后端是「校验通过才落库」（私有仓的 bindWithCookies），所以这次失败不会
                 // 覆盖掉原有的绑定。
                 bindingInProgress = false
                 if (announceFailure) Toast.makeText(this, message, Toast.LENGTH_LONG).show()
