@@ -9,16 +9,22 @@ if (canContentWrite()) loadRemindChoices();
 
 // ===== 提醒对象选择 =====
 var remindChoices = [];
+// 名单加载失败与「真没有成员」是两回事：失败时保存会把已选对象丢成 []（= 全班可见，issue #78）。
+// 失败后每次打开编辑弹窗会重取一次（见 startEdit），取到才清掉这个标记。
+var remindLoadFailed = false;
 
 async function loadRemindChoices() {
+    remindLoadFailed = false;
     try {
         var res = await api('/api/auth/members-pick');
         remindChoices = (res.data && res.data.list) || [];
-    } catch (e) {}
+    } catch (e) {
+        remindLoadFailed = true;
+    }
 }
 
 function renderRemindChoices(checkedNames) {
-    renderRemindBox('editRemind', remindChoices, checkedNames);
+    renderRemindBox('editRemind', remindChoices, checkedNames, remindLoadFailed);
 }
 
 function collectRemind() {
@@ -198,7 +204,9 @@ function startEdit(id) {
         document.getElementById('editEnd').value = (a.end_time || '').replace(' ', 'T').slice(0, 16);
         var names = [];
         if (a.remind_people) { try { var arr = JSON.parse(a.remind_people); if (Array.isArray(arr)) names = arr; } catch (e) {} }
-        renderRemindChoices(names);
+        // 名单上次没加载出来：先重取一次再渲染，否则用户会永远困在错误态里（issue #78）
+        if (remindLoadFailed) loadRemindChoices().then(function () { renderRemindChoices(names); });
+        else renderRemindChoices(names);
         openEdit();
     }).catch(function (err) { alert(err.message); });
 }
@@ -218,6 +226,12 @@ async function submitEdit() {
     var end_time = document.getElementById('editEnd').value;
     if (!title || !start_time) {
         errBox.textContent = '标题、开始时间为必填';
+        errBox.classList.add('show'); return;
+    }
+    // 名单没加载出来时禁止保存：此刻 collectRemind() 恒为 []，会把定向活动存成全班可见（issue #78）。
+    // 按钮在前一步已被禁用，这里是第二道闸 —— 不怕未来有人把禁用摘了。
+    if (remindLoadFailed) {
+        errBox.textContent = '提醒对象名单尚未加载成功，请关闭弹窗重试';
         errBox.classList.add('show'); return;
     }
     var btn = document.getElementById('editSubmitBtn');

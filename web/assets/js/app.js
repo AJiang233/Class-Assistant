@@ -243,11 +243,24 @@ function toggleRemindPosition(boxId, btn) {
   syncRemindQuick(boxId);
 }
 
-/** 渲染「提醒对象」选择区：顶部按职位一键选择，下方成员多选 */
-function renderRemindBox(boxId, members, checkedNames) {
+/**
+ * 渲染「提醒对象」选择区：顶部按职位一键选择，下方成员多选。
+ * @param failed 名单加载失败。失败与「真没有成员」必须分开处理（issue #78）：
+ *               失败时保存会把已选对象丢成 []（= 全班可见），所以只显示错误提示并禁用保存，
+ *               等下次打开编辑弹窗重取；真没有成员时 [] 就是正确的全班，照常可保存。
+ */
+function renderRemindBox(boxId, members, checkedNames, failed) {
   const box = document.getElementById(boxId);
   if (!box) return;
   box.className = 'remind-box';
+  const save = document.getElementById('editSubmitBtn');
+  if (failed) {
+    box.innerHTML = '<span class="remind-hint">提醒对象名单加载失败，请关闭后重新打开</span>';
+    if (save) save.disabled = true;
+    return;
+  }
+  // 上一次打开可能失败禁掉了保存按钮：这次名单可用就要恢复，否则永远点不动
+  if (save) save.disabled = false;
   if (!members || !members.length) {
     box.innerHTML = '<span class="remind-hint">暂无成员可提醒</span>';
     return;

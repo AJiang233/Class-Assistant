@@ -885,6 +885,36 @@ test('职位卡：只有 content:write 的人看不到「添加职位」与每�
     '「管理职位」列表不该跟着一起隐藏：读接口对登录用户开放，只读的那份要留着');
 });
 
+// ===== 提醒对象名单：加载失败不能当「没有成员」=====
+// notices.js / activities.js 是带副作用的 IIFE（开头 requireAuth），取不出函数来跑，
+// 所以照本文件既有做法读源码钉形状。这条是安全路径（issue #78）：名单加载失败时保存
+// 会把定向通知/活动丢成 []（= 全班可见），拆掉任何一道闸都没有运行期症状，只能靠形状钉。
+
+test('提醒对象：名单加载失败时不渲染空列表、保存被拦下（issue #78）', () => {
+  const app = readFileSync(join(HERE, '../../assets/js/app.js'), 'utf8');
+  const notices = readFileSync(join(HERE, '../../assets/js/notices.js'), 'utf8');
+  const activities = readFileSync(join(HERE, '../../assets/js/activities.js'), 'utf8');
+
+  for (const [name, src] of [['notices.js', notices], ['activities.js', activities]]) {
+    assert.match(src, /remindLoadFailed\s*=\s*true/,
+      name + '：加载失败没有置 remindLoadFailed，失败仍会被当成「没有成员」（issue #78）');
+    assert.match(src, /renderRemindBox\([^)]*remindLoadFailed/,
+      name + '：渲染时没把失败标记传给 renderRemindBox');
+    assert.match(src, /if \(remindLoadFailed\)\s*loadRemindChoices/,
+      name + '：打开编辑弹窗时没在失败后重取名单');
+    assert.match(src, /if \(remindLoadFailed\)\s*\{[\s\S]{0,120}?return;/,
+      name + '：submitEdit 没有在失败时拦下保存');
+  }
+
+  // renderRemindBox 要接 failed 参数，失败态渲染错误并禁用保存按钮；成功渲染要恢复按钮
+  assert.match(app, /renderRemindBox\(boxId, members, checkedNames, failed\)/,
+    'renderRemindBox 没接 failed 参数');
+  assert.match(app, /if \(failed\)\s*\{[\s\S]{0,200}?disabled = true/,
+    '失败态没有禁用保存按钮');
+  assert.match(app, /if \(save\) save\.disabled = false/,
+    '成功渲染时没有恢复保存按钮：上次失败禁掉后就再也点不动了');
+});
+
 // ===== 原生推回的数据要转给 iframe 子页面 =====
 // 原生那边是 webView.evaluateJavascript，只作用于顶层文档的 window；而通知/活动/教务/
 // 个人中心/管理员这几个页面各自跑在 iframe 里、各自加载一份 app.js、各自一份 apiRenderers。
