@@ -1860,6 +1860,10 @@ body.app-mode { overflow: hidden; }
 .remind-hint,
 .remind-empty { font-size: 0.85rem; opacity: 0.6; }
 
+/* 名单加载失败（issue #78）：与「暂无成员」是两回事，用强调色并加醒目边框，
+   让「保存被禁止、别把它当全班发出去」一眼可见 */
+.remind-text-error { opacity: 1; color: var(--danger); font-weight: 600; }
+
 /* ── 成员列表 / 资料卡 ── */
 /* 贴边的一行（列表里已经有自己的分隔与内边距，不想再叠加 info-row 的左右内边距） */
 .member-row-flush { padding-left: 0; padding-right: 0; }

@@ -9,16 +9,24 @@ if (canContentWrite()) loadRemindChoices();
 
 // ===== 提醒对象选择 =====
 var remindChoices = [];
+// 「名单没加载出来」与「真没有成员」必须分开记：前者若被当成空名单保存，
+// 会把定向内容静默发成全班可见（见 renderRemindBox 的 failed 分支与 submitEdit 的拦截）。
+var remindLoadFailed = false;
 
 async function loadRemindChoices() {
     try {
         var res = await api('/api/auth/members-pick');
         remindChoices = (res.data && res.data.list) || [];
-    } catch (e) {}
+        remindLoadFailed = false;
+        return true;
+    } catch (e) {
+        remindLoadFailed = true;
+        return false;
+    }
 }
 
 function renderRemindChoices(checkedNames) {
-    renderRemindBox('editRemind', remindChoices, checkedNames);
+    renderRemindBox('editRemind', remindChoices, checkedNames, remindLoadFailed);
 }
 
 function collectRemind() {
@@ -212,8 +220,10 @@ function startEdit(id) {
         document.getElementById('editExpire').value = (n.expire_time || '').replace(' ', 'T').slice(0, 16);
         var names = [];
         if (n.remind_people) { try { var arr = JSON.parse(n.remind_people); if (Array.isArray(arr)) names = arr; } catch (e) {} }
-        renderRemindChoices(names);
-        openEdit();
+        // 打开编辑前若上次名单加载失败，先重拉一次再进 —— 否则只显示「名单加载失败」
+        // 且保存被拦，连把既有定向对象改回去都做不到
+        function apply() { renderRemindChoices(names); openEdit(); }
+        if (remindLoadFailed) loadRemindChoices().then(apply); else apply();
     }).catch(function (err) { alert(err.message); });
 }
 
@@ -225,6 +235,12 @@ function cancelEdit() {
 async function submitEdit() {
     var errBox = document.getElementById('editError');
     errBox.classList.remove('show');
+    // 名单没加载出来时绝不能保存：`remind_people: collectRemind()` 会是空数组，
+    // 后端把空名单当默认全班，定向内容就静默发成全班可见（issue #78）
+    if (remindLoadFailed) {
+        errBox.textContent = '提醒对象名单加载失败：为避免把定向内容误发成全班可见，保存已被禁止，请重试';
+        errBox.classList.add('show'); return;
+    }
     var title = document.getElementById('editTitle').value.trim();
     var content = document.getElementById('editContent').value.trim();
     var publish_time = document.getElementById('editPublish').value;

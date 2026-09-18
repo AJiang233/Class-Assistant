@@ -243,11 +243,21 @@ function toggleRemindPosition(boxId, btn) {
   syncRemindQuick(boxId);
 }
 
-/** 渲染「提醒对象」选择区：顶部按职位一键选择，下方成员多选 */
-function renderRemindBox(boxId, members, checkedNames) {
+/**
+ * 渲染「提醒对象」选择区：顶部按职位一键选择，下方成员多选。
+ * failed=true 表示名单加载失败 —— 与「真没有成员」是两回事：
+ * 失败时渲染错误提示而不是「暂无成员」，否则用户会把定向内容当成没有可提醒对象，
+ * 保存后名单被提交成空（= 全班可见）。是否拦住保存由调用方在提交函数里判这个标志
+ * （renderRemindBox 拿不到提交按钮）。
+ */
+function renderRemindBox(boxId, members, checkedNames, failed) {
   const box = document.getElementById(boxId);
   if (!box) return;
-  box.className = 'remind-box';
+  box.className = 'remind-box' + (failed ? ' remind-error' : '');
+  if (failed) {
+    box.innerHTML = '<span class="remind-hint remind-text-error">成员名单加载失败：为避免把定向内容误发成全班可见，保存已被禁止，请重试</span>';
+    return;
+  }
   if (!members || !members.length) {
     box.innerHTML = '<span class="remind-hint">暂无成员可提醒</span>';
     return;

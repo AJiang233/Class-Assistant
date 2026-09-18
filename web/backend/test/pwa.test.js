@@ -925,3 +925,52 @@ test('原生推回的数据：本窗口没人注册也要照样转发（收件�
   assert.equal(got.length, 1);
   assert.equal(got[0][0], '/api/notices?scope=all');
 });
+
+// ===== 提醒对象名单加载失败（issue #78）=====
+// 一次网络抖动 / 500 若被当成「暂时没有成员」，保存时 `remind_people` 提交空数组，
+// 后端把空名单当默认全班，定向内容就静默发成全班可见。这几个页面都是带副作用的 IIFE，
+// 取不出函数来跑，所以按本文件既有做法读源码钉形状：
+//   ① renderRemindBox 得有 failed 分支（失败态渲染错误提示，而不是「暂无成员」）
+//   ② 提交路径（notices/activities 的 submitEdit、admin 的三个发布）都要在名单失败时拦截。
+
+test('名单加载失败：renderRemindBox 渲染错误态而不是「暂无成员」（issue #78）', () => {
+  const src = readFileSync(join(HERE, '../../assets/js/app.js'), 'utf8');
+  const at = src.indexOf('function renderRemindBox');
+  assert.ok(at >= 0, '找不到 renderRemindBox：可能被改名或搬走了，这条断言需要跟着改');
+
+  assert.match(src.slice(at, at + 600), /failed\s*=>|failed\s*=|, failed\)/,
+    'renderRemindBox 没有接收「加载失败」标志：失败会和「真没成员」混在一起');
+  assert.match(src.slice(at, at + 900), /remind-text-error/,
+    '失败态没有独立的错误文案：会把「名单加载失败」错显示成「暂无成员」');
+});
+
+test('名单加载失败：notices 与 activities 的编辑保存都会拦截（issue #78）', () => {
+  for (const file of ['notices.js', 'activities.js']) {
+    const src = readFileSync(join(HERE, '../../assets/js/' + file), 'utf8');
+
+    // 失败标志要在 loadRemindChoices 里被真实设置（成功置 false、失败置 true）
+    assert.match(src, /remindLoadFailed\s*=\s*true;/, file + '：名单失败时没有把标志置 true');
+    assert.match(src, /remindLoadFailed\s*=\s*false;/, file + '：名单成功时没有把标志复位');
+
+    // 保存前必须拦截，否则空的 remind_people 会被提交成「全班可见」
+    const submitAt = src.indexOf('async function submitEdit');
+    assert.ok(submitAt >= 0, file + '：找不到 submitEdit');
+    assert.match(src.slice(submitAt, submitAt + 700), /remindLoadFailed/,
+      file + '：submitEdit 没有读失败标志，名单加载失败时仍会把空名单提交上去');
+  }
+});
+
+test('名单加载失败：admin 的三个发布都会拦截（issue #78）', () => {
+  const src = readFileSync(join(HERE, '../../assets/js/admin.js'), 'utf8');
+  assert.match(src, /remindLoadFailed\s*=\s*true;/, 'admin：名单失败时没有把标志置 true');
+
+  // 通知、活动、表单三个发布入口都要拦住
+  for (const site of ['ntcRemind', 'actRemind', 'fcRemind']) {
+    const at = src.indexOf(site);
+    assert.ok(at >= 0, 'admin：找不到 ' + site + ' 的提醒框');
+    // 在包含该提醒框的这段范围内，得出现失败拦截（collectRemind/collectRemind 所在函数体有 remindLoadFailed）
+    const span = src.slice(Math.max(0, at - 600), at + 200);
+    assert.match(span, /remindLoadFailed/,
+      'admin：' + site + ' 所在的发布入口没有名单失败拦截，失败时会静默发成全班可见');
+  }
+});
