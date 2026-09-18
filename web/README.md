@@ -302,6 +302,16 @@ web/                            # Cloudflare Pages 项目根目录（直接部�
 返回 503 `ACADEMIC_UNAVAILABLE`（production 与 preview 两个环境的绑定现在都配好了），
 没配 `INTERNAL_TOKEN` 返回 500 `SERVER_MISCONFIGURED` —— 都不是裸 500。
 
+**本地联调**：`wrangler pages dev` 的 Service Binding 找的是**本机正在运行的那个 Worker 的
+`wrangler dev` 会话**（不连线上），所以要起两个进程：先在 `Class-Assistant-Private-API` 里
+`wrangler dev`，再在 `web/` 里 `wrangler pages dev`；两边 `.dev.vars` 里的 `INTERNAL_TOKEN`
+必须逐字一致，否则网关一律 401。没起那个 Worker 时不会报 500 —— 按上面那条返回 503
+`ACADEMIC_UNAVAILABLE`。另外 `web/.dev.vars`（从 `.dev.vars.example` 复制）是本地跑通任何
+需登录接口的前提，缺了 `JWT_SECRET` 会直接 500；`web/wrangler.toml` 里的 `[[services]]`
+现在是打开的（早先是注释状态，本地因此完全调不到教务）。本地的 `workerd` 只支持到
+`compatibility_date` 2025-07-18（线上按 2026-09-18 跑），启动时那句回退警告是 wrangler 3
+自带的运行时版本所致，升到 wrangler 4 就没有了。
+
 > 代登录链路、多因子认证的取舍、教务接口的坑、成绩汇总口径、以及各接口的请求体与响应示例，
 > 都随实现一起记在私有仓的 README 里。本站不再复制一份 —— 两边各写一份的结果是其中一份必然过时。
 

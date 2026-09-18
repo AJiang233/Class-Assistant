@@ -19,14 +19,12 @@ database_name = "class-assistant-db"
 database_id = "6444f4bb-5197-4a53-a12b-264410e99f81"
 
 # 教务访问私有 Worker 走 Service Binding（绑定名 ACADEMIC_API），生产在 Pages 面板配。
-# 本地 `wrangler pages dev` 想联调教务功能时，取消下面三行的注释即可；
-# 默认保持关闭 —— 本地跑不起那个 Worker 时会连不上上游，而没有绑定时
-# 教务接口统一返回 503 ACADEMIC_UNAVAILABLE，其余功能都不受影响
-# （见 backend/src/routes/academic.js）。另外本地还需要 INTERNAL_TOKEN（.dev.vars）。
-#
-# [[services]]
-# binding = "ACADEMIC_API"
-# service = "class-assistant-private-api"
+# 本地 `wrangler pages dev` 会去找**本地正在运行的**那个 Worker 的 `wrangler dev` 会话
+# （连不上就显示 not connected），所以联调时要两个进程都起：先在私有仓跑 `wrangler dev`，
+# 再在 web/ 跑 `wrangler pages dev`。两边 `.dev.vars` 里的 INTERNAL_TOKEN 必须一致。
+[[services]]
+binding = "ACADEMIC_API"
+service = "class-assistant-private-api"
 
 [vars]
 # JWT 过期时间（秒），默认 7 天
