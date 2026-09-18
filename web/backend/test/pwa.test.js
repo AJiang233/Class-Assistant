@@ -937,6 +937,43 @@ test('推送订阅：已订阅时打开个人中心会重报一次（issue #80�
     'refreshNotify 里没有重报 /api/push/subscribe：轮换后的订阅没有恢复路径');
 });
 
+// ===== 教务手机端 CSS 的级联顺序（issue #83）=====
+// 第 22 节（教务）的基础规则写在 21.x 手机端块**之后**，同特异度下按源码顺序反超，
+// 于是 21.x 里那些教务声明等于没写（.ac-toolbar / .ac-select / 学分表小屏档都中过招）。
+// 手机端声明必须住在第 22 节、排在对应基础规则后面 —— 这是没法用浏览器验证的纯级联问题。
+
+test('教务手机端规则要排在基础规则之后，不被反超（issue #83）', () => {
+  const css = readFileSync(join(HERE, '../../assets/css/style.css'), 'utf8');
+
+  // .ac-select 基础规则（min-width:158px）在第 22 节，窄屏全宽声明必须出现在它之后
+  const baseSelect = css.indexOf('.ac-select {');
+  const mobileSelect = css.indexOf('.ac-select { min-width: 0; width: 100%; }');
+  assert.ok(baseSelect >= 0, '找不到 .ac-select 基础规则，选择器可能改了');
+  assert.ok(mobileSelect > baseSelect,
+    '窄屏 .ac-select 全宽声明写在了基础规则前面：手机上筛选下拉还是 158px 宽（issue #83）');
+
+  assert.ok(css.indexOf('.ac-toolbar { gap: 10px; }') > css.indexOf('.ac-toolbar {'),
+    '.ac-toolbar 窄屏间距写在了基础规则前面，手机上工具栏还是 12px 间距');
+
+  // 学分表 ≤400 档（34px 列）要在基础规则（52px 列）之后，SE 上才拿得到这一档
+  const baseCredit = css.indexOf('.credit-row {');
+  const smallCredit = css.indexOf('34px 34px 34px 34px 56px');
+  assert.ok(baseCredit >= 0 && smallCredit > baseCredit,
+    '学分表 ≤400 档（34px 列）写在了基础规则（52px 列）前面，SE 上还是 38px 档（issue #83）');
+
+  // 21.x 手机端块里不该再残留会被反超的重复声明（它们现在都住第 22 节）
+  const base = Math.max(baseSelect, baseCredit);
+  for (const [snippet, why] of [
+    ['.ac-toolbar { gap: 10px; }', 'ac-toolbar 窄屏间距'],
+    ['34px 34px 34px 34px 56px', '学分表小屏档'],
+    ['.credit-row-head { font-size: 0.7rem; }', '学分表表头小屏档']
+  ]) {
+    const idx = css.indexOf(snippet);
+    assert.ok(idx >= 0 && idx > base,
+      why + ' 应该住在第 22 节基础规则之后，而不是残留在 21.x 里等被反超（issue #83）');
+  }
+});
+
 // ===== 原生推回的数据要转给 iframe 子页面 =====
 // 原生那边是 webView.evaluateJavascript，只作用于顶层文档的 window；而通知/活动/教务/
 // 个人中心/管理员这几个页面各自跑在 iframe 里、各自加载一份 app.js、各自一份 apiRenderers。
