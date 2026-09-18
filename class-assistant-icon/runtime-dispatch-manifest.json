@@ -51,15 +51,15 @@
         ]
       },
       "skillRuntime": {
-        "skillDir": "c:\\Users\\lkjlk\\.trae-cn\\builtin\\design\\default\\skills\\solo-design",
-        "deterministicToolDir": "c:\\Users\\lkjlk\\.trae-cn\\builtin\\design\\default\\skills\\solo-design\\shared-runtime\\deterministic-tooling",
+        "skillDir": "<SKILL_DIR>",
+        "deterministicToolDir": "<SKILL_DIR>/shared-runtime/deterministic-tooling",
         "toolPaths": {
-          "applyHtmlHeadContract": "c:\\Users\\lkjlk\\.trae-cn\\builtin\\design\\default\\skills\\solo-design\\shared-runtime\\deterministic-tooling\\apply-html-head-contract.mjs",
-          "recordDispatchCompletion": "c:\\Users\\lkjlk\\.trae-cn\\builtin\\design\\default\\skills\\solo-design\\shared-runtime\\deterministic-tooling\\record-dispatch-completion.mjs",
-          "buildPageDispatchManifest": "c:\\Users\\lkjlk\\.trae-cn\\builtin\\design\\default\\skills\\solo-design\\shared-runtime\\deterministic-tooling\\build-page-dispatch-manifest.mjs",
-          "validateDesignWorkspace": "c:\\Users\\lkjlk\\.trae-cn\\builtin\\design\\default\\skills\\solo-design\\shared-runtime\\deterministic-tooling\\validate-design-workspace.mjs",
-          "validateFinishReadiness": "c:\\Users\\lkjlk\\.trae-cn\\builtin\\design\\default\\skills\\solo-design\\shared-runtime\\deterministic-tooling\\validate-finish-readiness.mjs",
-          "validateRestoreContract": "c:\\Users\\lkjlk\\.trae-cn\\builtin\\design\\default\\skills\\solo-design\\shared-runtime\\deterministic-tooling\\validate-restore-contract.mjs"
+          "applyHtmlHeadContract": "<SKILL_DIR>/shared-runtime/deterministic-tooling/apply-html-head-contract.mjs",
+          "recordDispatchCompletion": "<SKILL_DIR>/shared-runtime/deterministic-tooling/record-dispatch-completion.mjs",
+          "buildPageDispatchManifest": "<SKILL_DIR>/shared-runtime/deterministic-tooling/build-page-dispatch-manifest.mjs",
+          "validateDesignWorkspace": "<SKILL_DIR>/shared-runtime/deterministic-tooling/validate-design-workspace.mjs",
+          "validateFinishReadiness": "<SKILL_DIR>/shared-runtime/deterministic-tooling/validate-finish-readiness.mjs",
+          "validateRestoreContract": "<SKILL_DIR>/shared-runtime/deterministic-tooling/validate-restore-contract.mjs"
         },
         "requiredForPageSubAgent": [
           "applyHtmlHeadContract",
@@ -68,15 +68,15 @@
         "pathInjection": "absolute",
         "pathContract": "Do not use {SKILL_DIR} placeholders inside Page Sub-Agent packets; use toolPaths.* absolute paths.",
         "commandTemplates": {
-          "recordDispatchCompletion": "node \"c:\\Users\\lkjlk\\.trae-cn\\builtin\\design\\default\\skills\\solo-design\\shared-runtime\\deterministic-tooling\\record-dispatch-completion.mjs\" \"e:\\WorkSpace\\Class Assistant\\Class-Assistant\\class-assistant-icon\" --node-id=\"page-icon-system\" --html-src=\"pages/icon-system.html\" --status=completed --changed-files=<comma-separated-project-relative-files> --trace-digest=<main-agent-runtime-trace-digest> --tool-ledger-json=<tool-ledger-json-or-file>"
+          "recordDispatchCompletion": "node \"<SKILL_DIR>/shared-runtime/deterministic-tooling/record-dispatch-completion.mjs\" \"<PROJECT_DIR>/class-assistant-icon\" --node-id=\"page-icon-system\" --html-src=\"pages/icon-system.html\" --status=completed --changed-files=<comma-separated-project-relative-files> --trace-digest=<main-agent-runtime-trace-digest> --tool-ledger-json=<tool-ledger-json-or-file>"
         }
       },
-      "cssFilePath": "e:\\WorkSpace\\Class Assistant\\Class-Assistant\\class-assistant-icon\\colors_and_type.css",
-      "htmlFilePath": "e:\\WorkSpace\\Class Assistant\\Class-Assistant\\class-assistant-icon\\pages\\icon-system.html",
+      "cssFilePath": "<PROJECT_DIR>/class-assistant-icon/colors_and_type.css",
+      "htmlFilePath": "<PROJECT_DIR>/class-assistant-icon/pages/icon-system.html",
       "brandPrefix": "ca",
       "aestheticsMode": "free-explore",
       "toolDisciplineBlockPresent": true,
-      "fillHtmlHeadCommand": "node \"c:\\Users\\lkjlk\\.trae-cn\\builtin\\design\\default\\skills\\solo-design\\shared-runtime\\deterministic-tooling\\apply-html-head-contract.mjs\" \"e:\\WorkSpace\\Class Assistant\\Class-Assistant\\class-assistant-icon\\colors_and_type.css\" \"e:\\WorkSpace\\Class Assistant\\Class-Assistant\\class-assistant-icon\\pages\\icon-system.html\" --title=\"图标系统\" --lang=\"zh-CN\" --prefix=\"ca\"",
+      "fillHtmlHeadCommand": "node \"<SKILL_DIR>/shared-runtime/deterministic-tooling/apply-html-head-contract.mjs\" \"<PROJECT_DIR>/class-assistant-icon/colors_and_type.css\" \"<PROJECT_DIR>/class-assistant-icon/pages/icon-system.html\" --title=\"图标系统\" --lang=\"zh-CN\" --prefix=\"ca\"",
       "headFillMode": "skeleton-first",
       "viewportMode": null,
       "completionSchemaExpected": "compact",

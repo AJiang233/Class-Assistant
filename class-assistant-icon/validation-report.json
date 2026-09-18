@@ -139,7 +139,7 @@
     "assets/icon-favicon.svg": "cf479cf40021c533a13af1f00cd1b6b3bfdbcdec9f4c3af3beaa488626c95f32",
     "assets/icon-mark.svg": "4b61b543b568696523ea656f4979b51d2ebd8accbbb2c2eef9cafe5e61fac43b"
   },
-  "designDir": "e:\\WorkSpace\\Class Assistant\\Class-Assistant\\class-assistant-icon",
+  "designDir": "<PROJECT_DIR>/class-assistant-icon",
   "expectedPages": 1,
   "requireInteractions": null,
   "checkedAt": "2026-09-18T17:55:20.853Z"
