@@ -126,4 +126,39 @@ class ReleaseShrinkTest {
         assertTrue("README 的桥方法清单没解析出来", listed.isNotEmpty())
         assertTrue("README 里写了但 HostBridge 上没有：${listed - bridge}", bridge.containsAll(listed))
     }
+
+    /**
+     * 提醒通知（活动 / 通知 / 课程）的渠道必须是 v3 + IMPORTANCE_MAX：渠道重要性只在创建时
+     * 生效、只能下调不能上调，所以每次提到更高档都要换新渠道 id（v1→v2→v3），老 id 要删掉
+     * 否则白占系统设置。7.x 没有渠道，靠 setPriority(MAX) 兜底弹横幅。常驻那条（MIN）是
+     * 独立构造链，不受影响，也不能被顺手改成 MAX。
+     */
+    @Test
+    fun `提醒渠道要 v3 + MAX，并清理老渠道`() {
+        val notify = moduleFile("src/main/java/com/classassistant/app/notify/Notifier.kt").readText()
+        // 三个提醒渠道 id 必须是 v3（换 id 是「上调重要性」生效的前提，见 CHANNEL_NOTICE 的注释）
+        for (id in listOf("activity_reminder_v3", "class_notice_v3", "course_reminder_v3")) {
+            assertTrue("提醒渠道 id 不是 $id：老 id 上调 MAX 对已装用户不生效", notify.contains(id))
+        }
+        assertTrue(
+            "提醒渠道没设 IMPORTANCE_MAX",
+            Regex("""IMPORTANCE_MAX""").findAll(notify).count() >= 3
+        )
+        assertTrue(
+            "Notifier.send() 没给提醒通知设 PRIORITY_MAX：Android 7.x（API 24-25）没有渠道，" +
+                "默认 PRIORITY_DEFAULT 不弹横幅",
+            notify.contains(".setPriority(NotificationCompat.PRIORITY_MAX)")
+        )
+        // 常驻那条必须保持 MIN（不响不弹），别被顺手改成 MAX
+        assertTrue(
+            "常驻通知的 PRIORITY_MIN 丢了：前台服务那条不该弹横幅",
+            notify.contains(".setPriority(NotificationCompat.PRIORITY_MIN)")
+        )
+        assertTrue(
+            "老渠道 id 没删干净：会在系统设置里白占一条",
+            notify.contains("deleteNotificationChannel(CHANNEL_ACTIVITY_LEGACY)") &&
+                notify.contains("deleteNotificationChannel(CHANNEL_NOTICE_V2_LEGACY)") &&
+                notify.contains("deleteNotificationChannel(CHANNEL_COURSE_LEGACY)")
+        )
+    }
 }
