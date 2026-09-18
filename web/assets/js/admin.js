@@ -268,6 +268,14 @@ function renderRoleList() {
             + '</div>';
     }).join('');
     var custom = rolesCache.map(function (r) {
+        // 增 / 删 / 改自定义职位要 user:manage（后端 routes/auth.js 就是这么卡的），所以只有
+        // content:write 的人只给看列表，不给按钮 —— 否则就是那种「点了必然 403」的按钮（issue #79）。
+        var actions = canManage
+            ? '<div class="member-actions">'
+                + '<button type="button" class="btn btn-outline" data-act="edit-role" data-id="' + escAttr(r.id) + '">编辑</button>'
+                + '<button type="button" class="btn btn-danger" data-act="del-role" data-id="' + escAttr(r.id) + '">删除</button>'
+                + '</div>'
+            : '';
         return '<div class="info-row member-row">'
             + '<div class="member-main">'
             + '<div class="member-line">'
@@ -276,10 +284,7 @@ function renderRoleList() {
             + '</div>'
             + '<div class="member-sub">' + esc(rolePermText(r.permissions)) + '</div>'
             + '</div>'
-            + '<div class="member-actions">'
-            + '<button type="button" class="btn btn-outline" data-act="edit-role" data-id="' + escAttr(r.id) + '">编辑</button>'
-            + '<button type="button" class="btn btn-danger" data-act="del-role" data-id="' + escAttr(r.id) + '">删除</button>'
-            + '</div>'
+            + actions
             + '</div>';
     }).join('');
     el.innerHTML = '<div class="roles-group-label">默认职位（不可修改 / 删除）</div>'
@@ -480,13 +485,14 @@ if (canWrite) {
     resetFormCreate();
     loadFormsAdmin();
 }
-// 职位卡片：与「添加/管理成员」卡片一样正常显示，列表只读，增删在提交时由后端校验权限
-['manageRolesCard', 'addRoleCard'].forEach(function (id) {
-    document.getElementById(id).hidden = false;
-});
+// 「管理职位」列表对所有能进管理页的人可见（读接口对登录用户开放），只读 —— 所以这张卡无条件显示。
+// 「添加职位」卡要 user:manage，只有 content:write 的人看不到；同理每行的「编辑 / 删除」按钮也不渲染
+// （见 renderRoleList）。以前两张卡都是无条件摘 hidden，对学委就是一个提交必 403 的表单（issue #79）。
+document.getElementById('manageRolesCard').hidden = false;
 loadRoles();
 
 if (canManage) {
+    document.getElementById('addRoleCard').hidden = false;
     ['membersCard', 'addMemberCard'].forEach(function (id) {
         document.getElementById(id).hidden = false;
     });

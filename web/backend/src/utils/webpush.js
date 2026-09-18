@@ -34,10 +34,10 @@ const PUSH_TIMEOUT_MS = 10000;
  * 拿不准的第三方域名宁可不加：少一台能收通知是可观测、可补救的。
  */
 export const PUSH_HOST_SUFFIXES = Object.freeze([
-  'fcm.googleapis.com',         // Chromium 系（Chrome / Edge / Opera…，安卓与桌面）
+  'fcm.googleapis.com',         // Chromium 系全走 FCM：Chrome、Edge（安卓）、Opera、Brave、Samsung Internet
   'push.services.mozilla.com',  // Firefox（实测端点主机是它的子域 updates.push.services.mozilla.com）
   'push.apple.com',             // Apple 推送区：Safari / iOS 主屏 App 的端点是 web.push.apple.com
-  'notify.windows.com'          // 旧版 Edge（WNS：实测端点是 <hash>.notify.windows.com）
+  'notify.windows.com'          // Edge 桌面端（WNS：实测端点是 <hash>.notify.windows.com）
 ]);
 
 /**
@@ -229,6 +229,8 @@ export async function sendWebPush(subscription, payloadObject, vapid) {
       Authorization: authorization,
       'Content-Encoding': 'aes128gcm',
       'Content-Type': 'application/octet-stream',
+      // 必须 > 0：WNS（Edge 桌面端）对 TTL=0 直接回 400，一条都发不出去。
+      // 别再把它改成 0 —— 「0 = 只投在线设备」听着合理，代价却是整类设备静默失效。
       TTL: '86400'
     },
     body,

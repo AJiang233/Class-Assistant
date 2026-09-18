@@ -865,6 +865,26 @@ test('日历日期展开有上限，远期时间不会把主页卡死', () => {
     '上限没有作用在结束日期上，展开仍是无界循环');
 });
 
+// ===== 职位卡：只有 content:write 的人不该看到增删改 =====
+// 自定义职位的增 / 删 / 改在后端要 user:manage（routes/auth.js），前端若把它渲染出来，
+// 对学委就是「点了必然 403」的按钮。admin.js 同样是带副作用的 IIFE（开头 requireAuth、
+// 结尾一串 delegate），取不出函数来跑，所以按本文件既有做法读源码钉形状。
+
+test('职位卡：只有 content:write 的人看不到「添加职位」与每行的编辑 / 删除（issue #79）', () => {
+  const src = readFileSync(join(HERE, '../../assets/js/admin.js'), 'utf8');
+
+  const del = src.indexOf('data-act="del-role"');
+  assert.ok(del >= 0, '找不到删除按钮的渲染处：可能被改名或搬走了，这条断言需要跟着改');
+  assert.match(src.slice(Math.max(0, del - 500), del), /canManage\s*\?/,
+    '删除 / 编辑按钮没有挂在 canManage 上：只有 content:write 的人会看到一个点了必 403 的按钮');
+
+  assert.match(src, /if \(canManage\)\s*\{[\s\S]{0,200}?addRoleCard/,
+    '「添加职位」卡没有被 canManage 圈住：学委会看到一个提交必 403 的表单');
+
+  assert.match(src, /getElementById\('manageRolesCard'\)\.hidden = false/,
+    '「管理职位」列表不该跟着一起隐藏：读接口对登录用户开放，只读的那份要留着');
+});
+
 // ===== 原生推回的数据要转给 iframe 子页面 =====
 // 原生那边是 webView.evaluateJavascript，只作用于顶层文档的 window；而通知/活动/教务/
 // 个人中心/管理员这几个页面各自跑在 iframe 里、各自加载一份 app.js、各自一份 apiRenderers。
