@@ -231,12 +231,25 @@ class MainActivity : AppCompatActivity() {
         /**
          * 个人页「推送通知测试」：用最新一条真实活动 / 通知发一条本地通知，
          * 让用户自查推送是否可达、点通知能否跳到对应详情。kind 为 "activity" / "notice"。
-         * 桥方法不在 UI 线程，这里同步发请求没问题（网页那边会先把按钮置灰）。
+         *
+         * 桥方法跑在非 UI 线程，但这里**不能同步等**：后端请求带 15s / 20s 超时，
+         * 同步返回结果会让页面假死最多 35 秒（issue #84 项 17）。改为立刻返回、
+         * 结果经 evaluateJavascript 回调 `window.__caTestNotifyResult(msg)` 交回页面
+         * （契约见 web/account.js 的 testPush）。
          */
         @JavascriptInterface
-        fun testNotification(kind: String): String {
-            if (!fromAppPage()) return ""
-            return SyncRunner.pushTestNotification(applicationContext, kind)
+        fun testNotification(kind: String) {
+            if (!fromAppPage()) return
+            Thread {
+                val result = SyncRunner.pushTestNotification(applicationContext, kind)
+                runOnUiThread {
+                    if (webViewReleased) return@runOnUiThread
+                    binding.webView.evaluateJavascript(
+                        "window.__caTestNotifyResult&&window.__caTestNotifyResult(${JSONObject.quote(result)})",
+                        null
+                    )
+                }
+            }.start()
         }
 
         /** 关于软件卡片显示的 App 版本号；网页版没有原生桥，拿不到会退回「网页版」 */
@@ -603,6 +616,16 @@ class MainActivity : AppCompatActivity() {
                     // CAS 页面上拿到的不是「调了被拒」，而是根本没有 CAHost。
                     syncBridgeMount(url)
                     binding.swipeRefresh.isRefreshing = true
+                    // 新文档开始：上一份文档的探针结论作废 —— pullRefreshReady 是「最后一份报告」
+                    // 的缓存，不在这里复位就会从导航前一路带到导航后（issue #85）。教务登录期间
+                    // 探针被刻意关掉（onPageFinished 的 academicLogin 分支不注入），所以进教务前
+                    // 那份「学业视图 = 不可下拉」会一直缓存到回来之后，主页的下拉刷新就被它卡死。
+                    // 本站页先恢复成可下拉，等探针注入后 250ms 内按真实页面状态纠正（主页本就该
+                    // 可下拉，默认值几乎立即被覆盖）；教务等外部页直接禁用 —— 否则从主页进教务后
+                    // 还停在 true，在教务页上下拉会误触发 reload()。
+                    pullRefreshReady = url?.let {
+                        isAppOrigin(Uri.parse(it).scheme, Uri.parse(it).host, Uri.parse(it).port, portalHost)
+                    } ?: false
                 }
 
                 override fun onPageFinished(view: WebView, url: String?) {
@@ -697,6 +720,10 @@ class MainActivity : AppCompatActivity() {
      */
     internal fun pushApiUpdate(key: String, json: String) {
         runOnUiThread {
+            // WebView 可能已被 onRenderProcessGone / onDestroy 释放：destroy() 之后再调
+            // evaluateJavascript 会抛 IllegalStateException。检查必须在 UI 线程这一拍做 ——
+            // 只看函数入口那一处挡不住「检查后、执行前」之间被销毁的竞态（issue #84 项 15）。
+            if (webViewReleased) return@runOnUiThread
             binding.webView.evaluateJavascript(
                 "window.__caApiUpdated&&window.__caApiUpdated(${JSONObject.quote(key)},${JSONObject.quote(json)})",
                 null
@@ -987,22 +1014,17 @@ class MainActivity : AppCompatActivity() {
               var tick = 0;
               var lastToken = null;
               var lastDark = null;
-              // 登录凭据只存在网页的 localStorage 里，这里按常见键名取，并兜底扫描
+              // 登录凭据只存在网页的 localStorage 里，键固定为 ca_token（web/assets/js/app.js 的
+              // LS_TOKEN / saveSession）。**只认这一个键，不遍历其它键去猜**：页面里可能有第三方
+              // 脚本 / 调试时留下的其它 JWT，扫到就会被原生当成登录凭据落库，同步 401 后按 #64
+              // 把本地会话与缓存清掉 —— 表现为「明明还登录着，后台提醒却永久失效」（issue #81）。
               function looksLikeJwt(v) {
                 return typeof v === 'string' && v.length > 40 && v.split('.').length === 3;
               }
               function readToken() {
                 try {
-                  var known = ['ca_token', 'token', 'jwt', 'auth_token'];
-                  for (var k = 0; k < known.length; k++) {
-                    var kv = localStorage.getItem(known[k]);
-                    if (kv && looksLikeJwt(kv)) return kv;
-                  }
-                  var keys = Object.keys(localStorage);
-                  for (var i = 0; i < keys.length; i++) {
-                    var v = localStorage.getItem(keys[i]);
-                    if (v && looksLikeJwt(v)) return v;
-                  }
+                  var t = localStorage.getItem('ca_token');
+                  if (t && looksLikeJwt(t)) return t;
                 } catch (e) {}
                 return '';
               }

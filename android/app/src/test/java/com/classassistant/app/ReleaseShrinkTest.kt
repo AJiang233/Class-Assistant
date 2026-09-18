@@ -68,6 +68,30 @@ class ReleaseShrinkTest {
     }
 
     /**
+     * 探针只认 ca_token 一个键，不盲扫 localStorage（issue #81）。
+     *
+     * 网页登录态只写在 ca_token（app.js 的 LS_TOKEN / saveSession），其它键里出现的三段点分串
+     * 只可能是第三方脚本或调试时留下的东西。盲扫把它们当 token 上报后，原生侧会落库并用于
+     * 后台同步：服务端 401 → 按 #64 清掉本地会话与缓存 —— 用户明明还登录着，后台提醒却永久失效。
+     * 这条和「读 hidden 属性」一样属于「上线后靠用户反馈才发现」的类别，所以读源码钉形状。
+     */
+    @Test
+    fun `探针只认 ca_token 一个键，不盲扫 localStorage`() {
+        val main = moduleFile("src/main/java/com/classassistant/app/MainActivity.kt").readText()
+        val probe = main.substringAfter("val PROBE_JS =")
+        assertTrue("没找到 PROBE_JS，测试要跟着代码走", probe.isNotBlank())
+        assertTrue(
+            "readToken 还在遍历全部 localStorage 键找 JWT：第三方留下的假凭据会被当成 token 落库（issue #81）",
+            !probe.contains("Object.keys(localStorage)")
+        )
+        assertTrue(
+            "readToken 没在读固定键 ca_token：网页登录态就存这里（app.js 的 LS_TOKEN），" +
+                "删掉盲扫后得靠这个键接住真实凭据",
+            probe.contains("localStorage.getItem('ca_token')")
+        )
+    }
+
+    /**
      * 探针里调用的桥方法、README 里列进「JS 桥」清单的桥方法，都必须真的存在。
      *
      * issue #63 就是这一类：README 把 `setTheme` 写进了桥方法清单，代码里却没有 ——
@@ -101,5 +125,40 @@ class ReleaseShrinkTest {
             .map { it.groupValues[1] }.filterNot { it == "CAHost" }.toSet()
         assertTrue("README 的桥方法清单没解析出来", listed.isNotEmpty())
         assertTrue("README 里写了但 HostBridge 上没有：${listed - bridge}", bridge.containsAll(listed))
+    }
+
+    /**
+     * 提醒通知（活动 / 通知 / 课程）的渠道必须是 v3 + IMPORTANCE_MAX：渠道重要性只在创建时
+     * 生效、只能下调不能上调，所以每次提到更高档都要换新渠道 id（v1→v2→v3），老 id 要删掉
+     * 否则白占系统设置。7.x 没有渠道，靠 setPriority(MAX) 兜底弹横幅。常驻那条（MIN）是
+     * 独立构造链，不受影响，也不能被顺手改成 MAX。
+     */
+    @Test
+    fun `提醒渠道要 v3 + MAX，并清理老渠道`() {
+        val notify = moduleFile("src/main/java/com/classassistant/app/notify/Notifier.kt").readText()
+        // 三个提醒渠道 id 必须是 v3（换 id 是「上调重要性」生效的前提，见 CHANNEL_NOTICE 的注释）
+        for (id in listOf("activity_reminder_v3", "class_notice_v3", "course_reminder_v3")) {
+            assertTrue("提醒渠道 id 不是 $id：老 id 上调 MAX 对已装用户不生效", notify.contains(id))
+        }
+        assertTrue(
+            "提醒渠道没设 IMPORTANCE_MAX",
+            Regex("""IMPORTANCE_MAX""").findAll(notify).count() >= 3
+        )
+        assertTrue(
+            "Notifier.send() 没给提醒通知设 PRIORITY_MAX：Android 7.x（API 24-25）没有渠道，" +
+                "默认 PRIORITY_DEFAULT 不弹横幅",
+            notify.contains(".setPriority(NotificationCompat.PRIORITY_MAX)")
+        )
+        // 常驻那条必须保持 MIN（不响不弹），别被顺手改成 MAX
+        assertTrue(
+            "常驻通知的 PRIORITY_MIN 丢了：前台服务那条不该弹横幅",
+            notify.contains(".setPriority(NotificationCompat.PRIORITY_MIN)")
+        )
+        assertTrue(
+            "老渠道 id 没删干净：会在系统设置里白占一条",
+            notify.contains("deleteNotificationChannel(CHANNEL_ACTIVITY_LEGACY)") &&
+                notify.contains("deleteNotificationChannel(CHANNEL_NOTICE_V2_LEGACY)") &&
+                notify.contains("deleteNotificationChannel(CHANNEL_COURSE_LEGACY)")
+        )
     }
 }

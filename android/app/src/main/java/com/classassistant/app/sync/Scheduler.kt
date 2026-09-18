@@ -15,7 +15,7 @@ import com.classassistant.app.data.Store
 import com.classassistant.app.notify.AlarmReceiver
 import com.classassistant.app.widget.CoursesWidgetProvider
 import com.classassistant.app.widget.TodayWidgetProvider
-import com.classassistant.app.widget.WidgetRefreshReceiver
+import com.classassistant.app.widget.WidgetAlarmReceiver
 import java.util.Calendar
 import java.util.concurrent.TimeUnit
 
@@ -63,7 +63,7 @@ object Scheduler {
      *
      * 号段要挨着排、一处一个，别复用：活动闹钟直接用活动 id（小数值）、课程闹钟从 100 万起
      * （见 CourseSchedule.courseAlarmId）、深 Doze 兜底闹钟 992（见 BackgroundMode）、
-     * 零点刷新 991 —— 这里取 993。接收方不同（这里发 WidgetRefreshReceiver、Doze 那条发
+     * 零点刷新 991 —— 这里取 993。接收方不同（这里发 WidgetAlarmReceiver、Doze 那条发
      * SyncAlarmReceiver）时就算同号也不会互相顶掉，PendingIntent 的相等判定是带组件的；
      * 但编号一一对应才好查「系统里到底排着哪些闹钟」，所以照旧错开。
      */
@@ -311,7 +311,7 @@ object Scheduler {
      * 「后台同步成功」和 updatePeriodMillis（系统夹到最少 30 分钟，Doze 下更久）。
      * 过了零点没人叫它，桌面就一直挂着昨天那一屏 —— 日期是本地时间说了算的，
      * 所以这里直接按本机零点排一个闹钟，把「换天」这件事钉死。
-     * 接收方刷完会自己再排下一次（见 WidgetRefreshReceiver）。
+     * 接收方刷完会自己再排下一次（见 WidgetAlarmReceiver）。
      *
      * 用 RTC 而不是 RTC_WAKEUP：手机睡着就等它醒来再刷，早几小时看到旧内容无所谓，
      * 为刷新一个小组件把设备叫醒不值得。
@@ -325,8 +325,8 @@ object Scheduler {
             PendingIntent.getBroadcast(
                 context,
                 MIDNIGHT_REQUEST_CODE,
-                Intent(context, WidgetRefreshReceiver::class.java).apply {
-                    action = WidgetRefreshReceiver.ACTION_MIDNIGHT
+                Intent(context, WidgetAlarmReceiver::class.java).apply {
+                    action = WidgetAlarmReceiver.ACTION_MIDNIGHT
                 },
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
@@ -366,8 +366,8 @@ object Scheduler {
         PendingIntent.getBroadcast(
             context,
             CLASS_TICK_REQUEST_CODE,
-            Intent(context, WidgetRefreshReceiver::class.java).apply {
-                action = WidgetRefreshReceiver.ACTION_CLASS_TICK
+            Intent(context, WidgetAlarmReceiver::class.java).apply {
+                action = WidgetAlarmReceiver.ACTION_CLASS_TICK
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )

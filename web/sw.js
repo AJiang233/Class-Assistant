@@ -373,8 +373,15 @@ self.addEventListener('notificationclick', function (event) {
       } catch (e) { /* client.url 为空时跳过 */ }
       if (!sameOrigin) continue;
 
+      let navigated = false;
       if (typeof client.navigate === 'function') {
-        try { await client.navigate(target); } catch (e) { /* Safari 可能不支持，退回 focus */ }
+        try { await client.navigate(target); navigated = true; } catch (e) { /* 继续走兜底 */ }
+      }
+      if (!navigated) {
+        // 没有 client.navigate 的老内核（旧版 Safari）或导航失败：把目标地址交给页面自己跳
+        // （postMessage 路由，见 app.js 的 message 监听；issue #84 项 11），否则只会 focus、
+        // 页面停在旧页不跳详情
+        try { client.postMessage({ type: 'ca-shell-navigate', url: target }); } catch (e) {}
       }
       if (typeof client.focus === 'function') {
         try { await client.focus(); return; } catch (e) { /* 继续试下一个窗口 */ }

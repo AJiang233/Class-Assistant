@@ -9,19 +9,17 @@ if (canContentWrite()) loadRemindChoices();
 
 // ===== 提醒对象选择 =====
 var remindChoices = [];
-// 「名单没加载出来」与「真没有成员」必须分开记：前者若被当成空名单保存，
-// 会把定向内容静默发成全班可见（见 renderRemindBox 的 failed 分支与 submitEdit 的拦截）。
+// 名单加载失败与「真没有成员」是两回事：失败时保存会把已选对象丢成 []（= 全班可见，issue #78）。
+// 失败后每次打开编辑弹窗会重取一次（见 startEdit），取到才清掉这个标记。
 var remindLoadFailed = false;
 
 async function loadRemindChoices() {
+    remindLoadFailed = false;
     try {
         var res = await api('/api/auth/members-pick');
         remindChoices = (res.data && res.data.list) || [];
-        remindLoadFailed = false;
-        return true;
     } catch (e) {
         remindLoadFailed = true;
-        return false;
     }
 }
 
@@ -132,8 +130,8 @@ function closeDetail() {
     modalOverlay.classList.remove('show');
     document.body.style.overflow = '';
 }
-// 点遮罩空白处关闭
-modalOverlay.addEventListener('click', function (e) {
+// 点遮罩空白处关闭（空值守卫：弹窗节点漂移时别让这句把文件后半段的绑定打死，issue #84 项 6）
+if (modalOverlay) modalOverlay.addEventListener('click', function (e) {
     if (e.target === modalOverlay) closeDetail();
 });
 // ESC 关闭
@@ -151,7 +149,7 @@ function closeEdit() {
     editOverlay.classList.remove('show');
     document.body.style.overflow = '';
 }
-editOverlay.addEventListener('click', function (e) {
+if (editOverlay) editOverlay.addEventListener('click', function (e) {
     if (e.target === editOverlay) cancelEdit();
 });
 document.addEventListener('keydown', function (e) {
@@ -220,10 +218,10 @@ function startEdit(id) {
         document.getElementById('editExpire').value = (n.expire_time || '').replace(' ', 'T').slice(0, 16);
         var names = [];
         if (n.remind_people) { try { var arr = JSON.parse(n.remind_people); if (Array.isArray(arr)) names = arr; } catch (e) {} }
-        // 打开编辑前若上次名单加载失败，先重拉一次再进 —— 否则只显示「名单加载失败」
-        // 且保存被拦，连把既有定向对象改回去都做不到
-        function apply() { renderRemindChoices(names); openEdit(); }
-        if (remindLoadFailed) loadRemindChoices().then(apply); else apply();
+        // 名单上次没加载出来：先重取一次再渲染，否则用户会永远困在错误态里（issue #78）
+        if (remindLoadFailed) loadRemindChoices().then(function () { renderRemindChoices(names); });
+        else renderRemindChoices(names);
+        openEdit();
     }).catch(function (err) { alert(err.message); });
 }
 
@@ -235,18 +233,18 @@ function cancelEdit() {
 async function submitEdit() {
     var errBox = document.getElementById('editError');
     errBox.classList.remove('show');
-    // 名单没加载出来时绝不能保存：`remind_people: collectRemind()` 会是空数组，
-    // 后端把空名单当默认全班，定向内容就静默发成全班可见（issue #78）
-    if (remindLoadFailed) {
-        errBox.textContent = '提醒对象名单加载失败：为避免把定向内容误发成全班可见，保存已被禁止，请重试';
-        errBox.classList.add('show'); return;
-    }
     var title = document.getElementById('editTitle').value.trim();
     var content = document.getElementById('editContent').value.trim();
     var publish_time = document.getElementById('editPublish').value;
     var expire_time = document.getElementById('editExpire').value || null;
     if (!title || !publish_time) {
         errBox.textContent = '标题、发布时间为必填';
+        errBox.classList.add('show'); return;
+    }
+    // 名单没加载出来时禁止保存：此刻 collectRemind() 恒为 []，会把定向通知存成全班可见（issue #78）。
+    // 按钮在前一步已被禁用，这里是第二道闸 —— 不怕未来有人把禁用摘了。
+    if (remindLoadFailed) {
+        errBox.textContent = '提醒对象名单尚未加载成功，请关闭弹窗重试';
         errBox.classList.add('show'); return;
     }
     var btn = document.getElementById('editSubmitBtn');
@@ -267,7 +265,8 @@ async function submitEdit() {
 // ===== 事件绑定 =====
 // CSP 的 script-src 只放行 'self'，页面里不能再写内联 onclick：
 // 动态列表行用 data-act 标记 + 委托（列表重绘也不用重新绑），静态按钮直接按 id 绑。
-document.getElementById('editSubmitBtn').addEventListener('click', submitEdit);
+var editSubmitBtn = document.getElementById('editSubmitBtn');
+if (editSubmitBtn) editSubmitBtn.addEventListener('click', submitEdit);
 delegate(document, 'click', '[data-act="close-detail"]', function () { closeDetail(); });
 delegate(document, 'click', '[data-act="cancel-edit"]', function () { cancelEdit(); });
 delegate(document, 'click', '[data-act="edit-notice"]', function (el) { startEdit(el.getAttribute('data-id')); });
