@@ -102,6 +102,32 @@ class AcademicBindFlowTest {
         )
     }
 
+    /**
+     * 从教务流程回到门户后，主页的下拉刷新必须复活（issue #85）。
+     *
+     * pullRefreshReady 是页面探针「最后一份报告」的缓存，而教务登录期间探针被刻意关掉
+     * （onPageFinished 的 academicLogin 分支不注入），于是这份缓存会从「进教务前」一路带到
+     * 「回来之后」。进教务前用户多半停在学业视图（探针如实报 false），回来后若探针没来得及
+     * 重报，主页的下拉刷新就被这份过期的 false 卡死。修法是 onPageStarted 里按新文档来源复位：
+     * 本站页恢复成可下拉（探针 250ms 内纠正），外部页直接禁用。这段同样是纯胶水，
+     * 拆掉没有编译/运行期症状，只能读源码钉形状。
+     */
+    @Test
+    fun `onPageStarted 按新文档来源复位下拉刷新`() {
+        val started = main.substringAfter("override fun onPageStarted")
+            .substringBefore("override fun onPageFinished")
+        assertTrue(
+            "onPageStarted 里没有复位 pullRefreshReady：从教务回来会继承「学业视图 = 不可下拉」" +
+                "的过期探针结论，主页下拉刷新被卡死（issue #85）",
+            started.contains("pullRefreshReady")
+        )
+        assertTrue(
+            "复位没按 isAppOrigin 区分本站 / 外部页：教务页也会被恢复成可下拉，" +
+                "在教务页上下拉会误触发 reload()",
+            started.contains("isAppOrigin")
+        )
+    }
+
     /** 单测的工作目录是模块目录（android/app）；从 IDE 直接跑时可能是仓库根，两种都认（同 ReleaseShrinkTest） */
     private fun moduleFile(name: String): File =
         File(name).takeIf { it.exists() } ?: File("app", name)

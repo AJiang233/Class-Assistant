@@ -27,14 +27,9 @@
 :root {
   color-scheme: light;
 
-  /* ── Apple 系统色（HIG System Colors） ── */
+  /* ── Apple 系统色（HIG System Colors）── */
   --sys-blue: #007aff;
   --sys-blue-dark: #0a84ff;
-  --sys-green: #34c759;
-  --sys-red: #ff3b30;
-  --sys-orange: #ff9500;
-  --sys-indigo: #5856d6;
-  --sys-teal: #5ac8fa;
 
   /* ── 背景层级（systemGroupedBackground / secondarySystemGroupedBackground） ── */
   --bg: #f2f2f7;
@@ -59,7 +54,6 @@
 
   /* ── 强调色 ── */
   --accent: var(--sys-blue);
-  --accent-hover: #0069d9;
   --accent-soft: rgba(0, 122, 255, 0.10);
   --accent-ring: rgba(0, 122, 255, 0.28);
 
@@ -126,7 +120,6 @@
   --dur-base: 250ms;
   --dur-slow: 350ms;
   --dur-press: 160ms;
-  --transition: var(--dur-base) var(--ease-standard);
 
   --container: 1160px;
   --nav-height: 60px;
@@ -160,7 +153,6 @@
   --separator: rgba(255, 255, 255, 0.09);
 
   --accent: var(--sys-blue-dark);
-  --accent-hover: #3b9bff;
   --accent-soft: rgba(10, 132, 255, 0.18);
   --accent-ring: rgba(10, 132, 255, 0.42);
 
@@ -1020,7 +1012,10 @@ input[type="checkbox"]:disabled { opacity: 0.5; cursor: not-allowed; }
   border-radius: var(--radius-md);
   background: var(--danger-soft); color: var(--danger);
   font-size: 0.85rem; font-weight: 600; line-height: 1.5;
+  /* 断网图标 + 文案一行排开（图标取 currentColor，继承 danger 色） */
+  display: flex; align-items: center; gap: 7px;
 }
+.offline-notice svg { flex-shrink: 0; }
 
 /* ═══════════════════════════════════════════════════════════════════
    18 · 应用壳
@@ -1463,9 +1458,8 @@ body.app-mode { overflow: hidden; }
   /* 移动端减少逐条错峰，避免长列表出现等待感 */
   .list-row { animation-delay: 0ms !important; }
 
-  /* 教务工具栏：窄屏让筛选下拉独占一行，避免与按钮挤在同一行 */
-  .ac-toolbar { gap: 10px; }
-  .ac-select { min-width: 0; width: 100%; }
+  /* 教务的移动端规则住在第 22 节（见那里 .ac-card 那条注释）：基础规则在文件更后面，
+     同特异度会反超这里 —— .ac-toolbar / .ac-select 写过这儿、被盖掉过（issue #83）。 */
   .ac-code-row .btn { min-width: 96px; }
 }
 
@@ -1479,10 +1473,6 @@ body.app-mode { overflow: hidden; }
   .calendar, .ac-card, .profile-card, .split-grid .profile-card { padding: 14px 12px; }
   .cal-day { font-size: 0.78rem; }
   .cal-nav .icon-btn { width: 40px; height: 40px; }
-
-  .credit-stats { grid-template-columns: repeat(2, 1fr); }
-  .credit-row { grid-template-columns: minmax(0, 1fr) 34px 34px 34px 34px 56px; font-size: 0.76rem; }
-  .credit-row-head { font-size: 0.7rem; }
 
   .modal-head { padding: 13px 14px; }
   .modal-body { padding: 14px; }
@@ -1768,6 +1758,11 @@ body.app-mode { overflow: hidden; }
      ≤400 那块里的 .ac-card 也是因此失效的，所以小屏手机上这张卡取的是这一档，而不是 14px 12px；
      日历 .calendar 不受这个约束（基础规则在手机端块之前），它的手机端值放在 21.2 里。 */
   .ac-card { padding: 16px 14px; }
+  /* .ac-toolbar / .ac-select 同理（issue #83）：基础规则（gap:12px / min-width:158px）
+     就在本块上方几行，窄屏声明必须排在这里才盖得住 —— 以前写在 21.2，手机上筛选下拉
+     一直是 158px 宽而不是满宽。 */
+  .ac-toolbar { gap: 10px; }
+  .ac-select { min-width: 0; width: 100%; }
   .credit-stats { grid-template-columns: repeat(2, 1fr); }
   .credit-row { grid-template-columns: minmax(0, 1fr) 38px 38px 38px 38px 62px; gap: 2px; font-size: 0.79rem; padding: 8px 4px; }
   .credit-row-head { font-size: 0.73rem; }
@@ -1777,6 +1772,14 @@ body.app-mode { overflow: hidden; }
   .grade-head { padding: 10px 12px; }
   .grade-detail { padding: 2px 12px 10px; }
   .grade-line { font-size: 0.78rem; }
+}
+
+/* ≤400（SE / mini）：学分表的列再收一档（issue #83）。同样必须住在这节、排在基础规则
+   （52px 列）与本块（38px 列）之后 —— 原来写在 21.3，两档都被更后面的规则盖掉，
+   小屏上一直是 38px 档。 */
+@media (max-width: 400px) {
+  .credit-row { grid-template-columns: minmax(0, 1fr) 34px 34px 34px 34px 56px; font-size: 0.76rem; }
+  .credit-row-head { font-size: 0.7rem; }
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -1928,8 +1931,8 @@ body.app-mode { overflow: hidden; }
 .remind-hint,
 .remind-empty { font-size: 0.85rem; opacity: 0.6; }
 
-/* 名单加载失败（issue #78）：与「暂无成员」是两回事，用强调色并加醒目边框，
-   让「保存被禁止、别把它当全班发出去」一眼可见 */
+/* 名单加载失败（issue #78）：与「暂无成员」是两回事，用强调色并加粗，
+   让「保存被禁止、别把它当全班发出去」一眼可见（吸收自 PR #86） */
 .remind-text-error { opacity: 1; color: var(--danger); font-weight: 600; }
 
 /* ── 成员列表 / 资料卡 ── */

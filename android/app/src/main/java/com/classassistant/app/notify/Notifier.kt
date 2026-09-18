@@ -17,26 +17,34 @@ import com.classassistant.app.R
  */
 object Notifier {
 
-    const val CHANNEL_ACTIVITY = "activity_reminder"
+    /** 活动提醒渠道（v3：v1 时 DEFAULT、v2 提到 HIGH、v3 提到 MAX） */
+    const val CHANNEL_ACTIVITY = "activity_reminder_v3"
+
+    /** 活动渠道 v1 老 id：删掉，别白留一条在系统设置里 */
+    private const val CHANNEL_ACTIVITY_LEGACY = "activity_reminder"
 
     /**
-     * 通知 / 表单待办的渠道 id。末尾那个 v2 **不能去掉**。
+     * 通知 / 表单待办的渠道 id。末尾那个 v3 **不能去掉**。
      *
      * 渠道重要性只在创建时生效，之后应用只能**下调**不能上调（用户手动改的更是永远优先）。
-     * 老版本这个 id 是 "class_notice"，重要性 IMPORTANCE_DEFAULT（只响铃、不弹横幅）；
-     * 直接给老 id 传 HIGH 对已安装用户毫无作用 —— 那条渠道早就建好了，参数会被忽略。
-     * 所以想让通知也弹横幅，只能换一个新 id 重建渠道（用户的新渠道默认跟着 app 的设置走）。
+     * v1 是 "class_notice"（DEFAULT，只响铃不弹横幅）→ v2 提到 HIGH（弹横幅）→ v3 提到 MAX。
+     * 直接给老 id 传 MAX 对已安装用户毫无作用 —— 那条渠道早就建好了，参数会被忽略。
+     * 所以每次调重要性只能换一个新 id 重建渠道（用户的新渠道默认跟着 app 的设置走）。
      */
-    const val CHANNEL_NOTICE = "class_notice_v2"
+    const val CHANNEL_NOTICE = "class_notice_v3"
 
-    /** 换到 v2 之后的老渠道 id：留着没用，还会继续在系统设置里占一条，让用户分不清该关哪个 */
+    /** 通知渠道 v1 / v2 老 id：留着没用，还会继续在系统设置里占一条，让用户分不清该关哪个 */
     private const val CHANNEL_NOTICE_LEGACY = "class_notice"
+    private const val CHANNEL_NOTICE_V2_LEGACY = "class_notice_v2"
 
     /**
      * 课程提醒单独一条渠道：上课提醒和班级活动/通知是两件事，学生想静音的可能只是其中一类。
-     * 新建的 id 不需要 v2 那套后缀 —— 只有「要改变一条已存在渠道的重要性」时才必须换新 id。
+     * 从 v1 "course_reminder"（HIGH）提到 v3 的 MAX —— 同「只能换新 id 才能上调」的规则。
      */
-    const val CHANNEL_COURSE = "course_reminder"
+    const val CHANNEL_COURSE = "course_reminder_v3"
+
+    /** 课程渠道 v1 老 id */
+    private const val CHANNEL_COURSE_LEGACY = "course_reminder"
 
     /**
      * 前台服务那条常驻通知的渠道。IMPORTANCE_MIN：不响铃、不弹横幅、不进锁屏，
@@ -73,27 +81,31 @@ object Notifier {
             NotificationChannel(
                 CHANNEL_ACTIVITY,
                 context.getString(R.string.channel_activity),
-                NotificationManager.IMPORTANCE_HIGH
+                NotificationManager.IMPORTANCE_MAX
             ).apply { description = context.getString(R.string.channel_activity_desc) }
         )
-        // HIGH = 横幅（浮动通知）+ 响铃；与活动提醒一致。用户仍可在系统设置里单独把它调成静音
+        // MAX = 最高重要级（横幅 + 响铃 + 锁屏置顶）；用户仍可在系统设置里单独调低
         manager.createNotificationChannel(
             NotificationChannel(
                 CHANNEL_NOTICE,
                 context.getString(R.string.channel_notice),
-                NotificationManager.IMPORTANCE_HIGH
+                NotificationManager.IMPORTANCE_MAX
             ).apply { description = context.getString(R.string.channel_notice_desc) }
         )
-        // 删掉旧的 "class_notice"：不删就白留一条永远不弹横幅的渠道在设置里（幂等，不存在时是空操作）
+        // 删掉 v1 / v2 老渠道：不删就白留几条在设置里，用户分不清该关哪个（幂等，不存在时是空操作）
+        manager.deleteNotificationChannel(CHANNEL_ACTIVITY_LEGACY)
         manager.deleteNotificationChannel(CHANNEL_NOTICE_LEGACY)
+        manager.deleteNotificationChannel(CHANNEL_NOTICE_V2_LEGACY)
         // 课程提醒
         manager.createNotificationChannel(
             NotificationChannel(
                 CHANNEL_COURSE,
                 context.getString(R.string.channel_course),
-                NotificationManager.IMPORTANCE_HIGH
+                NotificationManager.IMPORTANCE_MAX
             ).apply { description = context.getString(R.string.channel_course_desc) }
         )
+        // 课程渠道 v1 老 id
+        manager.deleteNotificationChannel(CHANNEL_COURSE_LEGACY)
         // 前台服务那条常驻通知：最低重要级，不响不弹，只在通知栏占一行（见 CHANNEL_BACKGROUND 的注释）
         manager.createNotificationChannel(
             NotificationChannel(
@@ -200,6 +212,9 @@ object Notifier {
             .setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setContentIntent(pending)
+            // 渠道重要级在 26+ 说了算；24-25 没有渠道，靠这一行决定要不要弹 heads-up 横幅
+            // （MAX 是 7.x 能给的最高档，与 8+ 渠道的 IMPORTANCE_MAX 对齐）
+            .setPriority(NotificationCompat.PRIORITY_MAX)
             .setAutoCancel(true)
             .build()
         try {

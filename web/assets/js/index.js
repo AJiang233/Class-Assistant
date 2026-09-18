@@ -18,7 +18,7 @@ var FRAME_KEYS = { academic: 'frameAcademic', activities: 'frameActivities', not
     bindAppThemeToggle();
     fillAuthArea(authed, user);
     // 有发布权限或成员管理权限者可见"管理员"入口（仅侧边栏；手机端底栏不放，改由个人中心进入）
-    if (canManageUsers() || canContentWrite()) {
+    if (canManagePanel()) {
         document.getElementById('navAdmin').hidden = false;
     }
     if (authed) {
@@ -89,6 +89,10 @@ function toggleTheme() {
     var next = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
     root.setAttribute('data-theme', next);
     try { localStorage.setItem('theme', next); } catch (e) {}
+    // 同标签页里写 localStorage 不会触发 storage 事件（它只发给别的文档），而 theme.js 的
+    // apply()（含 theme-color meta 同步，Safari 顶部工具栏读它）只在 storage / 系统变化时
+    // 重跑 —— 这里补一发，让工具栏跟着站内主题变（issue #84 项 2）。
+    try { window.dispatchEvent(new StorageEvent('storage', { key: 'theme' })); } catch (e) {}
 }
 function bindAppThemeToggle() {
     var btn = document.getElementById('appThemeToggle');
@@ -291,18 +295,20 @@ async function loadCalendar() {
             cur.setDate(cur.getDate() + 1);
         }
     }
+    // 先清再做：失败时旧标记不得残留（issue #84 项 7）—— 否则加载失败后日历上还挂着
+    // 上一轮的圆点，用户会以为那些日子今天真有活动
+    eventDates.clear();
     try {
         var res = await api('/api/activities?scope=all&limit=200');
         var list = (res.data && res.data.list) || [];
-        eventDates.clear();
         // 只标「提醒当前账户（含全班）」的日子，与当日列表口径一致
         list.filter(function (a) { return remindMe(a.remind_people); })
             .forEach(function (a) { expand(eventDates, a.start_time, a.end_time); });
     } catch (e) {}
+    noticeDates.clear();
     try {
         var nres = await api('/api/notices?scope=all&limit=200');
         var nlist = (nres.data && nres.data.list) || [];
-        noticeDates.clear();
         nlist.filter(function (n) { return remindMe(n.remind_people); })
             .forEach(function (n) { expand(noticeDates, n.publish_time, n.expire_time); });
     } catch (e) {}
@@ -646,4 +652,6 @@ delegate(document, 'click', '[data-act="cal-next"]', function () { calNext(); })
 delegate(document, 'click', '[data-act="close-detail"]', function () { closeDetail(); });
 delegate(document, 'click', '[data-act="notice-detail"]', function (el) { showNoticeDetail(el.getAttribute('data-id')); });
 delegate(document, 'click', '[data-act="activity-detail"]', function (el) { showDetail(el.getAttribute('data-id')); });
-document.getElementById('collapseBtn').addEventListener('click', toggleSidebar);
+// 空值守卫：id 漂移时别让这一句在加载期抛错（issue #84 项 6）
+var collapseBtn = document.getElementById('collapseBtn');
+if (collapseBtn) collapseBtn.addEventListener('click', toggleSidebar);

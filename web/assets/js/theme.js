@@ -10,7 +10,17 @@
     var mq = window.matchMedia('(prefers-color-scheme: dark)');
     function system() { return mq.matches ? 'dark' : 'light'; }
     function stored() { try { var v = localStorage.getItem(KEY); return (v === 'dark' || v === 'light') ? v : null; } catch (e) { return null; } }
-    function apply(t) { root.setAttribute('data-theme', t); }
+    function apply(t) {
+        root.setAttribute('data-theme', t);
+        // Safari 顶部工具栏读 theme-color。HTML 里那两条带 media 的只跟系统深浅色走，
+        // 站内手动切主题（index.js 的 toggleTheme / 个人页的主题分段）时不会跟着变 ——
+        // 这里去掉 media、把内容改成当前主题色，两份最终一致（issue #84 项 2）。
+        var metas = document.querySelectorAll('meta[name="theme-color"]');
+        for (var i = 0; i < metas.length; i++) {
+            metas[i].removeAttribute('media');
+            metas[i].setAttribute('content', t === 'dark' ? '#07070c' : '#f2f2f7');
+        }
+    }
     function current() { return stored() || system(); }
     apply(current());
     function bind() {

@@ -11,7 +11,8 @@ import {
   sanitizePermissions,
   assertCustomRoleName,
   positionsToStore,
-  STUDENT_ROLE
+  STUDENT_ROLE,
+  ROLE_PERMISSIONS
 } from '../utils/permissions.js';
 
 const PASSWORD_MIN = 6;
@@ -416,7 +417,9 @@ export async function handleListRoles(request, env, user) {
     const roleModel = new RoleModel(env.DB);
     const rows = await roleModel.list();
     const list = rows.map((r) => ({ id: r.id, name: r.name, permissions: r.permissions }));
-    return jsonResponse(success({ list }));
+    // presets 是系统预置职位的权限表（ROLE_PERMISSIONS 的直接投影）：前端「管理职位」列表
+    // 展示默认职位权限时用这份，不再手抄一份硬编码（issue #84 项 9）
+    return jsonResponse(success({ list, presets: ROLE_PERMISSIONS }));
   } catch (e) {
     console.error('获取自定义职位失败:', e);
     return jsonResponse(error('获取自定义职位失败', 'LIST_ROLES_FAILED'), 500);

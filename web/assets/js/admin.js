@@ -3,7 +3,7 @@
 if (!requireAuth()) return;
 var canWrite = canContentWrite();
 var canManage = canManageUsers();
-if (!canWrite && !canManage) {
+if (!canManagePanel()) {
     document.querySelector('.container').innerHTML = stateHTML('无权访问该页面', true);
     return;
 }
@@ -11,14 +11,16 @@ if (!canWrite && !canManage) {
 // ===== 提醒对象选择（发布 通知、活动共用） =====
 var remindChoices = [];
 // 「名单没加载出来」与「真没有成员」必须分开记：前者若被当成空名单提交，
-// 会把定向内容静默发成全班可见（见 renderRemindBox 的 failed 分支与三个发布函数的拦截）。
+// 会把定向内容静默发成全班可见（renderRemindBox 的 failed 分支 + 三个发布函数的拦截，
+// 见 PR #86 吸收的增量 —— 新建时空名单虽是安全默认，但名单挂了还显示「暂无成员」
+// 会让人误以为班里没人可定向）
 var remindLoadFailed = false;
 
 async function loadRemindChoices() {
+    remindLoadFailed = false;
     try {
         var res = await api('/api/auth/members-pick');
         remindChoices = (res.data && res.data.list) || [];
-        remindLoadFailed = false;
     } catch (e) {
         remindLoadFailed = true;
     }
@@ -35,15 +37,6 @@ function collectRemind(boxId) {
     var names = [];
     document.querySelectorAll('#' + boxId + ' .remind-cb:checked').forEach(function (el) { names.push(el.value); });
     return names;
-}
-
-// ===== 卡片折叠（默认收起，点击标题行展开/收起） =====
-function toggleCollapse(id) {
-    var card = document.getElementById(id);
-    if (!card) return;
-    var open = card.classList.toggle('open');
-    var head = card.querySelector('.collapse-head');
-    if (head) head.setAttribute('aria-expanded', open ? 'true' : 'false');
 }
 
 // ===== 编辑弹窗：打开 / 关闭（成员） =====
@@ -85,8 +78,8 @@ async function submitNotice() {
         errBox.textContent = '标题、内容、发布时间为必填';
         errBox.classList.add('show'); return;
     }
-    // 名单没加载出来时绝不能发布：`remind_people: collectRemind('ntcRemind')` 会是空数组，
-    // 后端把空名单当默认全班，定向内容就静默发成全班可见（issue #78）
+    // 名单没加载出来时绝不能发布：collectRemind('ntcRemind') 会是空数组，后端把空名单
+    // 当默认全班，定向内容就静默发成全班可见（issue #78）
     if (remindLoadFailed) {
         errBox.textContent = '提醒对象名单加载失败：为避免把定向内容误发成全班可见，发布已被禁止，请重试';
         errBox.classList.add('show'); return;
@@ -125,8 +118,7 @@ async function submitActivity() {
         errBox.textContent = '标题、开始时间为必填';
         errBox.classList.add('show'); return;
     }
-    // 名单没加载出来时绝不能发布：`remind_people: collectRemind('actRemind')` 会是空数组，
-    // 后端把空名单当默认全班，定向内容就静默发成全班可见（issue #78）
+    // 名单没加载出来时绝不能发布：collectRemind('actRemind') 会是空数组（issue #78，同上）
     if (remindLoadFailed) {
         errBox.textContent = '提醒对象名单加载失败：为避免把定向内容误发成全班可见，发布已被禁止，请重试';
         errBox.classList.add('show'); return;
@@ -201,12 +193,9 @@ function filterMembers() {
 
 // 预设职务（可多选）
 var POSITION_PRESETS = ['班长', '团支书', '学习委员'];
-// 与后端 ROLE_PERMISSIONS 保持一致，用于「管理职位」中展示默认职位权限
-var PRESET_PERMISSIONS = {
-    '班长': ['content:write', 'user:manage'],
-    '团支书': ['content:write', 'user:manage'],
-    '学习委员': ['content:write']
-};
+// 默认职位的权限来自后端 /api/auth/roles 的 presets（ROLE_PERMISSIONS 的投影），
+// 前端不再手抄一份 —— 否则后端改权限这里就漂了（issue #84 项 9）
+var presetPerms = {};
 var rolesCache = [];   // roles 表：已定义的自定义职位
 
 // 汇总可选职务：预设 + roles 表已定义 + 成员已在用 + 当前已选（去重，排除「学生」）
@@ -250,7 +239,13 @@ async function loadRoles() {
     try {
         var res = await api('/api/auth/roles');
         rolesCache = (res.data && res.data.list) || [];
-    } catch (e) { rolesCache = []; }
+        presetPerms = (res.data && res.data.presets) || {};
+    } catch (e) {
+        // 失败不能渲染成「暂无自定义职位」：管理员会以为从没配过、重复添加（issue #84 项 7）。
+        // 保留上一次的 rolesCache，列表位置显示错误态；职位选择器也别用空数据重绘。
+        if (el) el.innerHTML = stateHTML('自定义职位加载失败：' + e.message + '（刷新页面重试）', true);
+        return;
+    }
     renderRoleList();
     renderRegPosPicker();
 }
@@ -281,7 +276,7 @@ function renderRoleList() {
             + '<span class="member-name">' + esc(name) + '</span>'
             + '<span class="member-pos">默认</span>'
             + '</div>'
-            + '<div class="member-sub">' + esc(permLabels(PRESET_PERMISSIONS[name] || [])) + '</div>'
+            + '<div class="member-sub">' + esc(permLabels(presetPerms[name] || [])) + '</div>'
             + '</div>'
             + '</div>';
     }).join('');
@@ -679,8 +674,7 @@ async function submitFormCreate() {
     if (!title) return fail('请填写表单标题');
     var collected = collectFields();
     if (collected.error) return fail(collected.error);
-    // 名单没加载出来时绝不能创建表单：`remind_people: collectRemind('fcRemind')` 会是空数组，
-    // 后端把空名单当默认全班，定向内容就静默发成全班可见（issue #78）
+    // 名单没加载出来时绝不能创建表单：collectRemind('fcRemind') 会是空数组（issue #78，同上）
     if (remindLoadFailed) return fail('提醒对象名单加载失败：为避免把定向内容误发成全班可见，发布已被禁止，请重试');
 
     var payload = {
@@ -895,15 +889,13 @@ function copyPending() {
     }
 }
 
-/** 导出要带 Bearer token，普通 <a> 拿不到，所以取回 Blob 再触发下载 */
+/** 导出要带 Bearer token，普通 <a> 拿不到，所以取回 Blob 再触发下载。
+ * 走 api({raw:true})：Bearer 头、30s 超时、401 清会话都由它统一处理（issue #84 项 5），
+ * 不再在调用方手抄一份 localStorage.getItem('ca_token')。 */
 async function exportForm() {
     if (!formResultId) return;
     try {
-        var token = localStorage.getItem('ca_token');
-        var res = await fetch('/api/forms/' + formResultId + '/export', {
-            headers: token ? { Authorization: 'Bearer ' + token } : {}
-        });
-        if (!res.ok) { alert('导出失败（' + res.status + '）'); return; }
+        var res = await api('/api/forms/' + formResultId + '/export', { raw: true });
         var blob = await res.blob();
         var url = URL.createObjectURL(blob);
         var a = document.createElement('a');

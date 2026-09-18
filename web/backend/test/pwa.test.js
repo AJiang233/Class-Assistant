@@ -885,6 +885,124 @@ test('职位卡：只有 content:write 的人看不到「添加职位」与每�
     '「管理职位」列表不该跟着一起隐藏：读接口对登录用户开放，只读的那份要留着');
 });
 
+// ===== 提醒对象名单：加载失败不能当「没有成员」=====
+// notices.js / activities.js 是带副作用的 IIFE（开头 requireAuth），取不出函数来跑，
+// 所以照本文件既有做法读源码钉形状。这条是安全路径（issue #78）：名单加载失败时保存
+// 会把定向通知/活动丢成 []（= 全班可见），拆掉任何一道闸都没有运行期症状，只能靠形状钉。
+
+test('提醒对象：名单加载失败时不渲染空列表、保存被拦下（issue #78）', () => {
+  const app = readFileSync(join(HERE, '../../assets/js/app.js'), 'utf8');
+  const notices = readFileSync(join(HERE, '../../assets/js/notices.js'), 'utf8');
+  const activities = readFileSync(join(HERE, '../../assets/js/activities.js'), 'utf8');
+
+  for (const [name, src] of [['notices.js', notices], ['activities.js', activities]]) {
+    assert.match(src, /remindLoadFailed\s*=\s*true/,
+      name + '：加载失败没有置 remindLoadFailed，失败仍会被当成「没有成员」（issue #78）');
+    assert.match(src, /renderRemindBox\([^)]*remindLoadFailed/,
+      name + '：渲染时没把失败标记传给 renderRemindBox');
+    assert.match(src, /if \(remindLoadFailed\)\s*loadRemindChoices/,
+      name + '：打开编辑弹窗时没在失败后重取名单');
+    assert.match(src, /if \(remindLoadFailed\)\s*\{[\s\S]{0,120}?return;/,
+      name + '：submitEdit 没有在失败时拦下保存');
+  }
+
+  // renderRemindBox 要接 failed 参数，失败态渲染错误并禁用保存按钮；成功渲染要恢复按钮
+  assert.match(app, /renderRemindBox\(boxId, members, checkedNames, failed\)/,
+    'renderRemindBox 没接 failed 参数');
+  assert.match(app, /if \(failed\)\s*\{[\s\S]{0,200}?disabled = true/,
+    '失败态没有禁用保存按钮');
+  assert.match(app, /if \(save\) save\.disabled = false/,
+    '成功渲染时没有恢复保存按钮：上次失败禁掉后就再也点不动了');
+});
+
+// admin 的三个发布入口（通知 / 活动 / 表单）同样要在名单失败时拦截（issue #78，
+// 吸收自 PR #86 的增量：新建时空名单虽是安全默认，但失败还显示「暂无成员」会误导人）
+test('提醒对象：admin 的三个发布入口在名单失败时也拦截（issue #78）', () => {
+  const src = readFileSync(join(HERE, '../../assets/js/admin.js'), 'utf8');
+
+  assert.match(src, /remindLoadFailed\s*=\s*true;/, 'admin：名单失败时没有把标志置 true');
+  assert.match(src, /renderRemindBox\([^)]*remindLoadFailed/,
+    'admin：渲染时没把失败标记传给 renderRemindBox');
+
+  for (const [name, marker] of [['通知', 'ntcSubmitBtn'], ['活动', 'actSubmitBtn'], ['表单', 'fcSubmitBtn']]) {
+    const at = src.indexOf(marker);
+    assert.ok(at >= 0, 'admin：找不到 ' + name + ' 的提交按钮');
+    assert.match(src.slice(Math.max(0, at - 900), at), /remindLoadFailed/,
+      'admin：' + name + ' 发布入口没有名单失败拦截，失败时会静默发成全班可见');
+  }
+});
+
+// ===== 推送订阅：endpoint 轮换后的恢复路径 =====
+// account.js 是带副作用的 IIFE（开头 requireAuth），取不出函数来跑，读源码钉形状。
+// 这条是可达性路径（issue #80）：APNs/FCM 轮换 endpoint 后服务端库里那条旧订阅 404/410，
+// 页面却只看本地 subscription、照常显示「已开启」，通知静默失效。pushsubscriptionchange
+// 只有 Chromium 系派发、Safari 不派发，恢复只能靠每次打开重报（接口幂等 upsert）。
+
+test('推送订阅：已订阅时打开个人中心会重报一次（issue #80）', () => {
+  const src = readFileSync(join(HERE, '../../assets/js/account.js'), 'utf8');
+
+  assert.match(src, /if \(pushSub && pushServerEnabled\)/,
+    'refreshNotify 没在「本地已订阅」时走重报分支：轮换后服务端那条旧的 404/410，' +
+    '页面仍显示「已开启」，通知静默失效（issue #80）');
+
+  // 重报必须落在 refreshNotify（每次打开都跑），不能只在 enablePush（只跑一次）
+  const refresh = src.substring(
+    src.indexOf('function refreshNotify'),
+    src.indexOf('async function enablePush')
+  );
+  assert.ok(refresh.indexOf('/api/push/subscribe') >= 0,
+    'refreshNotify 里没有重报 /api/push/subscribe：轮换后的订阅没有恢复路径');
+});
+
+// 推送测试结果是原生 evaluateJavascript 回调，只能执行在**顶层文档**；个人页在
+// frameAccount iframe 里 —— 顶层必须有转发层，否则回调被 && 静默丢弃、按钮永远停在「推送中…」
+// （issue #84 项 17 异步化的配套）。
+test('推送测试结果回调要在顶层转发给 frameAccount', () => {
+  const app = readFileSync(join(HERE, '../../assets/js/app.js'), 'utf8');
+
+  assert.match(app, /window\.top === window[\s\S]{0,200}?__caTestNotifyResult/,
+    '顶层没有定义 __caTestNotifyResult 转发层：个人页在 iframe 里收不到原生回调，按钮卡「推送中…」');
+  assert.match(app, /frameAccount[\s\S]{0,80}?contentWindow\.__caTestNotifyResult/,
+    '转发没指向 frameAccount 里的同名回调（account.js 的 testPush 每次点击重设它）');
+});
+
+// ===== 教务手机端 CSS 的级联顺序（issue #83）=====
+// 第 22 节（教务）的基础规则写在 21.x 手机端块**之后**，同特异度下按源码顺序反超，
+// 于是 21.x 里那些教务声明等于没写（.ac-toolbar / .ac-select / 学分表小屏档都中过招）。
+// 手机端声明必须住在第 22 节、排在对应基础规则后面 —— 这是没法用浏览器验证的纯级联问题。
+
+test('教务手机端规则要排在基础规则之后，不被反超（issue #83）', () => {
+  const css = readFileSync(join(HERE, '../../assets/css/style.css'), 'utf8');
+
+  // .ac-select 基础规则（min-width:158px）在第 22 节，窄屏全宽声明必须出现在它之后
+  const baseSelect = css.indexOf('.ac-select {');
+  const mobileSelect = css.indexOf('.ac-select { min-width: 0; width: 100%; }');
+  assert.ok(baseSelect >= 0, '找不到 .ac-select 基础规则，选择器可能改了');
+  assert.ok(mobileSelect > baseSelect,
+    '窄屏 .ac-select 全宽声明写在了基础规则前面：手机上筛选下拉还是 158px 宽（issue #83）');
+
+  assert.ok(css.indexOf('.ac-toolbar { gap: 10px; }') > css.indexOf('.ac-toolbar {'),
+    '.ac-toolbar 窄屏间距写在了基础规则前面，手机上工具栏还是 12px 间距');
+
+  // 学分表 ≤400 档（34px 列）要在基础规则（52px 列）之后，SE 上才拿得到这一档
+  const baseCredit = css.indexOf('.credit-row {');
+  const smallCredit = css.indexOf('34px 34px 34px 34px 56px');
+  assert.ok(baseCredit >= 0 && smallCredit > baseCredit,
+    '学分表 ≤400 档（34px 列）写在了基础规则（52px 列）前面，SE 上还是 38px 档（issue #83）');
+
+  // 21.x 手机端块里不该再残留会被反超的重复声明（它们现在都住第 22 节）
+  const base = Math.max(baseSelect, baseCredit);
+  for (const [snippet, why] of [
+    ['.ac-toolbar { gap: 10px; }', 'ac-toolbar 窄屏间距'],
+    ['34px 34px 34px 34px 56px', '学分表小屏档'],
+    ['.credit-row-head { font-size: 0.7rem; }', '学分表表头小屏档']
+  ]) {
+    const idx = css.indexOf(snippet);
+    assert.ok(idx >= 0 && idx > base,
+      why + ' 应该住在第 22 节基础规则之后，而不是残留在 21.x 里等被反超（issue #83）');
+  }
+});
+
 // ===== 原生推回的数据要转给 iframe 子页面 =====
 // 原生那边是 webView.evaluateJavascript，只作用于顶层文档的 window；而通知/活动/教务/
 // 个人中心/管理员这几个页面各自跑在 iframe 里、各自加载一份 app.js、各自一份 apiRenderers。
@@ -924,53 +1042,4 @@ test('原生推回的数据：本窗口没人注册也要照样转发（收件�
   app.apiUpdated('/api/notices?scope=all', JSON.stringify({ success: true, data: { list: [] } }));
   assert.equal(got.length, 1);
   assert.equal(got[0][0], '/api/notices?scope=all');
-});
-
-// ===== 提醒对象名单加载失败（issue #78）=====
-// 一次网络抖动 / 500 若被当成「暂时没有成员」，保存时 `remind_people` 提交空数组，
-// 后端把空名单当默认全班，定向内容就静默发成全班可见。这几个页面都是带副作用的 IIFE，
-// 取不出函数来跑，所以按本文件既有做法读源码钉形状：
-//   ① renderRemindBox 得有 failed 分支（失败态渲染错误提示，而不是「暂无成员」）
-//   ② 提交路径（notices/activities 的 submitEdit、admin 的三个发布）都要在名单失败时拦截。
-
-test('名单加载失败：renderRemindBox 渲染错误态而不是「暂无成员」（issue #78）', () => {
-  const src = readFileSync(join(HERE, '../../assets/js/app.js'), 'utf8');
-  const at = src.indexOf('function renderRemindBox');
-  assert.ok(at >= 0, '找不到 renderRemindBox：可能被改名或搬走了，这条断言需要跟着改');
-
-  assert.match(src.slice(at, at + 600), /failed\s*=>|failed\s*=|, failed\)/,
-    'renderRemindBox 没有接收「加载失败」标志：失败会和「真没成员」混在一起');
-  assert.match(src.slice(at, at + 900), /remind-text-error/,
-    '失败态没有独立的错误文案：会把「名单加载失败」错显示成「暂无成员」');
-});
-
-test('名单加载失败：notices 与 activities 的编辑保存都会拦截（issue #78）', () => {
-  for (const file of ['notices.js', 'activities.js']) {
-    const src = readFileSync(join(HERE, '../../assets/js/' + file), 'utf8');
-
-    // 失败标志要在 loadRemindChoices 里被真实设置（成功置 false、失败置 true）
-    assert.match(src, /remindLoadFailed\s*=\s*true;/, file + '：名单失败时没有把标志置 true');
-    assert.match(src, /remindLoadFailed\s*=\s*false;/, file + '：名单成功时没有把标志复位');
-
-    // 保存前必须拦截，否则空的 remind_people 会被提交成「全班可见」
-    const submitAt = src.indexOf('async function submitEdit');
-    assert.ok(submitAt >= 0, file + '：找不到 submitEdit');
-    assert.match(src.slice(submitAt, submitAt + 700), /remindLoadFailed/,
-      file + '：submitEdit 没有读失败标志，名单加载失败时仍会把空名单提交上去');
-  }
-});
-
-test('名单加载失败：admin 的三个发布都会拦截（issue #78）', () => {
-  const src = readFileSync(join(HERE, '../../assets/js/admin.js'), 'utf8');
-  assert.match(src, /remindLoadFailed\s*=\s*true;/, 'admin：名单失败时没有把标志置 true');
-
-  // 通知、活动、表单三个发布入口都要拦住
-  for (const site of ['ntcRemind', 'actRemind', 'fcRemind']) {
-    const at = src.indexOf(site);
-    assert.ok(at >= 0, 'admin：找不到 ' + site + ' 的提醒框');
-    // 在包含该提醒框的这段范围内，得出现失败拦截（collectRemind/collectRemind 所在函数体有 remindLoadFailed）
-    const span = src.slice(Math.max(0, at - 600), at + 200);
-    assert.match(span, /remindLoadFailed/,
-      'admin：' + site + ' 所在的发布入口没有名单失败拦截，失败时会静默发成全班可见');
-  }
 });

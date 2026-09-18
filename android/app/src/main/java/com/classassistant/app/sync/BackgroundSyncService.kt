@@ -96,8 +96,9 @@ class BackgroundSyncService : Service() {
      * 升成前台。类型按版本分支传，不能只写一个常量：
      *   ≥ 34 用 specialUse —— 它没有时长上限，而且 targetSdk 升到 35 以后
      *         「BOOT_COMPLETED 不能启动的 6 种类型」名单里没有它，开机自启这条路将来也不会断
-     *   29–33 用 dataSync —— 那时还没有 specialUse 这个值；6 小时上限也还没生效
-     *         （那条只对 targetSdk ≥ 35 的应用）
+     *   29–33 用 dataSync —— 那时还没有 specialUse 这个值；dataSync 的 6 小时 FGS 上限
+     *         （Android 14 / targetSdk ≥ 34 起才生效，不是 35 —— 见官方 FGS 时长限制文档）
+     *         也影响不到这段：它只跑在老设备上，老设备没有这个上限
      *   < 29 不传类型 —— 那时还没有「必须声明类型」的要求
      * manifest 里两个类型都声明了（见 AndroidManifest.xml），所以每一支都合法。
      */

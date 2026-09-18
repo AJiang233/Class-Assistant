@@ -26,16 +26,18 @@ async function api(path, options = {}) {
     const timedOut = !(options.signal) && e && (e.name === 'TimeoutError' || e.name === 'AbortError');
     throw new Error(timedOut ? '请求超时（>30s），请检查网络后重试' : ('网络错误：' + (e.message || '无法连接服务器')));
   }
-  const data = await res.json().catch(() => ({}));
+  // raw 模式（导出二进制 / 需要自己消费 Response 的调用）直接给回 Response，不做 JSON 解析
+  const data = options.raw ? res : await res.json().catch(() => ({}));
   if (!res.ok) {
     // 登录态失效（token 过期/无效）：清除本地会话，回主页引导页
     if (res.status === 401 && token) {
       clearSession();
       redirectToIndex();
     }
-    // 透传后端错误码与 HTTP 状态，供前端按 code 精确分支（不再靠文案匹配）
-    const err = new Error(data.error || '请求失败（' + res.status + '）');
-    err.code = data.code || '';
+    // 透传后端错误码与 HTTP 状态，供前端按 code 精确分支（不再靠文案匹配）；
+    // raw 模式下 data 就是 Response，没有 .error / .code，统一退化成状态码文案
+    const err = new Error(data && data.error ? data.error : '请求失败（' + res.status + '）');
+    err.code = data && data.code ? data.code : '';
     err.httpStatus = res.status;
     throw err;
   }
@@ -124,6 +126,26 @@ window.__caApiUpdated = function (key, json) {
   }
 };
 
+/**
+ * 推送测试结果的跨 iframe 转发（issue #84 项 17 的配套）：原生的 evaluateJavascript
+ * 只能执行在**顶层文档**，而个人页跑在 frameAccount 里 —— 不在顶层转发一层的话，
+ * 顶层根本没有 __caTestNotifyResult，回调被 `&&` 静默丢弃，按钮永远停在「推送中…」。
+ *
+ * 只在顶层定义：个人页（iframe）里的同名回调由 account.js 的 testPush 每次点击重设，
+ * 这里定义在 app.js、会被它覆盖，互不干扰；桌面端直接打开个人页（非 iframe）时顶层
+ * 就是它自己，同样被覆盖成真实回调，行为不变。
+ */
+if (window.top === window) {
+  window.__caTestNotifyResult = function (msg) {
+    try {
+      var f = document.getElementById('frameAccount');
+      if (f && f.contentWindow && f.contentWindow.__caTestNotifyResult) {
+        f.contentWindow.__caTestNotifyResult(msg);
+      }
+    } catch (e) { /* frame 还没加载：忽略 */ }
+  };
+}
+
 /** 保存登录会话 */
 function saveSession(data) {
   // Safari 无痕模式或配额耗尽时 setItem 会抛 QuotaExceededError。
@@ -165,17 +187,7 @@ function userPositions() {
   return [s];
 }
 
-/** 职务字段为 JSON 字符串（如 ["班长","学习委员"]），展示时转为可读文本 */
-function fmtPositions(p) {
-  if (!p) return '学生';
-  const s = String(p);
-  if (s.charAt(0) === '[') {
-    try { return JSON.parse(s).join('、') || '学生'; } catch { return s; }
-  }
-  return s;
-}
-
-/** 解析职务字段为数组（兼容 JSON 数组字符串 / 逗号·顿号·空格分隔 / 普通字符串） */
+/** 职务字段为 JSON 字符串（如 ["班长","学习委员"]），解析为数组（兼容逗号·顿号·空格分隔） */
 function parsePositionsList(p) {
   if (p == null) return [];
   const s = String(p).trim();
@@ -245,19 +257,22 @@ function toggleRemindPosition(boxId, btn) {
 
 /**
  * 渲染「提醒对象」选择区：顶部按职位一键选择，下方成员多选。
- * failed=true 表示名单加载失败 —— 与「真没有成员」是两回事：
- * 失败时渲染错误提示而不是「暂无成员」，否则用户会把定向内容当成没有可提醒对象，
- * 保存后名单被提交成空（= 全班可见）。是否拦住保存由调用方在提交函数里判这个标志
- * （renderRemindBox 拿不到提交按钮）。
+ * @param failed 名单加载失败。失败与「真没有成员」必须分开处理（issue #78）：
+ *               失败时保存会把已选对象丢成 []（= 全班可见），所以只显示错误提示并禁用保存，
+ *               等下次打开编辑弹窗重取；真没有成员时 [] 就是正确的全班，照常可保存。
  */
 function renderRemindBox(boxId, members, checkedNames, failed) {
   const box = document.getElementById(boxId);
   if (!box) return;
-  box.className = 'remind-box' + (failed ? ' remind-error' : '');
+  box.className = 'remind-box';
+  const save = document.getElementById('editSubmitBtn');
   if (failed) {
-    box.innerHTML = '<span class="remind-hint remind-text-error">成员名单加载失败：为避免把定向内容误发成全班可见，保存已被禁止，请重试</span>';
+    box.innerHTML = '<span class="remind-hint remind-text-error">提醒对象名单加载失败，请关闭后重新打开</span>';
+    if (save) save.disabled = true;
     return;
   }
+  // 上一次打开可能失败禁掉了保存按钮：这次名单可用就要恢复，否则永远点不动
+  if (save) save.disabled = false;
   if (!members || !members.length) {
     box.innerHTML = '<span class="remind-hint">暂无成员可提醒</span>';
     return;
@@ -512,9 +527,16 @@ if ('serviceWorker' in navigator) {
      这一次刷新 —— 用户手上的东西比「立刻看到新页面」值钱；页面可以是旧的，下一次跳页
      或者重开自然就是新的。 */
   navigator.serviceWorker.addEventListener('message', function (event) {
-    if (!event.data || event.data.type !== 'ca-shell-updated') return;
-    if (hasUnsavedInput()) return;
-    location.reload();
+    if (!event.data) return;
+    if (event.data.type === 'ca-shell-updated') {
+      if (hasUnsavedInput()) return;
+      location.reload();
+    } else if (event.data.type === 'ca-shell-navigate' && event.data.url) {
+      // 点通知的兜底路由（issue #84 项 11）：老 Safari 没有 client.navigate，SW 把目标地址
+      // 交到这里自己跳。location.href 带查询串（如 /?view=notices&id=3），加载后由
+      // index.js / 子页面按深链自行路由，与 client.navigate 的效果一致。
+      location.href = event.data.url;
+    }
   });
 }
 
@@ -566,9 +588,10 @@ function renderOfflineNotice() {
   var el = document.createElement('div');
   el.id = 'offlineNotice';
   el.className = 'offline-notice';
-  el.textContent = inNativeShell()
+  // 文案是固定的（无用户输入），可以直接拼 icon()；用 innerHTML 是为了在文字前放断网图标
+  el.innerHTML = icon('wifi-off') + '<span>' + (inNativeShell()
     ? '当前无网络，显示的是缓存数据'
-    : '当前无网络，部分内容可能无法加载';
+    : '当前无网络，部分内容可能无法加载') + '</span>';
   host.insertBefore(el, host.firstChild);
 }
 
@@ -590,6 +613,20 @@ function canManageUsers() {
   const u = getSession();
   if (u && Array.isArray(u.permissions)) return u.permissions.includes('user:manage');
   return userPositions().some(r => r === '班长' || r === '团支书');
+}
+
+/** 能否进入管理员面板：发布权限或成员管理权限任一即可（侧栏入口 / 个人页入口 / 管理页闸门三处共用） */
+function canManagePanel() {
+  return canContentWrite() || canManageUsers();
+}
+
+/** 卡片折叠（默认收起，点击标题行展开/收起）—— 个人页与管理员页各一份的旧实现已收敛到这里 */
+function toggleCollapse(id) {
+  const card = document.getElementById(id);
+  if (!card) return;
+  const open = card.classList.toggle('open');
+  const head = card.querySelector('.collapse-head');
+  if (head) head.setAttribute('aria-expanded', open ? 'true' : 'false');
 }
 
 /** 清除会话 */
@@ -713,7 +750,9 @@ var DETAIL_ICONS = {
   // 收件箱：空态用。原来的空态是一个 52px 实心圆，形状不带信息又太像 iOS（issue #74）
   inbox: '<polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>',
   // 三角感叹号：错误态用。刻意不用圆形的 alert-circle —— 要的就是脱离那个「圆」
-  'alert-triangle': '<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>'
+  'alert-triangle': '<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
+  // 断网提示条用（renderOfflineNotice）：Wi-Fi 上画一道斜杠，一眼即「没网」
+  'wifi-off': '<line x1="1" y1="1" x2="23" y2="23"/><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"/><path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"/><path d="M10.71 5.05A16 16 0 0 1 22.58 9"/><path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/>'
 };
 function icon(name) {
   var p = DETAIL_ICONS[name] || '';
