@@ -79,3 +79,31 @@ Go 模块声明在根目录 `go.mod`（go 1.22，模块路径 `github.com/AJiang
 ## 说明
 
 本项目用于个人学习与班级服务，请遵守各平台使用条款，并注意保护同学的个人隐私信息。教务绑定只允许本人学号，会话 Cookie 加密落库；生产环境的 `JWT_SECRET` / `COOKIE_SECRET` 必须配成 Secrets，不要写进仓库（Pages Secrets 配一次即可，Go 调度进程读同名环境变量）；本地开发复制 `web/.dev.vars.example` 为 `web/.dev.vars`。
+
+## 本地网络：git 连不上 GitHub 时
+
+仓库在 GitHub 上，而**国内直连 GitHub 的 git 通道经常不通**。典型表现是：
+
+```
+fatal: unable to access 'https://github.com/...': Failed to connect to github.com port 443 after 21000 ms
+fatal: unable to access 'https://github.com/...': Recv failure: Connection was reset
+```
+
+有两点容易误判，先说明：
+
+- **同一时刻浏览器 / `gh` 可能完全正常**（能打开仓库页、能开 PR），只有 git 推不上去。那是因为它们解析到的 IP 与 TLS 指纹和 git 不同，走的是能通的那条路 —— 所以「网页能打开」证明不了 git 能推。
+- **重试偶尔能成，但不可靠**。同一台机器上 `github.com` 往往只解析到一个 IP（如 `20.205.243.166`），那个 IP 的 443 时通时不通。
+
+机器上一般已经开着代理（Clash / mihomo 之类，本地监听在 `127.0.0.1:7897` 这一档端口上），但 **git 默认不读系统代理设置** —— 这是「明明有代理却还是推不上去」的原因。显式给它指过去即可：
+
+```bash
+# 只在这一次命令上生效，不改任何配置
+git -c http.proxy=http://127.0.0.1:7897 push
+
+# 或者写进全局配置
+git config --global http.proxy http://127.0.0.1:7897
+git config --global --unset http.proxy        # 想取消时
+```
+
+端口换成你自己代理的。判断通没通最快的办法是 `git ls-remote origin` —— 能列出分支就是通了。
+另外 `gh` CLI 与浏览器一样，通常不需要额外设置；真遇到它连不上时，用 `HTTPS_PROXY` 环境变量指过去即可。
