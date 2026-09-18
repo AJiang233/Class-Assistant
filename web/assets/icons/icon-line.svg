@@ -1,0 +1,35 @@
+<!--
+  网页主图标（透明底 · 蓝色线条版）：浏览器标签页图标，以及网页上需要独立呈现该标记的位置。
+  与应用图标的区别：没有蓝色底板，线条本身就是形状，背景完全透明。
+
+  三个刻意的取舍：
+  1) 用纯色 #007aff，不用品牌渐变。渐变起点 #4aa3ff 是给「底板」用的浅色，
+     细线条铺在透明底上时浅端在白底上几乎看不见，会让整根线看起来断掉。
+  2) 描边 28，比带底板那版的 23 略粗 —— 底板提供了视觉重量，去掉后同样的线宽会显单薄。
+  3) 视框裁切到墨迹外扩 5% 且墨迹上抬 8（上 : 下留白 ≈ 1 : 1.55）。透明底没有底板边框，
+     等分外留白会让图形显得偏小；但不取带底板那版的 16，那没有边框锚定时会读成「整幅偏上」。
+
+  线条几何与应用图标同源（书页同心圆弧 R=172、气泡 168×112、挖空 18）。
+  改几何时请连同 icon.svg / icon-maskable.svg 一起改。
+  被 mask 引用的组不带 transform，蒙版坐标系即画布坐标系。
+
+  已知限制：16px 下书本与气泡会糊在一起。重新生成 PNG 见同目录 icon-line-192/512.png。
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="58 50 396 396" width="512" height="512" role="img" aria-label="班级助理">
+  <defs>
+    <mask id="ca-line-ko" maskUnits="userSpaceOnUse" x="-256" y="-256" width="1024" height="1024">
+      <rect x="-256" y="-256" width="1024" height="1024" fill="#ffffff"/>
+      <path d="M282,93 H390 A30,30 0 0 1 420,123 V175 A30,30 0 0 1 390,205 H338 L292,241 L304,205 H282 A30,30 0 0 1 252,175 V123 A30,30 0 0 1 282,93 Z"
+            fill="#000000" stroke="#000000" stroke-width="36" stroke-linejoin="round" stroke-linecap="round"/>
+    </mask>
+  </defs>
+
+  <g mask="url(#ca-line-ko)" fill="none" stroke="#007aff" stroke-width="28"
+     stroke-linecap="round" stroke-linejoin="round">
+    <path d="M92,175 A172,172 0 0 1 232,208 L232,387 A172,172 0 0 0 92,354 Z"/>
+    <path d="M372,175 A172,172 0 0 0 232,208 L232,387 A172,172 0 0 1 372,354 Z"/>
+  </g>
+
+  <path d="M282,93 H390 A30,30 0 0 1 420,123 V175 A30,30 0 0 1 390,205 H338 L292,241 L304,205 H282 A30,30 0 0 1 252,175 V123 A30,30 0 0 1 282,93 Z"
+        fill="none" stroke="#007aff" stroke-width="28" stroke-linejoin="round" stroke-linecap="round"/>
+</svg>

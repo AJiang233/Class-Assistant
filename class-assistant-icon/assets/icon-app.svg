@@ -5,7 +5,7 @@
   底板渐变与网页内 .brand-mark 的 linear-gradient(160deg, #4aa3ff, #007aff 55%, #0060cc) 对齐。
   mask id 前缀 ca- 用于避免同页多图标内联时的 id 冲突。
 
-  几何要点（改动时请连同 icon-app-maskable.svg / icon-favicon.svg / icon-mark.svg 一起改）：
+  几何要点（改动时请连同 icon-app-maskable.svg / icon-line.svg / icon-mark.svg 一起改）：
   1) 书页四边分工：外缘与书脊是「竖直直线」，上缘与下缘是「真圆弧」。
      用 A（arc）而不是 Q（贝塞尔），因为这两条弧是同心概念上的平行弧 ——
      半径相同、凸向相同，视觉上互相平行，圆心都落在下方。

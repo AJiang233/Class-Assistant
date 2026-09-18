@@ -446,13 +446,13 @@
         ],
         "toolCallLedger": {
           "source": "main-agent-runtime-trace",
-          "traceDigest": "main-agent-session-20260919",
+          "traceDigest": "main-agent-session-20260919-b",
           "todoWriteCalls": 0,
           "previewCalls": 0,
           "validationScriptCalls": 0,
           "helperScriptWrites": 0
         },
-        "recordedAt": "2026-09-18T17:35:41.796Z",
+        "recordedAt": "2026-09-18T18:24:49.558Z",
         "source": "record-dispatch-completion.mjs"
       }
     ],
@@ -490,6 +490,55 @@
         "reason": "同步新几何并为实心画法增加书脊缝",
         "owner": "main-agent",
         "recordedAt": "2026-09-18T17:35:41.796Z",
+        "source": "record-dispatch-completion.mjs"
+      },
+      {
+        "path": "class-assistant-icon.design",
+        "reason": "新增网页主图标与两份 PNG 的 image 节点,移除被取代的 favicon 节点",
+        "owner": "main-agent",
+        "recordedAt": "2026-09-18T18:24:49.558Z",
+        "source": "record-dispatch-completion.mjs"
+      },
+      {
+        "path": "pages/icon-system.html",
+        "reason": "主视觉与尺寸对照改用透明线条版,形态卡与规格表同步",
+        "owner": "main-agent",
+        "recordedAt": "2026-09-18T18:24:49.558Z",
+        "source": "record-dispatch-completion.mjs"
+      },
+      {
+        "path": "assets/icon-line.svg",
+        "reason": "新增透明底蓝色线条版网页主图标",
+        "owner": "main-agent",
+        "recordedAt": "2026-09-18T18:24:49.558Z",
+        "source": "record-dispatch-completion.mjs"
+      },
+      {
+        "path": "assets/icon-line-512.png",
+        "reason": "由 icon-line.svg 渲染的透明底 PNG",
+        "owner": "main-agent",
+        "recordedAt": "2026-09-18T18:24:49.558Z",
+        "source": "record-dispatch-completion.mjs"
+      },
+      {
+        "path": "assets/icon-line-192.png",
+        "reason": "由 icon-line.svg 渲染的透明底 PNG",
+        "owner": "main-agent",
+        "recordedAt": "2026-09-18T18:24:49.558Z",
+        "source": "record-dispatch-completion.mjs"
+      },
+      {
+        "path": "assets/icon-favicon.svg",
+        "reason": "带底板 favicon 被透明线条版取代,删除",
+        "owner": "main-agent",
+        "recordedAt": "2026-09-18T18:24:49.558Z",
+        "source": "record-dispatch-completion.mjs"
+      },
+      {
+        "path": "assets/icon-app.svg",
+        "reason": "注释中的同源文件清单更新",
+        "owner": "main-agent",
+        "recordedAt": "2026-09-18T18:24:49.558Z",
         "source": "record-dispatch-completion.mjs"
       }
     ]
