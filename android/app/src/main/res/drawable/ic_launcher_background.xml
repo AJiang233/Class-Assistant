@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  自适应图标（API 26+ 生效）的背景层：只有满幅底板渐变，没有图形。
+  图形放在 ic_launcher_foreground.xml，两层在同一个 108 视口里叠合。
+
+  渐变与网页 / 标准版应用图标同一条：160°，#4aa3ff → #007aff 55% → #0060cc。
+  起点 / 终点由设计稿的 objectBoundingBox 比例换到 108 视口：
+  (0.281, -0.103) → (30.348, -11.124)，(0.719, 1.103) → (77.652, 119.124)。
+  前景层里擦除书本描边用的那块「净空」填色必须复用同一组坐标，
+  否则气泡内外会出现两块对不上的蓝（见 ic_launcher_foreground.xml 的注释）。
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <path android:pathData="M0,0h108v108h-108z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="30.348"
+                android:startY="-11.124"
+                android:endX="77.652"
+                android:endY="119.124"
+                android:type="linear">
+                <item android:offset="0" android:color="#FF4AA3FF" />
+                <item android:offset="0.55" android:color="#FF007AFF" />
+                <item android:offset="1" android:color="#FF0060CC" />
+            </gradient>
+        </aapt:attr>
+    </path>
+</vector>

@@ -1,21 +1,36 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   「今日活动」小组件在系统「添加小组件」列表里的图标。
-  刻意与应用图标同族：同样的满幅蓝底、白色图形，只是图形从对话气泡换成五角星，
+  刻意与应用图标同族：同样的满幅蓝底渐变、白色图形，只是图形从书本 + 气泡换成五角星，
   两个小组件摆在一排时才认得出谁是谁。
 
   108dp 满幅方图，和 ic_launcher.xml 一样交给启动器去裁形状。
+  底板渐变与应用图标完全一致（160°，#4aa3ff → #007aff 55% → #0060cc），
+  起止点是同一组 108 视口坐标，四个图标共用一条底板。
+
   星星是 Material 的 star 标准 24dp 路径，用 group 放大 3 倍并平移 (18,18) 落到 108 视口里
   （24 → 72，四周各留 18）。手算五角星那 10 个顶点既啰嗦又容易画歪，缩放现成的标准路径更省事。
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <path
-        android:fillColor="#2196F3"
-        android:pathData="M0,0h108v108h-108z" />
+    <path android:pathData="M0,0h108v108h-108z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="30.348"
+                android:startY="-11.124"
+                android:endX="77.652"
+                android:endY="119.124"
+                android:type="linear">
+                <item android:offset="0" android:color="#FF4AA3FF" />
+                <item android:offset="0.55" android:color="#FF007AFF" />
+                <item android:offset="1" android:color="#FF0060CC" />
+            </gradient>
+        </aapt:attr>
+    </path>
     <group
         android:scaleX="3"
         android:scaleY="3"

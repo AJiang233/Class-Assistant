@@ -1,39 +1,78 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  108dp 满幅方图，图形与 web/assets/icons/icon.svg 同源（同一份几何，改一处要两边一起改）。
-  坐标换算：设计源的组变换是 translate(256,256) scale(10) translate(-32,-37)，画布 512；
-  换到 108 视口后系数为 10 * 108 / 512 = 270/128，即 v 空间坐标 (x, y) → (x-32)*270/128+54。
-  描边宽同理：3（v 空间）* 270/128 = 6.328125。
+  应用图标（标准版，满幅）：API 24–25 的回退，也是自适应图标不可用时的兜底。
+  API 26+ 走 drawable-anydpi-v26/ic_launcher.xml（前景 / 背景两层），
+  那份的图形缩到画布 80%；本文件是满幅不做缩放的版本。
 
-  注意：早先这版把气泡画成实心白、两条横线也是 fillColor="#FFFFFF"，
-  白填白等于横线根本渲染不出来（安卓桌面上只看到一个空白气泡）。现改为与设计源一致的
-  「描边气泡 + 两条圆头横线」：fillColor 透明，靠 strokeColor / strokeWidth 画线。
+  与 web/assets/icons/icon.svg 同源（同一份几何，改一处要几处一起改）：
+  108dp 满幅方图，坐标系数 108/512 = 0.2109375，描边宽 23 * 0.2109375 = 4.8515625。
+  图形交给启动器裁形状。
+
+  【挖空的画法】Android VectorDrawable 没有 <mask>，做不出「从书本描边里挖掉气泡」。
+  这里用与背景同坐标的渐变先填一块气泡外扩 18 的净空，再画白色气泡描边 ——
+  渐变按坐标取值，净空与四周底板严丝合缝（详见 ic_launcher_foreground.xml 的注释）。
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <path
-        android:fillColor="#2196F3"
-        android:pathData="M0,0h108v108h-108z" />
+
+    <!-- 底板渐变：160°，#4aa3ff → #007aff 55% → #0060cc -->
+    <path android:pathData="M0,0h108v108h-108z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="30.348"
+                android:startY="-11.124"
+                android:endX="77.652"
+                android:endY="119.124"
+                android:type="linear">
+                <item android:offset="0" android:color="#FF4AA3FF" />
+                <item android:offset="0.55" android:color="#FF007AFF" />
+                <item android:offset="1" android:color="#FF0060CC" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- 书本：外缘 / 书脊竖直，上缘 / 下缘圆弧（R = 172 * 0.2109375 = 36.28125） -->
     <path
         android:fillColor="#00000000"
         android:strokeColor="#FFFFFF"
-        android:strokeWidth="6.328125"
+        android:strokeWidth="4.8515625"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M19.40625,36.9140625 A36.28125,36.28125 0 0 1 48.9375,43.875 L48.9375,81.6328125 A36.28125,36.28125 0 0 0 19.40625,74.671875 Z" />
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="4.8515625"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M78.46875,36.9140625 A36.28125,36.28125 0 0 0 48.9375,43.875 L48.9375,81.6328125 A36.28125,36.28125 0 0 1 78.46875,74.671875 Z" />
+
+    <!-- 气泡净空：气泡外扩 18，抹掉压在气泡处的书本描边 -->
+    <path android:pathData="M59.484375,15.8203125 H82.265625 A10.125,10.125 0 0 1 92.390625,25.9453125 V36.9140625 A10.125,10.125 0 0 1 82.265625,47.0390625 H59.484375 A10.125,10.125 0 0 1 49.359375,36.9140625 V25.9453125 A10.125,10.125 0 0 1 59.484375,15.8203125 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="30.348"
+                android:startY="-11.124"
+                android:endX="77.652"
+                android:endY="119.124"
+                android:type="linear">
+                <item android:offset="0" android:color="#FF4AA3FF" />
+                <item android:offset="0.55" android:color="#FF007AFF" />
+                <item android:offset="1" android:color="#FF0060CC" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- 对话气泡：横向长方形 + 左下尾巴，压在书本右上角 -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="4.8515625"
         android:strokeLineJoin="round"
         android:strokeLineCap="round"
-        android:pathData="M20.25,26.578125 L87.75,26.578125 L87.75,64.546875 L41.34375,64.546875 L20.25,81.421875 Z" />
-    <path
-        android:fillColor="#00000000"
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="6.328125"
-        android:strokeLineCap="round"
-        android:pathData="M37.125,39.234375 L70.875,39.234375" />
-    <path
-        android:fillColor="#00000000"
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="6.328125"
-        android:strokeLineCap="round"
-        android:pathData="M37.125,47.671875 L58.21875,47.671875" />
+        android:pathData="M59.484375,19.6171875 H82.265625 A6.328125,6.328125 0 0 1 88.59375,25.9453125 V36.9140625 A6.328125,6.328125 0 0 1 82.265625,43.2421875 H71.296875 L61.59375,50.8359375 L64.125,43.2421875 H59.484375 A6.328125,6.328125 0 0 1 53.15625,36.9140625 V25.9453125 A6.328125,6.328125 0 0 1 59.484375,19.6171875 Z" />
 </vector>

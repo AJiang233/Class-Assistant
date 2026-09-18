@@ -1,0 +1,104 @@
+{
+  "data": [
+    {
+      "id": "page-icon-system",
+      "title": "图标系统",
+      "type": "page",
+      "version": 1,
+      "createdAt": 1789819200000,
+      "canvasData": {
+        "x": 0,
+        "y": 0,
+        "group": 0,
+        "layoutSnapshot": {
+          "version": 1,
+          "contentHeight": 2334,
+          "viewportWidth": 1440,
+          "sourceHash": "fnv1a-f9b25e67",
+          "measuredAt": 1789754135341
+        }
+      },
+      "devMetadata": {
+        "htmlSrc": "pages/icon-system.html",
+        "interactions": []
+      }
+    },
+    {
+      "id": "image-001",
+      "title": "应用图标（标准版）",
+      "type": "image",
+      "version": 1,
+      "createdAt": 1789819200000,
+      "canvasData": {
+        "x": 0,
+        "y": 775,
+        "naturalSize": {
+          "width": 512,
+          "height": 512
+        }
+      },
+      "devMetadata": {
+        "imageSrc": "assets/icon-app.svg"
+      }
+    },
+    {
+      "id": "image-002",
+      "title": "应用图标（安卓自适应）",
+      "type": "image",
+      "version": 1,
+      "createdAt": 1789819200000,
+      "canvasData": {
+        "x": 480,
+        "y": 775,
+        "naturalSize": {
+          "width": 512,
+          "height": 512
+        }
+      },
+      "devMetadata": {
+        "imageSrc": "assets/icon-app-maskable.svg"
+      }
+    },
+    {
+      "id": "image-003",
+      "title": "浏览器标签页图标",
+      "type": "image",
+      "version": 1,
+      "createdAt": 1789819200000,
+      "canvasData": {
+        "x": 960,
+        "y": 775,
+        "naturalSize": {
+          "width": 64,
+          "height": 64
+        }
+      },
+      "devMetadata": {
+        "imageSrc": "assets/icon-favicon.svg"
+      }
+    },
+    {
+      "id": "image-004",
+      "title": "界面内品牌标记",
+      "type": "image",
+      "version": 1,
+      "createdAt": 1789819200000,
+      "canvasData": {
+        "x": 1440,
+        "y": 775,
+        "naturalSize": {
+          "width": 24,
+          "height": 24
+        }
+      },
+      "devMetadata": {
+        "imageSrc": "assets/icon-mark.svg"
+      }
+    }
+  ],
+  "config": {
+    "autoLayout": true,
+    "deviceType": "desktop",
+    "projectName": "班级助理图标系统"
+  }
+}

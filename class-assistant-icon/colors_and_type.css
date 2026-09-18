@@ -1,0 +1,99 @@
+/* =====================================================================
+   班级助理 · 图标系统展示页设计令牌
+   ---------------------------------------------------------------------
+   来源：直接沿用 web/assets/css/style.css 的设计令牌，
+   品牌主色只有一个 —— 系统蓝 #007aff（深色模式 #0a84ff）。
+   前缀 ca- 为 Tailwind 语义桥接用（apply-html-head-contract.mjs 会读取）。
+   注意：自由探索模式下不生成 secondary / accent 品牌色。
+   ===================================================================== */
+
+:root {
+  color-scheme: light;
+
+  /* ── 品牌主色（唯一） ── */
+  --ca-primary: #007aff;
+  --ca-primary-foreground: #ffffff;
+  --ca-primary-lift: #4aa3ff;
+  --ca-primary-deep: #0060cc;
+
+  /* ── 语义灰阶 ── */
+  --ca-background: #f2f2f7;
+  --ca-foreground: #1d1d1f;
+  --ca-card: #ffffff;
+  --ca-card-foreground: #1d1d1f;
+  --ca-popover: #ffffff;
+  --ca-popover-foreground: #1d1d1f;
+  --ca-muted: #e9e9f0;
+  --ca-muted-foreground: #6b6b70;
+  --ca-border: rgba(60, 60, 67, 0.14);
+  --ca-input: rgba(60, 60, 67, 0.14);
+  --ca-ring: #007aff;
+
+  /* ── 状态色（仅用于真实状态，不用于分类） ── */
+  --state-success: #248a3d;
+  --state-warning: #b25000;
+  --state-error: #d70015;
+  --state-info: #007aff;
+
+  /* ── 圆角 / 描边 / 抬高 ── */
+  --ca-radius-sm: 4px;
+  --ca-radius-md: 8px;
+  --ca-radius-lg: 16px;
+  --ca-hairline: rgba(60, 60, 67, 0.10);
+  --ca-shadow-flat: 0 1px 2px rgba(16, 24, 40, 0.04);
+
+  /* ── 图标对照底色（取自站内浅/深色模式的实际 --bg，不随主题切换） ──
+     图标必须在两种底色上都成立，所以这两块对照底固定值、不由 .dark 覆盖。 */
+  --ca-preview-light: #f2f2f7;
+  --ca-preview-dark: #07070c;
+
+  /* ── 间距（8pt 栅格） ── */
+  --ca-space-1: 4px;
+  --ca-space-2: 8px;
+  --ca-space-3: 12px;
+  --ca-space-4: 16px;
+  --ca-space-5: 24px;
+  --ca-space-6: 32px;
+  --ca-space-7: 48px;
+  --ca-space-8: 80px;
+
+  /* ── 字体（与门户一致：SF Pro + 苹方） ── */
+  --ca-font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
+    system-ui, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
+    "Helvetica Neue", Arial, sans-serif;
+  --ca-font-mono: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
+
+  /* ── 动效 ── */
+  --ca-ease-standard: cubic-bezier(0.32, 0.72, 0, 1);
+  --ca-dur-fast: 150ms;
+  --ca-dur-base: 250ms;
+}
+
+.dark {
+  color-scheme: dark;
+
+  --ca-primary: #0a84ff;
+  --ca-primary-foreground: #ffffff;
+  --ca-primary-lift: #4aa3ff;
+  --ca-primary-deep: #004f9e;
+
+  --ca-background: #07070c;
+  --ca-foreground: #f5f5f7;
+  --ca-card: #1c1c1e;
+  --ca-card-foreground: #f5f5f7;
+  --ca-popover: #1c1c1e;
+  --ca-popover-foreground: #f5f5f7;
+  --ca-muted: rgba(255, 255, 255, 0.07);
+  --ca-muted-foreground: #98989d;
+  --ca-border: rgba(255, 255, 255, 0.14);
+  --ca-input: rgba(255, 255, 255, 0.14);
+  --ca-ring: #0a84ff;
+
+  --state-success: #30d158;
+  --state-warning: #ff9f0a;
+  --state-error: #ff453a;
+  --state-info: #0a84ff;
+
+  --ca-hairline: rgba(255, 255, 255, 0.09);
+  --ca-shadow-flat: 0 1px 2px rgba(0, 0, 0, 0.30);
+}

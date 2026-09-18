@@ -1,17 +1,15 @@
 <!--
-  应用图标源文件（maskable 版，供安卓自适应图标 / PWA maskable 裁切用）：
-  与标准版同源，仅把图形整体缩到画布 80%（绕画布中心缩放），
-  确保整个图形落在 maskable 要求的中心 80% 安全圆内，
-  被裁成圆形 / 方形 / 水滴形都不会切到笔画。底板保持满幅。
+  班级助理 · 浏览器标签页图标（favicon）
+  与标准版同源，按 64/512 = 0.125 等比缩放；标签页会自绘外框，
+  故这里对底板做 rx=14 圆角（与站内 7 个 HTML 内联 favicon 的几何一致），
+  便于直接替换已有的 data URI。
 
-  【结构注意】缩放变换必须挂在「外层 wrapper」上，被蒙版引用的 <g> 自身不能带 transform。
-  否则浏览器会把 mask 的 userSpaceOnUse 区域解释到缩放后的局部坐标里，
-  蒙版区域（0..512）落到画布仅 0..51 的位置，把整本书裁掉。
-  同理，蒙版里的气泡路径也要写画布空间坐标，不能再套一层缩放。
-
-  重新生成 PNG（192 / 512 / maskable）见 web/assets/icons 下的产物约定。
+  【结构注意】缩放挂在最外层 wrapper，被蒙版引用的 <g> 自身不带 transform。
+  早先把 scale(0.125) 和 mask 写在同一个 <g> 上，浏览器会把 mask 的
+  userSpaceOnUse 区域解释到缩放后的局部坐标，蒙版只剩画布左上角约 8×8 一块，
+  整本书被裁掉（气泡在蒙版组之外所以还在）。蒙版里的气泡路径必须写画布空间坐标。
 -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="班级助理">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="班级助理">
   <defs>
     <linearGradient id="ca-bg" x1="0.281" y1="-0.103" x2="0.719" y2="1.103">
       <stop offset="0" stop-color="#4aa3ff"/>
@@ -26,9 +24,10 @@
     </mask>
   </defs>
 
-  <rect width="512" height="512" fill="url(#ca-bg)"/>
+  <rect width="64" height="64" rx="14" fill="url(#ca-bg)"/>
 
-  <g transform="translate(256 256) scale(0.8) translate(-256 -256)">
+  <!-- 画布空间作图，整体缩到 64（描边 23 → 2.875） -->
+  <g transform="scale(0.125)">
     <g mask="url(#ca-knockout)" fill="none" stroke="#ffffff" stroke-width="23"
        stroke-linecap="round" stroke-linejoin="round">
       <path d="M92,175 A172,172 0 0 1 232,208 L232,387 A172,172 0 0 0 92,354 Z"/>

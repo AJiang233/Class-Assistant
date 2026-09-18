@@ -1,0 +1,146 @@
+{
+  "success": false,
+  "outcome": "terminal_stop",
+  "repairable": false,
+  "terminalViolations": [
+    "validationHistory has 3 full validation run(s), max allowed is 2"
+  ],
+  "terminalBlockingSummary": {
+    "terminalState": "validation-budget-exhausted",
+    "nextAction": "stop_and_report_blocking_summary",
+    "violations": [
+      "validationHistory has 3 full validation run(s), max allowed is 2"
+    ]
+  },
+  "skillProvenance": {
+    "name": "solo-design",
+    "version": "2026.08.06.19.15.08",
+    "version_source": "skill-release-manifest.json",
+    "runtime_skill_dir": null,
+    "recorded_at": null,
+    "expected_version": "2026.08.06.19.15.08",
+    "status": "matched",
+    "read_status": "ok"
+  },
+  "operatingMode": "free-explore",
+  "renderBlockingErrorCount": 1,
+  "softWarningCount": 8,
+  "renderBlockingErrors": [
+    "[dispatch-changed-files] pages/icon-system.html: controlled file changed after dispatch preflight without mainAgentPostDispatchMutations evidence: class-assistant-icon.design"
+  ],
+  "errorSignatures": [
+    {
+      "errorClass": "artifact-readiness",
+      "normalized": "[dispatch-changed-files] pages/icon-system.html: controlled file changed after dispatch preflight without mainAgentPostDispatchMutations evidence: class-assistant-icon.design",
+      "signature": "91d695d6e8a4b3e8a3daf4fd79dff3052edc21c55706d1c7252b11e5c9c4ad79"
+    }
+  ],
+  "softWarnings": [
+    "[repair-ledger] validationRepairLedger[0].repairActions[0].preEditFileHashes[] is missing (legacy optional evidence)",
+    "[repair-ledger] validationRepairLedger[0].repairActions[0].postEditFileHashes[] is missing (legacy optional evidence)",
+    "[repair-ledger] validationRepairLedger[1].repairActions[0].preEditFileHashes[] is missing (legacy optional evidence)",
+    "[repair-ledger] validationRepairLedger[1].repairActions[0].postEditFileHashes[] is missing (legacy optional evidence)",
+    "[repair-ledger] validationRepairLedger[1].revalidationReportPath is missing",
+    "[repair-ledger] validationRepairLedger[1].revalidationReportHash is missing",
+    "[repair-ledger] validationRepairLedger[1].revalidationSuccess should be a boolean",
+    "[validation-discipline] validationHistory has 3 full validation run(s), max allowed is 2"
+  ],
+  "repairPlanHints": [],
+  "repairActionTable": [],
+  "errorCount": 1,
+  "warningCount": 8,
+  "errors": [
+    "[dispatch-changed-files] pages/icon-system.html: controlled file changed after dispatch preflight without mainAgentPostDispatchMutations evidence: class-assistant-icon.design"
+  ],
+  "warnings": [
+    "[repair-ledger] validationRepairLedger[0].repairActions[0].preEditFileHashes[] is missing (legacy optional evidence)",
+    "[repair-ledger] validationRepairLedger[0].repairActions[0].postEditFileHashes[] is missing (legacy optional evidence)",
+    "[repair-ledger] validationRepairLedger[1].repairActions[0].preEditFileHashes[] is missing (legacy optional evidence)",
+    "[repair-ledger] validationRepairLedger[1].repairActions[0].postEditFileHashes[] is missing (legacy optional evidence)",
+    "[repair-ledger] validationRepairLedger[1].revalidationReportPath is missing",
+    "[repair-ledger] validationRepairLedger[1].revalidationReportHash is missing",
+    "[repair-ledger] validationRepairLedger[1].revalidationSuccess should be a boolean",
+    "[validation-discipline] validationHistory has 3 full validation run(s), max allowed is 2"
+  ],
+  "validationRunDisciplineStatus": {
+    "declared": true,
+    "restoreMode": false,
+    "maxFullValidationRuns": 2,
+    "validationHistoryCount": 3,
+    "repairLedgerCount": 2,
+    "softWarningsTriggerRepair": false,
+    "terminalState": "validation-budget-exhausted",
+    "nextAction": "stop_and_report_blocking_summary",
+    "violations": [
+      "validationHistory has 3 full validation run(s), max allowed is 2"
+    ],
+    "success": false
+  },
+  "terminalState": "validation-budget-exhausted",
+  "nextCheck": {
+    "type": "stop",
+    "reason": "validation-budget-exhausted",
+    "command": null
+  },
+  "repairBatch": [],
+  "repairContextPacket": {
+    "schema_version": "1.0",
+    "purpose": "terminal stop packet; do not repair",
+    "success": false,
+    "outcome": "terminal_stop",
+    "repairable": false,
+    "terminalViolations": [
+      "validationHistory has 3 full validation run(s), max allowed is 2"
+    ],
+    "terminalBlockingSummary": {
+      "terminalState": "validation-budget-exhausted",
+      "nextAction": "stop_and_report_blocking_summary",
+      "violations": [
+        "validationHistory has 3 full validation run(s), max allowed is 2"
+      ]
+    },
+    "terminalState": "validation-budget-exhausted",
+    "skillProvenance": {
+      "name": "solo-design",
+      "version": "2026.08.06.19.15.08",
+      "version_source": "skill-release-manifest.json",
+      "runtime_skill_dir": null,
+      "recorded_at": null,
+      "expected_version": "2026.08.06.19.15.08",
+      "status": "matched",
+      "read_status": "ok"
+    },
+    "renderBlockingErrorCount": 0,
+    "softWarningCount": 8,
+    "renderBlockingErrors": [],
+    "repairActionTable": [],
+    "repairPlanHints": [],
+    "nextCheck": {
+      "type": "stop",
+      "command": null,
+      "fullValidationAllowed": false,
+      "reason": "validation-budget-exhausted",
+      "nextAction": "stop_and_report_blocking_summary"
+    },
+    "forbidden": [
+      "do not repair ledger",
+      "do not delete validation state",
+      "do not rerun validation",
+      "do not read validator source"
+    ]
+  },
+  "projectFileHashes": {
+    "class-assistant-icon.design": "6b63bac58b5e971f6d29aa4a5588d8b76db3561a1949ed7198fc2de1a1a81bd7",
+    "colors_and_type.css": "64e6441a5055bd61bd28c32ba2e712a5efde1973b3194474709886ee1250191a",
+    "runtime-orchestration-summary.json": "6d18784c46f34517df7670ffbd30e5dde7d965acd658301607963ccdfe5197f1",
+    "pages/icon-system.html": "9dc47fdbe682103dc1937cd939c762e155d4d2a9c776d4ed0a6461a81bc163e1",
+    "assets/icon-app-maskable.svg": "cdb2ece8f8bef2beca65df16626ee5e0442876c817c006cb76a218b2e5dcda44",
+    "assets/icon-app.svg": "8b499e1479d1a305b778e98b8cbabd32b637d62ce9f16aca5ee1732583b76988",
+    "assets/icon-favicon.svg": "cf479cf40021c533a13af1f00cd1b6b3bfdbcdec9f4c3af3beaa488626c95f32",
+    "assets/icon-mark.svg": "4b61b543b568696523ea656f4979b51d2ebd8accbbb2c2eef9cafe5e61fac43b"
+  },
+  "designDir": "e:\\WorkSpace\\Class Assistant\\Class-Assistant\\class-assistant-icon",
+  "expectedPages": 1,
+  "requireInteractions": null,
+  "checkedAt": "2026-09-18T17:55:20.853Z"
+}

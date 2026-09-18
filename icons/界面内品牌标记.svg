@@ -1,0 +1,39 @@
+<!--
+  班级助理 · 界面内品牌标记（小尺寸版）
+  用于侧栏 .brand-mark（内层渲染约 15px）与登录页 .auth-mark（约 22px）。
+
+  与应用图标共用同一套画布空间几何（同一份书页弧线、同一直边、同一气泡），
+  整个组合通过外层 transform 缩放进 24 视口，因此不必手工换算坐标：
+  墨迹 328 × 294 → 缩放到宽 21.5，水平留白 1.25，垂直居中。
+  改几何时只需同步 icon-app.svg 的路径，本文件的 transform 不需要动。
+
+  与描边版的两处差别：
+  1) 书页改用「实心」填充 —— 15px 下 23/512 的描边会糊成一团，实心剪影才立得住；
+  2) 书脊处用一条 34 宽的竖条在蒙版里挖空（对应 24 视口约 2.23 单位，
+     15px 下约 1.4px），透出底板蓝形成书脊线。实心画法下两页贴合在一起，
+     没有这条缝就并成一整块白板、读不出「翻开」。
+
+  本文件不带底板 —— 蓝色圆角底板由 .brand-mark 的 CSS 渐变提供。
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" role="img" aria-label="班级助理">
+  <defs>
+    <mask id="ca-mark-knockout" maskUnits="userSpaceOnUse" x="-256" y="-256" width="1024" height="1024">
+      <rect x="-256" y="-256" width="1024" height="1024" fill="#ffffff"/>
+      <!-- 气泡净空：轮廓外扩 18 -->
+      <path d="M282,93 H390 A30,30 0 0 1 420,123 V175 A30,30 0 0 1 390,205 H338 L292,241 L304,205 H282 A30,30 0 0 1 252,175 V123 A30,30 0 0 1 282,93 Z"
+            fill="#000000" stroke="#000000" stroke-width="36" stroke-linejoin="round" stroke-linecap="round"/>
+      <!-- 书脊缝：以书脊 x=232 为中心，宽 34 -->
+      <rect x="215" y="150" width="34" height="270" fill="#000000"/>
+    </mask>
+  </defs>
+
+  <g transform="translate(-4.78 -3.73) scale(0.06555)">
+    <g mask="url(#ca-mark-knockout)" fill="#ffffff">
+      <path d="M92,175 A172,172 0 0 1 232,208 L232,387 A172,172 0 0 0 92,354 Z"/>
+      <path d="M372,175 A172,172 0 0 0 232,208 L232,387 A172,172 0 0 1 372,354 Z"/>
+    </g>
+
+    <path d="M282,93 H390 A30,30 0 0 1 420,123 V175 A30,30 0 0 1 390,205 H338 L292,241 L304,205 H282 A30,30 0 0 1 252,175 V123 A30,30 0 0 1 282,93 Z"
+          fill="#ffffff"/>
+  </g>
+</svg>
