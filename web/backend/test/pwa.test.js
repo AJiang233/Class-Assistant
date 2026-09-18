@@ -915,6 +915,28 @@ test('提醒对象：名单加载失败时不渲染空列表、保存被拦下�
     '成功渲染时没有恢复保存按钮：上次失败禁掉后就再也点不动了');
 });
 
+// ===== 推送订阅：endpoint 轮换后的恢复路径 =====
+// account.js 是带副作用的 IIFE（开头 requireAuth），取不出函数来跑，读源码钉形状。
+// 这条是可达性路径（issue #80）：APNs/FCM 轮换 endpoint 后服务端库里那条旧订阅 404/410，
+// 页面却只看本地 subscription、照常显示「已开启」，通知静默失效。pushsubscriptionchange
+// 只有 Chromium 系派发、Safari 不派发，恢复只能靠每次打开重报（接口幂等 upsert）。
+
+test('推送订阅：已订阅时打开个人中心会重报一次（issue #80）', () => {
+  const src = readFileSync(join(HERE, '../../assets/js/account.js'), 'utf8');
+
+  assert.match(src, /if \(pushSub && pushServerEnabled\)/,
+    'refreshNotify 没在「本地已订阅」时走重报分支：轮换后服务端那条旧的 404/410，' +
+    '页面仍显示「已开启」，通知静默失效（issue #80）');
+
+  // 重报必须落在 refreshNotify（每次打开都跑），不能只在 enablePush（只跑一次）
+  const refresh = src.substring(
+    src.indexOf('function refreshNotify'),
+    src.indexOf('async function enablePush')
+  );
+  assert.ok(refresh.indexOf('/api/push/subscribe') >= 0,
+    'refreshNotify 里没有重报 /api/push/subscribe：轮换后的订阅没有恢复路径');
+});
+
 // ===== 原生推回的数据要转给 iframe 子页面 =====
 // 原生那边是 webView.evaluateJavascript，只作用于顶层文档的 window；而通知/活动/教务/
 // 个人中心/管理员这几个页面各自跑在 iframe 里、各自加载一份 app.js、各自一份 apiRenderers。

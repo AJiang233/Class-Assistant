@@ -173,6 +173,17 @@ async function refreshNotify() {
     try { cfg = (await api('/api/push/config')).data; } catch (e) { cfgError = true; }
     pushServerEnabled = !!(cfg && cfg.enabled);
 
+    // 订阅存在就顺手重报一次（issue #80）：endpoint 可能已被轮换 —— iOS 重装主屏 App、
+    // 撤销后重新授权、系统清理等都会让 APNs/FCM 换 endpoint，服务端库里那条旧的变成
+    // 404/410，页面却只看本地 subscription、照常显示「已开启」，通知就静默失效了。
+    // /api/push/subscribe 按 endpoint upsert、天然幂等，代价一次请求；不能指望
+    // pushsubscriptionchange（Chromium 系独有，Safari 不派发），只能每次打开重同步。
+    // 失败静默：本地订阅仍然有效，下一次打开还会再试。
+    if (pushSub && pushServerEnabled) {
+        try { await api('/api/push/subscribe', { method: 'POST', body: JSON.stringify(pushSub.toJSON()) }); }
+        catch (e) { console.warn('重报推送订阅失败（下次打开会再试）：', e); }
+    }
+
     var usable = cap.ok && pushServerEnabled;
     showNotifyBtn('notifyEnableBtn', usable && !pushSub);
     showNotifyBtn('notifyDisableBtn', usable && !!pushSub);
