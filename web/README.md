@@ -34,7 +34,7 @@ web/                            # Cloudflare Pages 项目根目录（直接部�
 ├── index.html                  # 应用壳：侧边栏 + 内容区（iframe 嵌入子页）；小屏改为底部导航
 ├── notices.html                # 通知列表/详情（iframe 内容页）—— 发布/编辑/删除/过期归档/提醒对象
 ├── activities.html             # 活动列表/详情（iframe 内容页）—— 发布/编辑/删除/提醒对象
-├── academic.html               # 学业（iframe 内容页）—— 教务课表 / 未安排课程 / 学分达成
+├── academic.html               # 学业（iframe 内容页）—— 教务课表 / 未安排课程 / 学分达成 / 课程成绩
 ├── account.html                # 个人中心 —— 资料（联系方式自助修改；「上次同步时间」按北京时间显示，仅 App 壳内有）/ 偏好设置（主题外观 + 通知；网页通知走网页推送，App 壳内不显示，由壳的本地通知承担，其下方另有「App 端通知」块：推送测试 + 本机通知开关，状态经 JS 桥取，网页版没有桥则整块隐藏；**可折叠，默认展开**）/ 日历订阅（**可折叠，默认收起**）/ 安装到桌面（仅 iOS 与 PC 显示，安卓 / 鸿蒙已有原生 App）/ 修改密码（**可折叠，默认收起**）/ 关于软件（版本号 / 检查更新）/ 退出登录。**折叠规则**：内容长的设置类卡片可折叠（上面三张），一两行的短卡（管理员入口 / 安装到桌面 / 退出登录 / 关于软件）常显；两列按高度分（左列资料/偏好设置/日历订阅，右列其余），桌面端基本齐平；手机端合并成单列，顺序按「收起的短卡在前、带按钮的大卡在后」排（资料 → 偏好设置 → 日历订阅 → 修改密码 → 管理员面板 → 退出登录 → 关于软件）
 ├── admin.html                  # 管理员面板 —— 左栏 添加通知·添加活动·添加表单·管理表单，右栏 管理成员·添加成员·管理职位·添加职位（折叠区块，按权限显示）
 ├── forms.html                  # 表单填写页（iframe 内容页）—— 由首页「我的表单」或通知里的「去填写」进入，不在导航中
@@ -47,14 +47,14 @@ web/                            # Cloudflare Pages 项目根目录（直接部�
 ├── backend/
 │   └── src/                    # 后端源码（被 functions 引入，同域运行）
 │       ├── index.js            # fetch 入口（CORS 预检 + 路由分发 + 404）
-│       ├── routes/             # 路由分发：auth / notices / activities / forms / calendar / academic
-│       ├── handlers/           # 业务逻辑：认证 / 通知 / 活动 / 表单 / 日历订阅 / 教务数据
-│       ├── models/             # D1 数据访问（users / notices / activities / roles / forms / academic）
+│       ├── routes/             # 路由分发：auth / notices / activities / forms / calendar / academic（只做转发）
+│       ├── handlers/           # 业务逻辑：认证 / 通知 / 活动 / 表单 / 日历订阅
+│       ├── models/             # D1 数据访问（users / notices / activities / roles / forms）
 │       ├── middleware/         # CORS / JWT 认证 / 权限 / 日志
-│       └── utils/              # 统一响应 / PBKDF2 / JWT / 权限映射 / 提醒对象可见性 / 时间处理 / iCalendar 生成 / 教务接口客户端 / CAS 代登录
+│       └── utils/              # 统一响应 / PBKDF2 / JWT / 权限映射 / 提醒对象可见性 / 时间处理 / iCalendar 生成
 ├── migrations/                 # 增量迁移（已有库按需执行；新库直接跑 schema.sql）
 ├── schema.sql                  # D1 表结构
-├── wrangler.toml               # 本地开发绑定（DB / JWT_SECRET，生产绑定在 Pages 面板配置）
+├── wrangler.toml               # 本地开发绑定（DB + ACADEMIC_API，生产绑定在 Pages 面板配置）
 ├── package.json                # wrangler devDependency + 脚本（dev / deploy / db）
 ├── version.json                # 「关于软件 → 检查更新」的数据源：按端分段（android / harmony）的最新版本号 + 安装包稳定直链（发版时更新对应那段）
 └── README.md
@@ -270,100 +270,50 @@ web/                            # Cloudflare Pages 项目根目录（直接部�
 
 ### 教务系统接口（均需登录）
 
-课表与学分来自教务系统（数智教学微服务平台）。前端与教务系统跨域，且会话 Cookie 为 HttpOnly，
-浏览器里拿不到也调不通，因此统一由后端带着上报的 Cookie 代拉，并缓存进 D1。
+课表、学分与成绩来自教务系统（数智教学微服务平台）。这部分**实现在独立部署的私有 Worker
+`class-assistant-private-api` 里，不在本仓库** —— 教务接口清单、CAS 代登录的复刻、字段归一化、
+缓存决策、以及 `academic_*` 那几张表都在那边。
 
-绑定有三条路径，按体验排序：
+这么切有两个原因：把「主动访问校方系统」的那部分代码与公开仓库分开；同时让它自成一体，
+有自己的 D1 与密钥，单独 clone 就能跑。
 
-1. **App 内一键绑定**：安卓端用 `CookieManager` 读出教务域 Cookie 上报给后端（教务对手机 UA 有兼容问题，登录全程固定桌面 UA）
-2. **学号 + 密码代登录**：后端复刻统一身份认证（金智 CAS）登录链路，密码用完即弃（不落库、不打日志、不返回前端）
-3. **手动粘贴 Cookie**：用户在电脑浏览器登录教务后自行复制，适合不愿交出密码的同学（页面内有分步指引）
+本站只保留一层转发（`backend/src/routes/academic.js`）：`withAuth` 认过登录态后，
+把用户 id 与学号放进请求头，经 **Service Binding**（绑定名 `ACADEMIC_API`，请求不走公网）
+交给那个 Worker，再原样把响应回给前端。私有 Worker 没有 workers.dev 子域、也没有任何 route，
+公网上不存在入口；绑定之外另有一个共享的 `INTERNAL_TOKEN`，万一误配了公开路由也进不来。
+
+**路径、响应体与错误码都与拆分前逐字一致**，所以前端、安卓、以及全部离线缓存都不用改。
+请求体、查询参数与响应示例见私有仓。
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | GET | `/api/academic/status` | 绑定状态 + 已缓存学期 |
-| POST | `/api/academic/login` | 学号+密码代登录后绑定，body `{ "student_id", "password" }`；需要验证码时返回 409，账号开了多因子认证时返回 `{ mfaRequired, token, contact, method }` |
+| POST | `/api/academic/login` | 学号+密码代登录后绑定；需要验证码时返回 409，账号开了多因子认证时返回 `{ mfaRequired, token, contact, method }` |
 | POST | `/api/academic/mfa/send` | 下发二次验证码（短信/邮箱），body `{ "token" }` |
 | POST | `/api/academic/mfa/verify` | 提交验证码完成绑定，body `{ "token", "code" }` |
-| POST | `/api/academic/bind` | 用会话 Cookie 绑定，body `{ "cookies": "..." }`（先调 sessionUserInfo 校验） |
+| POST | `/api/academic/bind` | 用会话 Cookie 绑定，body `{ "cookies": "..." }` |
 | DELETE | `/api/academic/bind` | 解绑并清空该用户的教务缓存 |
 | GET | `/api/academic/timetable` | 课表，`?xnxq=2026-2027-1` 指定学期，`?refresh=1` 强制重抓 |
 | GET | `/api/academic/credits` | 学业达成 / 学分，`?refresh=1` 强制重抓 |
 | GET | `/api/academic/grades` | 课程成绩，`?xnxq=2025-2026-2` 指定学期（**省略或留空 = 全部学期**），`?refresh=1` 强制重抓 |
 
-代登录走「统一身份认证（CAS）」，链路与两个关键约束见 `utils/casLogin.js`：
+失败时的错误码沿用拆分前那一套（`ACADEMIC_EXPIRED` / `ACADEMIC_UNREACHABLE` / `NOT_BOUND` …），
+本站只做透传。转发层自己会新增两个「配置没到位」的档位：没配 `ACADEMIC_API` 绑定
+返回 503 `ACADEMIC_UNAVAILABLE`（production 与 preview 两个环境的绑定现在都配好了），
+没配 `INTERNAL_TOKEN` 返回 500 `SERVER_MISCONFIGURED` —— 都不是裸 500。
 
-- **入口必须是教务侧的 SSO 地址**（`SsoUrl`，取自教务公开配置接口 `POST /api/qsmart/common/sysConfig/white`），
-  由教务生成 CAS 的 `service`；若直接以登录页为 `service`，ticket 会落到一个不处理 ticket 的静态页，永远换不到会话。
-  完整链路：`szjw/api/login/sso/cas/login` → `workflow/cas/login` → `authserver`（密码 + 多因子）→
-  `workflow/sso/login` → `szjw/api/login/sso/cas/DEF_CAS/callback`（**换会话**）→ `szjw/`
-- **多因子认证只支持短信/邮箱验证码**，且提交时固定 `skipTmpReAuth=false`（页面上的「仅本次登录」）。
-  选「信任此设备」时 CAS 要登记设备指纹，服务端代登录场景会静默失败，表现为提交回「认证成功」
-  但随后 `/login` 又被要求二次验证、流程永远走不完；
-  验证码每错一次记一笔 `attempts`，满 5 次（`MFA_MAX_ATTEMPTS`）即作废中间态，须重新走学号密码登录
+**本地联调**：`wrangler pages dev` 的 Service Binding 找的是**本机正在运行的那个 Worker 的
+`wrangler dev` 会话**（不连线上），所以要起两个进程：先在 `Class-Assistant-Private-API` 里
+`wrangler dev`，再在 `web/` 里 `wrangler pages dev`；两边 `.dev.vars` 里的 `INTERNAL_TOKEN`
+必须逐字一致，否则网关一律 401。没起那个 Worker 时不会报 500 —— 按上面那条返回 503
+`ACADEMIC_UNAVAILABLE`。另外 `web/.dev.vars`（从 `.dev.vars.example` 复制）是本地跑通任何
+需登录接口的前提，缺了 `JWT_SECRET` 会直接 500；`web/wrangler.toml` 里的 `[[services]]`
+现在是打开的（早先是注释状态，本地因此完全调不到教务）。本地的 `workerd` 只支持到
+`compatibility_date` 2025-07-18（线上按 2026-09-18 跑），启动时那句回退警告是 wrangler 3
+自带的运行时版本所致，升到 wrangler 4 就没有了。
 
-```jsonc
-// GET /api/academic/timetable → 200
-{ "success":true, "data":{
-    "xnxqId":"2026-2027-1",
-    "terms":[{"id":"2026-2027-1","name":"2026-2027-1","current":true}],
-    "periods":[{"index":3,"name":"第三节","start":"09:50","end":"10:35","block":"上午","code":"03"}],
-    "firstDate":"2026-08-31", "weekCount":19,
-    "courses":[{ "id":"1099331250402893824", "name":"马克思主义基本原理", "code":"MARX1021",
-                 "teacher":"吴国清", "room":"公共教学楼A102", "campus":"滨江校区",
-                 "weekday":5, "start":"09:50", "end":"12:15",
-                 "weeks":[1,2,3], "weekText":"1-14", "credit":3,
-                 "category":"公共必修课", "nature":"必修", "className":"生物育种[251-252]班" }],
-    "unscheduled":[{ "name":"生物统计与试验设计Ⅲ", "code":"CROP4208", "credit":1, "hours":16,
-                     "teacher":"[2020081]贺建波", "className":"生物育种251班", "category":"专业课程" }],
-    "fetchedAt":"2026-09-10T16:14:43.245Z", "fromCache":false, "stale":false } }
-
-// GET /api/academic/credits → 200
-{ "success":true, "data":{
-    "profile":{"grade":"2025","college":"农学院","major":"生物育种科学","className":"生物育种251",
-               "plan":"2025级生物育种科学","matchRate":"82.76%"},
-    "rows":[{"level":1,"name":"通识课程","leaf":false},
-            {"level":3,"name":"思想政治理论必修课","required":18,"obtained":6,"current":8,
-             "remaining":4,"achieved":false,"leaf":true}],
-    "summary":{"required":173.5,"obtained":57,"current":25,"remaining":92.5,"achievedCount":9,"totalCount":23} } }
-
-// GET /api/academic/grades → 200
-{ "success":true, "data":{
-    "xnxqId":"",                       // "" = 全部学期，也是页面默认档
-    "terms":[{"id":"","name":"全部学期","current":true},
-             {"id":"2025-2026-2","name":"2025-2026-2","current":false}],
-    "rows":[{ "code":"BIOL3102", "name":"植物学Ⅱ", "credit":2,
-              "score":"77.0", "scoreNum":77, "point":"2.5", "pointNum":2.5,
-              "scoreType":"正常考试", "scoreMark":"", "termId":"2025-2026-2", "termName":"2025-2026-2",
-              "category":"无", "nature":"必修", "generalCategory":"",
-              "statisticNote":"", "remark":"" }],
-    "summary":{"average":81.2,"gpa":2.83,"counted":13,"total":14,"excluded":1},
-    "fetchedAt":"2026-09-18T05:31:02.113Z", "fromCache":false, "stale":false } }
-```
-
-- **默认学期**：没带 `?xnxq=` 时按当前日期推（9 月–次年 1 月是第 1 学期，2–8 月是第 2 学期），
-  不取教务列表第一项 —— 那个列表按时间倒序，而教务的「当前学期」标记又会在开学前就落到下一学期，
-  两条老路都会默认展开一份还没开始的课表。页面会把选过的学期记在 `localStorage` 的 `ca_term` 里带回来，
-  该学期已不在教务列表时后端回落当前学期
-- **缓存策略**：命中且三天内未过期直接回缓存；`refresh=1` 或已过期则重新抓取。
-  教务那一趟失败（不可达 / 登录态被那边重置）时缓存无条件优先，并置 `stale: true`（页面出一行小字说明）
-- **登录态失效**：教务对未登录请求返回 401，据此把绑定标记为 `expired`，页面提示重新绑定
-- **两处教务接口的坑**：`sessionUserInfo` 用 GET 且返回裸对象（无 `data` 包装）；
-  「学业达成」返回的树末尾另有一条名为「总计」的叶子，按叶子累加会翻倍，须以它为准
-- **成绩汇总口径**：均分是算术平均、绩点是学分加权平均，两者都只统计「可统计」的记录 ——
-  缓考/缺考（成绩位写的 0 是占位符，不是真考了 0 分）、等级制成绩（`合格` / `A`）、
-  以及教务自己标了「不参与所有成绩统计计算」的课一律排除；同一门课出现补重两条时，
-  统计只按**最高分**那条算一次（否则学分会被算两遍、均分被平均两次），而列表照旧全部展示。
-  排除规则见 `academicHandler.js` 的 `isCountedForStats`，每条都在真实数据里出现过
-- **成绩的「全部学期」**：`xnxq` 留空就是这个档位（教务页面上的那一项 id 也是空串），
-  也是成绩页的默认档 —— 当前学期开学初通常一门成绩都没有，默认落在它上面等于给人看空页
-- **代登录细节**：CAS 密码加密复刻自 authserver 的 `encrypt.js`（明文 = 随机 64 位串 + 密码，
-  key = 登录页里的 `pwdEncryptSalt`，iv = 随机 16 位串，AES-CBC/Pkcs7 → Base64），
-  并按页面行为一并提交明文 `passwordText` 兜底；登录链路的三级跳转按域分别记 Cookie
-- **验证码**：由服务端按账号风控决定（`checkNeedCaptcha.htl`），实测正常登录不触发，
-  同一账号连续失败数次后才要求验证码；触发时代登录无法继续，接口返回 409 引导用户改用手动绑定
-- 学分接口需要「当前执行计划 id」，由 `detailBhzxjh` 返回的 `zxjhid` 提供，链路见 `handlers/academicHandler.js`
-- 教务接口清单、请求体与固定桌面 UA 见 `backend/src/utils/schoolApi.js`
+> 代登录链路、多因子认证的取舍、教务接口的坑、成绩汇总口径、以及各接口的请求体与响应示例，
+> 都随实现一起记在私有仓的 README 里。本站不再复制一份 —— 两边各写一份的结果是其中一份必然过时。
 
 ---
 
@@ -415,39 +365,6 @@ CREATE TABLE activities (
   created_at     DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE academic_bindings (            -- 教务系统绑定（每用户一条）
-  user_id       INTEGER PRIMARY KEY,
-  student_no    TEXT,
-  real_name     TEXT,
-  school_uid    TEXT,                       -- 教务用户 id（各接口的 xsid / xsxxid）
-  cookies       TEXT NOT NULL,              -- 教务会话 Cookie（AES-GCM 密文）
-  status        TEXT DEFAULT 'ok',          -- ok / expired
-  bound_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
-  checked_at    DATETIME
-);
-
-CREATE TABLE academic_timetable (           -- 课表缓存（按用户 + 学期）
-  user_id       INTEGER NOT NULL,
-  xnxq_id       TEXT NOT NULL,
-  payload       TEXT NOT NULL,
-  fetched_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (user_id, xnxq_id)
-);
-
-CREATE TABLE academic_credits (             -- 学业达成（学分）缓存
-  user_id       INTEGER PRIMARY KEY,
-  payload       TEXT NOT NULL,
-  fetched_at    DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE academic_mfa_sessions (        -- 多因子认证中间态（代登录被要求二次验证时暂存 CAS 会话）
-  token         TEXT PRIMARY KEY,
-  user_id       INTEGER NOT NULL,
-  state         TEXT NOT NULL,              -- CAS Cookie 罐 + reAuthParams（不含密码）
-  attempts      INTEGER DEFAULT 0,          -- 验证码试错计数，满 5 次 token 作废
-  created_at    DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-
 CREATE TABLE forms (                        -- 表单：班委下发，同学填写
   id             INTEGER PRIMARY KEY AUTOINCREMENT,
   title          TEXT NOT NULL,
@@ -480,10 +397,14 @@ CREATE INDEX IF NOT EXISTS idx_form_submissions_form ON form_submissions(form_id
 ```
 
 > 新库直接用 `schema.sql` 建表；已有库执行 `migrations/2026-09-17-student-role.sql`（把「没有职务」归一到存 `'学生'`、并清掉误写入的预置职位）、
-> `migrations/2026-09-12-mfa-attempts.sql`（MFA 验证码试错计数）、`migrations/2026-09-12-forms.sql`
-> （表单 `forms` / `form_submissions` 两张表 + 通知 `link` 列），以及历史迁移：
-> `ALTER TABLE notices ADD COLUMN expire_time DATETIME;`、创建 `roles` 表，
-> 以及 `academic_bindings` / `academic_timetable` / `academic_credits` / `academic_mfa_sessions`。
+> `migrations/2026-09-12-forms.sql`（表单 `forms` / `form_submissions` 两张表 + 通知 `link` 列），
+> 以及历史迁移：`ALTER TABLE notices ADD COLUMN expire_time DATETIME;`、创建 `roles` 表。
+>
+> 教务那几张表（`academic_bindings` / `academic_timetable` / `academic_credits` / `academic_grades` /
+> `academic_mfa_sessions`）已归私有 Worker 的库 `class-assistant-private-api`，建表语句见该仓库的 `schema.sql`。
+> **本库里的旧表暂时留着没删**，也没迁数据：教务登录态本来一天就会被重置一次，绑定记录留着没用，
+> 用户重新绑一次即可。留着是为了万一新链路出问题，把教务路由切回拆分前的版本就能立刻回滚；
+> 确认稳定后再单独出一条迁移删表。
 
 ---
 
@@ -502,7 +423,7 @@ CREATE INDEX IF NOT EXISTS idx_form_submissions_form ON form_submissions(form_id
 - **列表与详情**：列表行「标题 + 徽章」、元信息带图标（发布人 / 时间 / 地点），点击条目标题弹出详情弹窗
 - **个人中心**：资料（联系方式可自助修改；「上次同步时间」按北京时间显示，且仅 App 壳内有、网页版整行不出现）、个性化 / 偏好设置（主题外观 跟随系统 / 浅色 / 深色 三选一，同卡片内下方为通知：网页推送仅网页端，iOS 需 16.4 且已加到主屏，其余情况如实说明原因，App 壳内不显示；再下方「App 端通知」块放活动/通知推送测试与一行本机状态：通知开关，数据来自 `CAHost.appStatus()`，网页版没有这个桥就整块隐藏；通知被系统关掉时推送测试会直接说明原因而不是假装成功）、日历订阅（默认折叠；可自定义提醒提前量/时间范围/是否含通知，并可重置密钥）、安装到桌面（仅 iOS 与 PC 显示，安卓 / 鸿蒙已有原生 App 不引导）、修改密码、关于软件（版本号 + 检查更新 + 项目仓库 + 协作方；版本号取自原生桥，检查更新先问原生桥 `CAHost.platform()` 自己是什么端、再读站点根目录 `version.json` 里对应那一段）、退出登录（红色警示卡）
   - **课程提醒**（偏好设置卡片里的 `#courseCard`，紧接「App 端通知」）：整块默认 `hidden`，只有检测到 `CAHost.courseReminderSettings` 才显示 —— 上课提醒要到点弹出，靠的是原生 `AlarmManager` 排期，网页版没有这个能力，给个点了没反应的开关不如不给。设置存在原生侧，网页只读写；桥返回 `{"lead":15,"atStart":true,"courseCount":23}`，其中 `courseCount` 是为了区分「今天没课」与「本机根本没有课表数据」——用户把开关打开却什么都没发生，得能看出是哪一种。改完即存（无保存按钮），原生侧立刻重排闹钟
-- **学业**：`academic.html` —— 页内分「课表 / 学业达成」两个子标签（两端统一；切到学业达成时收起只对课表生效的学年学期筛选）；「课表」页为按节次网格渲染的课表（当前周高亮、非本周淡出，窄屏横向滚动）+ 未安排课程（接在课表下方，无数据时整块隐藏）；「学业达成」页为学分看板（要求/已获/在修/还需 + 逐课程体系明细）；未绑定时提供三条绑定路径（App 一键 / 学号密码代登录 / 手动粘贴 Cookie 并附分步指引）；账号开了多因子认证时，学号密码代登录会自动进入第二步（下发验证码 → 回填 → 完成绑定，带 60 秒重发倒计时）
+- **学业**：`academic.html` —— 页内分「课表 / 学业达成 / 成绩」三个子标签（两端统一；切到「学业达成」时收起只对课表生效的学年学期筛选，成绩页仍然用它选学期）；「课表」页为按节次网格渲染的课表（当前周高亮、非本周淡出，窄屏横向滚动）+ 未安排课程（接在课表下方，无数据时整块隐藏）；「学业达成」页为学分看板（要求/已获/在修/还需 + 逐课程体系明细）；「成绩」页按学期分组列出课程成绩，顶部只放平均分与平均绩点（口径见上面教务一节，缓考 / 等级制成绩 / 教务标了「不参与统计」的课都不计入），每条可展开看课程号、学分、成绩性质与成绩标识，默认档是「全部学期」；未绑定时提供三条绑定路径（App 一键 / 学号密码代登录 / 手动粘贴 Cookie 并附分步指引）；账号开了多因子认证时，学号密码代登录会自动进入第二步（下发验证码 → 回填 → 完成绑定，带 60 秒重发倒计时）
 - **API 封装**：`assets/js/app.js` 提供 `api(path, options)`，自动附带 `Bearer` token、401 自动回登录页；`options.raw` 可让调用方直接拿到 `Response`（导出 CSV 这类二进制用，同样走 401 清会话）
 - **CSP 与内联写法**：`_headers` 对全站下发 `Content-Security-Policy`，`script-src` 与 `style-src` 都只放行 `'self'`（唯一例外是 Cloudflare 在边缘注入的 Web Analytics beacon 那个来源），因此**页面里不能再写内联 `<script>`、内联 `onclick` 或内联 `style="..."`** —— 写了会被浏览器整条丢掉，表现是「按钮点了没反应」「样式莫名其妙没了」（只有控制台有提示），而不是报错弹窗。
   - 页面逻辑一律外置到 `assets/js/<页面名>.js`（每页一个），共享部分在 `app.js` / `theme.js`
@@ -540,16 +461,21 @@ CREATE INDEX IF NOT EXISTS idx_form_submissions_form ON form_submissions(form_id
 ## 安全说明
 
 - 密码使用 Web Crypto PBKDF2（10 万次迭代 + 随机盐），不存明文
-- JWT / 教务 Cookie 密钥只放 Pages Secrets 或本地 `.dev.vars`，**不要写进 `wrangler.toml`**
-- **教务代登录**：学号密码只在单次请求内存里用于换取会话，**不落库、不打日志、不返回前端**；
-  绑定强制校验「教务学号 = 当前门户学号」；落库的会话 Cookie 与 MFA 中间态使用 AES-GCM 封存
+- JWT 密钥只放 Pages Secrets 或本地 `.dev.vars`，**不要写进 `wrangler.toml`**；教务侧的
+  `COOKIE_SECRET` 与 `INTERNAL_TOKEN` 同理由私有 Worker 用 `wrangler secret put` 管理
+- **教务相关的安全约束**（代登录不落密码、绑定必须是本人、会话 Cookie 用 AES-GCM 封存、
+  跳转链白名单、Cookie 域规则、MFA 尝试上限）都随实现挪到了私有仓，各自的用例也在那边
+- **教务服务只能由本站调到**：Service Binding 不走公网，且请求带一个共享的 `INTERNAL_TOKEN`
+  （私有 Worker 侧对没配令牌的请求一律拒绝，fail closed）；那个 Worker 的 `workers_dev`
+  与 preview URL 都是关的，公网上不存在入口
 - 系统预置职位（学生/班长/团支书/学习委员）不允许写入 `roles` 表覆盖全班权限；
   写入口（`assertCustomRoleName` / `handleCreateRole`）会拒绝，读表时 `buildRoleMap` 也忽略预置名
   —— 就算库里残留一行同名的（如早期建的「学生」），它也不会叠加到全班同名职位上
 - 内容写操作（发布/编辑/删除）与成员管理均按职位鉴权
 - **对外请求都带目标约束**（issue #21），三处出口各自钉住，改动时别拆：
   - **推送端点白名单**：`endpoint` 完全由客户端提供，只校验 `https:` 是不够的 —— 一个指向私网 / 环回 / 云元数据地址的端点存进来后，服务端会带着 VAPID 头去 POST 它（盲 SSRF），而「测试推送」还会把状态码回读给用户（等于端口探测器）。现在订阅时（`pushHandler.validSubscription`）与投递时（`sendWebPush`，两个调用方都走它）都只认 `utils/webpush.js` 的 `PUSH_HOST_SUFFIXES`（fcm.googleapis.com / push.services.mozilla.com / push.apple.com / notify.windows.com）。**每条只写厂商专属的推送区，或实测确认过的那一个主机，别放行混着别的服务的宽域**（比如 `googleapis.com`）；Apple 那条刻意留了整段 `push.apple.com`（Safari 实测端点是 `web.push.apple.com`）—— 清单写窄了的代价是那台设备从此静默收不到通知，而 iOS 最依赖 Web Push；日志里只记主机名，端点路径里的发送凭据不进日志。
-  - **教务接口同源**：`new URL(path, SCHOOL_ORIGIN)` 遇到绝对地址会整体替换 origin，而请求头里带着教务会话 Cookie。`SchoolClient.request` 现在断言 `url.origin === SCHOOL_ORIGIN`（在拼 Cookie 之前），所以「以后谁把动态片段拼进 path」会当场报错，而不是安静地把 Cookie 发出去。
-  - **代登录跳转白名单与 Cookie 域**：跳转链上的每一跳都带着 CAS 会话 Cookie，所以「跟到哪」由 `casLogin.js` 的 `CAS_CHAIN_HOSTS`（authserver / workflow / szjw，见 `network_security_config.xml` 与文件头那条链路）决定，检查卡在 `send()` —— 它是所有对外请求的必经之路（跟随 Location 与 MFA 那几处直接发的请求都走它）。Cookie 的 `Domain` 只接受「请求主机自己或它的父域」且**至少 3 段标签**（近似公共后缀判定，`Domain=cn` / `Domain=edu.cn` 这类会让 Cookie 匹配到任意同后缀主机；没引入公共后缀表，理由是那个 jar 只服务于这三台主机）。校方换认证主机时会在 `CAS_UNEXPECTED_HOST` 处中止，日志里有主机名 —— 加一行即可。
+  - **教务接口的同源与跳转白名单**：教务客户端断言 `path` 必须留在教务域（断言放在拼 Cookie 之前），
+    代登录侧另用主机白名单限制「跟到哪」、并限制 Cookie 的 `Domain` 只能是自己或父域且至少 3 段标签。
+    这三条都随实现搬到了私有仓，改动时别拆 —— 拆掉的后果是把教务会话 Cookie 与一次性 ticket 发给链外主机。
 - **表单导出 CSV 防公式注入**：以 `= + - @` 开头的单元格会先加 `'` 中和（导出的是全班学号姓名，Excel 会当公式执行）
 - 前端所有用户输入经 `esc()` 转义，防止 XSS

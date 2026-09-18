@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { sameStudentId } from '../src/utils/identity.js';
 import { clampInt, pageLimit, pageOffset } from '../src/utils/query.js';
 import {
   ALLOWED_PERMISSIONS,
@@ -15,20 +14,11 @@ import {
 } from '../src/utils/permissions.js';
 import { hashPassword, verifyPassword } from '../src/utils/crypto.js';
 import { hostOfEndpoint, isAllowedPushEndpoint } from '../src/utils/webpush.js';
-import { acceptCookieDomain, isCasChainHost } from '../src/utils/casLogin.js';
 import { sign, verify } from '../src/utils/jwt.js';
-import { isSealed, openCookies, sealCookies } from '../src/utils/cookieVault.js';
 import { toLocalDateTime, parseLocalDateTime } from '../src/utils/datetime.js';
-import { MFA_MAX_ATTEMPTS, AcademicModel } from '../src/models/academicModel.js';
 
-describe('sameStudentId', () => {
-  it('trim 后精确匹配', () => {
-    assert.equal(sameStudentId(' 2022103071 ', '2022103071'), true);
-    assert.equal(sameStudentId('2022103071', '2022103072'), false);
-    assert.equal(sameStudentId('', ''), false);
-    assert.equal(sameStudentId(null, '1'), false);
-  });
-});
+// 与教务相关的那几组（绑定身份校验、会话 Cookie 封存、代登录链路白名单、MFA 尝试上限）
+// 已随教务代码一起搬到私有仓 class-assistant-private-api 的 test/security.test.js。
 
 describe('query clamp', () => {
   it('把离谱的 limit/offset 收敛到合法范围', () => {
@@ -180,93 +170,6 @@ describe('JWT', () => {
   });
 });
 
-describe('Cookie 封存', () => {
-  const env = { COOKIE_SECRET: 'unit-test-cookie-secret' };
-
-  it('加密后再解开与原文一致', async () => {
-    const raw = 'X-Qz-JSession=abc; INGRESSCOOKIE=xyz';
-    const sealed = await sealCookies(env, raw);
-    assert.equal(isSealed(sealed), true);
-    assert.equal(sealed.includes('abc'), false);
-    assert.equal(await openCookies(env, sealed), raw);
-  });
-
-  it('旧明文可以直接读出，方便平滑迁移', async () => {
-    assert.equal(await openCookies(env, 'SESSION=plain'), 'SESSION=plain');
-  });
-
-  it('后加 COOKIE_SECRET 时仍能解开用 JWT 派生密钥封存的旧记录', async () => {
-    const raw = 'X-Qz-JSession=legacy';
-    const oldEnv = { JWT_SECRET: 'jwt-secret-for-vault' };
-    const sealed = await sealCookies(oldEnv, raw);
-    const newEnv = { JWT_SECRET: 'jwt-secret-for-vault', COOKIE_SECRET: 'brand-new-cookie-secret' };
-    assert.equal(await openCookies(newEnv, sealed), raw);
-  });
-
-  it('能解开 Go 调度进程封存的密文', async () => {
-    const env = { COOKIE_SECRET: 'compat-secret-for-go' };
-    const sealed = 'v1.Yzkjl59QocTwaLnh.4yMmGlESPclxP4shg6mBI4jIb5TY-UYYTf6uoqmNUfp2t3VMirrL7S2Mp-185kN5-EiVTw';
-    assert.equal(await openCookies(env, sealed), 'X-Qz-JSession=abc; INGRESSCOOKIE=xyz');
-  });
-
-  it('密钥全部缺失时封存/解封都抛错（由 handler 转成 VAULT_NOT_CONFIGURED）', async () => {
-    await assert.rejects(() => sealCookies({}, 'SESSION=x'));
-    const sealed = await sealCookies(env, 'SESSION=x');
-    await assert.rejects(() => openCookies({}, sealed));
-  });
-});
-
-describe('MFA 尝试上限', () => {
-  it('上限为 5 次', () => {
-    assert.equal(MFA_MAX_ATTEMPTS, 5);
-  });
-
-  it('并发占坑只放行 5 次，第 6 次拿不到名额', async () => {
-    // 内存假 D1：只维护一行中间态，UPDATE 真的按 WHERE 里的条件（未超上限且未过期）
-    // 决定改几行。若假 D1 不看条件、一律返回 changes > 0，这条用例就只是自说自话，
-    // 证明不了上限——必须让「changes === 0」是算出来的。
-    const TOKEN = 'mfa-token';
-    const USER_ID = 7;
-    const row = { attempts: 0, created_at: Date.now() };
-
-    const db = {
-      prepare(sql) {
-        if (!/UPDATE academic_mfa_sessions/i.test(sql)) {
-          throw new Error('假 D1 不认识的 SQL: ' + sql);
-        }
-        const stmt = {
-          _args: [],
-          bind(...args) { stmt._args = args; return stmt; },
-          async run() {
-            const [token, userId, maxAttempts, ttl] = stmt._args;
-            // ttl 形如 '-600 seconds'，与 SQL 里的 datetime('now', ?) 对应：
-            // 真语句是 created_at >= datetime('now', ttl)，即 created_at >= now + ttlMs。
-            // 别再顺手写成 `created_at + ttlMs <= now` —— 负偏移下那个式子恒为真，
-            // 到期判断就变成了摆设，用例看着在管上限其实什么都没管。
-            const ttlMs = Number(String(ttl).match(/-?\d+/)[0]) * 1000;
-            const hit = token === TOKEN
-              && userId === USER_ID
-              && row.attempts < maxAttempts
-              && row.created_at >= Date.now() + ttlMs;
-            if (hit) row.attempts += 1;
-            return { meta: { changes: hit ? 1 : 0 } };
-          }
-        };
-        return stmt;
-      }
-    };
-
-    const model = new AcademicModel(db);
-    const claimed = await Promise.all(
-      Array.from({ length: 6 }, () => model.claimMfaAttempt(USER_ID, TOKEN, 10 * 60 * 1000))
-    );
-
-    assert.equal(claimed.filter(Boolean).length, MFA_MAX_ATTEMPTS);
-    assert.equal(claimed[claimed.length - 1], false);
-    assert.equal(row.attempts, MFA_MAX_ATTEMPTS);
-  });
-});
-
 /**
  * 推送端点白名单（issue #21）。
  *
@@ -316,41 +219,5 @@ describe('推送端点白名单', () => {
     // 坏输入（本来就要拒掉）也得给得出定位用的字样，且不能因此抛错
     assert.match(hostOfEndpoint('不是 URL'), /^\(不是合法 URL\)/);
     assert.equal(hostOfEndpoint(null), '(不是合法 URL) ');
-  });
-});
-
-/**
- * 代登录的跳转链白名单与 Cookie 域规则（issue #21）。
- *
- * 这两条管的是同一件事：服务端被诱导「跟着 Location 走」时，别把 CAS 会话 Cookie 与一次性
- * ticket 发给链外主机。
- */
-describe('代登录链路白名单', () => {
-  it('只放行认证链路里的三个主机', () => {
-    assert.equal(isCasChainHost('https://authserver.njau.edu.cn/authserver/login'), true);
-    assert.equal(isCasChainHost('https://workflow.njau.edu.cn/cas/login'), true);
-    assert.equal(isCasChainHost('https://szjw.njau.edu.cn/api/login/sso/cas/login'), true);
-
-    assert.equal(isCasChainHost('https://evil.com/'), false);
-    assert.equal(isCasChainHost('https://szjw.njau.edu.cn.evil.com/'), false, '把站内域名当前缀套');
-    assert.equal(isCasChainHost('https://authserver.njau.edu.cn.evil.com/'), false);
-    assert.equal(isCasChainHost('https://sub.szjw.njau.edu.cn/'), false, '只认这一个主机，不认子域');
-    assert.equal(isCasChainHost('不是 URL'), false);
-    // 只比主机名、不看协议：这条链路上教务门户本身就有 http 页面（见 network_security_config.xml
-    // 里那条 http://szjw.njau.edu.cn/login/login.html 的跳转），拦 http 就等于把代登录拦死。
-    // 这里要拦的是「跟到别的站」，不是「同一站降级成明文」。
-    assert.equal(isCasChainHost('http://szjw.njau.edu.cn/login/login.html'), true);
-  });
-
-  it('Cookie 域只接受自己或父域，且不接受公共后缀', () => {
-    assert.equal(acceptCookieDomain('szjw.njau.edu.cn', 'szjw.njau.edu.cn'), true);
-    assert.equal(acceptCookieDomain('workflow.njau.edu.cn', 'njau.edu.cn'), true, '父域：CAS 的 TGC 要靠它跨主机');
-
-    assert.equal(acceptCookieDomain('szjw.njau.edu.cn', 'evil.com'), false, '不是自己也不是父域');
-    assert.equal(acceptCookieDomain('szjw.njau.edu.cn', 'edu.cn'), false, '公共后缀：会让这份 Cookie 匹配任意 *.edu.cn');
-    assert.equal(acceptCookieDomain('evil.com', 'com'), false, 'issue 里举的那个例子');
-    assert.equal(acceptCookieDomain('xnjau.edu.cn', 'jau.edu.cn'), false, '按标签边界比，不是字符后缀');
-    assert.equal(acceptCookieDomain('szjw.njau.edu.cn', ''), false);
-    assert.equal(acceptCookieDomain('', 'njau.edu.cn'), false);
   });
 });

@@ -35,7 +35,7 @@ func TestPlaintextPassthrough(t *testing.T) {
 }
 
 func TestOpenWorkerCiphertext(t *testing.T) {
-	// 由 web/backend cookieVault.js 封存，保证调度进程能读 Worker 写下的 D1 记录。
+	// 由私有仓的 src/utils/cookieVault.js 封存，保证调度进程能读 Worker 写下的 D1 记录。
 	env := Env{CookieSecret: "compat-secret-for-go"}
 	const sealed = "v1.KUzwqjpZfqxf-yi5.CMHC8NlZghnuBlvqXqNIATU37TJ3Ksj4mK5_nTKYqR6MrxMkyzH1LlN9LyDVEvk5Hzp1rQ"
 	got, err := Open(env, sealed)

@@ -11,11 +11,9 @@
     "db:local": "wrangler d1 execute class-assistant-db --local --file=./schema.sql",
     "db:remote": "wrangler d1 execute class-assistant-db --remote --file=./schema.sql",
     "db:migrate": "wrangler d1 execute class-assistant-db --remote --file=./migrations/2026-09-17-student-role.sql",
-    "db:migrate:mfa": "wrangler d1 execute class-assistant-db --remote --file=./migrations/2026-09-12-mfa-attempts.sql",
     "db:migrate:forms": "wrangler d1 execute class-assistant-db --remote --file=./migrations/2026-09-12-forms.sql",
     "db:migrate:push": "wrangler d1 execute class-assistant-db --remote --file=./migrations/2026-09-13-push.sql",
-    "db:migrate:owner": "wrangler d1 execute class-assistant-db --remote --file=./migrations/2026-09-14-content-owner.sql",
-    "db:migrate:grades": "wrangler d1 execute class-assistant-db --remote --file=./migrations/2026-09-18-grades.sql"
+    "db:migrate:owner": "wrangler d1 execute class-assistant-db --remote --file=./migrations/2026-09-14-content-owner.sql"
   },
   "devDependencies": {
     "wrangler": "^3.90.0"

@@ -784,7 +784,7 @@ function applyGrades(data) {
  * 汇总卡：只有「平均分」与「平均绩点」两项。
  * 学分不放在这里 —— 「学业达成」那一栏已经有「已获学分」，两处各说一个数只会让人对不上账。
  *
- * 口径是后端算好的（见 academicHandler 的 normalizeGrades）：缓考、等级制成绩（合格/A）、
+ * 口径是教务侧算好的（见私有仓 class-assistant-private-api 的 normalizeGrades）：缓考、等级制成绩（合格/A）、
  * 教务标了「不参与所有成绩统计计算」的课都不计入。这一点必须写在卡上，否则用户自己把
  * 成绩加一遍会发现对不上，还会以为是算错了。
  */
