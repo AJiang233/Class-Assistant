@@ -915,6 +915,23 @@ test('提醒对象：名单加载失败时不渲染空列表、保存被拦下�
     '成功渲染时没有恢复保存按钮：上次失败禁掉后就再也点不动了');
 });
 
+// admin 的三个发布入口（通知 / 活动 / 表单）同样要在名单失败时拦截（issue #78，
+// 吸收自 PR #86 的增量：新建时空名单虽是安全默认，但失败还显示「暂无成员」会误导人）
+test('提醒对象：admin 的三个发布入口在名单失败时也拦截（issue #78）', () => {
+  const src = readFileSync(join(HERE, '../../assets/js/admin.js'), 'utf8');
+
+  assert.match(src, /remindLoadFailed\s*=\s*true;/, 'admin：名单失败时没有把标志置 true');
+  assert.match(src, /renderRemindBox\([^)]*remindLoadFailed/,
+    'admin：渲染时没把失败标记传给 renderRemindBox');
+
+  for (const [name, marker] of [['通知', 'ntcSubmitBtn'], ['活动', 'actSubmitBtn'], ['表单', 'fcSubmitBtn']]) {
+    const at = src.indexOf(marker);
+    assert.ok(at >= 0, 'admin：找不到 ' + name + ' 的提交按钮');
+    assert.match(src.slice(Math.max(0, at - 900), at), /remindLoadFailed/,
+      'admin：' + name + ' 发布入口没有名单失败拦截，失败时会静默发成全班可见');
+  }
+});
+
 // ===== 推送订阅：endpoint 轮换后的恢复路径 =====
 // account.js 是带副作用的 IIFE（开头 requireAuth），取不出函数来跑，读源码钉形状。
 // 这条是可达性路径（issue #80）：APNs/FCM 轮换 endpoint 后服务端库里那条旧订阅 404/410，

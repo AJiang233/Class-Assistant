@@ -247,7 +247,7 @@ function renderRemindBox(boxId, members, checkedNames, failed) {
   box.className = 'remind-box';
   const save = document.getElementById('editSubmitBtn');
   if (failed) {
-    box.innerHTML = '<span class="remind-hint">提醒对象名单加载失败，请关闭后重新打开</span>';
+    box.innerHTML = '<span class="remind-hint remind-text-error">提醒对象名单加载失败，请关闭后重新打开</span>';
     if (save) save.disabled = true;
     return;
   }

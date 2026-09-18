@@ -10,19 +10,27 @@ if (!canManagePanel()) {
 
 // ===== 提醒对象选择（发布 通知、活动共用） =====
 var remindChoices = [];
+// 「名单没加载出来」与「真没有成员」必须分开记：前者若被当成空名单提交，
+// 会把定向内容静默发成全班可见（renderRemindBox 的 failed 分支 + 三个发布函数的拦截，
+// 见 PR #86 吸收的增量 —— 新建时空名单虽是安全默认，但名单挂了还显示「暂无成员」
+// 会让人误以为班里没人可定向）
+var remindLoadFailed = false;
 
 async function loadRemindChoices() {
+    remindLoadFailed = false;
     try {
         var res = await api('/api/auth/members-pick');
         remindChoices = (res.data && res.data.list) || [];
-    } catch (e) {}
+    } catch (e) {
+        remindLoadFailed = true;
+    }
     renderRemindChoices('actRemind', []);
     renderRemindChoices('ntcRemind', []);
     renderRemindChoices('fcRemind', []);
 }
 
 function renderRemindChoices(boxId, checkedNames) {
-    renderRemindBox(boxId, remindChoices, checkedNames);
+    renderRemindBox(boxId, remindChoices, checkedNames, remindLoadFailed);
 }
 
 function collectRemind(boxId) {
@@ -70,6 +78,12 @@ async function submitNotice() {
         errBox.textContent = '标题、内容、发布时间为必填';
         errBox.classList.add('show'); return;
     }
+    // 名单没加载出来时绝不能发布：collectRemind('ntcRemind') 会是空数组，后端把空名单
+    // 当默认全班，定向内容就静默发成全班可见（issue #78）
+    if (remindLoadFailed) {
+        errBox.textContent = '提醒对象名单加载失败：为避免把定向内容误发成全班可见，发布已被禁止，请重试';
+        errBox.classList.add('show'); return;
+    }
     var btn = document.getElementById('ntcSubmitBtn');
     btn.disabled = true; var t = btn.textContent; btn.textContent = '提交中…';
     try {
@@ -102,6 +116,11 @@ async function submitActivity() {
     var end_time = document.getElementById('actEnd').value;
     if (!title || !start_time) {
         errBox.textContent = '标题、开始时间为必填';
+        errBox.classList.add('show'); return;
+    }
+    // 名单没加载出来时绝不能发布：collectRemind('actRemind') 会是空数组（issue #78，同上）
+    if (remindLoadFailed) {
+        errBox.textContent = '提醒对象名单加载失败：为避免把定向内容误发成全班可见，发布已被禁止，请重试';
         errBox.classList.add('show'); return;
     }
     var btn = document.getElementById('actSubmitBtn');
@@ -655,6 +674,8 @@ async function submitFormCreate() {
     if (!title) return fail('请填写表单标题');
     var collected = collectFields();
     if (collected.error) return fail(collected.error);
+    // 名单没加载出来时绝不能创建表单：collectRemind('fcRemind') 会是空数组（issue #78，同上）
+    if (remindLoadFailed) return fail('提醒对象名单加载失败：为避免把定向内容误发成全班可见，发布已被禁止，请重试');
 
     var payload = {
         title: title,
