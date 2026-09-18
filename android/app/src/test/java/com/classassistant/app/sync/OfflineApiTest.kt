@@ -56,6 +56,18 @@ class OfflineApiTest {
     }
 
     /**
+     * 成绩（issue #38）。页面请求的是**不带 xnxq** 的那一份 —— 那就是「全部学期」，
+     * 也是这个标签页的默认档。清单里多一个 `?xnxq=…` 或少一个都会让首帧落回网络：
+     * 少了不命中，多了（写成带参数的）也不命中，页面按自己的 URL 找缓存。
+     */
+    @Test
+    fun `成绩的预热 URL 与页面默认请求逐字一致`() {
+        val paths = OfflineApi.prewarmPaths(noon(2026, 9, 14, shanghai), shanghai)
+        assertTrue(paths.contains("/api/academic/grades"))
+        assertTrue(OfflineApi.isCacheablePath("/api/academic/grades"))
+    }
+
+    /**
      * 「刷新」这一类请求（页面在查询串里带 `refresh=1`）。
      *
      * 缓存键里要去掉它：同一份数据挂在两个键上，既白占名额，又让「先刷新、后断网」

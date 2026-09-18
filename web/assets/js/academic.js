@@ -4,7 +4,10 @@
 var bindStatus = null;      // /api/academic/status 返回
 var timetable = null;       // 课表数据
 var credits = null;         // 学分数据
-var activeTerm = '';        // 当前选中的学期
+var grades = null;          // 成绩数据
+var activeTerm = '';        // 课表当前选中的学期
+var gradesTerm = '';        // 成绩当前选中的学期；'' = 全部学期（与后端 ALL_TERM_ID 一致）
+var activeTab = 'timetable'; // 当前子标签：timetable / credits / grades
 
 // 上次看的学期：退出重进沿用（把选过的学期带回去问后端；那个学期已不在教务列表里时，
 // 后端会回落到按日期推算的当前学期，返回的 xnxqId 又会把这里覆盖掉）
@@ -58,10 +61,18 @@ var WEEKDAY_NAMES = ['周一', '周二', '周三', '周四', '周五', '周六',
         });
         document.getElementById('unbindBtn').addEventListener('click', doUnbind);
         document.getElementById('refreshBtn').addEventListener('click', function () {
+            // 在成绩页时只刷成绩：课表与学分是另外两块，眼前的成绩页点「刷新」是冲它来的
+            if (activeTab === 'grades') { loadGrades(gradesTerm, true); return; }
             loadTimetable(activeTerm, true);
             loadCredits(true);
         });
         document.getElementById('termSelect').addEventListener('change', function () {
+            // 下拉是课表与成绩共用的一个控件，按当前标签决定改的是谁
+            if (activeTab === 'grades') {
+                gradesTerm = this.value;
+                loadGrades(gradesTerm, false);
+                return;
+            }
             loadTimetable(this.value, false);
         });
         initAcSeg();
@@ -261,10 +272,10 @@ async function doBind() {
 }
 
 async function doUnbind() {
-    if (!window.confirm('解绑后会清除本地缓存的课表与学分数据，确定解绑吗？')) return;
+    if (!window.confirm('解绑后会清除本地缓存的课表、学分与成绩数据，确定解绑吗？')) return;
     try {
         await api('/api/academic/bind', { method: 'DELETE' });
-        timetable = null; credits = null; activeTerm = '';
+        timetable = null; credits = null; grades = null; activeTerm = ''; gradesTerm = '';
         try { localStorage.removeItem(TERM_KEY); } catch (e) {}
         showOnly('bindView');
     } catch (err) {
@@ -294,17 +305,20 @@ function hideNotice() {
 }
 
 /**
- * 显示的是缓存课表时的那行小字。
+ * 显示的是缓存时的那行小字。tab 是「你正看的这一块」——三个子标签各有各的缓存，
+ * 提示得说清是哪一块的数据旧了，否则在成绩页看到「课表是上次同步的」只会让人困惑。
  *
  * 不用红横幅：「教务登录态过期」大概一天就会来一次，为它拉一条红底提示，
  * 用户会以为课表坏了 —— 实际上课表好好的，只是没法去教务那儿拿最新的。
  * 所以这里只说清两件事：这是哪来的数据、想要最新的该按哪儿。
  */
-function cacheHintText(reason) {
+function cacheHintText(reason, tab) {
+    var what = tab === 'grades' ? '成绩' : (tab === 'credits' ? '学业达成数据' : '课表');
+    var hint = tab === 'timetable' ? '课表有变动时请点「刷新」' : '有更新时请点「刷新」';
     var why = reason === 'expired'
-        ? '教务登录态已过期，当前显示的是上次同步的课表'
-        : '教务系统暂时不可用，当前显示的是上次同步的课表';
-    return why + ' · 课表有变动时请点「刷新」';
+        ? '教务登录态已过期，当前显示的是上次同步的' + what
+        : '教务系统暂时不可用，当前显示的是上次同步的' + what;
+    return why + ' · ' + hint;
 }
 
 /**
@@ -336,12 +350,19 @@ function initAcSeg() {
 }
 
 function switchAcTab(name) {
-    [['timetable', 'paneTimetable'], ['credits', 'paneCredits']].forEach(function (pair) {
+    activeTab = name;
+    [['timetable', 'paneTimetable'], ['credits', 'paneCredits'], ['grades', 'paneGrades']].forEach(function (pair) {
         var pane = document.getElementById(pair[1]);
         if (pane) pane.hidden = (pair[0] !== name);
     });
+    // 学期下拉对课表与成绩都有意义（成绩多一档「全部学期」），只有学业达成用不上它
     var termTools = document.getElementById('termTools');
-    if (termTools) termTools.hidden = (name !== 'timetable');
+    if (termTools) termTools.hidden = (name === 'credits');
+    // 成绩是懒加载：第一次切过来才去拉，没打开过就不必为它多跑一趟教务
+    if (name === 'grades' && !grades) loadGrades(gradesTerm, false);
+    refreshTermSelect();
+    refreshSyncMeta();
+    refreshAcNotice();
     var seg = document.getElementById('acSeg');
     if (seg) {
         var btns = seg.querySelectorAll('.tab');
@@ -350,6 +371,36 @@ function switchAcTab(name) {
         }
     }
     moveAcSegPill();
+}
+
+/**
+ * 学期下拉是课表与成绩共用的一个控件，按当前标签填对应的选项与当前值。
+ * 不能两边同时渲染：后渲染的那次会把前一块的选择覆盖掉（切回来时选中的学期就变了）。
+ */
+function refreshTermSelect() {
+    if (activeTab === 'grades') {
+        // 成绩还没加载过时也得有个「全部学期」占位，否则切过去的瞬间下拉是空白的。
+        // current 传 false：那个字段是「教务标的当前学期」，用来给下拉项加后缀的，
+        // 传 true 会把这一项显示成「全部学期（当前学期）」
+        var terms = (grades && grades.terms && grades.terms.length)
+            ? grades.terms
+            : [{ id: '', name: '全部学期', current: false }];
+        renderTermSelect(terms, gradesTerm);
+        return;
+    }
+    renderTermSelect(timetable && timetable.terms, activeTerm);
+}
+
+/** 「更新于 / 缓存」这行跟着当前标签走：三块各有各的拉取时间，不能拿课表的时间冒充成绩的 */
+function refreshSyncMeta() {
+    renderSyncMeta((activeTab === 'grades' ? grades : (activeTab === 'credits' ? credits : timetable)) || {});
+}
+
+/** 顶部的缓存提示也跟着当前标签走：它说的是「你正看的这一块」的数据来源 */
+function refreshAcNotice() {
+    var data = activeTab === 'grades' ? grades : (activeTab === 'credits' ? credits : timetable);
+    if (data && data.stale) { showNotice(cacheHintText(data.cacheReason, activeTab), true); return; }
+    hideNotice();
 }
 
 /** 滑块：与个人页主题分段、移动端底栏同一套弹簧动画，位置与尺寸按激活项实测写入 */
@@ -414,19 +465,19 @@ function applyTimetable(data, askRelogin) {
     timetable = data;
     activeTerm = timetable.xnxqId;
     rememberTerm(activeTerm);
-    renderTermSelect(timetable.terms, activeTerm);
-    renderSyncMeta(timetable);
+    // 学期下拉与「更新于」这行是课表/成绩共享的控件，只有课表在前台时才由课表来写，
+    // 否则后台推回来的课表会把成绩页正在看的下拉和同步时间顶掉
+    if (activeTab === 'timetable') {
+        renderTermSelect(timetable.terms, activeTerm);
+        renderSyncMeta(timetable);
+    }
     renderTimetable(timetable);
     renderUnscheduled(timetable.unscheduled);
-    if (timetable.stale) {
-        showNotice(cacheHintText(timetable.cacheReason), true);
-        // 手动刷新仍然只拿到缓存：说明教务那边已经拉不动了，问一句要不要重新登录。
-        // 自动加载走到这一支是常态（登录态一天左右就会被重置），小字说明就够了
-        if (askRelogin && timetable.cacheReason === 'expired' && askReLogin()) {
-            showOnly('bindView');
-        }
-    } else {
-        hideNotice();
+    refreshAcNotice();
+    // 手动刷新仍然只拿到缓存：说明教务那边已经拉不动了，问一句要不要重新登录。
+    // 自动加载走到这一支是常态（登录态一天左右就会被重置），小字说明就够了
+    if (askRelogin && timetable.stale && timetable.cacheReason === 'expired' && askReLogin()) {
+        showOnly('bindView');
     }
 }
 
@@ -590,6 +641,8 @@ async function loadCredits(refresh) {
         var res = await api(path);
         credits = res.data;
         renderCredits(credits);
+        refreshSyncMeta();
+        refreshAcNotice();
     } catch (err) {
         view.innerHTML = stateHTML(err.message, true);
     }
@@ -667,4 +720,167 @@ function statBox(label, value, tone) {
         + '<span class="credit-stat-value">' + value + '</span>'
         + '<span class="credit-stat-label">' + esc(label) + '</span>'
         + '</div>';
+}
+
+// ===== 课程成绩 =====
+
+/**
+ * 成绩（默认「全部学期」；refresh=1 强制重抓）。
+ *
+ * 学期为空 = 全部学期：「全部」在后端是一个真实的取数档位（空串 id），不是「没指定」。
+ * 之所以默认落在它上面，是因为当前学期开学初一门成绩都没有，默认查当前学期等于给人看空页。
+ */
+async function loadGrades(term, refresh) {
+    var view = document.getElementById('gradesView');
+    view.innerHTML = skeletonHTML(4);
+    document.getElementById('gradeSummary').innerHTML = '';
+    document.getElementById('gradeHint').textContent = '';
+    var path = '/api/academic/grades';
+    var query = [];
+    if (term) query.push('xnxq=' + encodeURIComponent(term));
+    if (refresh) query.push('refresh=1');
+    if (query.length) path += '?' + query.join('&');
+    // App 壳：原生层先给缓存、后台刷新完把新数据推回这个键上。键里带学期（不带即「全部学期」），
+    // 所以按实际请求的 URL 注册 —— 不同学期的成绩是两份缓存
+    onApiData(path, function (data) { applyGrades(data); });
+    try {
+        var res = await api(path);
+        applyGrades(res.data);
+    } catch (err) {
+        // 与课表同一套错误分支（错误码精确判断，不靠文案匹配）
+        if (err.code === 'NOT_BOUND') {
+            showOnly('bindView');
+            showFormError('bindError', err.message);
+            return;
+        }
+        if (err.code === 'ACADEMIC_EXPIRED' || err.code === 'ACADEMIC_DECRYPT_FAILED') {
+            // 走到这儿说明连缓存都没有（有的话后端会把缓存给出来，而不是报错）
+            if (refresh && !askReLogin()) {
+                view.innerHTML = stateHTML(err.message, true);
+                return;
+            }
+            showOnly('bindView');
+            showFormError('bindError', err.message);
+            return;
+        }
+        view.innerHTML = stateHTML(err.message, true);
+    }
+}
+
+/** 成绩渲染。首次加载与「原生后台刷新推回」共用这一个入口 */
+function applyGrades(data) {
+    grades = data || {};
+    // 下拉与「更新于」是课表/成绩共用的控件，只有成绩在前台时才由成绩来写
+    if (activeTab === 'grades') {
+        refreshTermSelect();
+        refreshSyncMeta();
+    }
+    renderGradeSummary(grades.summary);
+    renderGrades(grades);
+    refreshAcNotice();
+}
+
+/**
+ * 汇总卡：只有「平均分」与「平均绩点」两项。
+ * 学分不放在这里 —— 「学业达成」那一栏已经有「已获学分」，两处各说一个数只会让人对不上账。
+ *
+ * 口径是后端算好的（见 academicHandler 的 normalizeGrades）：缓考、等级制成绩（合格/A）、
+ * 教务标了「不参与所有成绩统计计算」的课都不计入。这一点必须写在卡上，否则用户自己把
+ * 成绩加一遍会发现对不上，还会以为是算错了。
+ */
+function renderGradeSummary(summary) {
+    var box = document.getElementById('gradeSummary');
+    var s = summary || {};
+    if (s.average == null && s.gpa == null) {
+        box.innerHTML = s.total
+            ? '<div class="ac-card grade-summary"><p class="ac-note">这 ' + s.total
+              + ' 条成绩都不参与统计（缓考或等级制成绩），暂时算不出均分与绩点。</p></div>'
+            : '';
+        return;
+    }
+    var note = '共 ' + s.total + ' 条记录，均分按其中 ' + s.counted + ' 门可统计课程计算';
+    if (s.excluded > 0) note += '；另有 ' + s.excluded + ' 条不计入（缓考、等级制成绩，或教务标注了不参与统计）';
+    box.innerHTML = '<div class="ac-card grade-summary">'
+        + '<div class="grade-summary-stats">'
+        + statBox('平均分', s.average == null ? '—' : s.average, 'ok')
+        + statBox('平均绩点', s.gpa == null ? '—' : s.gpa)
+        + '</div>'
+        + '<p class="ac-note grade-summary-note">' + esc(note) + '</p>'
+        + '</div>';
+}
+
+/**
+ * 成绩列表：按学期分组，组内按教务给的顺序。
+ * 「全部学期」下这就是一份完整成绩单，选单个学期时也照常出组头（一眼能看出是哪个学期）。
+ */
+function renderGrades(data) {
+    var view = document.getElementById('gradesView');
+    var hint = document.getElementById('gradeHint');
+    var rows = data.rows || [];
+    if (!rows.length) {
+        hint.textContent = '';
+        view.innerHTML = stateHTML(data.xnxqId ? '这学期还没有成绩记录' : '还没有任何成绩记录');
+        return;
+    }
+    hint.textContent = '共 ' + rows.length + ' 条';
+    // 只按教务的返回顺序收组，不重排：它本身就是学期倒序，重排反而可能打乱同课程补重两条的先后
+    var order = [];
+    var groups = {};
+    rows.forEach(function (r) {
+        var key = r.termId || '';
+        if (!groups[key]) { groups[key] = []; order.push(key); }
+        groups[key].push(r);
+    });
+    view.innerHTML = order.map(function (key) {
+        var list = groups[key];
+        return '<div class="grade-group">'
+            + '<div class="grade-group-head">'
+            + '<span class="grade-group-title">' + esc(list[0].termName || key || '未知学期') + '</span>'
+            + '<span class="grade-group-count">' + list.length + ' 门</span>'
+            + '</div>'
+            + list.map(gradeRowHTML).join('')
+            + '</div>';
+    }).join('');
+}
+
+/**
+ * 单条成绩：默认只露「课程名 + 学分 + 成绩 + 绩点」，课程编码/类别/统计说明这些点开才看。
+ *
+ * 展开用 <details> 而不是自己做开关：CSP 下页面里不能写内联事件，而 details 天然带
+ * 键盘操作与读屏语义，展开状态也不用自己维护。
+ */
+function gradeRowHTML(r) {
+    var sub = [];
+    if (r.credit > 0) sub.push(r.credit + ' 学分');
+    if (r.scoreType) sub.push(r.scoreType);
+    var mark = r.scoreMark ? '<span class="grade-mark">' + esc(r.scoreMark) + '</span>' : '';
+    var detail = [
+        ['课程编码', r.code],
+        ['学分', r.credit],
+        ['成绩性质', r.scoreType],
+        ['成绩标识', r.scoreMark],
+        ['开课学期', r.termName],
+        ['课程类别', r.category],
+        ['课程属性', r.nature],
+        ['通识课类别', r.generalCategory],
+        ['成绩统计说明', r.statisticNote],
+        ['备注', r.remark]
+    ].filter(function (p) { return p[1] !== '' && p[1] !== null && p[1] !== undefined; })
+        .map(function (p) {
+            return '<div class="grade-line"><span class="grade-line-key">' + esc(p[0]) + '</span>'
+                + '<span class="grade-line-val">' + esc(String(p[1])) + '</span></div>';
+        }).join('');
+    return '<details class="grade-row">'
+        + '<summary class="grade-head">'
+        + '<span class="grade-main">'
+        + '<span class="grade-name">' + esc(r.name) + '</span>'
+        + '<span class="grade-sub">' + esc(sub.join(' · ')) + mark + '</span>'
+        + '</span>'
+        + '<span class="grade-right">'
+        + '<span class="grade-score">' + esc(r.score || '—') + '</span>'
+        + '<span class="grade-point">' + (r.point ? esc(r.point) + ' 绩点' : '—') + '</span>'
+        + '</span>'
+        + '</summary>'
+        + '<div class="grade-detail">' + detail + '</div>'
+        + '</details>';
 }

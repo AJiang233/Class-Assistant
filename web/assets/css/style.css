@@ -1690,6 +1690,68 @@ body.app-mode { overflow: hidden; }
 .cr-num { text-align: right; font-variant-numeric: tabular-nums; }
 .cr-state { text-align: right; }
 
+/* ── 课程成绩（issue #38）── */
+/* 汇总卡：只有平均分与平均绩点；统计口径写在下面那行小字里，不做成标签堆叠 */
+.grade-summary-stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+.grade-summary-note { margin-top: 10px; }
+
+/* 按学期分组：组头是学年学期 + 门数，组内一条条成绩 */
+.grade-group { margin-top: 14px; }
+.grade-group-head {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
+  padding: 0 4px 6px;
+}
+.grade-group-title { font-size: 0.86rem; font-weight: 600; color: var(--text-secondary); }
+.grade-group-count { font-size: 0.78rem; color: var(--text-tertiary); }
+
+/* 单条成绩。展开用 <details>：CSP 下页面里不能写内联事件，而 details 自带
+   键盘操作与读屏语义，展开状态也不用自己维护 */
+.grade-row {
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  overflow: hidden;
+}
+.grade-row + .grade-row { margin-top: 8px; }
+.grade-head {
+  display: flex; align-items: center; gap: 12px;
+  padding: 11px 14px;
+  cursor: pointer;
+  list-style: none;
+}
+/* 去掉默认三角，换成右侧会翻转的箭头 */
+.grade-head::-webkit-details-marker { display: none; }
+.grade-head::marker { content: ''; }
+.grade-head::after {
+  content: '';
+  flex: 0 0 auto;
+  width: 7px; height: 7px;
+  border-right: 1.6px solid var(--text-tertiary);
+  border-bottom: 1.6px solid var(--text-tertiary);
+  transform: rotate(45deg);
+  transition: transform 0.2s ease;
+}
+.grade-row[open] .grade-head::after { transform: rotate(225deg); }
+.grade-main { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
+.grade-name { font-size: 0.93rem; font-weight: 600; color: var(--text); word-break: break-word; }
+.grade-sub { font-size: 0.76rem; color: var(--text-tertiary); }
+.grade-mark {
+  display: inline-block; margin-left: 6px; padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-sunken); color: var(--text-secondary);
+  font-size: 0.72rem;
+}
+.grade-right { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.grade-score {
+  font-size: 1.12rem; font-weight: 700; color: var(--text);
+  font-variant-numeric: tabular-nums; line-height: 1.1;
+}
+.grade-point { font-size: 0.73rem; color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
+
+.grade-detail { padding: 2px 14px 12px; border-top: 1px solid var(--separator); }
+.grade-line { display: flex; gap: 12px; padding: 5px 0; font-size: 0.8rem; }
+.grade-line-key { flex: 0 0 5.5em; color: var(--text-tertiary); }
+.grade-line-val { flex: 1; color: var(--text-secondary); word-break: break-word; }
+
 @media (max-width: 640px) {
   /* ⚠️ 这条必须留在 .ac-card **基础规则之后**：那条基础规则（22px）定义在文件更后面，
      同特异度下按源码顺序它会盖掉写在前面那些 21.x 手机端块里的值 —— 写在那儿等于没写。
@@ -1704,6 +1766,12 @@ body.app-mode { overflow: hidden; }
   .credit-stats { grid-template-columns: repeat(2, 1fr); }
   .credit-row { grid-template-columns: minmax(0, 1fr) 38px 38px 38px 38px 62px; gap: 2px; font-size: 0.79rem; padding: 8px 4px; }
   .credit-row-head { font-size: 0.73rem; }
+  /* 成绩的手机端值放在这里（而不是 21.x 那些手机端块里）：.grade-head 等基础规则
+     就在本块上方，写在那边的手机端块里会被这些基础规则按源码顺序反超 —— 与上面
+     .ac-card 那条是同一个坑（issue #83 记的也是这类） */
+  .grade-head { padding: 10px 12px; }
+  .grade-detail { padding: 2px 12px 10px; }
+  .grade-line { font-size: 0.78rem; }
 }
 
 /* ≤400（SE / mini）：学分表的列再收一档（issue #83）。同样必须住在这节、排在基础规则

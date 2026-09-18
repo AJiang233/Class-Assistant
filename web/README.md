@@ -289,6 +289,7 @@ web/                            # Cloudflare Pages 项目根目录（直接部�
 | DELETE | `/api/academic/bind` | 解绑并清空该用户的教务缓存 |
 | GET | `/api/academic/timetable` | 课表，`?xnxq=2026-2027-1` 指定学期，`?refresh=1` 强制重抓 |
 | GET | `/api/academic/credits` | 学业达成 / 学分，`?refresh=1` 强制重抓 |
+| GET | `/api/academic/grades` | 课程成绩，`?xnxq=2025-2026-2` 指定学期（**省略或留空 = 全部学期**），`?refresh=1` 强制重抓 |
 
 代登录走「统一身份认证（CAS）」，链路与两个关键约束见 `utils/casLogin.js`：
 
@@ -325,6 +326,19 @@ web/                            # Cloudflare Pages 项目根目录（直接部�
             {"level":3,"name":"思想政治理论必修课","required":18,"obtained":6,"current":8,
              "remaining":4,"achieved":false,"leaf":true}],
     "summary":{"required":173.5,"obtained":57,"current":25,"remaining":92.5,"achievedCount":9,"totalCount":23} } }
+
+// GET /api/academic/grades → 200
+{ "success":true, "data":{
+    "xnxqId":"",                       // "" = 全部学期，也是页面默认档
+    "terms":[{"id":"","name":"全部学期","current":true},
+             {"id":"2025-2026-2","name":"2025-2026-2","current":false}],
+    "rows":[{ "code":"BIOL3102", "name":"植物学Ⅱ", "credit":2,
+              "score":"77.0", "scoreNum":77, "point":"2.5", "pointNum":2.5,
+              "scoreType":"正常考试", "scoreMark":"", "termId":"2025-2026-2", "termName":"2025-2026-2",
+              "category":"无", "nature":"必修", "generalCategory":"",
+              "statisticNote":"", "remark":"" }],
+    "summary":{"average":81.2,"gpa":2.83,"counted":13,"total":14,"excluded":1},
+    "fetchedAt":"2026-09-18T05:31:02.113Z", "fromCache":false, "stale":false } }
 ```
 
 - **默认学期**：没带 `?xnxq=` 时按当前日期推（9 月–次年 1 月是第 1 学期，2–8 月是第 2 学期），
@@ -336,6 +350,13 @@ web/                            # Cloudflare Pages 项目根目录（直接部�
 - **登录态失效**：教务对未登录请求返回 401，据此把绑定标记为 `expired`，页面提示重新绑定
 - **两处教务接口的坑**：`sessionUserInfo` 用 GET 且返回裸对象（无 `data` 包装）；
   「学业达成」返回的树末尾另有一条名为「总计」的叶子，按叶子累加会翻倍，须以它为准
+- **成绩汇总口径**：均分是算术平均、绩点是学分加权平均，两者都只统计「可统计」的记录 ——
+  缓考/缺考（成绩位写的 0 是占位符，不是真考了 0 分）、等级制成绩（`合格` / `A`）、
+  以及教务自己标了「不参与所有成绩统计计算」的课一律排除；同一门课出现补重两条时，
+  统计只按**最高分**那条算一次（否则学分会被算两遍、均分被平均两次），而列表照旧全部展示。
+  排除规则见 `academicHandler.js` 的 `isCountedForStats`，每条都在真实数据里出现过
+- **成绩的「全部学期」**：`xnxq` 留空就是这个档位（教务页面上的那一项 id 也是空串），
+  也是成绩页的默认档 —— 当前学期开学初通常一门成绩都没有，默认落在它上面等于给人看空页
 - **代登录细节**：CAS 密码加密复刻自 authserver 的 `encrypt.js`（明文 = 随机 64 位串 + 密码，
   key = 登录页里的 `pwdEncryptSalt`，iv = 随机 16 位串，AES-CBC/Pkcs7 → Base64），
   并按页面行为一并提交明文 `passwordText` 兜底；登录链路的三级跳转按域分别记 Cookie

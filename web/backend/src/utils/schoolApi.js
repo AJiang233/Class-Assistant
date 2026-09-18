@@ -171,4 +171,54 @@ export class SchoolClient {
     });
     return json.data || null;
   }
+
+  // ===== 成绩 =====
+
+  /**
+   * 我的成绩（成绩总库）。
+   *
+   * 请求体形状抄自教务子应用 `views-kscj-wdcj-kccjcx`：`bean` 里是页面上那组筛选，
+   * 外层两个分页字段。几个「必须原样带上」的默认值：
+   *   · cxwd='cjxq'       查询维度按「成绩学期」（页面上另一档是 kkxq 开课学期）
+   *   · xsfs='qbcj'       显示全部成绩（另一档 zhcj 只显示最好成绩）
+   *   · xsbccjflag='1'    显示补重成绩 —— 页面上这个勾默认就是开的
+   *   · zxsbjgcjflag='0'  只显示不及格，默认关
+   * 少了这几个字段教务会按自己的默认走，拿回来的就不是页面上看到的那份。
+   *
+   * 分页由调用方负责（教务按 pageNumber/pageSize 返回，并自述 rowCount）。
+   * 注意教务可能不认我们给的 pageSize 而按自己的页长返回，所以「到底没有」不能只看返回条数。
+   *
+   * @param {object} [options]
+   * @param {string} [options.xnxqId]  学期 id；**空串 = 全部学期**（页面上的「全部学期」项）
+   * @returns {Promise<{items: Array, rowCount: number}>}
+   */
+  async gradeList(options = {}) {
+    const {
+      xnxqId = '',
+      cxwd = 'cjxq',
+      kcxx = '',
+      xdms = '',
+      xsfs = 'qbcj',
+      showRetake = true,
+      onlyFailed = false,
+      pageNumber = 1,
+      pageSize = 100
+    } = options;
+    const json = await this.request('/api/xsd/jsxsd/cjgl/cjglcjzk/querywdcj', {
+      body: {
+        bean: {
+          cxwd,
+          xnxqid: xnxqId,
+          kcxx,
+          xdms,
+          xsfs,
+          xsbccjflag: showRetake ? '1' : '0',
+          zxsbjgcjflag: onlyFailed ? '1' : '0'
+        },
+        pageNumber,
+        pageSize
+      }
+    });
+    return json.data || { items: [], rowCount: 0 };
+  }
 }
