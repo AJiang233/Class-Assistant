@@ -106,4 +106,22 @@ git config --global --unset http.proxy        # 想取消时
 ```
 
 端口换成你自己代理的。判断通没通最快的办法是 `git ls-remote origin` —— 能列出分支就是通了。
-另外 `gh` CLI 与浏览器一样，通常不需要额外设置；真遇到它连不上时，用 `HTTPS_PROXY` 环境变量指过去即可。
+
+### 别的工具要不要也走代理
+
+- **`gh` CLI 与浏览器**：通常不用管，实测能直连（同样是因为它们走的 IP 与 git 不同）。
+- **`wrangler` 的其余命令**（`deploy` / `d1 execute --remote`）：实测直连也正常。
+- **`wrangler tail` 必须走代理**，这是唯一一个会「静默失败」的。它的实时日志是一条 websocket，那个域名在国内被 DNS 污染 —— 典型报错是连到了 Facebook 的 IP 段：
+
+  ```
+  Error: connect ETIMEDOUT 31.13.95.38:443
+  ```
+
+  不报错的时候更坑：它会照常打印 `Successfully created tail, expires at ...`，然后**一条事件也收不到**，很容易被误判成「这段时间根本没有请求进来」。wrangler 认 `HTTPS_PROXY`：
+
+  ```powershell
+  $env:HTTPS_PROXY = "http://127.0.0.1:7897"
+  npx wrangler tail <worker 名> --format json
+  ```
+
+  给对了代理它会先打印一行 `Proxy environment variables detected. We'll use your proxy for fetch requests.`；建议配 `--format json`，每条事件一行、不缓冲，便于直接看和抓取。
