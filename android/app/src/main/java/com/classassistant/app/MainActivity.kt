@@ -603,6 +603,16 @@ class MainActivity : AppCompatActivity() {
                     // CAS 页面上拿到的不是「调了被拒」，而是根本没有 CAHost。
                     syncBridgeMount(url)
                     binding.swipeRefresh.isRefreshing = true
+                    // 新文档开始：上一份文档的探针结论作废 —— pullRefreshReady 是「最后一份报告」
+                    // 的缓存，不在这里复位就会从导航前一路带到导航后（issue #85）。教务登录期间
+                    // 探针被刻意关掉（onPageFinished 的 academicLogin 分支不注入），所以进教务前
+                    // 那份「学业视图 = 不可下拉」会一直缓存到回来之后，主页的下拉刷新就被它卡死。
+                    // 本站页先恢复成可下拉，等探针注入后 250ms 内按真实页面状态纠正（主页本就该
+                    // 可下拉，默认值几乎立即被覆盖）；教务等外部页直接禁用 —— 否则从主页进教务后
+                    // 还停在 true，在教务页上下拉会误触发 reload()。
+                    pullRefreshReady = url?.let {
+                        isAppOrigin(Uri.parse(it).scheme, Uri.parse(it).host, Uri.parse(it).port, portalHost)
+                    } ?: false
                 }
 
                 override fun onPageFinished(view: WebView, url: String?) {
