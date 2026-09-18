@@ -126,6 +126,26 @@ window.__caApiUpdated = function (key, json) {
   }
 };
 
+/**
+ * 推送测试结果的跨 iframe 转发（issue #84 项 17 的配套）：原生的 evaluateJavascript
+ * 只能执行在**顶层文档**，而个人页跑在 frameAccount 里 —— 不在顶层转发一层的话，
+ * 顶层根本没有 __caTestNotifyResult，回调被 `&&` 静默丢弃，按钮永远停在「推送中…」。
+ *
+ * 只在顶层定义：个人页（iframe）里的同名回调由 account.js 的 testPush 每次点击重设，
+ * 这里定义在 app.js、会被它覆盖，互不干扰；桌面端直接打开个人页（非 iframe）时顶层
+ * 就是它自己，同样被覆盖成真实回调，行为不变。
+ */
+if (window.top === window) {
+  window.__caTestNotifyResult = function (msg) {
+    try {
+      var f = document.getElementById('frameAccount');
+      if (f && f.contentWindow && f.contentWindow.__caTestNotifyResult) {
+        f.contentWindow.__caTestNotifyResult(msg);
+      }
+    } catch (e) { /* frame 还没加载：忽略 */ }
+  };
+}
+
 /** 保存登录会话 */
 function saveSession(data) {
   // Safari 无痕模式或配额耗尽时 setItem 会抛 QuotaExceededError。

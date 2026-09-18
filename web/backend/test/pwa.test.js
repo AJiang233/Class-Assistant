@@ -954,6 +954,18 @@ test('推送订阅：已订阅时打开个人中心会重报一次（issue #80�
     'refreshNotify 里没有重报 /api/push/subscribe：轮换后的订阅没有恢复路径');
 });
 
+// 推送测试结果是原生 evaluateJavascript 回调，只能执行在**顶层文档**；个人页在
+// frameAccount iframe 里 —— 顶层必须有转发层，否则回调被 && 静默丢弃、按钮永远停在「推送中…」
+// （issue #84 项 17 异步化的配套）。
+test('推送测试结果回调要在顶层转发给 frameAccount', () => {
+  const app = readFileSync(join(HERE, '../../assets/js/app.js'), 'utf8');
+
+  assert.match(app, /window\.top === window[\s\S]{0,200}?__caTestNotifyResult/,
+    '顶层没有定义 __caTestNotifyResult 转发层：个人页在 iframe 里收不到原生回调，按钮卡「推送中…」');
+  assert.match(app, /frameAccount[\s\S]{0,80}?contentWindow\.__caTestNotifyResult/,
+    '转发没指向 frameAccount 里的同名回调（account.js 的 testPush 每次点击重设它）');
+});
+
 // ===== 教务手机端 CSS 的级联顺序（issue #83）=====
 // 第 22 节（教务）的基础规则写在 21.x 手机端块**之后**，同特异度下按源码顺序反超，
 // 于是 21.x 里那些教务声明等于没写（.ac-toolbar / .ac-select / 学分表小屏档都中过招）。
