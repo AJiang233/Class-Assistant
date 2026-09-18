@@ -68,6 +68,30 @@ class ReleaseShrinkTest {
     }
 
     /**
+     * 探针只认 ca_token 一个键，不盲扫 localStorage（issue #81）。
+     *
+     * 网页登录态只写在 ca_token（app.js 的 LS_TOKEN / saveSession），其它键里出现的三段点分串
+     * 只可能是第三方脚本或调试时留下的东西。盲扫把它们当 token 上报后，原生侧会落库并用于
+     * 后台同步：服务端 401 → 按 #64 清掉本地会话与缓存 —— 用户明明还登录着，后台提醒却永久失效。
+     * 这条和「读 hidden 属性」一样属于「上线后靠用户反馈才发现」的类别，所以读源码钉形状。
+     */
+    @Test
+    fun `探针只认 ca_token 一个键，不盲扫 localStorage`() {
+        val main = moduleFile("src/main/java/com/classassistant/app/MainActivity.kt").readText()
+        val probe = main.substringAfter("val PROBE_JS =")
+        assertTrue("没找到 PROBE_JS，测试要跟着代码走", probe.isNotBlank())
+        assertTrue(
+            "readToken 还在遍历全部 localStorage 键找 JWT：第三方留下的假凭据会被当成 token 落库（issue #81）",
+            !probe.contains("Object.keys(localStorage)")
+        )
+        assertTrue(
+            "readToken 没在读固定键 ca_token：网页登录态就存这里（app.js 的 LS_TOKEN），" +
+                "删掉盲扫后得靠这个键接住真实凭据",
+            probe.contains("localStorage.getItem('ca_token')")
+        )
+    }
+
+    /**
      * 探针里调用的桥方法、README 里列进「JS 桥」清单的桥方法，都必须真的存在。
      *
      * issue #63 就是这一类：README 把 `setTheme` 写进了桥方法清单，代码里却没有 ——

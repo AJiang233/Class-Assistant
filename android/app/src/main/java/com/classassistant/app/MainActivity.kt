@@ -997,22 +997,17 @@ class MainActivity : AppCompatActivity() {
               var tick = 0;
               var lastToken = null;
               var lastDark = null;
-              // 登录凭据只存在网页的 localStorage 里，这里按常见键名取，并兜底扫描
+              // 登录凭据只存在网页的 localStorage 里，键固定为 ca_token（web/assets/js/app.js 的
+              // LS_TOKEN / saveSession）。**只认这一个键，不遍历其它键去猜**：页面里可能有第三方
+              // 脚本 / 调试时留下的其它 JWT，扫到就会被原生当成登录凭据落库，同步 401 后按 #64
+              // 把本地会话与缓存清掉 —— 表现为「明明还登录着，后台提醒却永久失效」（issue #81）。
               function looksLikeJwt(v) {
                 return typeof v === 'string' && v.length > 40 && v.split('.').length === 3;
               }
               function readToken() {
                 try {
-                  var known = ['ca_token', 'token', 'jwt', 'auth_token'];
-                  for (var k = 0; k < known.length; k++) {
-                    var kv = localStorage.getItem(known[k]);
-                    if (kv && looksLikeJwt(kv)) return kv;
-                  }
-                  var keys = Object.keys(localStorage);
-                  for (var i = 0; i < keys.length; i++) {
-                    var v = localStorage.getItem(keys[i]);
-                    if (v && looksLikeJwt(v)) return v;
-                  }
+                  var t = localStorage.getItem('ca_token');
+                  if (t && looksLikeJwt(t)) return t;
                 } catch (e) {}
                 return '';
               }
