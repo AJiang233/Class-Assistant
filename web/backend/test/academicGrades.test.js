@@ -156,11 +156,13 @@ describe('成绩汇总', () => {
 });
 
 describe('成绩页的学期下拉', () => {
-  it('最前面是「全部学期」，它才是默认档', () => {
+  it('最前面是「全部学期」，且它不带「当前学期」标记', () => {
     const terms = buildGradeTerms([{ id: '2025-2026-1', xnxqmc: '2025-2026 第1学期' }], [], ALL_TERM_ID);
     assert.equal(terms[0].id, '');
     assert.equal(terms[0].name, '全部学期');
-    assert.equal(terms[0].current, true);
+    // current 是「教务标的当前学期」，只用来给下拉项加「（当前学期）」后缀。
+    // 若「全部学期」跟着当前值变成 true，页面上就会显示成「全部学期（当前学期）」。
+    assert.equal(terms[0].current, false);
     assert.equal(terms[1].id, '2025-2026-1');
     assert.equal(terms[1].current, false);
   });
@@ -174,6 +176,7 @@ describe('成绩页的学期下拉', () => {
   it('教务取不到列表时用缓存里出现过的学期兜底，「全部学期」仍在', () => {
     const terms = buildGradeTerms(null, [{ xnxq_id: '2024-2025-2' }], ALL_TERM_ID);
     assert.equal(terms[0].id, '');
+    assert.equal(terms[0].current, false);
     assert.ok(terms.some((t) => t.id === '2024-2025-2'));
   });
 });

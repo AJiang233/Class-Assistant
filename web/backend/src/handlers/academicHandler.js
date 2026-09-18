@@ -531,7 +531,11 @@ export function normalizeGrades(items) {
  */
 export function buildGradeTerms(terms, cachedTerms, currentId) {
   return [
-    { id: ALL_TERM_ID, name: '全部学期', current: currentId === ALL_TERM_ID },
+    // current 恒为 false：「全部学期」不是教务标的「当前学期」。terms 里的 current 只用来
+    // 给下拉项加「（当前学期）」后缀（见 academic.js 的 renderTermSelect），选中与否是
+    // 拿 id 与传回来的当前值比较决定的 —— 这里若跟着 currentId 变，默认档就会显示成
+    // 「全部学期（当前学期）」。
+    { id: ALL_TERM_ID, name: '全部学期', current: false },
     ...buildTerms(terms, cachedTerms, currentId)
   ];
 }

@@ -379,10 +379,12 @@ function switchAcTab(name) {
  */
 function refreshTermSelect() {
     if (activeTab === 'grades') {
-        // 成绩还没加载过时也得有个「全部学期」占位，否则切过去的瞬间下拉是空白的
+        // 成绩还没加载过时也得有个「全部学期」占位，否则切过去的瞬间下拉是空白的。
+        // current 传 false：那个字段是「教务标的当前学期」，用来给下拉项加后缀的，
+        // 传 true 会把这一项显示成「全部学期（当前学期）」
         var terms = (grades && grades.terms && grades.terms.length)
             ? grades.terms
-            : [{ id: '', name: '全部学期', current: true }];
+            : [{ id: '', name: '全部学期', current: false }];
         renderTermSelect(terms, gradesTerm);
         return;
     }
