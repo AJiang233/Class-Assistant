@@ -644,6 +644,54 @@ describe('改密后旧令牌立即失效', () => {
     const res = await callWith((iat) => iat);
     assert.equal(res.status, 200);
   });
+
+  /**
+   * 三条改密路径都必须写 password_changed_at。上面几条验的是「中间件会拦」，
+   * 这条补「管理员重置成员密码这条路径确实把时刻写下去了」—— 前两条（自助改密、忘记密码
+   * 重置）各自的流程里已带断言，只有管理员这条路以前没人钉。
+   *
+   * 漏写的后果在界面上完全看不出来：管理员看到「已保存」，而那位同学手上的令牌还能用满 7 天
+   * —— 正好是「把密码改了却踢不掉人」。
+   *
+   * 时钟往前拨 60 秒来造出「令牌签发早于改密」这个确定场景：不拨的话令牌的 iat 与
+   * password_changed_at 很可能同秒，而同秒是被刻意放行的（见 tokenIssuedBeforePasswordChange）。
+   */
+  it('管理员重置成员密码：那位同学此前签发的令牌立刻失效', async () => {
+    const db = fakeDb({
+      users: [{
+        id: 5, student_id: '2024005', name: '李四', positions: '学生',
+        password_hash: 'x:y', email: null, email_verified: 0, password_changed_at: null
+      }]
+    });
+    // 先签令牌（用真实时钟），再拨时钟，顺序不能反
+    const token = await sign({ id: 5, student_id: '2024005', name: '李四' }, SECRET, 3600);
+
+    const realNow = Date.now;
+    Date.now = () => realNow.call(Date) + 60000;
+    try {
+      const res = await handleUpdateUser(
+        post('/api/auth/users/5', { password: 'newpass123' }),
+        ENV(db),
+        { id: 1, name: '班长', positions: '班长' },
+        { id: '5' }
+      );
+      assert.equal(res.status, 200);
+    } finally {
+      Date.now = realNow;
+    }
+
+    assert.ok(
+      Number(db._state.users[0].password_changed_at) > iatOf(token),
+      '改密时刻必须落库，否则那位同学手上的旧令牌拦不住'
+    );
+
+    const req = new Request('https://class.test/api/auth/me', {
+      headers: { Authorization: 'Bearer ' + token }
+    });
+    const me = await withAuth(handler)(req, { DB: db, JWT_SECRET: SECRET }, {});
+    assert.equal(me.status, 401);
+    assert.equal((await json(me)).code, 'PASSWORD_CHANGED');
+  });
 });
 
 describe('邮件模板', () => {
