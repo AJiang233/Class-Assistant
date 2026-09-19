@@ -19,7 +19,7 @@
 - **日历订阅**：一键生成 `.ics` 订阅链接，可自定义「提前提醒时间 / 包含过去与未来的范围 / 是否包含班级通知」，并支持重置密钥。订阅源与网页列表**同一套可见性判定**：key 只证明「你是谁」，不代表能看到全班内容，所以活动和通知都按 `remind_people` 逐条过滤（key 无效返回 403，不是 404 —— 那是鉴权失败，不是路由不存在）
 - **学业**：绑定教务系统后展示个人课表（节次网格、当前周高亮）、未安排课程、课程成绩（按学期分组、默认全部学期，顶部附平均分 / 平均绩点）与学业达成学分看板；数据经后端代理抓取并缓存进 D1（**三天**内直接读缓存，不必每次翻课表都去打扰教务；想要最新的按「刷新」）。**教务登录态过期也照常显示这份缓存** —— 那边大概一天就会重置一次会话，以前一过期就把人打回绑定页，手上明明有课表也不给看；现在只出一行小字说明「这是上次同步的 + 有变动请点刷新」，只有手动点「刷新」仍然拉不到时才问一句要不要重新登录。绑定有三条路径：App 内一键绑定、学号 + 密码代登录（复刻金智 CAS，密码用完即弃）、手动粘贴 Cookie
 - **安全加固**：登录 / 注册 / 改密统一校验密码长度（6–72 位）；系统预置职位（学生 / 班长 / 团支书 / 学习委员）不允许写入 `roles` 表（否则等于给全班提权），自定义职位只接受 `content:write` / `user:manage` 两个白名单权限点；教务绑定强制「教务学号 = 门户学号」；多因子验证码错满 5 次即作废本次中间态；教务会话 Cookie 与 MFA 中间态均 AES-GCM 封存。完整清单见下面「安全说明」
-- **测试与迁移**：`cd web && npm test`（Node 原生 `node --test`，覆盖鉴权与权限边界）；表结构见 `schema.sql`，增量变更见 `migrations/`，脚本为 `npm run db:migrate` / `db:migrate:mfa`
+- **测试与迁移**：`cd web && npm test`（Node 原生 `node --test`，覆盖鉴权与权限边界）；表结构见 `schema.sql`，增量变更见 `migrations/`，各迁移各有一条 `npm run db:migrate:*` 脚本
 - **离线**：页面壳由 Service Worker 缓存（`sw.js`：预热各页面与静态资源、命中缓存先出首帧再后台回源、回源发现文档真的变了就通知页面立刻重载（页面那边有未提交的输入就跳过这次刷新）、断网回退缓存），断网也能打开；`/api/*` 刻意不走 Service Worker —— 数据与登录态必须走网络，App 里由原生层另外兜底（见 [`android/README.md`](../android/README.md) 的离线一节），浏览器里没有这一层，所以断网提示分两种文案（见下面「前端说明」）。同一层在 App 里还顺手把首帧做快了：缓存够新鲜时原生先把缓存交回页面（不必等网络），后台取到新数据再经 `window.__caApiUpdated` 推回来重绘 —— 页面侧要做的事只有一件，把「拿到数据 → 渲染」里那段渲染抽成函数、用 `app.js` 的 `onApiData(请求URL, fn)` 注册（键必须与请求 URL 一字不差，网页版不会被调用，所以不用判断环境）。预热清单与缓存键都用**去扩展名的规范地址**：站点会把 `/notices.html` 308 跳到 `/notices`，跟着跳转取回来的响应带着 `redirected` 标记，而规范禁止用这种响应应答**导航请求**（页面与 iframe 的加载都算导航）。写成 `.html` 的后果是真机上暴露出来的那个现象 —— 断网杀进程重开后主页能开（`/` 不跳转）、点其它标签页全是「网页无法打开」。离线回退时也会拿规范地址再找一次，因为页面里的 iframe 和后端下发的 `forms.html` 链接仍然写 `.html`。缓存名是固定的（`ca-shell`），**不再需要按发版手改版本号**：条目在每次被用到时都会回源刷新，另外一旦回源发现某个页面文档真的变了（＝部署了）就把整份预热清单重取一遍（`sw.js` 的 `precache`）—— 以前是靠人记得把名字 `+1`，忘了就会出现「新页面结构 + 旧样式」的混合壳。清单里每条路径与真实路由对不对得上、每个页面引用的脚本与样式是否都进了清单，都由 `backend/test/pwa.test.js` 钉着（写错了只有断网的用户才会发现，线上没有任何信号）
 
 ---
@@ -402,9 +402,10 @@ CREATE INDEX IF NOT EXISTS idx_form_submissions_form ON form_submissions(form_id
 >
 > 教务那几张表（`academic_bindings` / `academic_timetable` / `academic_credits` / `academic_grades` /
 > `academic_mfa_sessions`）已归私有 Worker 的库 `class-assistant-private-api`，建表语句见该仓库的 `schema.sql`。
-> **本库里的旧表暂时留着没删**，也没迁数据：教务登录态本来一天就会被重置一次，绑定记录留着没用，
-> 用户重新绑一次即可。留着是为了万一新链路出问题，把教务路由切回拆分前的版本就能立刻回滚；
-> 确认稳定后再单独出一条迁移删表。
+> 本库里的这几张旧表已无任何代码读写，执行 `npm run db:migrate:drop-academic` 一条迁移删掉即可
+> （搬迁时就没迁数据：教务登录态大概一天就会被重置一次，绑定记录留着没用，用户重新绑一次即可）。
+> 删表之前建议先 `npx wrangler d1 export class-assistant-db --remote --output=academic-backup.sql` 备份 ——
+> 一旦删掉，回滚就不再是「切回拆分前的代码」，而是要把表建回来并让用户重新绑定。
 
 ---
 
@@ -444,7 +445,7 @@ CREATE INDEX IF NOT EXISTS idx_form_submissions_form ON form_submissions(form_id
 2. **绑定资源（Settings → Functions）**：
    - **D1 database bindings**：变量名 `DB` → 选择 `class-assistant` 数据库
    - **Environment variables（Secrets）**：`JWT_SECRET`、`COOKIE_SECRET`（各自 `openssl rand -hex 32`，不要写进仓库）
-3. **一键建表**：新库 `npm run db:remote`；已有库可执行 `npm run db:migrate`（清掉误写入的预置职位名）、`npm run db:migrate:mfa`（MFA 试错计数），再按需补其它历史迁移
+3. **一键建表**：新库 `npm run db:remote`；已有库可执行 `npm run db:migrate`（清掉误写入的预置职位名），再按需补其它历史迁移（表单 / 推送 / 内容归属各有一条 `db:migrate:*` 脚本）
 4. **自定义域名**：Pages → Custom domains → 添加域名，在域名商把 CNAME 指向 `<项目名>.pages.dev`
 5. **部署**：`cd web; npm install; npm run deploy`（`wrangler pages deploy .`），或关联 git 仓库 push 自动构建
 6. **发版后更新 `version.json` 对应那段**：`version.json` 按端分成 `android` / `harmony` 两段，页面先问原生桥 `CAHost.platform()` 自己是什么端、只读自己那段（纯网页版没有桥，一段都不读）。

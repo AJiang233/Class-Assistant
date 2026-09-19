@@ -13,7 +13,8 @@
     "db:migrate": "wrangler d1 execute class-assistant-db --remote --file=./migrations/2026-09-17-student-role.sql",
     "db:migrate:forms": "wrangler d1 execute class-assistant-db --remote --file=./migrations/2026-09-12-forms.sql",
     "db:migrate:push": "wrangler d1 execute class-assistant-db --remote --file=./migrations/2026-09-13-push.sql",
-    "db:migrate:owner": "wrangler d1 execute class-assistant-db --remote --file=./migrations/2026-09-14-content-owner.sql"
+    "db:migrate:owner": "wrangler d1 execute class-assistant-db --remote --file=./migrations/2026-09-14-content-owner.sql",
+    "db:migrate:drop-academic": "wrangler d1 execute class-assistant-db --remote --file=./migrations/2026-09-19-drop-academic-tables.sql"
   },
   "devDependencies": {
     "wrangler": "^3.90.0"

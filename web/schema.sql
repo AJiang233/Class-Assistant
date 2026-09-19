@@ -1,6 +1,7 @@
 -- Class Assistant 后端数据库结构
--- 与线上 Cloudflare D1 数据库保持一致（2026-08-22 核对；
--- 文末 academic_* 三张表为教务功能新增，已有库需单独执行建表语句）
+-- 与线上 Cloudflare D1 数据库保持一致（2026-08-22 核对）
+-- 教务那几张表（academic_*）已随实现搬到私有仓 class-assistant-private-api 的库，
+-- 建表语句见该仓库的 schema.sql，本库不再包含。
 
 CREATE TABLE IF NOT EXISTS users (
   id             INTEGER PRIMARY KEY AUTOINCREMENT,
