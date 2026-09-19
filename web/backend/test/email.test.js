@@ -15,6 +15,7 @@ import {
 import { withAuth } from '../src/middleware/auth.js';
 import { sign } from '../src/utils/jwt.js';
 import { emailEnabled, renderVerifyEmail, renderActivityEmail, renderNoticeEmail, renderFormEmail, genEmailCode, sendSubscribedEmail } from '../src/utils/email.js';
+import { pushSubscribedEmails } from '../src/utils/emailPush.js';
 
 const SECRET = 'test-secret-for-email';
 
@@ -144,36 +145,40 @@ function fakeDb({ users = [], codes = [], subs = [] } = {}) {
   return {
     _state: state,
     prepare(sql) {
+      // 语句自带 first/all/run；bind 只是记录参数再返回自身 ——
+      // 有的 model 直接 prepare().all()（如 UserModel.list / RoleModel.list），
+      // 有的先 bind 再 first/run（如 sendSubscribedEmail），两种形状都得认。
       const stmt = {
-        bind: (...args) => ({
-          first: async () => {
-            if (/FROM users/.test(sql)) return selectUsers(sql, args);
-            if (/SELECT 1 FROM email_codes/.test(sql)) {
-              // 「60 秒内刚发过」：只看当前有效且创建时间在一分钟内的
-              const [userId, purpose] = args;
-              return state.codes.some((c) => c.user_id === userId && c.purpose === purpose
-                && c.used_at === null && c.expires_at > utcNow()
-                && c.created_at > utcNow(-60)) ? { 1: 1 } : null;
-            }
-            if (/FROM email_codes/.test(sql)) return activeCode(args);
-            if (/FROM email_subscriptions/.test(sql)) {
-              const row = state.subs.find((s) => s.user_id === args[0]);
-              if (!row) return null;
-              // sendSubscribedEmail 用 AS subscribed 取单列，其余取整行
-              const alias = sql.match(/SELECT (sub_\w+) AS subscribed/);
-              if (alias) return { subscribed: row[alias[1]] };
-              return { sub_activities: row.sub_activities, sub_notices: row.sub_notices, sub_forms: row.sub_forms };
-            }
-            if (/FROM roles/.test(sql)) return null;
-            throw new Error('假 D1 未实现的 first 语句: ' + sql);
-          },
-          all: async () => {
-            if (/FROM roles/.test(sql)) return { results: [] };
-            if (/FROM users/.test(sql)) return { results: state.users.map((u) => ({ ...u })) };
-            throw new Error('假 D1 未实现的 all 语句: ' + sql);
-          },
-          run: async () => run(sql, args)
-        })
+        _args: [],
+        bind(...args) { stmt._args = args; return stmt; },
+        async first() {
+          const args = stmt._args;
+          if (/FROM users/.test(sql)) return selectUsers(sql, args);
+          if (/SELECT 1 FROM email_codes/.test(sql)) {
+            // 「60 秒内刚发过」：只看当前有效且创建时间在一分钟内的
+            const [userId, purpose] = args;
+            return state.codes.some((c) => c.user_id === userId && c.purpose === purpose
+              && c.used_at === null && c.expires_at > utcNow()
+              && c.created_at > utcNow(-60)) ? { 1: 1 } : null;
+          }
+          if (/FROM email_codes/.test(sql)) return activeCode(args);
+          if (/FROM email_subscriptions/.test(sql)) {
+            const row = state.subs.find((s) => s.user_id === args[0]);
+            if (!row) return null;
+            // sendSubscribedEmail 用 AS subscribed 取单列，其余取整行
+            const alias = sql.match(/SELECT (sub_\w+) AS subscribed/);
+            if (alias) return { subscribed: row[alias[1]] };
+            return { sub_activities: row.sub_activities, sub_notices: row.sub_notices, sub_forms: row.sub_forms };
+          }
+          if (/FROM roles/.test(sql)) return null;
+          throw new Error('假 D1 未实现的 first 语句: ' + sql);
+        },
+        async all() {
+          if (/FROM roles/.test(sql)) return { results: [] };
+          if (/FROM users/.test(sql)) return { results: state.users.map((u) => ({ ...u })) };
+          throw new Error('假 D1 未实现的 all 语句: ' + sql);
+        },
+        async run() { return run(sql, stmt._args); }
       };
       return stmt;
     }
@@ -650,5 +655,63 @@ describe('邮箱订阅', () => {
       () => sendSubscribedEmail(ENV(db), db, { userId: 1, kind: 'scores', subject: 'x', html: 'x' }),
       /未知的订阅类型/
     );
+  });
+});
+
+describe('订阅邮件推送（发布调用点）', () => {
+  // 全班：班长（发布者）、张三（已验证+订阅通知）、李四（没绑邮箱）、王五（已验证但没开订阅）
+  const users = [
+    { id: 1, student_id: '2024001', name: '班长', positions: '班长', email: 'ban@qq.com', email_verified: 1 },
+    { id: 2, student_id: '2024002', name: '张三', positions: '学生', email: 'a@qq.com', email_verified: 1 },
+    { id: 3, student_id: '2024003', name: '李四', positions: '学生', email: null, email_verified: 0 },
+    { id: 4, student_id: '2024004', name: '王五', positions: '学生', email: 'w@qq.com', email_verified: 1 }
+  ];
+  const mail = { subject: '【班级助理】新通知：周末大扫除', html: '<p>hi</p>' };
+
+  it('未配置 EMAIL_API_KEY 时整体关闭，不发任何请求', async () => {
+    stubbedFetch = stubFetch();
+    const db = fakeDb({ users, subs: [{ user_id: 2, sub_notices: 1 }] });
+    await pushSubscribedEmails({ DB: db }, null, 'notices', { remindPeople: null, excludeUserId: 1, ...mail });
+    assert.equal(stubbedFetch.sent.length, 0);
+  });
+
+  it('提醒对象为空 = 全班：只给「已验证 + 开了对应订阅」的人发，发布者本人不发', async () => {
+    stubbedFetch = stubFetch();
+    const db = fakeDb({ users, subs: [{ user_id: 2, sub_notices: 1 }] });
+    await pushSubscribedEmails(ENV(db), null, 'notices', { remindPeople: null, excludeUserId: 1, ...mail });
+    // 张三订阅了通知 → 发；班长是发布者、李四没绑邮箱、王五没开订阅 → 都不发
+    assert.equal(stubbedFetch.sent.length, 1);
+    assert.equal(stubbedFetch.sent[0].to, 'a@qq.com');
+  });
+
+  it('定向名单只发给名单里的人，名单外的订阅者不收（与推送同一口径）', async () => {
+    stubbedFetch = stubFetch();
+    const db = fakeDb({ users, subs: [{ user_id: 2, sub_notices: 1 }] });
+    await pushSubscribedEmails(ENV(db), null, 'notices', { remindPeople: JSON.stringify(['李四']), excludeUserId: 1, ...mail });
+    // 李四在名单里但没绑邮箱 → 不发；张三不在名单 → 不发。一封都不该有。
+    assert.equal(stubbedFetch.sent.length, 0);
+  });
+
+  it('订阅位不匹配的分类不发（订阅表单的人收不到通知邮件）', async () => {
+    stubbedFetch = stubFetch();
+    const db = fakeDb({ users, subs: [{ user_id: 2, sub_notices: 1 }] });
+    await pushSubscribedEmails(ENV(db), null, 'forms', { remindPeople: null, excludeUserId: 1, ...mail });
+    assert.equal(stubbedFetch.sent.length, 0);
+  });
+
+  it('单封失败只记日志，不阻断其余收件人，也不让 waitUntil 任务抛出去', async () => {
+    stubbedFetch = stubFetch({ fail: true });
+    const db = fakeDb({
+      users,
+      subs: [{ user_id: 2, sub_notices: 1 }, { user_id: 4, sub_notices: 1 }]
+    });
+    const errors = [];
+    const orig = console.error;
+    console.error = (...a) => errors.push(a.join(' '));
+    try {
+      await pushSubscribedEmails(ENV(db), null, 'notices', { remindPeople: null, excludeUserId: 1, ...mail });
+    } finally { console.error = orig; }
+    assert.equal(stubbedFetch.sent.length, 0, '全失败也不能抛错中断发布');
+    assert.ok(errors.length >= 2, '每一封失败都要留痕（含收件人 id），否则线上只看到「没收到」');
   });
 });
