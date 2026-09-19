@@ -857,7 +857,7 @@ function renderProfile(u) {
         + '</div>'
         + '</div>'
         + '<div class="info-list">'
-        + '<div class="info-row"><span class="k">职位</span><span class="v">' + positionsChipsHTML(u.positions) + '</span></div>'
+        + '<div class="info-row"><span class="k">我的职位</span><span class="v">' + positionsChipsHTML(u.positions) + '</span></div>'
         + '<div class="info-row"><span class="k">联系方式</span>'
         + '<span class="v v-actions">'
         + '<span id="contactValue">' + esc(u.contact || '未填写') + '</span>'
@@ -866,7 +866,7 @@ function renderProfile(u) {
         // 邮箱：与联系方式同一行的形状（标签 + 值 + 右侧动作）。验证状态徽章在弹窗标题后，
         // 这一行不再重复放。绑定 / 更换 / 解绑都收进弹窗，行上只留一个「管理」—— 全摊在行上会随状态
         // 变出三四种按钮，既不整齐，也让「要改邮箱去哪」这件事没有唯一入口。
-        + '<div class="info-row"><span class="k">邮箱</span>'
+        + '<div class="info-row"><span class="k">邮箱&订阅</span>'
         + '<span class="v v-actions">'
         + emailCellHTML(u)
         + '<button type="button" class="btn btn-outline btn-sm" data-act="open-email-edit">管理</button>'

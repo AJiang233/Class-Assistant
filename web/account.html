@@ -111,8 +111,12 @@
                                         <option value="60">提前 60 分钟</option>
                                     </select>
                                 </div>
-                                <label class="check-row">
-                                    <input type="checkbox" id="courseAtStart" data-act="save-course-reminder"> 开课时再提醒一次
+                                <label class="switch-row">
+                                    <span>开课时再提醒一次</span>
+                                    <span class="switch">
+                                        <input type="checkbox" id="courseAtStart" data-act="save-course-reminder">
+                                        <span class="switch-track" aria-hidden="true"></span>
+                                    </span>
                                 </label>
                                 <p class="profile-sub profile-sub-tail">提醒在手机本地排期，不用联网；课表跟着后台同步更新。</p>
                             </div>
@@ -124,8 +128,12 @@
                             <div id="backgroundCard" class="card-divider" hidden>
                                 <label class="form-label">后台通知</label>
                                 <p class="profile-sub profile-sub-lead profile-sub-lines" id="backgroundStatus"></p>
-                                <label class="check-row">
-                                    <input type="checkbox" id="backgroundAlwaysOn" data-act="save-background-always-on"> 后台常驻，及时收到新通知
+                                <label class="switch-row">
+                                    <span>后台常驻，及时收到新通知</span>
+                                    <span class="switch">
+                                        <input type="checkbox" id="backgroundAlwaysOn" data-act="save-background-always-on">
+                                        <span class="switch-track" aria-hidden="true"></span>
+                                    </span>
                                 </label>
                                 <p class="profile-sub profile-sub-even">开启后状态栏会出现「班级助理正在后台运行」（系统对常驻应用的硬性要求，不响铃也不弹出）；关掉照样收提醒，只是最多晚 15 分钟。</p>
                                 <div class="btn-row btn-row-2">
@@ -184,8 +192,12 @@
                                 </div>
                             </div>
 
-                            <label class="check-row-note">
-                                <input type="checkbox" id="calNotices"> 把班级通知也加进日历（按发布当天全天显示）
+                            <label class="switch-row">
+                                <span>把班级通知加进日历（全天显示）</span>
+                                <span class="switch">
+                                    <input type="checkbox" id="calNotices">
+                                    <span class="switch-track" aria-hidden="true"></span>
+                                </span>
                             </label>
 
                             <div class="form-field">
@@ -339,18 +351,34 @@
                          勾全部＝三项全勾；取消任一分项＝「全部订阅」跟着取消（没全勾就不算全部）。
                          解绑邮箱后订阅清零、这一整块跟着隐藏。 -->
                     <div class="card-divider" id="emailSubSection" hidden>
-                        <label class="check-row">
-                            <input type="checkbox" id="subAll" data-act="toggle-sub-all"> 全部订阅
+                        <label class="switch-row">
+                            <span>全部订阅</span>
+                            <span class="switch">
+                                <input type="checkbox" id="subAll" data-act="toggle-sub-all">
+                                <span class="switch-track" aria-hidden="true"></span>
+                            </span>
                         </label>
                         <div class="sub-list">
-                            <label class="check-row">
-                                <input type="checkbox" id="subActivities" data-act="toggle-sub-one" data-kind="activities"> 活动订阅
+                            <label class="switch-row">
+                                <span>活动订阅</span>
+                                <span class="switch">
+                                    <input type="checkbox" id="subActivities" data-act="toggle-sub-one" data-kind="activities">
+                                    <span class="switch-track" aria-hidden="true"></span>
+                                </span>
                             </label>
-                            <label class="check-row">
-                                <input type="checkbox" id="subNotices" data-act="toggle-sub-one" data-kind="notices"> 通知订阅
+                            <label class="switch-row">
+                                <span>通知订阅</span>
+                                <span class="switch">
+                                    <input type="checkbox" id="subNotices" data-act="toggle-sub-one" data-kind="notices">
+                                    <span class="switch-track" aria-hidden="true"></span>
+                                </span>
                             </label>
-                            <label class="check-row">
-                                <input type="checkbox" id="subForms" data-act="toggle-sub-one" data-kind="forms"> 表单订阅
+                            <label class="switch-row">
+                                <span>表单订阅</span>
+                                <span class="switch">
+                                    <input type="checkbox" id="subForms" data-act="toggle-sub-one" data-kind="forms">
+                                    <span class="switch-track" aria-hidden="true"></span>
+                                </span>
                             </label>
                         </div>
                         <!-- 勾选只改本地状态，点「保存订阅」才写后端（避免每勾一下都发一次请求） -->

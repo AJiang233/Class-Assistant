@@ -1921,14 +1921,14 @@ body.app-mode { overflow: hidden; }
 /* ── 表单 ── */
 /* 一行勾选项：整行可点（原来是标签上的内联 display/margin） */
 .field-check { display: block; margin: 6px 0; }
-/* 卡片里更轻量的一行勾选项 */
-.check-row { display: flex; align-items: center; gap: 8px; font-size: 0.89rem; color: var(--text); cursor: pointer; }
-.check-row-note { display: flex; align-items: center; gap: 8px; margin: 12px 0 14px; font-size: 0.9rem; color: var(--text-secondary); cursor: pointer; }
 /* 按钮行：默认三列（.btn-row），这两个是「两列」与「单行等高」 */
 .btn-row-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .btn-row-inline { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); }
 /* 自适应列宽的多列表单（日历订阅的三个选项） */
 .grid-150 { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+/* 日历订阅里的「通知进日历」开关：上面是 grid-150、下面是订阅链接，保持原来
+   check-row-note 的上下呼吸感（普通 switch-row 只用于连续的行，这里孤行要自带 margin） */
+#calCard .switch-row { margin: 12px 0 14px; }
 
 /* ── 提醒对象选择区 ── */
 /* 没有成员可提醒（.remind-hint）与搜索后全被滤掉（.remind-empty）的提示文字 */
@@ -1962,5 +1962,32 @@ body.app-mode { overflow: hidden; }
 #emailUnbindRow { margin-top: 20px; }
 /* 订阅区：分订阅在「全部订阅」下面缩进一档，视觉上形成「总开关 → 分项」的层级 */
 #emailSubSection .sub-list { padding-left: 22px; }
+/* 滑动开关行：文字在左、开关靠右（iOS 设置列表的排法），行间留出呼吸感。
+   邮箱订阅弹窗与个人页各卡片共用这一套。 */
+.switch-row {
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 0.89rem; color: var(--text); cursor: pointer;
+}
+.switch-row + .switch-row { margin-top: 12px; }
+/* 开关本体：checkbox 视觉隐藏（opacity:0）但保留可点、可聚焦与 checked 语义，
+   JS 里对 checked 的读写与 change 事件全部照旧，不用动页面逻辑 */
+.switch { position: relative; width: 44px; height: 26px; flex-shrink: 0; }
+.switch input {
+    position: absolute; inset: 0; margin: 0; opacity: 0; cursor: pointer; z-index: 1;
+}
+.switch-track {
+    position: absolute; inset: 0; border-radius: 999px;
+    background: rgba(120, 120, 128, 0.32); /* 中性灰在浅深主题下都成立，不必另写深色覆盖 */
+    transition: background 0.15s;
+}
+.switch-track::after {
+    content: ''; position: absolute; top: 2px; left: 2px;
+    width: 22px; height: 22px; border-radius: 50%;
+    background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+    transition: transform 0.15s;
+}
+.switch input:checked + .switch-track { background: var(--accent); }
+.switch input:checked + .switch-track::after { transform: translateX(18px); }
+.switch input:focus-visible + .switch-track { outline: 2px solid var(--accent-ring); }
 /* 订阅区的保存按钮：与复选框之间留出间距，避免贴着最后一项 */
 #emailSubSaveBtn { margin-top: 16px; }
