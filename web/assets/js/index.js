@@ -162,9 +162,12 @@ function renderGreeting() {
 }
 
 // ===== 移动端左右滑动切页 =====
-// 顺序与底部导航一致。教务页（课表）同样可划入划出：课表的横向滚动
+// 顺序与底部导航一致；管理员面板排在最后 —— 底部导航里没有它，移动端由个人中心进入，
+// 所以从它右滑＝回个人中心。（桌面侧栏把它排在个人中心之前，那是侧栏自己的顺序，不影响这里。）
+// 除登录视图外不再有「哪个页面不给滑动」的豁免：只要进了这串列表就能划入划出。
+// 教务页（课表）同样可划入划出：课表的横向滚动
 // 由 isHorizontallyScrollable 单独让位，不需要在页级再拦一道。
-var SWIPE_PAGES = ['home', 'notices', 'activities', 'academic', 'account'];
+var SWIPE_PAGES = ['home', 'notices', 'activities', 'academic', 'account', 'admin'];
 var SWIPE_THRESHOLD = 35;
 // 屏幕左缘约 20px 是 iOS 系统「返回上一层」手势的判定区。
 // 我们的监听是 passive 的、无法 preventDefault，若不在起点就放手，

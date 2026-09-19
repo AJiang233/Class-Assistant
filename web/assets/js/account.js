@@ -119,10 +119,14 @@ function openEmailEdit() {
         if (verified) loadEmailSubscriptions();
     }
     document.getElementById('emailModal').classList.add('show');
+    // 锁住背后的页面（同联系方式弹窗）：弹窗是 fixed 覆盖层，不锁的话手指落在弹窗上滑动
+    // 会把后面的卡片一起带着滚，看起来像「弹窗没盖住」
+    document.body.style.overflow = 'hidden';
 }
 
 function closeEmailEdit() {
     document.getElementById('emailModal').classList.remove('show');
+    document.body.style.overflow = '';
 }
 
 function emailError(msg) {
