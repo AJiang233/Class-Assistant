@@ -49,9 +49,9 @@ web/                            # Cloudflare Pages 项目根目录（直接部�
 │       ├── index.js            # fetch 入口（CORS 预检 + 路由分发 + 404）
 │       ├── routes/             # 路由分发：auth / notices / activities / forms / calendar / academic（只做转发）
 │       ├── handlers/           # 业务逻辑：认证 / 通知 / 活动 / 表单 / 日历订阅
-│       ├── models/             # D1 数据访问（users / notices / activities / roles / forms / push 订阅 / 邮箱验证码）
+│       ├── models/             # D1 数据访问（users / notices / activities / roles / forms / push 订阅 / 邮箱验证码与订阅）
 │       ├── middleware/         # CORS / JWT 认证（含改密后的令牌失效） / 权限 / 日志
-│       └── utils/              # 统一响应 / PBKDF2 / JWT / 权限映射 / 提醒对象可见性 / 时间处理 / iCalendar 生成 / 邮件发送
+│       └── utils/              # 统一响应 / PBKDF2 / JWT / 权限映射 / 提醒对象可见性 / 时间处理 / iCalendar 生成 / 邮件发送与订阅推送
 ├── migrations/                 # 增量迁移（已有库按需执行；新库直接跑 schema.sql）
 ├── schema.sql                  # D1 表结构
 ├── wrangler.toml               # 本地开发绑定（DB + ACADEMIC_API，生产绑定在 Pages 面板配置）
@@ -123,7 +123,7 @@ web/                            # Cloudflare Pages 项目根目录（直接部�
 | POST | `/api/auth/forgot/send` | 公开 | 发找回密码的重置码（body `{email}`）。**只对已绑定且已验证的邮箱真发信**，其余情况回同一句成功文案（防账号枚举） |
 | POST | `/api/auth/forgot/reset` | 公开 | 验码重置并直接登录（body `{email, code, new_password}`），返回新 `token` + `user`；失败一律回「验证码错误或已过期」 |
 
-- **订阅推送（调用点）**：发布通知 / 活动 / 表单时，除 WebPush 外还会按订阅发邮件 —— 收件人与列表 / 推送**同一口径**（`remind_people` 名单，空 = 全班；发布者本人不发），每封都再过两道校验（`email_verified=1` 且对应订阅位开着），发送在 `waitUntil` 里逐封进行、单封失败只记日志不影响发布。未配 `EMAIL_API_KEY` 时整块静默关闭。表单勾选「同时下发通知」时，表单与那条联动通知**各按各的订阅发**（同订两者会收两封）。统一入口 `utils/emailPush.js` → `utils/email.js` 的 `sendSubscribedEmail`。
+- **订阅推送（调用点）**：发布通知 / 活动 / 表单时，除 WebPush 外还会按订阅发邮件 —— 收件人与列表 / 推送**同一口径**（`remind_people` 名单，空 = 全班；发布者本人不发），再按「`email_verified=1` 且对应订阅位开着」筛一遍。**筛人与发信都是批量的**：一次 `IN (...)` 问出这批人里谁订阅了（`EmailSubscriptionModel.subscribedIds`，按 50 分批），再用 Resend `/emails/batch` 一次发最多 100 封（某一批被拒会退回逐封重发，不让一个写错的邮箱把整批带走）。之所以不逐封：D1 查询与 fetch 都计入 Worker 的 subrequest 配额（免费版一次调用只有 50 个），按人头来会撞上限，而**撞上限之后那部分会静默漏发**（发布照样成功）。发送在 `waitUntil` 里，失败只记日志、不影响发布。未配 `EMAIL_API_KEY` 时整块静默关闭。表单勾选「同时下发通知」时，表单与那条联动通知**各按各的订阅发**（同订两者会收两封）。入口：`utils/emailPush.js` → `utils/email.js` 的 `sendEmailBatch`。
 
 ```jsonc
 // 注册 POST /api/auth/register（body，需 user:manage）
@@ -427,10 +427,10 @@ CREATE TABLE email_codes (
 
 -- 邮件订阅开关（活动 / 通知 / 表单）。只覆盖班务推送；
 -- 验证码 / 找回密码这类事务邮件不读它 —— 开关全关也得收得到。
--- 订阅推送的统一发信入口是 utils/email.js 的 sendSubscribedEmail，它每次发信都会
--- 再校验「邮箱已验证 + 对应订阅开着」，前端拦不住的后端兜一道；解绑邮箱时这里清零。
+-- 推送收件人 = 提醒对象 ∩ 邮箱已验证 ∩ 这里开着；筛人一次批量查（subscribedIds），
+-- 不逐个用户查 —— 每条 D1 查询都算一个 subrequest，按人头来会撞配额。解绑邮箱时这里清零。
 -- 活动 / 通知 / 表单三封推送邮件的模板（renderActivityEmail / renderNoticeEmail /
--- renderFormEmail）已在同文件就位，等推送接入时把对应行字段原样传进去即可
+-- renderFormEmail）在 utils/email.js，调用点把对应行字段原样传进去即可
 CREATE TABLE email_subscriptions (
   user_id         INTEGER PRIMARY KEY,
   sub_activities  INTEGER DEFAULT 0,       -- 活动订阅
@@ -459,7 +459,7 @@ CREATE TABLE email_subscriptions (
 
 - **应用壳布局**：`index.html` 为侧边栏 + 内容区（iframe 嵌入子页）；**小屏（≤768px）自动隐藏侧边栏、改为底部导航**（主页 / 通知 / 活动 / 学业 / 个人中心，共 5 项，符合底部导航 ≤5 项的规范），并针对手机做字号与间距密度适配
 - **离线提示**：断网时内容顶部出现一条提示条（`app.js` 的 `renderOfflineNotice`，`position: sticky` 插进 `.main` 的第一个子元素，滚动时贴顶）。**文案分两种**：App 里是「当前无网络，显示的是缓存数据」——数据确有原生层回退（`android/` 的 `OfflineApi`）；浏览器里是「当前无网络，部分内容可能无法加载」——那边没有这一层，说成「显示缓存数据」是错的。判据只看 `navigator.onLine`（它管不了「服务端是不是活着」，够用了），`online` / `offline` 事件实时增删
-- **移动端左右滑动切页**：小屏下可左右滑动切换「首页 → 通知 → 活动 → 学业 → 个人中心 → 管理员面板」（左滑前进 / 右滑后退，首尾不循环），新页面横向滑入入场；手势为 `passive`、不拦截滚动，且落在可横向滚动区域（如课表宽表）时只滚动、不切页。**除登录视图外没有「不给滑动」的页面**：管理员面板排在顺序末尾，从它右滑即回个人中心（底部导航里没有管理员这一项，高亮留在「个人中心」，见 `SWIPE_PAGES`）
+- **移动端左右滑动切页**：小屏下可左右滑动切换「首页 → 通知 → 活动 → 学业 → 个人中心 → 管理员面板」（左滑前进 / 右滑后退，首尾不循环），新页面横向滑入入场；手势为 `passive`、不拦截滚动，且落在可横向滚动区域（如课表宽表）时只滚动、不切页。**除登录视图外没有「不给滑动」的页面**：管理员面板排在顺序末尾，从它右滑即回个人中心（底部导航里没有管理员这一项，高亮留在「个人中心」，见 `SWIPE_PAGES`）。但**管理员面板只对 `canManagePanel()` 为真的人出现在这份顺序里**：没权限的人在个人中心左滑是「到头停住」，不会被划进去（`switchView` 里另有一道闸门，挡的是 `?view=admin` 这类深链）
 - **管理员入口**：桌面端固定在侧边栏；手机端底栏不再放（避免变成 6 项），改由「个人中心 → 管理员面板」卡片进入（仅手机端显示，按权限出现）
 - **班级主页**：日历（可「回到今天」，有活动的日期可点击）、当日通知与当日活动、「我的表单」待办、点击条目弹出详情弹窗
 - **权限显隐**：`app.js` 提供 `canContentWrite()` / `canManageUsers()`（依据登录返回的 `permissions`），控制发布/编辑/删除与管理员入口的显示
@@ -490,7 +490,7 @@ CREATE TABLE email_subscriptions (
 1. **创建 Pages 项目**：构建根目录设为 `web/`（或本地 `npm run deploy`）
 2. **绑定资源（Settings → Functions）**：
    - **D1 database bindings**：变量名 `DB` → 选择 `class-assistant` 数据库
-   - **Environment variables（Secrets）**：`JWT_SECRET`（`openssl rand -hex 32`，不要写进仓库）、`EMAIL_API_KEY`（Resend 的发信密钥，邮箱验证与找回密码要用；不配则相关接口统一回 503，其余功能照常）。发件域名需先在 Resend 后台完成 SPF/DKIM 验证，发件人可另配 `EMAIL_FROM` 覆盖（默认 `班级助理 <no-reply@class.qxwkstudio.top>`）
+   - **Environment variables（Secrets）**：`JWT_SECRET`（`openssl rand -hex 32`，不要写进仓库）、`EMAIL_API_KEY`（Resend 的发信密钥，验证码 / 找回密码 / 订阅推送都用它。**两类缺失的后果不同**：验证码类不配则相关接口统一回 503；订阅推送不配则整块静默关闭，发布通知照常，只是不发邮件）。发件域名需先在 Resend 后台完成 SPF/DKIM 验证，发件人可另配 `EMAIL_FROM` 覆盖（默认 `班级助理 <no-reply@class.qxwkstudio.top>`）
      （`COOKIE_SECRET` 不在 Pages 侧：教务会话的封存密钥只归私有 Worker `class-assistant-private-api` 用）
 3. **一键建表**：新库 `npm run db:remote`；已有库可执行 `npm run db:migrate`（清掉误写入的预置职位名），再按需补其它历史迁移（表单 / 推送 / 内容归属各有一条 `db:migrate:*` 脚本）
 4. **自定义域名**：Pages → Custom domains → 添加域名，在域名商把 CNAME 指向 `<项目名>.pages.dev`

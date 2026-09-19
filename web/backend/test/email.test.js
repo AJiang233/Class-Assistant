@@ -14,7 +14,7 @@ import {
 } from '../src/handlers/authHandler.js';
 import { withAuth } from '../src/middleware/auth.js';
 import { sign } from '../src/utils/jwt.js';
-import { emailEnabled, renderVerifyEmail, renderActivityEmail, renderNoticeEmail, renderFormEmail, genEmailCode, sendSubscribedEmail } from '../src/utils/email.js';
+import { emailEnabled, renderVerifyEmail, renderActivityEmail, renderNoticeEmail, renderFormEmail, genEmailCode } from '../src/utils/email.js';
 import { pushSubscribedEmails } from '../src/utils/emailPush.js';
 
 const SECRET = 'test-secret-for-email';
@@ -147,7 +147,7 @@ function fakeDb({ users = [], codes = [], subs = [] } = {}) {
     prepare(sql) {
       // 语句自带 first/all/run；bind 只是记录参数再返回自身 ——
       // 有的 model 直接 prepare().all()（如 UserModel.list / RoleModel.list），
-      // 有的先 bind 再 first/run（如 sendSubscribedEmail），两种形状都得认。
+      // 有的先 bind 再 first/run（如 EmailCodeModel / EmailSubscriptionModel），两种形状都得认。
       const stmt = {
         _args: [],
         bind(...args) { stmt._args = args; return stmt; },
@@ -165,17 +165,25 @@ function fakeDb({ users = [], codes = [], subs = [] } = {}) {
           if (/FROM email_subscriptions/.test(sql)) {
             const row = state.subs.find((s) => s.user_id === args[0]);
             if (!row) return null;
-            // sendSubscribedEmail 用 AS subscribed 取单列，其余取整行
-            const alias = sql.match(/SELECT (sub_\w+) AS subscribed/);
-            if (alias) return { subscribed: row[alias[1]] };
             return { sub_activities: row.sub_activities, sub_notices: row.sub_notices, sub_forms: row.sub_forms };
           }
           if (/FROM roles/.test(sql)) return null;
           throw new Error('假 D1 未实现的 first 语句: ' + sql);
         },
         async all() {
+          const args = stmt._args;
           if (/FROM roles/.test(sql)) return { results: [] };
           if (/FROM users/.test(sql)) return { results: state.users.map((u) => ({ ...u })) };
+          // subscribedIds：WHERE user_id IN (?,?,…) AND <列> = 1，必须真按 IN 与列筛选
+          const subCol = sql.match(/AND (sub_\w+) = 1/);
+          if (/FROM email_subscriptions/.test(sql) && subCol) {
+            const ids = args.map(Number);
+            return {
+              results: state.subs
+                .filter((s) => ids.includes(Number(s.user_id)) && Number(s[subCol[1]]) === 1)
+                .map((s) => ({ user_id: s.user_id }))
+            };
+          }
           throw new Error('假 D1 未实现的 all 语句: ' + sql);
         },
         async run() { return run(sql, stmt._args); }
@@ -185,19 +193,23 @@ function fakeDb({ users = [], codes = [], subs = [] } = {}) {
   };
 }
 
-/** 拦截 Resend：记录发出去的邮件，可按需让发信失败 */
-function stubFetch({ fail = false } = {}) {
+/** 拦截 Resend：记录发出去的邮件（批量端点收的是数组，摊平成每封一条）与请求次数 */
+function stubFetch({ fail = false, failBatch = false } = {}) {
   const sent = [];
+  const calls = [];
   const orig = globalThis.fetch;
   globalThis.fetch = async (url, init) => {
-    if (String(url).includes('api.resend.com')) {
-      if (fail) return new Response('{"message":"boom"}', { status: 500 });
-      sent.push(JSON.parse(init.body));
-      return new Response('{"id":"mail_1"}', { status: 200 });
+    const u = String(url);
+    if (u.includes('api.resend.com')) {
+      calls.push(u.endsWith('/batch') ? 'batch' : 'single');
+      if (fail || (failBatch && u.endsWith('/batch'))) return new Response('{"message":"boom"}', { status: 500 });
+      const body = JSON.parse(init.body);
+      (Array.isArray(body) ? body : [body]).forEach((m) => sent.push(m));
+      return new Response(JSON.stringify({ id: 'mail_1' }), { status: 200 });
     }
     return orig(url, init);
   };
-  return { sent, restore: () => { globalThis.fetch = orig; } };
+  return { sent, calls, restore: () => { globalThis.fetch = orig; } };
 }
 
 const ENV = (db, extra = {}) => ({ DB: db, JWT_SECRET: SECRET, EMAIL_API_KEY: 're_test', ...extra });
@@ -626,35 +638,51 @@ describe('邮箱订阅', () => {
     assert.deepEqual(db._state.subs[0], { user_id: 1, sub_activities: 0, sub_notices: 0, sub_forms: 0 });
   });
 
-  it('订阅发信：邮箱未验证 → 不发（UNVERIFIED）；订阅没开 → 不发（UNSUBSCRIBED）；都过 → 真发', async () => {
-    stubbedFetch = stubFetch();
+  it('批量筛人：只返回开了这类订阅的 id，不查别人', async () => {
     const db = fakeDb({
-      users: [
-        { id: 1, email: 'a@qq.com', email_verified: 0 },
-        { id: 2, email: 'b@qq.com', email_verified: 1 }
-      ],
-      subs: [{ user_id: 2, sub_activities: 1 }]
+      subs: [
+        { user_id: 2, sub_notices: 1 },
+        { user_id: 3, sub_activities: 1 },
+        { user_id: 4, sub_notices: 0 }
+      ]
     });
-    const mail = { subject: '新活动', html: '<p>hi</p>' };
+    const model = new EmailSubscriptionModel(db);
 
-    const unverified = await sendSubscribedEmail(ENV(db), db, { userId: 1, kind: 'activities', ...mail });
-    assert.deepEqual(unverified, { ok: false, reason: 'UNVERIFIED' });
-
-    const unsubscribed = await sendSubscribedEmail(ENV(db), db, { userId: 2, kind: 'notices', ...mail });
-    assert.deepEqual(unsubscribed, { ok: false, reason: 'UNSUBSCRIBED' });
-
-    const sent = await sendSubscribedEmail(ENV(db), db, { userId: 2, kind: 'activities', ...mail });
-    assert.deepEqual(sent, { ok: true });
-    assert.equal(stubbedFetch.sent.length, 1, '只有校验通过的那一封真正发出去');
-    assert.equal(stubbedFetch.sent[0].to, 'b@qq.com');
+    assert.deepEqual(await model.subscribedIds([1, 2, 3, 4], 'notices'), [2]);
+    assert.deepEqual(await model.subscribedIds([1, 2, 3, 4], 'activities'), [3]);
+    assert.deepEqual(await model.subscribedIds([], 'notices'), []);
   });
 
-  it('订阅发信：未知订阅类型直接报错，不静默放行', async () => {
-    const db = fakeDb({ users: [{ id: 1, email: 'a@qq.com', email_verified: 1 }] });
-    await assert.rejects(
-      () => sendSubscribedEmail(ENV(db), db, { userId: 1, kind: 'scores', subject: 'x', html: 'x' }),
-      /未知的订阅类型/
-    );
+  it('批量筛人：未知订阅类型直接报错，不静默放行', async () => {
+    const model = new EmailSubscriptionModel(fakeDb());
+    await assert.rejects(() => model.subscribedIds([1], 'scores'), /未知的订阅类型/);
+  });
+
+  /**
+   * D1 单条语句最多 100 个绑定参数，收件人却是全班 —— `IN (...)` 必须分批，
+   * 否则人多时筛人这一步会直接报错（而报错发生在 waitUntil 里，只在日志里看得见）。
+   */
+  it('批量筛人：超过上限时分批查询，且每批不超过 50 个参数', async () => {
+    const widths = [];
+    const db = {
+      prepare() {
+        const stmt = {
+          _args: [],
+          bind(...args) { stmt._args = args; return stmt; },
+          async all() {
+            widths.push(stmt._args.length);
+            return { results: stmt._args.map((v) => ({ user_id: v })) };
+          }
+        };
+        return stmt;
+      }
+    };
+    const ids = Array.from({ length: 120 }, (_, i) => i + 1);
+    const rows = await new EmailSubscriptionModel(db).subscribedIds(ids, 'notices');
+
+    assert.equal(rows.length, 120, '分批结果要合并，不能只返回最后一批');
+    assert.ok(widths.every((n) => n <= 50), '单条 SQL 不超过 50 个绑定参数：' + widths.join(','));
+    assert.ok(widths.length >= 3, '120 个 id 至少该分成 3 批');
   });
 });
 
@@ -672,7 +700,7 @@ describe('订阅邮件推送（发布调用点）', () => {
     stubbedFetch = stubFetch();
     const db = fakeDb({ users, subs: [{ user_id: 2, sub_notices: 1 }] });
     await pushSubscribedEmails({ DB: db }, null, 'notices', { remindPeople: null, excludeUserId: 1, ...mail });
-    assert.equal(stubbedFetch.sent.length, 0);
+    assert.equal(stubbedFetch.calls.length, 0);
   });
 
   it('提醒对象为空 = 全班：只给「已验证 + 开了对应订阅」的人发，发布者本人不发', async () => {
@@ -682,6 +710,8 @@ describe('订阅邮件推送（发布调用点）', () => {
     // 张三订阅了通知 → 发；班长是发布者、李四没绑邮箱、王五没开订阅 → 都不发
     assert.equal(stubbedFetch.sent.length, 1);
     assert.equal(stubbedFetch.sent[0].to, 'a@qq.com');
+    // 而且是一次请求发完：每人一个请求就是每人一个 subrequest，免费版一次调用只有 50 个
+    assert.deepEqual(stubbedFetch.calls, ['batch']);
   });
 
   it('定向名单只发给名单里的人，名单外的订阅者不收（与推送同一口径）', async () => {
@@ -699,7 +729,37 @@ describe('订阅邮件推送（发布调用点）', () => {
     assert.equal(stubbedFetch.sent.length, 0);
   });
 
-  it('单封失败只记日志，不阻断其余收件人，也不让 waitUntil 任务抛出去', async () => {
+  /**
+   * 关键回归：Resend 的批量端点一次最多 100 封，超过要自己分批。
+   * 一个班几十上百人时，这正是「每人一个 subrequest」与「每 100 人一个」的分界。
+   */
+  it('人多时走批量端点：120 人分两批，不按人头逐个请求', async () => {
+    stubbedFetch = stubFetch();
+    const many = Array.from({ length: 120 }, (_, i) => ({
+      id: i + 1, student_id: '2024' + (i + 1), name: 'u' + (i + 1), positions: '学生',
+      email: 'u' + (i + 1) + '@qq.com', email_verified: 1
+    }));
+    const db = fakeDb({ users: many, subs: many.map((u) => ({ user_id: u.id, sub_notices: 1 })) });
+
+    await pushSubscribedEmails(ENV(db), null, 'notices', { remindPeople: null, ...mail });
+
+    assert.equal(stubbedFetch.sent.length, 120, '每人都该收到');
+    assert.deepEqual(stubbedFetch.calls, ['batch', 'batch'], '120 封正好两批（每批不超过 100）');
+  });
+
+  it('整批被拒时退回逐封重发，不让一个写错的邮箱把整批带走', async () => {
+    stubbedFetch = stubFetch({ failBatch: true });
+    const db = fakeDb({
+      users,
+      subs: [{ user_id: 2, sub_notices: 1 }, { user_id: 4, sub_notices: 1 }]
+    });
+    await pushSubscribedEmails(ENV(db), null, 'notices', { remindPeople: null, excludeUserId: 1, ...mail });
+
+    assert.deepEqual(stubbedFetch.calls, ['batch', 'single', 'single'], '整批失败后退回逐封');
+    assert.equal(stubbedFetch.sent.length, 2, '逐封之后两人都该收到');
+  });
+
+  it('真的发不出去时只记日志，不抛错、也不影响发布接口', async () => {
     stubbedFetch = stubFetch({ fail: true });
     const db = fakeDb({
       users,
@@ -712,6 +772,7 @@ describe('订阅邮件推送（发布调用点）', () => {
       await pushSubscribedEmails(ENV(db), null, 'notices', { remindPeople: null, excludeUserId: 1, ...mail });
     } finally { console.error = orig; }
     assert.equal(stubbedFetch.sent.length, 0, '全失败也不能抛错中断发布');
-    assert.ok(errors.length >= 2, '每一封失败都要留痕（含收件人 id），否则线上只看到「没收到」');
+    assert.ok(errors.some((e) => e.includes('@qq.com')), '失败的收件人要留痕，否则线上只看到「没收到」');
+    assert.ok(errors.some((e) => e.includes('部分未发出')), '汇总行也要有，一眼看出漏了几封');
   });
 });

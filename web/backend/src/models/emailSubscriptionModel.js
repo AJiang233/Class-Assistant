@@ -2,14 +2,26 @@
  * 邮箱订阅模型（email_subscriptions，与 users 一对一）。
  *
  * 订阅位：sub_activities 活动 / sub_notices 通知 / sub_forms 表单，默认全 0。
- * 本期前端只有读写与联动，真正按订阅发信（活动 / 通知 / 表单推送）还没接，
- * 接入点统一走 utils/email.js 的 sendSubscribedEmail —— 那一道会再校验一次
- * 「邮箱已验证 + 对应订阅开着」，前端拦不住的后端再兜一遍。
+ * 按订阅推送（活动 / 通知 / 表单）的接入点是 utils/emailPush.js，它**批量**筛人：
+ * 先用 subscribedIds 一次问出「这批人里开了这类订阅的 id」，再与 users 里的
+ * email_verified 合并 —— 逐个 get 就是每人一条 D1 查询，而 D1 查询计入 Worker 的
+ * subrequest 配额（免费版一次调用 50 个），几十人的班发一次就撞上限。
  *
  * 与 email_codes 不同，这里不设「无行 == 全 0」之外的复杂语义：
  * 无行（刚注册、从未碰过订阅）由 get 直接返回全 false；解绑时保留行、置 0
  * （resetToZero），用户重新绑定后从全 0 重新勾选，不继承旧订阅。
  */
+
+/**
+ * 订阅类型 → 列名。新增订阅类目（如「成绩订阅」）时在这里加一行 ——
+ * 建表语句、读写接口与推送筛选都读这一份，别在别处再抄一遍。
+ */
+export const SUBSCRIPTION_COLUMNS = {
+  activities: 'sub_activities',
+  notices: 'sub_notices',
+  forms: 'sub_forms'
+};
+
 export class EmailSubscriptionModel {
   constructor(db) {
     this.db = db;
@@ -43,6 +55,38 @@ export class EmailSubscriptionModel {
          sub_forms = excluded.sub_forms,
          updated_at = CURRENT_TIMESTAMP`
     ).bind(userId, activities ? 1 : 0, notices ? 1 : 0, forms ? 1 : 0).run();
+  }
+
+  /**
+   * 这批用户里「开了某一类订阅」的 id（推送挑选收件人用）。
+   *
+   * 一次问完而不是逐个 get：D1 的每条查询都算一个 subrequest，免费版一次调用只有 50 个，
+   * 几十人的班逐个问就会撞上限 —— 而撞上限的后果是「一部分人静默收不到」。
+   *
+   * 分批口径与 PushSubscriptionModel 一致（D1 单条语句最多 100 个绑定参数，取 50 留余量）。
+   *
+   * @param {number[]} userIds
+   * @param {'activities'|'notices'|'forms'} kind
+   * @returns {Promise<number[]>} 开了这类订阅的 user_id
+   */
+  async subscribedIds(userIds, kind) {
+    const col = SUBSCRIPTION_COLUMNS[kind];
+    if (!col) throw new Error(`未知的订阅类型: ${kind}`);
+
+    const ids = (userIds || []).map(Number).filter((n) => Number.isInteger(n));
+    if (!ids.length) return [];
+
+    const out = [];
+    for (let i = 0; i < ids.length; i += 50) {
+      const part = ids.slice(i, i + 50);
+      const placeholders = part.map(() => '?').join(',');
+      const result = await this.db.prepare(
+        `SELECT user_id FROM email_subscriptions
+          WHERE user_id IN (${placeholders}) AND ${col} = 1`
+      ).bind(...part).all();
+      for (const row of result.results) out.push(Number(row.user_id));
+    }
+    return out;
   }
 
   /**

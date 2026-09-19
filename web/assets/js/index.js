@@ -109,6 +109,9 @@ function switchView(key, slideDir) {
     var authed = !!localStorage.getItem(LS_TOKEN);
     // 未登录访问受保护视图 → 显示登录视图
     if (!authed && key !== 'home' && key !== 'login') key = 'login';
+    // 管理员面板只对能管理的人开。侧栏入口是按权限藏的，但 ?view=admin 深链与滑动切页
+    // 都不经过那个入口 —— 光藏按钮拦不住，闸门钉在这里，三个入口共用（同 canManagePanel 的注释）
+    if (key === 'admin' && !canManagePanel()) key = 'home';
     currentView = key;
     // 当前应高亮的导航项：未登录显示登录视图时，"个人中心"保持高亮
     var navKey = key === 'login' ? 'account' : key;
@@ -187,11 +190,14 @@ function isHorizontallyScrollable(el, win) {
 }
 
 function swipeTo(dir) {
-    var i = SWIPE_PAGES.indexOf(currentView);
+    // 不能进管理员面板的人，列表里就当没有它：在个人中心左滑应当「到头停住」，
+    // 而不是被 switchView 的权限闸门改写后跳回主页（那会像划错页）
+    var pages = canManagePanel() ? SWIPE_PAGES : SWIPE_PAGES.filter(function (k) { return k !== 'admin'; });
+    var i = pages.indexOf(currentView);
     if (i < 0) return;
     var j = i + dir;
-    if (j < 0 || j >= SWIPE_PAGES.length) return;   // 两端停住，不循环
-    switchView(SWIPE_PAGES[j], dir);
+    if (j < 0 || j >= pages.length) return;   // 两端停住，不循环
+    switchView(pages[j], dir);
 }
 
 /** 给一个文档（主壳或同源 iframe 内文档）挂横向滑动监听；只监听不拦截，滚动不受影响 */

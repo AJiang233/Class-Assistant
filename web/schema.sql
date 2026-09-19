@@ -107,8 +107,9 @@ CREATE TABLE IF NOT EXISTS email_codes (
 CREATE INDEX IF NOT EXISTS idx_email_codes_user  ON email_codes(user_id, purpose);
 CREATE INDEX IF NOT EXISTS idx_email_codes_email ON email_codes(email, purpose);
 
--- 邮件订阅开关（功能以后再接，先把列落好）。默认全 0：订阅是额外的「主动同意」。
+-- 邮件订阅开关（活动 / 通知 / 表单）。默认全 0：订阅是额外的「主动同意」。
 -- 只覆盖班务推送；验证码 / 找回密码这类事务邮件不读这张表 —— 开关全关也得收得到。
+-- 推送收件人 = 提醒对象 ∩ 邮箱已验证 ∩ 这里开着（批量筛人见 utils/emailPush.js）。
 CREATE TABLE IF NOT EXISTS email_subscriptions (
   user_id         INTEGER PRIMARY KEY,     -- = users.id，一对一
   sub_activities  INTEGER DEFAULT 0,       -- 活动订阅
