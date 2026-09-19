@@ -200,7 +200,7 @@ export function renderBrandEmail({
           </tr>
           <tr>
             <td style="padding:28px 32px 0;text-align:center;">
-              <div style="font-size:17px;font-weight:700;color:#0f172a;letter-spacing:.3px;">班级助理</div>
+              <div style="font-size:17px;font-weight:700;color:#0f172a;letter-spacing:.3px;">Class Assistant · 班级助理</div>
               ${subtitle}
             </td>
           </tr>
@@ -223,18 +223,19 @@ export function renderBrandEmail({
 /** 绑定邮箱的验证码邮件 */
 export function renderVerifyEmail(code) {
   return renderBrandEmail({
-    title: '邮箱验证',
-    intro: '你好，请把下面的验证码填回「个人中心 → 邮箱」完成绑定：',
-    code
+    title: '班级助理 · 邮箱验证',
+    intro: '你好，我们收到了你的邮箱验证申请。请在页面输入下方验证码以完成绑定：',
+    code,
+    footer: '此类邮件不可在设置内退订，若非本人反复收到，请与我们（QxwkStudio@outlook.com）联系。'
   });
 }
 
 /** 找回密码的重置码邮件 */
 export function renderResetEmail(code) {
   return renderBrandEmail({
-    title: '重置密码',
-    intro: '你好，我们收到了你的密码重置申请。请在页面输入下方验证码，并设置新密码：',
+    title: '班级助理 · 重置密码',
+    intro: '你好，我们收到了你的密码重置申请。请在页面输入下方验证码以设置新密码：',
     code,
-    warn: '如果你没有申请重置密码，说明有人填错了邮箱，请忽略本邮件。'
+    footer: '此类邮件不可在设置内退订，若非本人反复收到，请与我们（QxwkStudio@outlook.com）联系。'
   });
 }
