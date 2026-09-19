@@ -96,9 +96,4 @@ export class EmailCodeModel {
       'DELETE FROM email_codes WHERE user_id = ? AND purpose = ?'
     ).bind(userId, purpose).run();
   }
-
-  /** 删除成员时连带清理（没有外键，靠代码收） */
-  async removeByUser(userId) {
-    await this.db.prepare('DELETE FROM email_codes WHERE user_id = ?').bind(userId).run();
-  }
 }

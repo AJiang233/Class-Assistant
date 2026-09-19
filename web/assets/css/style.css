@@ -1960,8 +1960,9 @@ body.app-mode { overflow: hidden; }
 .modal-title-wrap { display: flex; align-items: center; gap: 10px; }
 /* 解绑按钮行：弹窗内最后一行，给点间距即可（原来的 card-divider 上边框已去掉） */
 #emailUnbindRow { margin-top: 20px; }
-/* 订阅区：分订阅在「全部订阅」下面缩进一档，视觉上形成「总开关 → 分项」的层级 */
-#emailSubSection .sub-list { padding-left: 22px; }
+/* 订阅区：分订阅在「全部订阅」下面缩进一档，视觉上形成「总开关 → 分项」的层级；
+   margin-top 与开关行间距（.switch-row + .switch-row 的 12px）同值，总开关和分项之间不留缝 */
+#emailSubSection .sub-list { padding-left: 22px; margin-top: 12px; }
 /* 滑动开关行：文字在左、开关靠右（iOS 设置列表的排法），行间留出呼吸感。
    邮箱订阅弹窗与个人页各卡片共用这一套。 */
 .switch-row {

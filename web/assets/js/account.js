@@ -189,6 +189,11 @@ function subKindBox(kind) {
 
 /** 从后端拉最新订阅，回填复选框与「全部订阅」 */
 async function loadEmailSubscriptions() {
+    // 回填完成前禁用「保存订阅」：currentSubs 还是上次的值（首次是初始全关），
+    // 这时候点保存会把没回填的状态覆盖到后端。无论成败都要恢复按钮——
+    // 失败时用户按当前勾选保存也是自洽的（复选框显示的就是当前 UI 状态）。
+    var saveBtn = document.getElementById('emailSubSaveBtn');
+    if (saveBtn) saveBtn.disabled = true;
     try {
         var res = await api('/api/auth/email/subscriptions', { method: 'GET' });
         var subs = res && res.data && res.data.subscriptions;
@@ -205,6 +210,8 @@ async function loadEmailSubscriptions() {
     } catch (e) {
         // 拉不到就先保持原值，不打断弹窗本身（订阅区本来就是附加信息）
         console.error('读取订阅设置失败:', e);
+    } finally {
+        if (saveBtn) saveBtn.disabled = false;
     }
 }
 

@@ -57,9 +57,4 @@ export class EmailSubscriptionModel {
        WHERE user_id = ?`
     ).bind(userId).run();
   }
-
-  /** 删除成员时连带清理（没有外键，靠代码收；userModel.delete 已处理，这里保持对称） */
-  async removeByUser(userId) {
-    await this.db.prepare('DELETE FROM email_subscriptions WHERE user_id = ?').bind(userId).run();
-  }
 }
