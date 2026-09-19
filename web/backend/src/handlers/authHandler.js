@@ -128,7 +128,7 @@ async function computePermissions(env, positions) {
 export async function handleRegister(request, env) {
   try {
     const body = await request.json();
-    const { student_id, name, password, positions = STUDENT_ROLE, contact = '', role_permissions, role_name } = body;
+    const { student_id, name, password, positions = STUDENT_ROLE, contact = '', email, role_permissions, role_name } = body;
 
     // 校验必填字段
     if (!student_id || !name || !password) {
@@ -181,6 +181,23 @@ export async function handleRegister(request, env) {
       return jsonResponse(error('该学号已注册，请直接登录，或换一个学号', 'STUDENT_ID_EXISTS'), 409);
     }
 
+    // 邮箱由管理员代填（选填）。格式与占用口径与自助绑定完全一致 —— 两条路写进的是同一列，
+    // 规则分家就会出现「自助绑不上的地址，管理员能填进去」这种绕过。
+    // 落库后的验证状态一定是 0（见 userModel.create）：管理员没走过验证码。
+    let emailValue = null;
+    if (email != null && String(email).trim() !== '') {
+      emailValue = normalizeEmail(email);
+      const invalid = validateEmail(emailValue);
+      if (invalid) {
+        return jsonResponse(error(invalid, 'INVALID_EMAIL'), 400);
+      }
+      const taken = await userModel.findByEmail(emailValue);
+      if (taken) {
+        // 先查一次是为了给可读的提示；真正的闸门是 users.email 上的唯一索引（COLLATE NOCASE）
+        return jsonResponse(error('该邮箱已被其他成员使用', 'EMAIL_TAKEN'), 409);
+      }
+    }
+
     // 哈希密码
     const { hash, salt } = await hashPassword(passwordText);
     const passwordHash = `${salt}:${hash}`;  // 存储格式：盐值:哈希
@@ -191,7 +208,8 @@ export async function handleRegister(request, env) {
       name: nameText,
       password_hash: passwordHash,
       positions: positionsValue,
-      contact: contactText
+      contact: contactText,
+      email: emailValue
     });
 
     return jsonResponse(success({ message: '注册成功' }), 201);
@@ -409,8 +427,8 @@ export async function handleUpdateUser(request, env, user, params) {
     }
 
     const body = await request.json();
-    const { name, positions, contact, password } = body;
-    if (name === undefined && positions === undefined && contact === undefined && password === undefined) {
+    const { name, positions, contact, password, email } = body;
+    if (name === undefined && positions === undefined && contact === undefined && password === undefined && email === undefined) {
       return jsonResponse(error('没有需要保存的修改', 'MISSING_FIELDS'), 400);
     }
 
@@ -453,6 +471,28 @@ export async function handleUpdateUser(request, env, user, params) {
         return jsonResponse(error(`联系方式最多 ${CONTACT_MAX} 个字符`, 'CONTACT_TOO_LONG'), 400);
       }
       data.contact = value;
+    }
+    // 邮箱由管理员代填 / 改动，留空表示清掉（存 NULL，不存空串）。
+    // **只有地址真的变了才把 email_verified 打回 0**：改个姓名不该让那位同学重新验证邮箱；
+    // 反过来，管理员改了地址却不重置，就等于替他把一个没确认过的地址「验证」了 —— 找回密码
+    // 的凭据落到谁手上必须由本人收码确认（与自助换邮箱那条路同一口径，见 handleSendEmailCode）。
+    // 订阅开关不动：它记的是「我要哪几类」，与具体地址无关，而未验证的邮箱本来就不发信。
+    if (email !== undefined) {
+      const value = normalizeEmail(email);
+      if (value) {
+        const invalid = validateEmail(value);
+        if (invalid) {
+          return jsonResponse(error(invalid, 'INVALID_EMAIL'), 400);
+        }
+        const taken = await userModel.findByEmail(value);
+        if (taken && Number(taken.id) !== Number(id)) {
+          return jsonResponse(error('该邮箱已被其他成员使用', 'EMAIL_TAKEN'), 409);
+        }
+      }
+      if (value !== normalizeEmail(existing.email)) {
+        data.email = value || null;
+        data.email_verified = 0;
+      }
     }
     if (password !== undefined && password !== null && password !== '') {
       const pwd = String(password);

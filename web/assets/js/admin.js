@@ -372,6 +372,43 @@ function renderEditPosPicker(selected) {
     renderPosPicker('editPosPicker', selected);
 }
 
+// ===== 成员邮箱：验证状态徽章 =====
+// 与个人中心那个邮箱徽章同一套语义色：已验证＝成功色，未验证＝中性色（未验证不算出错，不上红）
+var editingMemberEmail = '';        // 打开弹窗时该成员的邮箱（小写归一，用来判断值动没动）
+var editingMemberEmailVerified = false;
+
+function setEmailBadge(el, verified, text) {
+    if (!el) return;
+    el.className = 'badge ' + (verified ? 'badge-ok' : 'badge-muted');
+    el.textContent = text;
+    el.hidden = false;
+}
+
+/** 「添加成员」的邮箱框：填了就标「未验证」（新账号一律从 0 开始），清空则收起徽章 */
+function syncRegEmailBadge() {
+    var input = document.getElementById('regEmail');
+    var badge = document.getElementById('regEmailBadge');
+    if (!input || !badge) return;
+    if (!input.value.trim()) { badge.hidden = true; return; }
+    setEmailBadge(badge, false, '未验证');
+}
+
+/**
+ * 「编辑成员」的邮箱框：值没动就照原样显示，一改就显示「未验证」。
+ * 之所以要看「动没动」：后端只在地址真的变了时才清零验证状态（改姓名不该让人重新验证），
+ * 徽章若一律说「未验证」，就会出现「界面说未验证、库里其实还是已验证」的错位。
+ */
+function syncEditEmailBadge() {
+    var input = document.getElementById('editEmail');
+    var badge = document.getElementById('editEmailBadge');
+    if (!input || !badge) return;
+    var value = input.value.trim().toLowerCase();
+    if (!value) { badge.hidden = true; return; }
+    var untouched = value === editingMemberEmail;
+    setEmailBadge(badge, untouched && editingMemberEmailVerified,
+        untouched && editingMemberEmailVerified ? '已验证' : '未验证');
+}
+
 function startEditMember(id) {
     var m = (membersCache || []).filter(function (x) { return String(x.id) === String(id); })[0];
     if (!m) { alert('未找到该成员'); return; }
@@ -379,6 +416,10 @@ function startEditMember(id) {
     document.getElementById('editName').value = m.name || '';
     renderEditPosPicker(parsePositionsList(m.positions));
     document.getElementById('editContact').value = m.contact || '';
+    document.getElementById('editEmail').value = m.email || '';
+    editingMemberEmail = String(m.email || '').trim().toLowerCase();
+    editingMemberEmailVerified = !!m.email_verified;
+    syncEditEmailBadge();
     document.getElementById('editPassword').value = '';
     document.getElementById('editMemberError').classList.remove('show');
     editingMemberId = id;
@@ -395,6 +436,7 @@ async function saveMember() {
     errBox.classList.remove('show');
     var name = document.getElementById('editName').value.trim();
     var contact = document.getElementById('editContact').value.trim();
+    var email = document.getElementById('editEmail').value.trim();
     var password = document.getElementById('editPassword').value;
     if (!name) { errBox.textContent = '姓名不能为空'; errBox.classList.add('show'); return; }
     if (password && password.length < 6) { errBox.textContent = '新密码长度至少 6 位'; errBox.classList.add('show'); return; }
@@ -403,7 +445,7 @@ async function saveMember() {
     var btn = document.getElementById('editMemberBtn');
     btn.disabled = true; var t = btn.textContent; btn.textContent = '保存中…';
     try {
-        var payload = { name: name, positions: positions, contact: contact };
+        var payload = { name: name, positions: positions, contact: contact, email: email };
         if (password) payload.password = password;
         await api('/api/auth/users/' + editingMemberId, { method: 'PUT', body: JSON.stringify(payload) });
         cancelEditMember();
@@ -437,6 +479,7 @@ function initMemberManagement() {
         var name = document.getElementById('regName').value.trim();
         var password = document.getElementById('regPassword').value;
         var contact = document.getElementById('regContact').value.trim();
+        var email = document.getElementById('regEmail').value.trim();
         // 多选职务标签
         var positions = [];
         document.querySelectorAll('#regPosPicker .pos-cb:checked').forEach(function (cb) { positions.push(cb.value); });
@@ -445,11 +488,12 @@ function initMemberManagement() {
         var btn = document.getElementById('regBtn');
         btn.disabled = true; var t = btn.textContent; btn.textContent = '注册中…';
         try {
-            var payload = { student_id: student_id, name: name, password: password, positions: positions, contact: contact };
+            var payload = { student_id: student_id, name: name, password: password, positions: positions, contact: contact, email: email };
             await api('/api/auth/register', { method: 'POST', body: JSON.stringify(payload) });
             errBox.classList.add('show');
-            errBox.textContent = '注册成功';
+            errBox.textContent = email ? '注册成功（邮箱待本人验证）' : '注册成功';
             regForm.reset();
+            syncRegEmailBadge();
             loadMembers();
         } catch (err) {
             errBox.textContent = err.message;
@@ -458,6 +502,11 @@ function initMemberManagement() {
             btn.disabled = false; btn.textContent = t;
         }
     });
+
+    // 徽章跟着输入走：填了 / 改了邮箱，立刻反映「保存之后会是什么状态」，
+    // 而不是等保存完再让用户去成员列表里对
+    document.getElementById('regEmail').addEventListener('input', syncRegEmailBadge);
+    document.getElementById('editEmail').addEventListener('input', syncEditEmailBadge);
 }
 
 // ===== datetime-local 空值提示：用「未填写」替换原生的 yyyy/mm/dd 占位 =====

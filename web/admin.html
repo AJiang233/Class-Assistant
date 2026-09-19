@@ -216,6 +216,12 @@
                                     <label class="form-label" for="regContact">联系方式</label>
                                     <input class="form-input" type="text" id="regContact" placeholder="选填" autocomplete="off">
                                 </div>
+                                <!-- 邮箱由管理员代填：新账号的验证状态一定是 0（本人收码才算验证过），
+                                     所以这里的徽章只会是「未验证」——填了才显示，空着不显示 -->
+                                <div class="form-field">
+                                    <label class="form-label" for="regEmail">邮箱 <span class="badge" id="regEmailBadge" hidden></span></label>
+                                    <input class="form-input" type="email" id="regEmail" placeholder="选填，填了需本人收码验证" autocomplete="off">
+                                </div>
                                 <div class="form-field">
                                     <label class="form-label">职位（可多选，留空则为「学生」）</label>
                                     <div class="pos-picker" id="regPosPicker"></div>
@@ -302,6 +308,13 @@
                     <div class="form-field">
                         <label class="form-label">联系方式</label>
                         <input id="editContact" class="form-input" type="text" placeholder="选填" autocomplete="off">
+                    </div>
+                    <!-- 邮箱：徽章跟着当前值走 —— 没改动就如实显示原来的验证状态，一改就变「未验证」，
+                         因为保存时后端会把状态清零（本人要重新收码），徽章得与保存后的结果一致 -->
+                    <div class="form-field">
+                        <label class="form-label" for="editEmail">邮箱 <span class="badge" id="editEmailBadge" hidden></span></label>
+                        <input id="editEmail" class="form-input" type="email" placeholder="选填，留空表示清掉" autocomplete="off">
+                        <p class="profile-sub">改动邮箱后验证状态清零，需要本人重新收码验证。</p>
                     </div>
                     <div class="form-field">
                         <label class="form-label">重置密码（留空则不修改）</label>

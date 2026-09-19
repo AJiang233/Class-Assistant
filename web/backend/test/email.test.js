@@ -10,7 +10,9 @@ import {
   handleGetEmailSubscriptions,
   handleSetEmailSubscriptions,
   handleForgotSend,
-  handleForgotReset
+  handleForgotReset,
+  handleRegister,
+  handleUpdateUser
 } from '../src/handlers/authHandler.js';
 import { withAuth } from '../src/middleware/auth.js';
 import { sign } from '../src/utils/jwt.js';
@@ -136,7 +138,20 @@ function fakeDb({ users = [], codes = [], subs = [] } = {}) {
       return changes(1);
     }
     if (/INSERT INTO users/.test(sql)) {
-      state.users.push({ id: ++seq, student_id: args[0], name: args[1], positions: args[3], contact: args[4] });
+      // 按「列名 ↔ 值」一一对应回填，只认 `?` 占位（email_verified 是写死的字面量 0、
+      // update_time 是 CURRENT_TIMESTAMP，都不吃绑定参数）。按位置硬编码的写法会在
+      // 以后给这条 INSERT 加列时静默错位 —— 而这个假 D1 的立身之本就是「SQL 变了要炸出来」
+      const cols = sql.slice(sql.indexOf('(') + 1, sql.indexOf(')')).split(',').map((s) => s.trim());
+      const vals = sql.slice(sql.indexOf('VALUES') + 6).trim()
+        .replace(/^\(/, '').replace(/\)\s*$/, '').split(',').map((s) => s.trim());
+      const row = { id: ++seq };
+      let i = 0;
+      cols.forEach((col, k) => {
+        if (vals[k] === '?') row[col] = args[i++];
+        else if (/^\d+$/.test(vals[k])) row[col] = Number(vals[k]);
+      });
+      if (row.email_verified === undefined) row.email_verified = 0;
+      state.users.push(row);
       return changes(1);
     }
     throw new Error('假 D1 未实现的 run 语句: ' + sql);
@@ -407,6 +422,116 @@ describe('绑定邮箱接口', () => {
     assert.equal(emailEnabled({}), false);
     assert.equal(emailEnabled({ EMAIL_API_KEY: '' }), false);
     assert.equal(emailEnabled({ EMAIL_API_KEY: 're_x' }), true);
+  });
+});
+
+/**
+ * 管理员在「添加 / 修改成员」里代填邮箱。这里的每一条都是「谁说了算」的问题：
+ * 邮箱是找回密码的凭据，**验证状态只能由本人收码确认**，管理员能填地址但不能代认。
+ */
+describe('管理员维护成员邮箱', () => {
+  const officer = { id: 1, name: '班长', positions: '班长' };
+  // handleUpdateUser 只看 body、不看 method（鉴权在路由那一层），这里用 PUT 写清它对应的路由
+  const put = (path, body) => new Request('https://class.test' + path, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+
+  it('添加成员带邮箱：落库后验证状态是 0，地址归一化成小写', async () => {
+    const db = fakeDb();
+    const res = await handleRegister(
+      post('/api/auth/register', { student_id: '2024099', name: '新同学', password: 'abc123', email: 'New@QQ.com' }),
+      ENV(db)
+    );
+    assert.equal(res.status, 201);
+    const row = db._state.users[0];
+    assert.equal(row.email, 'new@qq.com', '不归一化就会出现「一份邮箱两个账号」');
+    assert.equal(row.email_verified, 0, '管理员没走过验证码，不能替同学把邮箱验证了');
+  });
+
+  it('添加成员：邮箱格式不对 / 已被占用都拦在前面，且不落库', async () => {
+    const db = fakeDb({ users: [{ id: 7, name: '张三', student_id: '2024001', email: 'a@qq.com', email_verified: 1 }] });
+
+    const bad = await handleRegister(
+      post('/api/auth/register', { student_id: '2024098', name: '新同学', password: 'abc123', email: 'not-an-email' }),
+      ENV(db)
+    );
+    assert.equal(bad.status, 400);
+    assert.equal((await json(bad)).code, 'INVALID_EMAIL');
+
+    const taken = await handleRegister(
+      post('/api/auth/register', { student_id: '2024098', name: '新同学', password: 'abc123', email: 'A@qq.com' }),
+      ENV(db)
+    );
+    assert.equal(taken.status, 409, '大小写不同也是同一个邮箱（唯一索引是 COLLATE NOCASE）');
+    assert.equal((await json(taken)).code, 'EMAIL_TAKEN');
+    assert.equal(db._state.users.length, 1, '被拦下的两次都不该落库');
+  });
+
+  it('添加成员不带邮箱：照常建号，邮箱为空', async () => {
+    const db = fakeDb();
+    const res = await handleRegister(
+      post('/api/auth/register', { student_id: '2024097', name: '无邮箱同学', password: 'abc123' }),
+      ENV(db)
+    );
+    assert.equal(res.status, 201);
+    assert.equal(db._state.users[0].email, null);
+    assert.equal(db._state.users[0].email_verified, 0);
+  });
+
+  it('管理员改邮箱：验证状态打回 0', async () => {
+    const db = fakeDb({ users: [{ id: 5, name: '李四', student_id: '2024005', email: 'old@qq.com', email_verified: 1 }] });
+    const res = await handleUpdateUser(
+      put('/api/auth/users/5', { email: 'New@QQ.com' }), ENV(db), officer, { id: '5' }
+    );
+    assert.equal(res.status, 200);
+    assert.equal(db._state.users[0].email, 'new@qq.com');
+    assert.equal(db._state.users[0].email_verified, 0, '换地址必须重新验证：找回密码的凭据不能由管理员代认');
+  });
+
+  it('只改姓名（邮箱原样提交）：不许把已验证的人打回未验证', async () => {
+    const db = fakeDb({ users: [{ id: 5, name: '李四', student_id: '2024005', email: 'a@qq.com', email_verified: 1 }] });
+    const res = await handleUpdateUser(
+      put('/api/auth/users/5', { name: '李四四', email: 'A@QQ.com' }), ENV(db), officer, { id: '5' }
+    );
+    assert.equal(res.status, 200);
+    assert.equal(db._state.users[0].name, '李四四');
+    assert.equal(db._state.users[0].email_verified, 1, '大小写不同不算改动（后端按归一化后的值比）');
+  });
+
+  it('清空邮箱：存 NULL 并清零验证状态', async () => {
+    const db = fakeDb({ users: [{ id: 5, name: '李四', student_id: '2024005', email: 'a@qq.com', email_verified: 1 }] });
+    const res = await handleUpdateUser(
+      put('/api/auth/users/5', { email: '' }), ENV(db), officer, { id: '5' }
+    );
+    assert.equal(res.status, 200);
+    assert.equal(db._state.users[0].email, null, '空串会占住唯一索引，必须存 NULL');
+    assert.equal(db._state.users[0].email_verified, 0);
+  });
+
+  it('改成的邮箱已被别人占用 → 409，且一个字都不改库', async () => {
+    const db = fakeDb({
+      users: [
+        { id: 5, name: '李四', student_id: '2024005', email: 'a@qq.com', email_verified: 1 },
+        { id: 6, name: '王五', student_id: '2024006', email: 'b@qq.com', email_verified: 1 }
+      ]
+    });
+    const res = await handleUpdateUser(
+      put('/api/auth/users/5', { email: 'b@qq.com' }), ENV(db), officer, { id: '5' }
+    );
+    assert.equal(res.status, 409);
+    assert.equal(db._state.users[0].email, 'a@qq.com');
+    assert.equal(db._state.users[0].email_verified, 1, '被拦下时验证状态也不该被顺手清零');
+  });
+
+  it('改成自己原来的邮箱（大小写不同）不算改动，也不报占用', async () => {
+    const db = fakeDb({ users: [{ id: 5, name: '李四', student_id: '2024005', email: 'a@qq.com', email_verified: 1 }] });
+    const res = await handleUpdateUser(
+      put('/api/auth/users/5', { email: 'A@qq.com' }), ENV(db), officer, { id: '5' }
+    );
+    assert.equal(res.status, 200, '「自己的邮箱」不该被自己占用的检查拦下');
+    assert.equal(db._state.users[0].email_verified, 1);
   });
 });
 

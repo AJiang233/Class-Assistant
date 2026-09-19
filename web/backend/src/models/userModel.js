@@ -117,13 +117,17 @@ export class UserModel {
 
   /**
    * 创建用户
+   *
+   * email 由管理员在「添加成员」里代填（选填）。**email_verified 一律写 0**：管理员填的地址
+   * 没有走过验证码，不能替那位同学把邮箱「验证」了 —— 否则找回密码的凭据就由管理员说了算。
+   * 这里显式写 0 而不吃列的默认值：这是一条需求，不是可以依赖的实现细节。
    */
   async create(userData) {
-    const { student_id, name, password_hash, positions = '学生', contact = '' } = userData;
+    const { student_id, name, password_hash, positions = '学生', contact = '', email = null } = userData;
     const result = await this.db.prepare(
-      `INSERT INTO users (student_id, name, password_hash, positions, contact, update_time)
-       VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
-    ).bind(student_id, name, password_hash, positions, contact).run();
+      `INSERT INTO users (student_id, name, password_hash, positions, contact, email, email_verified, update_time)
+       VALUES (?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP)`
+    ).bind(student_id, name, password_hash, positions, contact, email).run();
     return result;
   }
 
