@@ -1,8 +1,40 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
+    <!-- 默认一律禁明文：除了下面点名的主机，其它域必须走 https。
+         targetSdk ≥ 28 起系统本身就默认禁明文，这里显式写一遍是为了有地方挂例外。 -->
     <base-config cleartextTrafficPermitted="false">
         <trust-anchors>
             <certificates src="system" />
         </trust-anchors>
     </base-config>
+
+    <!--
+      教务系统的登录链路里还有 http 页面，不放行就是：
+      「位于 http://szjw.njau.edu.cn/login/login.html 的网页无法加载，net::ERR_CLEARTEXT_NOT_PERMITTED」。
+
+      登录链路的实现（CAS 代登录）在私有仓 class-assistant-private-api 里，这三台主机分别是：
+        authserver.njau.edu.cn  统一身份认证（CAS）登录页
+        workflow.njau.edu.cn    CAS 与教务之间的中转
+        szjw.njau.edu.cn        教务门户 —— MainActivity 打开的是 https://szjw.njau.edu.cn，
+                                但门户自己会跳到 http://szjw.njau.edu.cn/login/login.html，
+                                卡住的就是这一步
+
+      为什么逐个点名、不写 <domain includeSubdomains="true">njau.edu.cn</domain>：
+      那等于放行任意 *.njau.edu.cn 的明文流量，面比需要的大得多（同 MainActivity.inAppHosts
+      的取舍）。以后登录链路换了主机、又冒出同样的报错，就往这个列表里加一行，别改成通配。
+
+      代价说清楚：这几个主机上的流量可能以明文传输（含教务会话 Cookie），
+      这是校方服务器只提供 http 造成的，客户端没法单方面改成 https。
+
+      每个 <domain> 都必须显式写 includeSubdomains="false"。它与不写等价（只匹配主机本身、
+      不含子域），但不写会被 lint 判成 Fatal：NetworkSecurityConfig 规则报
+      「Missing includeSubdomains attribute」，lintVitalRelease 一挂，release 构建就出不来。
+      别为了让 lint 闭嘴改成 "true" —— 那正好把明文放行扩到这几个主机的全部子域，
+      与上面「逐个点名」的取舍正好相反。
+    -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">authserver.njau.edu.cn</domain>
+        <domain includeSubdomains="false">workflow.njau.edu.cn</domain>
+        <domain includeSubdomains="false">szjw.njau.edu.cn</domain>
+    </domain-config>
 </network-security-config>

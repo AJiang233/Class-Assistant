@@ -1,16 +1,78 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  应用图标（标准版，满幅）：API 24–25 的回退，也是自适应图标不可用时的兜底。
+  API 26+ 走 drawable-anydpi-v26/ic_launcher.xml（前景 / 背景两层），
+  那份的图形缩到画布 80%；本文件是满幅不做缩放的版本。
+
+  与 web/assets/icons/icon.svg 同源（同一份几何，改一处要几处一起改）：
+  108dp 满幅方图，坐标系数 108/512 = 0.2109375，描边宽 23 * 0.2109375 = 4.8515625。
+  图形交给启动器裁形状。
+
+  【挖空的画法】Android VectorDrawable 没有 <mask>，做不出「从书本描边里挖掉气泡」。
+  这里用与背景同坐标的渐变先填一块气泡外扩 18 的净空，再画白色气泡描边 ——
+  渐变按坐标取值，净空与四周底板严丝合缝（详见 ic_launcher_foreground.xml 的注释）。
+-->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+
+    <!-- 底板渐变：160°，#4aa3ff → #007aff 55% → #0060cc -->
+    <path android:pathData="M0,0h108v108h-108z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="30.348"
+                android:startY="-11.124"
+                android:endX="77.652"
+                android:endY="119.124"
+                android:type="linear">
+                <item android:offset="0" android:color="#FF4AA3FF" />
+                <item android:offset="0.55" android:color="#FF007AFF" />
+                <item android:offset="1" android:color="#FF0060CC" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- 书本：外缘 / 书脊竖直，上缘 / 下缘圆弧（R = 172 * 0.2109375 = 36.28125） -->
     <path
-        android:fillColor="#2196F3"
-        android:pathData="M0,0h108v108h-108z" />
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="4.8515625"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M19.40625,36.9140625 A36.28125,36.28125 0 0 1 48.9375,43.875 L48.9375,81.6328125 A36.28125,36.28125 0 0 0 19.40625,74.671875 Z" />
     <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M30,32h48v34h-34l-14,12z" />
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="4.8515625"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M78.46875,36.9140625 A36.28125,36.28125 0 0 0 48.9375,43.875 L48.9375,81.6328125 A36.28125,36.28125 0 0 1 78.46875,74.671875 Z" />
+
+    <!-- 气泡净空：气泡外扩 18，抹掉压在气泡处的书本描边 -->
+    <path android:pathData="M59.484375,15.8203125 H82.265625 A10.125,10.125 0 0 1 92.390625,25.9453125 V36.9140625 A10.125,10.125 0 0 1 82.265625,47.0390625 H59.484375 A10.125,10.125 0 0 1 49.359375,36.9140625 V25.9453125 A10.125,10.125 0 0 1 59.484375,15.8203125 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="30.348"
+                android:startY="-11.124"
+                android:endX="77.652"
+                android:endY="119.124"
+                android:type="linear">
+                <item android:offset="0" android:color="#FF4AA3FF" />
+                <item android:offset="0.55" android:color="#FF007AFF" />
+                <item android:offset="1" android:color="#FF0060CC" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- 对话气泡：横向长方形 + 左下尾巴，压在书本右上角 -->
     <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M42,44h24v3h-24zM42,52h18v3h-18z" />
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="4.8515625"
+        android:strokeLineJoin="round"
+        android:strokeLineCap="round"
+        android:pathData="M59.484375,19.6171875 H82.265625 A6.328125,6.328125 0 0 1 88.59375,25.9453125 V36.9140625 A6.328125,6.328125 0 0 1 82.265625,43.2421875 H71.296875 L61.59375,50.8359375 L64.125,43.2421875 H59.484375 A6.328125,6.328125 0 0 1 53.15625,36.9140625 V25.9453125 A6.328125,6.328125 0 0 1 59.484375,19.6171875 Z" />
 </vector>

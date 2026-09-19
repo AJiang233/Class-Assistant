@@ -1,6 +1,7 @@
 package com.classassistant.app.sync
 
 import android.util.Base64
+import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
@@ -13,7 +14,16 @@ import java.net.URL
  */
 object Api {
 
-    private const val BASE = "https://class.qxwkstudio.top"
+    /** 站点根地址；OfflineApi 也用它来判「这条请求是不是本站接口」，别在两处各写一份 */
+    const val BASE = "https://class.qxwkstudio.top"
+
+    /**
+     * 诊断标签，与 OfflineApi 的日志对齐。真机上报「后台同步没动静」时先看这一行：
+     * 以前这个类失败是**完全静默**的（超时 / DNS / TLS / 5xx 都只回一个 Failed），
+     * 现场连「请求有没有发出去」都看不出来。
+     * 只记方法、路径与异常类型 —— **绝不记 token 与请求体**（postJson 的 body 是教务 Cookie）。
+     */
+    private const val TAG = "CAApi"
 
     /**
      * 请求结果。必须把「登录已失效」和「网络/服务异常」分开：
@@ -34,6 +44,13 @@ object Api {
             val arr = root.optJSONObject("data")?.optJSONArray("list") ?: return null
             return (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }
         }
+
+        /**
+         * Ok 时取整个 data 对象。给「不是 data.list 形状」的接口用 ——
+         * 比如 /api/forms/mine 回的是 data.pending / data.editable 两个数组。
+         * 取不到返回 null，调用方据此判失败。
+         */
+        fun dataOrNull(): JSONObject? = (this as? Ok)?.body?.optJSONObject("data")
     }
 
     fun get(path: String, token: String): Res = request("GET", path, token, null)
@@ -73,14 +90,23 @@ object Api {
                     // 其它非 2xx（500/403/…）后端同样会带 JSON body，不能当成 Ok：
                     // 那样会被当成一次「正常但无数据」的响应，调用方拿到空数据就把本地缓存覆盖了 ——
                     // 一次 5xx 就把小组件清成「今日暂无安排」，还会取消所有提醒闹钟
-                    code !in 200..299 -> Res.Failed
-                    parsed == null -> Res.Failed
+                    code !in 200..299 -> {
+                        Log.w(TAG, "$method $path 返回 HTTP $code")
+                        Res.Failed
+                    }
+                    parsed == null -> {
+                        Log.w(TAG, "$method $path 的响应不是 JSON（${text?.length ?: 0} 字）")
+                        Res.Failed
+                    }
                     else -> Res.Ok(parsed)
                 }
             } finally {
                 conn.disconnect()
             }
         } catch (e: Exception) {
+            // 超时 / DNS / TLS / 连接被重置都落到这里。以前是静默的，真机上没法区分
+            // 「没网」和「服务端挂了」—— 现在至少留下异常类型与一句话。
+            Log.w(TAG, "$method $path 请求失败：${e.javaClass.simpleName} ${e.message}")
             Res.Failed
         }
     }

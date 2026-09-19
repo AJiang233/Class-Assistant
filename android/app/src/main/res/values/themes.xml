@@ -1,20 +1,76 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources xmlns:tools="http://schemas.android.com/tools">
     <style name="Theme.ClassAssistant" parent="Theme.Material3.DayNight.NoActionBar">
-        <!-- 系统栏配色跟随网页底色（浅色），图标用深色 -->
+        <!-- 系统栏配色：这里只是**网页上报之前**的兜底，跟随的是系统深浅色。
+             网页里自选的主题由探针经 CAHost.setTheme 报上来，MainActivity.applySystemBars 会覆盖 ——
+             两者可以相反（系统浅色 + 网页深色），issue #63 之前没有那一环，于是系统栏会一直是浅的。 -->
         <item name="android:statusBarColor">@color/window_bg_light</item>
         <item name="android:navigationBarColor">@color/window_bg_light</item>
         <item name="android:windowLightStatusBar">true</item>
         <item name="android:windowLightNavigationBar" tools:targetApi="27">true</item>
     </style>
 
-    <!-- 桌面小组件里的一行活动 -->
-    <style name="WidgetRow">
+    <!-- ===== 桌面小组件的卡片 =====
+         课表与今日活动用的是同一套卡片：一张圆角卡（底色 = 左侧彩条的浅色版，每行一个色），
+         卡里从上到下三行「时间 / 名称 / 地点」。布局也共用 widget_card_item.xml，
+         所以这里的样式一律叫 WidgetCard*（不带某一侧的专属名）。 -->
+
+    <!-- 卡片本体。
+         高度交给内容（wrap_content）而不是写死：三行文字本身就比固定高度可靠 —— 用户把
+         系统字号调大时，写死的高度会把第三行切掉。
+
+         **这里不能加 padding**：进度条是 match_parent，卡的上下内边距会把它一起挤进去，
+         「上到一半」就变成一条悬在卡中间、上下够不到边的横带。卡内的留白由内容那层
+         （widget_card_item.xml 里的 LinearLayout）自己加。
+
+         **这里也没有 background**：底色是每行一个颜色，画在 widget_card_item.xml 第一层
+         那支 ImageView 上（见那里的注释）。
+
+         这里也**故意不写 layout_margin**：这套样式只给 ListView 的 item 用，而 ListView
+         会忽略 item 根布局的 margin（变成 AbsListView.LayoutParams 时就丢了），写了也不生效。
+         行距由列表的 dividerHeight / paddingTop 给。 -->
+    <style name="WidgetCard">
         <item name="android:layout_width">match_parent</item>
         <item name="android:layout_height">wrap_content</item>
-        <item name="android:layout_marginTop">7dp</item>
-        <item name="android:textColor">#4b4b55</item>
-        <item name="android:textSize">13sp</item>
+    </style>
+
+    <!-- 卡片上「已经过去的那一部分」，**课表专用**（活动卡片不设它、默认 gone）：
+         一场活动不是「上到几成」那种东西，卡片也放不下第四行 —— 虽然活动的结束时间
+         现在缓存里确实有（见 sync/Event.kt 与 SyncRunner），用它来判「还算不算在办」，
+         但不用来画进度。
+
+         颜色与底色那点讲究在 widget_card_progress.xml 与 colors.xml 里，这里只管尺寸：
+         minHeight/maxHeight 必须显式写 —— 框架的 progressBarStyleHorizontal 把高度夹在 16dip，
+         不覆盖的话进度条只有半条高，跟底下的卡片对不上 -->
+    <style name="WidgetCardProgress" parent="@android:style/Widget.ProgressBar.Horizontal">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">match_parent</item>
+        <item name="android:minHeight">0dp</item>
+        <item name="android:maxHeight">1000dp</item>
+        <item name="android:max">100</item>
+        <item name="android:progressDrawable">@drawable/widget_card_progress</item>
+        <item name="android:visibility">gone</item>
+    </style>
+
+    <!-- 卡片里的次要两行：时间与地点。比名称小一号、颜色更淡，三行才有主次 -->
+    <style name="WidgetCardMeta">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:textColor">#8d8d98</item>
+        <item name="android:textSize">11sp</item>
+        <item name="android:maxLines">1</item>
+        <item name="android:ellipsize">end</item>
+    </style>
+
+    <!-- 卡片里的名称：三行里最重的一行。颜色写成资源而不是字面量 ——
+         课表那边「正在上」要换成强调色、「已上完」要变灰，这两处只能由代码 setTextColor 改，
+         代码与布局必须取同一份（理由同 colors.xml 里的 widget_row_text） -->
+    <style name="WidgetCardTitle">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:textColor">@color/widget_row_text</item>
+        <item name="android:textSize">12sp</item>
+        <item name="android:textStyle">bold</item>
         <item name="android:maxLines">1</item>
         <item name="android:ellipsize">end</item>
     </style>

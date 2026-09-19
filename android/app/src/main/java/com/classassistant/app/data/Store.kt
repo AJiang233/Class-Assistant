@@ -16,8 +16,19 @@ object Store {
     private const val KEY_USER_ID = "user_id"
     private const val KEY_USER_NAME = "user_name"
     private const val KEY_LAST_NOTICE_TIME = "last_notice_time"
+    private const val KEY_LAST_TODO_TIME = "last_todo_time"
+    private const val KEY_LAST_SYNC_AT = "last_sync_at"
     private const val KEY_EVENTS = "events"
     private const val KEY_SCHEDULED = "scheduled_alarm_ids"
+    private const val KEY_TIMETABLE = "timetable"
+    private const val KEY_COURSE_LEAD = "course_remind_lead"
+    private const val KEY_COURSE_AT_START = "course_remind_at_start"
+    private const val KEY_COURSE_ALARMS = "scheduled_course_alarm_ids"
+    private const val KEY_BACKGROUND_ALWAYS_ON = "background_always_on"
+    private const val KEY_THEME_DARK = "theme_dark"
+
+    /** 课程提醒默认提前多少分钟；0 = 不提前提醒 */
+    const val DEFAULT_COURSE_LEAD = 15
 
     private var cached: SharedPreferences? = null
 
@@ -52,12 +63,19 @@ object Store {
      * 退出登录：清凭据 + 同步缓存。
      * events 不清的话，小组件会继续显示上一个账号当天的活动；last_notice_time 不清的话，
      * 换账号后首次同步会把历史通知当新的逐条补推（「首次同步只记基线」那一支进不去）。
-     * 注意：取消提醒闹钟与重绘小组件不在这里做，退出登录请统一走 SyncWorker.logOutSession()。
+     * last_todo_time（待填表单，见 SyncRunner.notifyNewTodos）同理。
+     * last_sync_at 不清的话，退出后 60 秒内重新登录会被回前台同步的节流挡掉，新账号要等一分钟才拉数据。
+     * 注意：取消提醒闹钟与重绘小组件不在这里做，退出登录请统一走 SyncRunner.logOutSession()。
      */
     fun clearSession(context: Context) {
         sp(context).edit()
             .remove(KEY_TOKEN).remove(KEY_USER_ID).remove(KEY_USER_NAME)
-            .remove(KEY_EVENTS).remove(KEY_LAST_NOTICE_TIME).remove(KEY_SCHEDULED)
+            .remove(KEY_EVENTS).remove(KEY_LAST_NOTICE_TIME).remove(KEY_LAST_TODO_TIME)
+            .remove(KEY_LAST_SYNC_AT).remove(KEY_SCHEDULED)
+            // 课表缓存与课程提醒闹钟也一起清：留着的话换账号后小组件会显示别人的课，
+            // 旧闹钟还会继续按上一个账号的课表响。
+            // 但两个**设置值**（提前量 / 开课时提醒）不清 —— 那是这台设备的偏好，与账号无关。
+            .remove(KEY_TIMETABLE).remove(KEY_COURSE_ALARMS)
             .apply()
     }
 
@@ -70,8 +88,39 @@ object Store {
         sp(context).edit().putLong(KEY_LAST_NOTICE_TIME, value).apply()
     }
 
+    /**
+     * 上次同步时看到的最新**待填表单**下发时间（毫秒时间戳，由服务端 created_at 解析而来，0 = 没同步过）。
+     *
+     * 名字用 todo 而不是 form：这里的「表单」是班委下发的待填表单（网页侧的 /api/forms/mine，
+     * 首页「待填表单」那一栏）。鸿蒙端 form 已经被 ArkTS 桌面卡片占用了，两端统一叫 todo
+     * 才不会跟卡片混起来。
+     */
+    fun lastTodoTime(context: Context): Long = sp(context).getLong(KEY_LAST_TODO_TIME, 0L)
+
+    fun setLastTodoTime(context: Context, value: Long) {
+        sp(context).edit().putLong(KEY_LAST_TODO_TIME, value).apply()
+    }
+
+    /**
+     * 上次**成功**同步的完成时间（毫秒），由 SyncWorker 拉完数据后写入；没同步过是 0。
+     * 两个用途：回前台同步的节流判据（见 Scheduler.syncNow），以及个人页显示的「上次同步」。
+     * 用「完成时间」而不是「发起时间」：同步一直失败时它不会前进，于是不会被节流卡住、下次回前台照常重试。
+     */
+    fun lastSyncAt(context: Context): Long = sp(context).getLong(KEY_LAST_SYNC_AT, 0L)
+
+    fun setLastSyncAt(context: Context, value: Long) {
+        sp(context).edit().putLong(KEY_LAST_SYNC_AT, value).apply()
+    }
+
     // ===== 日程缓存（未来若干天的活动，按开始时间升序） =====
 
+    /**
+     * 每一条的字段是 [com.classassistant.app.sync.SyncRunner] 落库、
+     * 小组件（`TodayWidgetProvider` / `EventsWidgetService`）读取之间的一份约定：
+     *   `id` / `title` / `start`（开始毫秒）/ `location` 必有；
+     *   `end`（结束毫秒）**可有可无** —— 服务端的 end_time 本来就允许为空，
+     *   为空时 SyncRunner 干脆不写这个键，读的那边取不到就是 0，等于「没有结束时间」（只占开始那天）。
+     */
     fun events(context: Context): JSONArray {
         val raw = sp(context).getString(KEY_EVENTS, null) ?: return JSONArray()
         return try {
@@ -92,5 +141,79 @@ object Store {
 
     fun saveScheduledAlarmIds(context: Context, ids: Set<String>) {
         sp(context).edit().putStringSet(KEY_SCHEDULED, ids).apply()
+    }
+
+    // ===== 课表缓存（课表小组件与课程提醒都读它） =====
+
+    /**
+     * 原样存 `/api/academic/timetable` 的响应体（含 success / data 两层）。
+     * 不在这儿拆成字段：解析集中放在 sync/CourseSchedule.parseTimetableJson，
+     * 存原文的好处是以后后端加字段不用动存储层，出错时还能回头看一眼原始响应。
+     */
+    fun timetableJson(context: Context): String? = sp(context).getString(KEY_TIMETABLE, null)
+
+    fun saveTimetableJson(context: Context, json: String) {
+        sp(context).edit().putString(KEY_TIMETABLE, json).apply()
+    }
+
+    // ===== 课程提醒设置（网页个人页经 CAHost 桥读写） =====
+
+    /** 提前多少分钟提醒；0 = 不提前提醒 */
+    fun courseRemindLead(context: Context): Int =
+        sp(context).getInt(KEY_COURSE_LEAD, DEFAULT_COURSE_LEAD)
+
+    fun setCourseRemindLead(context: Context, minutes: Int) {
+        sp(context).edit().putInt(KEY_COURSE_LEAD, minutes).apply()
+    }
+
+    /** 开课时是否再提醒一次 */
+    fun courseRemindAtStart(context: Context): Boolean =
+        sp(context).getBoolean(KEY_COURSE_AT_START, true)
+
+    fun setCourseRemindAtStart(context: Context, enabled: Boolean) {
+        sp(context).edit().putBoolean(KEY_COURSE_AT_START, enabled).apply()
+    }
+
+    // ===== 已排的课程提醒闹钟（与活动闹钟分开记，key 空间也不同） =====
+
+    fun scheduledCourseAlarms(context: Context): Set<String> =
+        sp(context).getStringSet(KEY_COURSE_ALARMS, emptySet()) ?: emptySet()
+
+    fun saveScheduledCourseAlarms(context: Context, ids: Set<String>) {
+        sp(context).edit().putStringSet(KEY_COURSE_ALARMS, ids).apply()
+    }
+
+    // ===== 后台常驻开关（网页个人页经 CAHost 桥读写，见 sync/BackgroundMode） =====
+
+    /**
+     * 是否让前台服务把进程钉在后台（默认开）。
+     *
+     * 与课程提醒那两个设置一样**不随退出登录清掉**：这是这台设备的偏好，与账号无关。
+     * 也没进 clearSession —— 换账号后用户的意图不会变。
+     */
+    fun backgroundAlwaysOn(context: Context): Boolean =
+        sp(context).getBoolean(KEY_BACKGROUND_ALWAYS_ON, true)
+
+    fun setBackgroundAlwaysOn(context: Context, enabled: Boolean) {
+        sp(context).edit().putBoolean(KEY_BACKGROUND_ALWAYS_ON, enabled).apply()
+    }
+
+    // ===== 网页的明暗主题（系统栏配色的兜底，见 MainActivity.applySystemBars） =====
+
+    /**
+     * 网页上次上报的明暗（true = 深色）；**这台设备还没收到过上报**时返回 null。
+     *
+     * 为什么要落盘：主题选择在网页的 localStorage 里，而系统栏配色是 Activity 一创建就画出来的 ——
+     * 不缓存的话，每次冷启动都会先按**系统**的深浅色画一帧、再被探针的第一份上报改过来，
+     * 用户看到的就是「自己选了深色、却先闪一下浅色」（issue #63 的验收标准点名不许闪）。
+     * null 表示没有可用的缓存，那就维持资源里那两套（跟随系统），不猜一个值糊上去。
+     *
+     * 与「后台常驻」一样**不随退出登录清掉**：这是这台设备的偏好，与账号无关。
+     */
+    fun themeDark(context: Context): Boolean? =
+        if (sp(context).contains(KEY_THEME_DARK)) sp(context).getBoolean(KEY_THEME_DARK, false) else null
+
+    fun saveThemeDark(context: Context, dark: Boolean) {
+        sp(context).edit().putBoolean(KEY_THEME_DARK, dark).apply()
     }
 }

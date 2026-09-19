@@ -76,13 +76,13 @@
 | `manifest.json` | ❌ 无 | 阶段一新建 |
 | Service Worker | ❌ 无 | 阶段二新建，**必须放 `web/` 根**（作用域限制） |
 | `_headers` | ✅ 已有，覆盖 `/assets/*`、`/*.html`、`/` | **需补 `/sw.js`、`/manifest.json` 规则**，否则 SW 会被缓存住、更新不生效 |
-| 登录态存储 | `localStorage`（token + user），见 [app.js](file:///e:/WorkSpace/Class%20Assistant/Class-Assistant/web/assets/js/app.js#L47-L60) | SW 不得缓存带鉴权的接口响应 |
+| 登录态存储 | `localStorage`（token + user），见 `web/assets/js/app.js:47-60` | SW 不得缓存带鉴权的接口响应 |
 | 页面结构 | 7 个独立 HTML（index / notices / activities / academic / forms / admin / account） | 多页应用；SW 需按导航请求处理 |
 | 后端入口 | `functions/api/[[path]].js` catch-all → Worker，签名 `fetch(request, env, ctx)` | **`ctx.waitUntil` 可用**，推送可异步发 |
 | 鉴权包装 | `withAuth` / `withPermission`（`middleware/auth.js`） | 新接口直接复用 |
 | 通知对象口径 | 队友已建 `utils/audience.js` 作为「谁算全班」唯一判定口（含 `class:exclude`） | **推送必须复用同一判定口**，不能另写一套 |
 | 通知深链 | 通知/活动已有 `link` 字段与深链支持 | 推送点击的目标可直接复用 |
-| 现有推送测试入口 | [account.html](file:///e:/WorkSpace/Class%20Assistant/Class-Assistant/web/account.html#L327-L340)「开发功能」卡片，目前仅安卓壳的 `CAHost` 桥可用 | iOS 订阅入口就放这里，替换掉「仅安卓」的提示 |
+| 现有推送测试入口 | `web/account.html:327-340`「开发功能」卡片，目前仅安卓壳的 `CAHost` 桥可用 | iOS 订阅入口就放这里，替换掉「仅安卓」的提示 |
 | 后端推送设施 | ❌ 无设备/订阅表，无推送接口 | 阶段三新增 |
 
 ---
@@ -187,7 +187,7 @@
 1. `web/sw.js` 加 `push` 与 `notificationclick` 处理
    - **Safari 不允许「隐形推送」**：收到推送必须立刻 `showNotification`，否则权限会被撤销 —— 这是硬要求
    - `notificationclick` 用通知的 `link` 深链跳转，复用现有深链能力
-2. [account.html](file:///e:/WorkSpace/Class%20Assistant/Class-Assistant/web/account.html#L327-L340) 的推送卡片改造：
+2. `web/account.html:327-340` 的推送卡片改造：
    - 已装到主屏的 iOS PWA / 支持的安卓浏览器 → 「开启通知」按钮，**在用户点击手势里**申请权限并订阅（iOS 要求必须在手势内）
    - iOS 普通 Safari 标签页 → 不给死按钮，直接显示「请先添加到主屏」的引导
    - 沿用现有注释所写的原则：不支持的场景不做假的成功反馈
@@ -295,7 +295,7 @@
 
 ### 生产环境配置（已完成）
 
-- VAPID 密钥对已生成并写入 Pages Secrets（项目 `class-assistant` 的 `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT`；私钥未落仓库、未打印，`VAPID_SUBJECT` 用的是 `mailto:lkjlkjlkj123456789@163.com`，需要改随时可换）
+- VAPID 密钥对已生成并写入 Pages Secrets（项目 `class-assistant` 的 `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT`；私钥未落仓库、未打印，`VAPID_SUBJECT` 用的是 `mailto:<你的邮箱>`，需要改随时可换）
 - 远程 D1 已执行 `2026-09-13-push.sql`，`push_subscriptions` 表与 `idx_push_subs_user` 索引已确认存在
 
 ### 上线后发现并修复：CDN 覆盖了 `_headers`

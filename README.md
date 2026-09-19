@@ -2,21 +2,41 @@
 
 一个面向「班长」角色的 AI 助理系统：把转发通知、活动提醒、同学答疑、材料催收等机械化的班级事务，逐步交给 AI 与自动化流程完成。
 
-目前状态：**Web 门户与安卓端已可用**（账号体系 / 通知与活动管理 / 移动端适配 / 系统日历订阅 / 安卓本地提醒与桌面小组件），并已完成一轮安全加固；Go 常驻调度进程已跑通封存自检骨架，Agent / 爬虫 / 知识库等模块在逐步建设中。
+目前状态：**Web 门户与安卓端已可用**（账号体系 / 通知与活动管理 / 移动端适配 / 系统日历订阅 / 安卓的本地提醒、桌面小组件），并已完成一轮安全加固；鸿蒙端**开发已暂停**，代码移至 `harmony` 分支（见下表）；Go 常驻调度进程已跑通封存自检骨架，Agent / 爬虫 / 知识库等模块在逐步建设中。
 
 ## 项目背景
 
 班长的大量日常工作是结构化、可自动化的重复劳动。本项目通过「本地服务器 + Agent 编排 + RAG 知识库 + Web 门户」的组合，让 Agent 承担通知流转、日程提醒与常见问题答疑，既为同学提供更好的服务，也作为个人全栈与 Agent 开发的实践项目。
 
+## 模块索引
+
+每个一级目录都有自己的 README，讲这个目录里有什么、怎么构建、有哪些约定 —— **本文件只讲整体**。
+
+| 目录 | 内容 | 状态 | 文档 |
+| --- | --- | --- | --- |
+| `web/` | Cloudflare Pages 门户（静态前端 + Functions 后端 + D1） | ✅ 已上线 `class.qxwkstudio.top` | [web/README.md](web/README.md) |
+| `android/` | 安卓端（Kotlin + WebView 套壳：本地提醒 / 桌面小组件 / 离线缓存 / 后台常驻） | ✅ 已可用 | [android/README.md](android/README.md) |
+| `harmony/` | 鸿蒙端（ArkTS + ArkWeb 套壳：系统提醒 / 服务卡片）—— 开发已暂停，代码移出主线 | ⏸ 见 `harmony` 分支 | [harmony 分支](https://github.com/AJiang233/Class-Assistant/tree/harmony) |
+| `internal/` | 与 Worker 对齐的 Go 规则（vault / identity / roles / ratelimit） | ✅ 已可用 | [internal/README.md](internal/README.md) |
+| `cmd/` | Go 命令入口，当前只有 `cmd/scheduler` | 🚧 骨架已跑通 | [cmd/README.md](cmd/README.md) |
+| `scheduler/` | 常驻调度进程的说明与现状 | 🚧 只做封存自检 | [scheduler/README.md](scheduler/README.md) |
+| `agent/` | Agent 编排与提示词 | ⏳ 规划中 | [agent/README.md](agent/README.md) |
+| `crawler/` | 通知抓取（将复用 `internal/`） | ⏳ 规划中 | [crawler/README.md](crawler/README.md) |
+| `rag/` | 向量化与检索 | ⏳ 规划中 | [rag/README.md](rag/README.md) |
+
+Go 模块声明在根目录 `go.mod`（go 1.22，模块路径 `github.com/AJiang233/Class-Assistant`）。
+
+另有 `.github/`（CI 工作流 + Issue / PR 模板）与 `.claude/artifacts/plans/`（设计文档归档），是工具目录，不算项目模块。
+
 ## 功能规划
 
+- ✅ 日程与提醒： 已落地两条路径 —— 系统日历订阅（全平台通用）、安卓本地到点提醒
+- ✅ 个性化门户：Cloudflare 网站 + 账号体系，按职位/角色展示内容与权限
+- ✅ 教务数据同步：同步个人课表与学业达成（学分看板）；绑定支持 App 一键、学号密码代登录、手动粘贴 Cookie 三条路径
+- ✅ 移动端：安卓原生套壳（WebView + 本地提醒 + 桌面小组件）；iOS 通过 Web + 系统日历订阅覆盖
 - 通知抓取与归档：轮询班级工作群，拉取新通知并结构化归档（规划中）
 - 智能转发：根据通知内容判断是否需要转发到班级群，并支持人工复核（规划中）
 - 知识库问答：爬取学生手册、教务处文件等归档进 RAG，群内 @ 助手即可答疑（规划中）
-- 日程与提醒：✅ 已落地两条路径 —— 系统日历订阅（全平台通用）、安卓本地到点提醒
-- 个性化门户：✅ Cloudflare 网站 + 账号体系，按职位/角色展示内容与权限
-- 教务数据同步：✅ 同步个人课表与学业达成（学分看板）；绑定支持 App 一键、学号密码代登录、手动粘贴 Cookie 三条路径
-- 移动端：✅ 安卓原生套壳（WebView + 本地提醒 + 桌面小组件）；iOS / 鸿蒙通过 Web + 系统日历订阅覆盖
 
 ## 技术架构
 
@@ -24,8 +44,8 @@
 | --- | --- |
 | 门户网站（已完成） | Cloudflare Pages（静态前端 + Functions 后端 + D1 数据库） |
 | 鉴权 / 权限 | JWT（HS256）+ PBKDF2 密码哈希；按职位 + 自定义职位分级权限 |
-| 测试 | Web：Node 原生 `node --test`（`web/backend/test/`）；Go：标准库 `testing`（`internal/` 下各包单测） |
-| 移动端（已完成） | Android：Kotlin + WebView 套壳，WorkManager 定期同步 + AlarmManager 到点提醒 + AppWidget 桌面小组件 |
+| 测试 | Web：Node 原生 `node --test`（`web/backend/test/`）；Go：标准库 `testing`（`internal/` 下各包单测）；安卓：JVM 单测 + CI 构建校验 |
+| 移动端 — 安卓（已完成） | Kotlin + WebView 套壳，WorkManager 定期同步 + AlarmManager 到点提醒 + AppWidget 桌面小组件 |
 | 多端提醒（已完成） | 日历订阅 `.ics`（iOS / 鸿蒙 / Android / 桌面通用，无需安装 App） |
 | 常驻调度（骨架已跑通） | Go 1.22 进程（`cmd/scheduler` + `internal/`）：与 Worker 共用 Cookie 封存 / 学号比对 / 职位白名单 / 限流规则 |
 | Agent 编排 | OpenClaw（规划中） |
@@ -33,68 +53,16 @@
 | 知识库 | 向量数据库 + RAG（规划中） |
 | 本地模型 | 轻量模型（OCR / 上下文压缩 / 查询，规划中） |
 
-## 目录结构
-
-```
-class-assistant/
-├── agent/          # Agent 编排与提示词（规划中）
-├── crawler/        # 通知抓取（复用根模块 internal，尚未接真实群）
-├── rag/            # 向量化与检索（规划中）
-├── scheduler/      # 调度进程说明（代码在 cmd/scheduler + internal）
-├── cmd/scheduler/  # 调度进程入口（run / once / vault-seal / vault-open / student-id）
-├── internal/       # 与 Worker 对齐的 Go 规则（vault / identity / roles / ratelimit）
-├── go.mod          # Go 模块（go 1.22，模块路径 github.com/AJiang233/Class-Assistant）
-├── web/            # Cloudflare Pages 门户（前端 + Functions 后端 + D1，已上线）
-└── android/        # 安卓端（Kotlin，WebView + 本地提醒 + 桌面小组件）
-```
-
-## 当前状态
-
-### Web 门户（`web/`，已上线 `class.qxwkstudio.top`）
-
-- **账号与权限**：学号 + 密码登录（PBKDF2 加盐哈希）、JWT 鉴权；班长/团支书/学习委员等预设职位 + 自定义职位权限，支持一人多职位（权限取并集）；成员管理、修改密码、个人资料（联系方式）自助修改
-- **内容管理**：通知与活动的发布 / 编辑 / 删除（统一弹窗表单）、通知过期自动隐藏与归档查看、提醒对象选择（支持按职位一键全选，如「通知所有团员」）
-- **界面体验**：液态玻璃设计（浅色 / 深色双主题）、响应式布局（小屏隐藏侧栏、改为底部导航，并针对手机做字号密度适配）、班级主页（日历 + 当日通知/活动 + 详情弹窗）、折叠式管理员面板（左栏发布内容 / 右栏管理成员）、个人中心强制刷新（清缓存重载，修复样式错乱）与「关于软件」卡片（版本号 / 检查更新 / 项目仓库 /开发者）
-- **日历订阅**：一键生成 `.ics` 订阅链接，可自定义「提前提醒时间 / 包含过去与未来的范围 / 是否包含班级通知」，并支持重置密钥
-- **课表与学业**：绑定教务系统后展示个人课表（节次网格、当前周高亮）、未安排课程与学业达成学分看板；数据经后端代理抓取并缓存进 D1。绑定有三条路径：App 内一键绑定、学号 + 密码代登录（复刻金智 CAS，密码用完即弃）、手动粘贴 Cookie
-- **安全加固**：登录 / 注册 / 改密统一校验密码长度（6–72 位）；系统预置职位（学生 / 班长 / 团支书 / 学习委员）不允许写入 `roles` 表（否则等于给全班提权），自定义职位只接受 `content:write` / `user:manage` 两个白名单权限点；教务绑定强制「教务学号 = 门户学号」；多因子验证码错满 5 次即作废本次中间态；教务会话 Cookie 与 MFA 中间态均 AES-GCM 封存
-- **测试与迁移**：`cd web && npm test`（Node 原生 `node --test`，覆盖鉴权与权限边界）；表结构见 `schema.sql`，增量变更见 `migrations/`，脚本为 `npm run db:migrate` / `db:migrate:mfa`
-
-### 安卓端（`android/`）
-
-- WebView 套壳加载线上门户：登录态持久化、下拉刷新（仅在页面置顶时触发）、返回键回退；站内与教务域留在 WebView，其它外链（含 APK 下载）交给系统浏览器
-- **系统栏配色**：状态栏 / 导航栏跟随网页底色（浅色 / 深色各自适配，图标明暗自动切换）
-- **本地提醒**：WorkManager 定期同步活动与通知，AlarmManager 在活动开始前 30 分钟发通知（App 未打开也能收到）；同步到新通知时提醒
-- **通知深链**：点提醒直达对应活动 / 通知详情，App 未打开（冷启动读启动 Intent）与已在运行（`onNewIntent`）都生效
-- **桌面小组件**：显示今日活动
-- **教务绑定**：门户内一键打开教务登录页（固定桌面 UA，规避教务系统的手机端兼容问题），登录后由原生读出会话 Cookie 上报后端
-- 构建：`cd android && ./gradlew assembleDebug`（产物在 `app/build/outputs/apk/debug/`）
-- 签名：正式 keystore 不进仓库（`.gitignore` 挡了 `*.jks` / `*.keystore`），只以 base64 存在仓库 Secrets：`KEYSTORE_BASE64`（keystore 的 base64）、`KEYSTORE_PASSWORD`、`KEY_ALIAS`、`KEY_PASSWORD`；密钥与口令务必另行备份，丢了就只能改包名、让所有人重装一次
-- 生成 keystore：`keytool -genkeypair -v -keystore release.jks -alias class-assistant -keyalg RSA -keysize 2048 -validity 10000`，再 `base64 -w0 release.jks`（PowerShell：`[Convert]::ToBase64String([IO.File]::ReadAllBytes("release.jks"))`）填进 `KEYSTORE_BASE64`
-- 发版：CI（`build-android.yml`）注入 `version_name`、从 Secrets 还原 keystore 后产出已签名的 release 包；发布 Release 后需同步更新 `web/version.json`（最新版本号 + APK 稳定直链），否则个人中心「检查更新」读不到，维护细节见 `web/README.md` 的部署一节
-
-### 常驻调度进程（`cmd/scheduler` + `internal/`）
-
-门户继续跑在 Cloudflare Functions 上；Go 常驻进程只承接「必须一直活着」的事：轮询、抓取、对外限流。
-
-- **与 Worker 共用同一套规则**：Cookie 封存格式 `v1.<iv>.<ciphertext>`（AES-256-GCM；密钥取 `COOKIE_SECRET`，缺省回退 `JWT_SECRET` 派生，解密时两个都试，避免后加密钥把旧记录锁死），与 `cookieVault.js` 交叉验证；学号比对、预置职位白名单、权限白名单与 `permissions.js` 同源，不另起一套
-- **当前只做封存自检**：`run` 每小时验一次「能封能解」，确认进程活着、密钥没配坏。课表 / 通知的真实轮询抓取还没接进来，跑它不会替任何人拉数据
-- 命令：`go test ./...`、`go run ./cmd/scheduler once`（跑一轮自检后退出，给 CI / 手工验证）、`go run ./cmd/scheduler run`（长期运行）；封存类命令读环境变量 `COOKIE_SECRET` / `JWT_SECRET`，与 Pages Secrets 同一套
-- 细节见 `scheduler/README.md`
-
-### 规划中
-
-⏳ Agent 编排、微信消息通道、通知抓取、RAG 知识库、本地轻量模型
-
 ## 协作分工
 
-> 依据本仓库的提交记录整理（账号名）
+> 依据本仓库的提交记录（`git shortlog -sn`，以及各目录下的 author）整理，**截至 0.5.4**；同一人可能留下过多个提交身份（`TidalStarNan` 与 `汐星楠`），已合并统计。
 
 | 贡献者 | 主要工作 |
 | --- | --- |
-| AJiang233 | 后端 API / 鉴权与权限体系 / 通知与活动数据模型、安卓端（WebView 套壳、下拉刷新、本地提醒、桌面小组件、日历订阅）、CAS 代登录的 Cookie 罐（按域 + Path 存取）与会话换取判定、课表页错误分支兜底、前端 API 超时兜底、文档 |
+| AJiang233 | 后端 API / 鉴权与权限体系 / 通知与活动数据模型、CAS 代登录的 Cookie 罐与会话换取判定、课表页错误分支兜底、前端 API 超时兜底；Web 课表与学分看板、班级主页与管理员页面、移动端适配、个人中心卡片折叠与两列排布；安全加固（全站 CSP、内联脚本与内联事件处理器全部外置）；安卓端（WebView 套壳、下拉刷新、本地提醒、桌面小组件、日历订阅、离线可用、后台常驻与深 Doze 兜底）；安卓到鸿蒙的交接文档 |
 | TsoiTZF | Go 常驻调度（`cmd/scheduler` + `internal/`：Cookie 封存 / 学号比对 / 职位白名单 / 进程内限流，密文格式与 Worker 交叉验证）、安全审查与加固（教务越权、自定义职位提权、密码长度、MFA 次数上限） |
-| TidalStarNan | 架构迁移到 Cloudflare Pages（`functions/` 接管 `/api/*`）、Web 前端主体开发与移动端布局适配修复（班级主页 / 通知 / 活动 / 账号 / 管理员页面 / 弹窗）、安卓端 GitHub Actions 打包（APK 构建与版本号注入） |
+| TidalStarNan | 架构迁移到 Cloudflare Pages（`functions/` 接管 `/api/*`）、Web 前端主体开发与移动端布局适配修复（班级主页 / 通知 / 活动 / 账号 / 管理员页面 / 弹窗 / 表单）；安卓端 GitHub Actions 打包、通知渠道改弹横幅与通知 / 活动深链、按提醒对象过滤与推送扇出分批、后台同步压到各自的周期下限、图标统一、制作「检查更新」功能；桌面小组件改版；模块 README 拆分与各次发版记账（`version.json`）；0.3.2 之后的三端审计与修复批次与通知渠道 v3+MAX 升级、推送测试异步化及回调转发 |
+| juuuua | 鸿蒙端**初版**（ArkTS + ArkWeb 套壳与 `CAHost` JS 桥、workScheduler 后台同步、reminderAgentManager 到点提醒、服务卡片「今日活动」、教务绑定流程）；之后各轮的端到端对齐与修补见 `TidalStarNan` 一行 |
 
 ## Roadmap
 
@@ -111,3 +79,49 @@ class-assistant/
 ## 说明
 
 本项目用于个人学习与班级服务，请遵守各平台使用条款，并注意保护同学的个人隐私信息。教务绑定只允许本人学号，会话 Cookie 加密落库；生产环境的 `JWT_SECRET` / `COOKIE_SECRET` 必须配成 Secrets，不要写进仓库（Pages Secrets 配一次即可，Go 调度进程读同名环境变量）；本地开发复制 `web/.dev.vars.example` 为 `web/.dev.vars`。
+
+## 本地网络：git 连不上 GitHub 时
+
+仓库在 GitHub 上，而**国内直连 GitHub 的 git 通道经常不通**。典型表现是：
+
+```
+fatal: unable to access 'https://github.com/...': Failed to connect to github.com port 443 after 21000 ms
+fatal: unable to access 'https://github.com/...': Recv failure: Connection was reset
+```
+
+有两点容易误判，先说明：
+
+- **同一时刻浏览器 / `gh` 可能完全正常**（能打开仓库页、能开 PR），只有 git 推不上去。那是因为它们解析到的 IP 与 TLS 指纹和 git 不同，走的是能通的那条路 —— 所以「网页能打开」证明不了 git 能推。
+- **重试偶尔能成，但不可靠**。同一台机器上 `github.com` 往往只解析到一个 IP（如 `20.205.243.166`），那个 IP 的 443 时通时不通。
+
+机器上一般已经开着代理（Clash / mihomo 之类，本地监听在 `127.0.0.1:7897` 这一档端口上），但 **git 默认不读系统代理设置** —— 这是「明明有代理却还是推不上去」的原因。显式给它指过去即可：
+
+```bash
+# 只在这一次命令上生效，不改任何配置
+git -c http.proxy=http://127.0.0.1:7897 push
+
+# 或者写进全局配置
+git config --global http.proxy http://127.0.0.1:7897
+git config --global --unset http.proxy        # 想取消时
+```
+
+端口换成你自己代理的。判断通没通最快的办法是 `git ls-remote origin` —— 能列出分支就是通了。
+
+### 别的工具要不要也走代理
+
+- **`gh` CLI 与浏览器**：通常不用管，实测能直连（同样是因为它们走的 IP 与 git 不同）。
+- **`wrangler` 的其余命令**（`deploy` / `d1 execute --remote`）：实测直连也正常。
+- **`wrangler tail` 必须走代理**，这是唯一一个会「静默失败」的。它的实时日志是一条 websocket，那个域名在国内被 DNS 污染 —— 典型报错是连到了 Facebook 的 IP 段：
+
+  ```
+  Error: connect ETIMEDOUT 31.13.95.38:443
+  ```
+
+  不报错的时候更坑：它会照常打印 `Successfully created tail, expires at ...`，然后**一条事件也收不到**，很容易被误判成「这段时间根本没有请求进来」。wrangler 认 `HTTPS_PROXY`：
+
+  ```powershell
+  $env:HTTPS_PROXY = "http://127.0.0.1:7897"
+  npx wrangler tail <worker 名> --format json
+  ```
+
+  给对了代理它会先打印一行 `Proxy environment variables detected. We'll use your proxy for fetch requests.`；建议配 `--format json`，每条事件一行、不缓冲，便于直接看和抓取。

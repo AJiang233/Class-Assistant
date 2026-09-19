@@ -80,7 +80,7 @@ export function buildCalendar(events, calendarName, reminderMinutes = 30) {
       : (toIcsStamp(event.end) || start);
 
     lines.push('BEGIN:VEVENT');
-    lines.push(`UID:${event.uid}`);
+    lines.push(`UID:${escapeText(event.uid)}`);
     lines.push(`DTSTAMP:${utcStamp()}`);
     lines.push(allDay ? `DTSTART;VALUE=DATE:${start}` : `DTSTART:${start}`);
     lines.push(allDay ? `DTEND;VALUE=DATE:${end}` : `DTEND:${end}`);

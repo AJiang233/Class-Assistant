@@ -1,6 +1,6 @@
 /**
  * 活动数据模型
- * 表结构：activities (id, title, content, location, start_time, end_time, publisher, remind_people, created_at)
+ * 表结构：activities (id, title, content, location, start_time, end_time, publisher, remind_people, created_by, created_at)
  */
 export class ActivityModel {
   constructor(db) {
@@ -11,12 +11,15 @@ export class ActivityModel {
    * 创建活动
    */
   async create(data) {
-    const { title, content = '', location = '', start_time, end_time = '', publisher, remind_people = null } = data;
+    const {
+      title, content = '', location = '', start_time, end_time = '',
+      publisher, remind_people = null, created_by = null
+    } = data;
     const row = await this.db.prepare(
-      `INSERT INTO activities (title, content, location, start_time, end_time, publisher, remind_people)
-       VALUES (?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO activities (title, content, location, start_time, end_time, publisher, remind_people, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
        RETURNING id`
-    ).bind(title, content, location, start_time, end_time, publisher, remind_people).first();
+    ).bind(title, content, location, start_time, end_time, publisher, remind_people, created_by).first();
     return row ? row.id : null;
   }
 
@@ -55,11 +58,11 @@ export class ActivityModel {
   }
 
   /**
-   * 根据 ID 获取活动
+   * 根据 ID 获取活动（带 created_by，供更新/删除校验归属）
    */
   async findById(id) {
     const result = await this.db.prepare(
-      `SELECT id, title, content, location, start_time, end_time, publisher, remind_people, created_at
+      `SELECT id, title, content, location, start_time, end_time, publisher, remind_people, created_by, created_at
        FROM activities WHERE id = ?`
     ).bind(id).first();
     return result;
@@ -67,6 +70,8 @@ export class ActivityModel {
 
   /**
    * 更新活动（只更新传入的字段）
+   *
+   * 有意不在这里支持 publisher：署名只在创建时由服务端从登录态写入（见 issue #17）。
    */
   async update(id, data) {
     const fields = [];
@@ -77,7 +82,6 @@ export class ActivityModel {
     if (data.location !== undefined) { fields.push('location = ?'); values.push(data.location); }
     if (data.start_time !== undefined) { fields.push('start_time = ?'); values.push(data.start_time); }
     if (data.end_time !== undefined) { fields.push('end_time = ?'); values.push(data.end_time); }
-    if (data.publisher !== undefined) { fields.push('publisher = ?'); values.push(data.publisher); }
     if (data.remind_people !== undefined) { fields.push('remind_people = ?'); values.push(data.remind_people); }
 
     if (fields.length === 0) return { success: true };

@@ -1,14 +1,41 @@
 <!--
-  应用图标源文件（maskable 版，供安卓自适应图标裁切用）：
-  图形缩到画布约 50%，确保落在 maskable 要求的中心 80% 安全圆内，
-  被裁成圆形/方形/水滴形都不会切到图形。背景保持满幅。
+  应用图标源文件（maskable 版，供安卓自适应图标 / PWA maskable 裁切用）：
+  与标准版同源，仅把图形整体缩到画布 80%（绕画布中心缩放），
+  确保整个图形落在 maskable 要求的中心 80% 安全圆内，
+  被裁成圆形 / 方形 / 水滴形都不会切到笔画。底板保持满幅。
+
+  【结构注意】缩放变换必须挂在「外层 wrapper」上，被蒙版引用的 <g> 自身不能带 transform。
+  否则浏览器会把 mask 的 userSpaceOnUse 区域解释到缩放后的局部坐标里，
+  蒙版区域（0..512）落到画布仅 0..51 的位置，把整本书裁掉。
+  同理，蒙版里的气泡路径也要写画布空间坐标，不能再套一层缩放。
+
+  重新生成 PNG（192 / 512 / maskable）见 web/assets/icons 下的产物约定。
 -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
-  <rect width="512" height="512" fill="#2196f3"/>
-  <g transform="translate(256 256) scale(8) translate(-32 -37)"
-     fill="none" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round">
-    <path d="M16 24h32v18H26l-10 8z"/>
-    <path d="M24 30h16"/>
-    <path d="M24 34h10"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="班级助理">
+  <defs>
+    <linearGradient id="ca-bg" x1="0.281" y1="-0.103" x2="0.719" y2="1.103">
+      <stop offset="0" stop-color="#4aa3ff"/>
+      <stop offset="0.55" stop-color="#007aff"/>
+      <stop offset="1" stop-color="#0060cc"/>
+    </linearGradient>
+
+    <mask id="ca-knockout" maskUnits="userSpaceOnUse" x="-256" y="-256" width="1024" height="1024">
+      <rect x="-256" y="-256" width="1024" height="1024" fill="#ffffff"/>
+      <path d="M282,93 H390 A30,30 0 0 1 420,123 V175 A30,30 0 0 1 390,205 H338 L292,241 L304,205 H282 A30,30 0 0 1 252,175 V123 A30,30 0 0 1 282,93 Z"
+            fill="#000000" stroke="#000000" stroke-width="36" stroke-linejoin="round" stroke-linecap="round"/>
+    </mask>
+  </defs>
+
+  <rect width="512" height="512" fill="url(#ca-bg)"/>
+
+  <g transform="translate(256 256) scale(0.8) translate(-256 -256)">
+    <g mask="url(#ca-knockout)" fill="none" stroke="#ffffff" stroke-width="23"
+       stroke-linecap="round" stroke-linejoin="round">
+      <path d="M92,175 A172,172 0 0 1 232,208 L232,387 A172,172 0 0 0 92,354 Z"/>
+      <path d="M372,175 A172,172 0 0 0 232,208 L232,387 A172,172 0 0 1 372,354 Z"/>
+    </g>
+
+    <path d="M282,93 H390 A30,30 0 0 1 420,123 V175 A30,30 0 0 1 390,205 H338 L292,241 L304,205 H282 A30,30 0 0 1 252,175 V123 A30,30 0 0 1 282,93 Z"
+          fill="none" stroke="#ffffff" stroke-width="23" stroke-linejoin="round" stroke-linecap="round"/>
   </g>
 </svg>

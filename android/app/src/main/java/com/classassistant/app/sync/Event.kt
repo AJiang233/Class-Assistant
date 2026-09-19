@@ -4,11 +4,18 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/** 一条待提醒的活动（只保留提醒与小组件需要的字段） */
+/**
+ * 一条待提醒的活动（只保留提醒与小组件需要的字段）。
+ *
+ * `endMillis` 可空：服务端的 end_time 本来就允许为空（见下面的 [isEventActiveOnDay]），
+ * 空表示这场活动只占开始那天。提醒只看 `startMillis`（见 Scheduler.rescheduleAlarms），
+ * 结束时间只用来决定小组件上「这场活动还算不算在办」。
+ */
 data class Event(
     val id: Int,
     val title: String,
     val startMillis: Long,
+    val endMillis: Long?,
     val location: String
 )
 
@@ -50,4 +57,29 @@ fun isSameDay(a: Long, b: Long): Boolean {
 fun startOfToday(now: Long): Long {
     val day = SimpleDateFormat("yyyy-MM-dd", Locale.CHINA).format(Date(now))
     return SimpleDateFormat("yyyy-MM-dd", Locale.CHINA).parse(day)?.time ?: now
+}
+
+/**
+ * 这场活动在「某一天」算不算在办。小组件（今日活动卡片）与网页主页取同一口径。
+ *
+ * 口径来自后端 `/api/activities` 的默认 `scope=active`（见后端 activityModel.list 的 SQL），
+ * 只比**日期**、不比时刻：
+ *
+ *     start_day <= 该日 <= end_day
+ *
+ * 也就是说：活动在自己最后那一天从 00:00 到 23:59 之间都还显示，过了这一天（第二天 00:00 起）
+ * 才从列表里消失；`endMillis` 为空 = 只占开始那天（end_day 退化成 start_day）。
+ *
+ * 为什么不能拿 `isSameDay(startMillis, 该日)` 凑合：那条只认「开始就在今天」，
+ * 一条昨天开始、今天才结束的活动（比如两天的运动会）在今天就是「在办」，
+ * 网页主页看得到、小组件却看不到 —— 两块屏说的是两件事。
+ *
+ * @param dayMillis 要判的那一天里的任意时刻（只看它的日期）
+ */
+fun isEventActiveOnDay(startMillis: Long, endMillis: Long?, dayMillis: Long): Boolean {
+    val day = startOfToday(dayMillis)
+    // 还没开始（开始那天在该日之后）
+    if (startOfToday(startMillis) > day) return false
+    // 已经结束（最后一天在该日之前）
+    return startOfToday(endMillis ?: startMillis) >= day
 }

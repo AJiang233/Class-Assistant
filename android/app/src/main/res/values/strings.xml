@@ -2,15 +2,57 @@
 <resources>
     <string name="app_name">班级助理</string>
 
-    <!-- 通知渠道 -->
-    <string name="channel_activity">活动提醒</string>
-    <string name="channel_activity_desc">活动开始前 30 分钟提醒</string>
+    <!-- 通知渠道。两条都是「重要」级别（系统会以横幅弹出），说明里点一句，
+         省得用户以为弹窗关不掉 —— 想静音在系统设置里单独关这一条渠道即可。 -->
+    <string name="channel_activity">班级活动提醒</string>
+    <string name="channel_activity_desc">活动开始前 30 分钟提醒（会弹出横幅）</string>
     <string name="channel_notice">班级通知</string>
-    <string name="channel_notice_desc">班委发布新通知时提醒</string>
+    <string name="channel_notice_desc">班委发布新通知时提醒（会弹出横幅）</string>
+    <string name="channel_course">课程提醒</string>
+    <string name="channel_course_desc">按「个人中心」里的设置在上课前提醒（会弹出横幅）</string>
 
-    <!-- 桌面小组件 -->
+    <!-- 前台服务那条常驻通知：最低重要级（不响、不弹、不进锁屏），只在通知栏占一行。
+         前台服务必须有可见通知，所以没法更静；想彻底去掉只能去系统设置里关掉这条渠道，
+         或到「个人中心 → 后台通知」里把常驻关掉。 -->
+    <string name="channel_background">后台常驻</string>
+    <string name="channel_background_desc">在后台持续接收班级通知（不响铃，也不弹横幅）</string>
+    <string name="background_title">班级助理正在后台运行</string>
+    <string name="background_text">这样新通知能及时送达，点这里打开应用</string>
+
+    <!-- 桌面小组件：今日活动。widget_title 同时充当「添加小组件」列表里的名字
+         （AndroidManifest 里 TodayWidgetProvider 那个 receiver 的 label 指向它）。 -->
     <string name="widget_title">今日活动</string>
     <string name="widget_title_of">%1$s 的今日活动</string>
     <string name="widget_empty">今日暂无安排</string>
     <string name="widget_desc">显示今天的班级活动</string>
+
+    <!-- 桌面小组件：课表。今天还有课就显示今天，否则显示下一个有课的日子并标出来。
+         三种有课的日子一律把日期写进标题（「今日 09-16 课程」）：桌面这块屏是缓存的，
+         只写「今日课程」的话，隔天开机时肉眼分不清它是今天算出来的还是昨天剩下来的，
+         日期是唯一能自证新鲜的东西。
+         courses_widget_title（不带日期）留给「还没同步到课表 / 近期没课」两种空态，
+         同时兼任布局里的预览文案 —— 带 %1$s 的话预览与 lint 都会别扭；
+         它也是「添加小组件」列表里显示的名字（CoursesWidgetProvider receiver 的 label）。 -->
+    <string name="courses_widget_title">今日课程</string>
+    <string name="courses_widget_title_today">今日 %1$s 课程</string>
+    <string name="courses_widget_title_tomorrow">明日 %1$s 课程</string>
+    <string name="courses_widget_title_day">%1$s %2$s 课程</string>
+    <string name="courses_widget_nodata">还没同步到课表。到「学业」绑定教务系统后会自动同步</string>
+    <string name="courses_widget_none">近期没有课程安排</string>
+    <string name="courses_widget_desc">显示今天要上的课；今天没课或已上完时，显示下一个要上课的日子</string>
+
+    <!-- 课程提醒通知 -->
+    <string name="course_notify_lead">还有 %1$d 分钟上课</string>
+    <string name="course_notify_start">开始上课</string>
+
+    <!-- 周一 … 周日（下标与 CourseSchedule.weekdayOf 对齐，1=周一） -->
+    <string-array name="weekday_short">
+        <item>周一</item>
+        <item>周二</item>
+        <item>周三</item>
+        <item>周四</item>
+        <item>周五</item>
+        <item>周六</item>
+        <item>周日</item>
+    </string-array>
 </resources>

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  自适应图标（API 26+）。放在 drawable-anydpi-v26 而不是 mipmap：
+  清单里 android:icon 指的是 @drawable/ic_launcher，同名的 drawable/ic_launcher.xml
+  继续作为 API 24–25 的回退（那时系统还不认识 adaptive-icon）。
+  资源限定符 -v26 保证老系统根本不会加载到这份文件，不会触发解析失败。
+
+  图形整体缩到画布 80%（见 ic_launcher_foreground.xml），落在安全圆内；
+  底板是背景层的满幅渐变，形状交给启动器裁。
+-->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@drawable/ic_launcher_background" />
+    <foreground android:drawable="@drawable/ic_launcher_foreground" />
+</adaptive-icon>

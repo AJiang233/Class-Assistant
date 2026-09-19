@@ -1,6 +1,6 @@
 /**
  * 通知数据模型
- * 表结构：notices (id, title, content, publish_time, publisher, remind_people, source, created_at)
+ * 表结构：notices (id, title, content, publish_time, publisher, remind_people, source, expire_time, link, created_by, created_at)
  */
 export class NoticeModel {
   constructor(db) {
@@ -11,12 +11,15 @@ export class NoticeModel {
    * 创建通知，返回新 id（表单联动下发时要回写 forms.notice_id）
    */
   async create(data) {
-    const { title, content, publish_time, publisher, remind_people = null, source = 'manual', expire_time = null, link = null } = data;
+    const {
+      title, content, publish_time, publisher, remind_people = null,
+      source = 'manual', expire_time = null, link = null, created_by = null
+    } = data;
     const row = await this.db.prepare(
-      `INSERT INTO notices (title, content, publish_time, publisher, remind_people, source, expire_time, link)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO notices (title, content, publish_time, publisher, remind_people, source, expire_time, link, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
        RETURNING id`
-    ).bind(title, content, publish_time, publisher, remind_people, source, expire_time, link).first();
+    ).bind(title, content, publish_time, publisher, remind_people, source, expire_time, link, created_by).first();
     return row ? row.id : null;
   }
 
@@ -55,11 +58,11 @@ export class NoticeModel {
   }
 
   /**
-   * 根据 ID 获取通知
+   * 根据 ID 获取通知（带 created_by，供更新/删除校验归属）
    */
   async findById(id) {
     const result = await this.db.prepare(
-      `SELECT id, title, content, publish_time, publisher, remind_people, source, expire_time, link, created_at
+      `SELECT id, title, content, publish_time, publisher, remind_people, source, expire_time, link, created_by, created_at
        FROM notices WHERE id = ?`
     ).bind(id).first();
     return result;
@@ -67,6 +70,9 @@ export class NoticeModel {
 
   /**
    * 更新通知（只更新传入的字段）
+   *
+   * 有意不在这里支持 publisher：署名只在创建时由服务端从登录态写入，
+   * 允许 update 改它等于给「伪签别人的名」留了入口（见 issue #17）。
    */
   async update(id, data) {
     const fields = [];
@@ -75,7 +81,6 @@ export class NoticeModel {
     if (data.title !== undefined) { fields.push('title = ?'); values.push(data.title); }
     if (data.content !== undefined) { fields.push('content = ?'); values.push(data.content); }
     if (data.publish_time !== undefined) { fields.push('publish_time = ?'); values.push(data.publish_time); }
-    if (data.publisher !== undefined) { fields.push('publisher = ?'); values.push(data.publisher); }
     if (data.remind_people !== undefined) { fields.push('remind_people = ?'); values.push(data.remind_people); }
     if (data.expire_time !== undefined) { fields.push('expire_time = ?'); values.push(data.expire_time); }
     if (data.link !== undefined) { fields.push('link = ?'); values.push(data.link); }

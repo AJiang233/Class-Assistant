@@ -4,11 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>个人中心 - 班级助理</title>
-    <meta name="description" content="班级助理：我的资料、个性化与修改密码。">
+    <meta name="description" content="班级助理：我的资料、偏好设置与修改密码。">
     <meta name="color-scheme" content="light dark">
     <meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#07070c" media="(prefers-color-scheme: dark)">
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%232196f3'/%3E%3Cpath d='M16 24h32v18H26l-10 8z' fill='none' stroke='%23fff' stroke-width='3' stroke-linejoin='round'/%3E%3Cpath d='M24 30h16M24 34h10' stroke='%23fff' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='58 50 396 396'%3E%3Cdefs%3E%3Cmask id='ca-line-ko' maskUnits='userSpaceOnUse' x='-256' y='-256' width='1024' height='1024'%3E%3Crect x='-256' y='-256' width='1024' height='1024' fill='%23ffffff'/%3E%3Cpath d='M282,93 H390 A30,30 0 0 1 420,123 V175 A30,30 0 0 1 390,205 H338 L292,241 L304,205 H282 A30,30 0 0 1 252,175 V123 A30,30 0 0 1 282,93 Z' fill='%23000000' stroke='%23000000' stroke-width='36' stroke-linejoin='round' stroke-linecap='round'/%3E%3C/mask%3E%3C/defs%3E%3Cg mask='url(%23ca-line-ko)' fill='none' stroke='%23007aff' stroke-width='28' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M92,175 A172,172 0 0 1 232,208 L232,387 A172,172 0 0 0 92,354 Z'/%3E%3Cpath d='M372,175 A172,172 0 0 0 232,208 L232,387 A172,172 0 0 1 372,354 Z'/%3E%3C/g%3E%3Cpath d='M282,93 H390 A30,30 0 0 1 420,123 V175 A30,30 0 0 1 390,205 H338 L292,241 L304,205 H282 A30,30 0 0 1 252,175 V123 A30,30 0 0 1 282,93 Z' fill='none' stroke='%23007aff' stroke-width='28' stroke-linejoin='round' stroke-linecap='round'/%3E%3C/svg%3E">
+    <link rel="icon" type="image/png" sizes="192x192" href="assets/icons/icon-line-192.png">
+    <link rel="icon" type="image/png" sizes="512x512" href="assets/icons/icon-line-512.png">
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
     <!-- iOS 加到主屏后独立运行（无地址栏）。状态栏用 default：iOS 会为状态栏预留空间，
@@ -18,25 +20,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="班级助理">
     <link rel="stylesheet" href="assets/css/style.css">
-    <script>
-    /* 主题切换：localStorage('theme') 优先，其次跟随系统 prefers-color-scheme；同步写入 <html> 的 data-theme 防闪烁 */
-    (function () {
-        var KEY = 'theme';
-        var root = document.documentElement;
-        var mq = window.matchMedia('(prefers-color-scheme: dark)');
-        function system() { return mq.matches ? 'dark' : 'light'; }
-        function stored() { try { var v = localStorage.getItem(KEY); return (v === 'dark' || v === 'light') ? v : null; } catch (e) { return null; } }
-        function apply(t) { root.setAttribute('data-theme', t); }
-        function current() { return stored() || system(); }
-        apply(current());
-        function bind() {
-            if (mq.addEventListener) mq.addEventListener('change', function (e) { if (!stored()) apply(e.matches ? 'dark' : 'light'); });
-            else if (mq.addListener) mq.addListener(function (e) { if (!stored()) apply(e.matches ? 'dark' : 'light'); });
-            window.addEventListener('storage', function (e) { if (e.key === KEY) apply(current()); });
-        }
-        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind); else bind();
-    })();
-    </script>
+    <script src="assets/js/theme.js"></script>
 </head>
 <body>
     <div class="main">
@@ -46,134 +30,195 @@
                 <p class="page-desc">查看自己的班级资料、调整外观偏好与修改密码。</p>
             </div>
 
+            <!-- 两列：左列是「我的」—— 资料 / 偏好设置 / 日历订阅；右列是「账号与关于」——
+                 管理员入口 / 安装到桌面 / 修改密码 / 退出登录 / 关于软件。
+                 桌面端这两列高度是量过的：网页版（没有原生桥，偏好设置里少三节）下左 727 / 右 715，
+                 基本齐平；手机端合并成单列，顺序仍是资料 → 偏好设置 → 日历订阅 → 管理员 → 安装 →
+                 密码 → 退出 → 关于。 -->
             <div class="split-grid">
-                <!-- 左列：个人资料 + 个性化 -->
+                <!-- 左列：个人资料 + 偏好设置 + 日历订阅 -->
                 <div class="split-col">
                     <div class="profile-card" id="profileCard"></div>
 
-                    <!-- 个性化（所有登录用户） -->
-                    <div class="profile-card" id="prefCard">
-                        <h2 style="margin:0 0 16px;">个性化</h2>
-                        <div class="form-field" style="margin-bottom:0;">
-                            <label class="form-label">主题外观</label>
-                            <div class="tabs pref-seg" id="themeSeg">
-                                <span class="tab-pill" id="themeSegPill" aria-hidden="true"></span>
-                                <button type="button" class="tab" data-theme-choice="system">跟随系统</button>
-                                <button type="button" class="tab" data-theme-choice="light">浅色</button>
-                                <button type="button" class="tab" data-theme-choice="dark">深色</button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- 日历订阅（所有登录用户） -->
-                    <div class="profile-card" id="calCard">
-                        <h2 style="margin:0 0 8px;">日历订阅</h2>
-                        <p class="profile-sub" style="margin:0 0 16px;">订阅后，班级日程会自动同步到手机系统日历（iOS / 安卓 / 鸿蒙通用，订阅后无需再打开本页）。下面的选项会写进订阅链接，改完重新复制即可。</p>
-                        <div class="form-error" id="calError"></div>
-
-                        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:12px;">
-                            <div class="form-field" style="margin-bottom:0;">
-                                <label class="form-label" for="calRemind">提前提醒</label>
-                                <select class="form-input" id="calRemind">
-                                    <option value="0">不提醒</option>
-                                    <option value="5">5 分钟</option>
-                                    <option value="15">15 分钟</option>
-                                    <option value="30" selected>30 分钟</option>
-                                    <option value="60">1 小时</option>
-                                    <option value="1440">1 天</option>
-                                </select>
-                            </div>
-                            <div class="form-field" style="margin-bottom:0;">
-                                <label class="form-label" for="calPast">包含过去</label>
-                                <select class="form-input" id="calPast">
-                                    <option value="0">不包含</option>
-                                    <option value="7">最近 7 天</option>
-                                    <option value="30" selected>最近 30 天</option>
-                                    <option value="90">最近 90 天</option>
-                                </select>
-                            </div>
-                            <div class="form-field" style="margin-bottom:0;">
-                                <label class="form-label" for="calFuture">包含未来</label>
-                                <select class="form-input" id="calFuture">
-                                    <option value="30">1 个月</option>
-                                    <option value="90">3 个月</option>
-                                    <option value="180">6 个月</option>
-                                    <option value="365" selected>1 年</option>
-                                    <option value="730">2 年</option>
-                                </select>
-                            </div>
-                        </div>
-
-                        <label style="display:flex; align-items:center; gap:8px; margin:12px 0 14px; font-size:0.9rem; color:var(--text-secondary); cursor:pointer;">
-                            <input type="checkbox" id="calNotices"> 把班级通知也加进日历（按发布当天全天显示）
-                        </label>
-
-                        <div class="form-field">
-                            <label class="form-label" for="calUrl">订阅链接</label>
-                            <input class="form-input" id="calUrl" type="text" readonly placeholder="正在获取订阅地址…">
-                        </div>
-                        <div class="btn-row">
-                            <button class="btn btn-primary" id="calCopyBtn" type="button">复制链接</button>
-                            <a class="btn btn-outline" id="calOpenBtn" href="#" rel="noopener">打开订阅</a>
-                            <button class="btn btn-danger" id="calResetBtn" type="button">重置密钥</button>
-                        </div>
-                        <p class="profile-sub" style="margin:14px 0 0;">复制链接后，在手机日历里选择「添加订阅日历 / 从网址导入」粘贴即可；重置密钥会让旧链接立即失效（已订阅的设备需重新订阅）。</p>
-                    </div>
-                </div>
-
-                <!-- 右列：管理员入口（仅手机端）+ 开发功能 + 修改密码 + 退出登录 + 关于 -->
-                <div class="split-col">
-                    <!-- 管理员面板入口（仅手机端；桌面端侧边栏已有该项） -->
-                    <div class="profile-card only-mobile" id="adminEntryCard">
-                        <h2 style="margin:0 0 8px;">管理员面板</h2>
-                        <p class="profile-sub" style="margin:0 0 16px;">发布通知与活动、管理班级成员。</p>
-                        <button class="btn btn-primary btn-block" type="button" onclick="openAdmin()">进入管理员面板</button>
-                    </div>
-
-                    <!-- 安装到桌面：只有 iOS 与 PC 会显示（由 app.js 的 shouldOfferInstall() 判定）。
-                         安卓 / 鸿蒙都已有原生 App，壳内靠 CAHost 桥识别后整块隐藏。 -->
-                    <div class="profile-card" id="installCard" hidden>
-                        <h2 style="margin:0 0 8px;">安装到桌面</h2>
-                        <p class="profile-sub install-entry-text" style="margin:0 0 14px;"></p>
-                        <button class="btn btn-primary btn-block install-entry-action" type="button" onclick="installApp()" hidden>安装</button>
-                    </div>
-
-                    <!-- 通知：Web Push 开启/关闭。iOS 需 16.4+ 且「添加到主屏幕」之后才有推送，
-                         不满足时直接说明原因并放弃推送这一项（其余功能不受影响），不给死按钮。 -->
-                    <div class="profile-card" id="notifyCard">
-                        <h2 style="margin:0 0 8px;">通知</h2>
-                        <p class="profile-sub" id="notifyStatus" style="margin:0 0 14px;">正在检查本机是否支持通知…</p>
-                        <!-- 一行两个按钮：.btn-row 默认三列，这里改两列 -->
-                        <div class="btn-row" style="grid-template-columns:repeat(2, minmax(0,1fr));">
-                            <button class="btn btn-primary" id="notifyEnableBtn" type="button" onclick="enablePush()" hidden>开启通知</button>
-                            <button class="btn btn-outline" id="notifyTestBtn" type="button" onclick="testPushSelf()" hidden>发送测试通知</button>
-                            <button class="btn btn-outline" id="notifyDisableBtn" type="button" onclick="disablePush()" hidden>关闭通知</button>
-                        </div>
-                        <p class="profile-sub" id="notifyHint" style="margin:14px 0 0;"></p>
-                    </div>
-
-                    <!-- 开发功能：强制刷新 + 推送测试，默认折叠，避免日常误触 -->
-                    <div class="profile-card collapse" id="devCard">
-                        <button type="button" class="collapse-head" onclick="toggleCollapse('devCard')" aria-expanded="false">
-                            <h2>开发功能</h2>
+                    <!-- 偏好设置（所有登录用户）：主题外观 + 通知合成一张卡，都是「本机偏好」，
+                         原先分成左右两栏两张卡，找起来割裂。默认展开（这一卡最常改），
+                         但要能收起 —— 手机上一路划到底很累，见 toggleCollapse。 -->
+                    <div class="profile-card collapse open" id="prefCard">
+                        <button type="button" class="collapse-head" data-act="toggle-collapse" data-arg="prefCard" aria-expanded="true">
+                            <h2>偏好设置</h2>
                             <svg class="collapse-arrow" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                         </button>
                         <div class="collapse-body">
-                            <p class="profile-sub" style="margin:0 0 14px;">页面样式错乱或显示异常时，清除本地缓存并重新加载整个应用。如果没有效果请清除应用数据或检查更新。</p>
-                            <button class="btn btn-outline btn-block" id="reloadBtn" type="button" onclick="forceRefresh()">清除缓存并刷新</button>
-
-                            <p class="profile-sub" style="margin:20px 0 14px;">用最新一条真实活动 / 通知发一条测试推送，检查手机能否收到、点击能否跳到对应详情（仅安卓 App）。</p>
-                            <!-- 一行两个按钮：.btn-row 默认三列，这里改两列 -->
-                            <div class="btn-row" style="grid-template-columns:repeat(2, minmax(0,1fr));">
-                                <button class="btn btn-outline" id="testActivityBtn" type="button" onclick="testPush('activity')">活动推送测试</button>
-                                <button class="btn btn-outline" id="testNoticeBtn" type="button" onclick="testPush('notice')">通知推送测试</button>
+                            <div class="form-field mb-0">
+                                <label class="form-label">主题外观</label>
+                                <div class="tabs pref-seg" id="themeSeg">
+                                    <span class="tab-pill" id="themeSegPill" aria-hidden="true"></span>
+                                    <button type="button" class="tab" data-theme-choice="system">跟随系统</button>
+                                    <button type="button" class="tab" data-theme-choice="light">浅色</button>
+                                    <button type="button" class="tab" data-theme-choice="dark">深色</button>
+                                </div>
                             </div>
-                            <p class="profile-sub" id="pushHint" style="margin:14px 0 0;"></p>
+
+                            <!-- 通知：Web Push 开启/关闭。iOS 需 16.4+ 且「添加到主屏幕」之后才有推送，
+                                 不满足时只说明原因，不给死按钮（其余功能不受影响）。
+                                 三个按钮互斥（开启 / 测试+关闭），只会显示当前可用的那 1~2 个；
+                                 .btn-row 默认三列会在只有 1~2 个按钮时留空档，这里改成按可见数量平分整行。
+                                 外层保留 id="notifyCard"：App 壳（安卓 / 鸿蒙）靠它整节撤掉，见 refreshNotify()。 -->
+                            <div id="notifyCard" class="card-divider">
+                                <label class="form-label">网页版通知</label>
+                                <p class="profile-sub profile-sub-lead" id="notifyStatus">正在检查本机是否支持通知…</p>
+                                <div class="btn-row btn-row-inline">
+                                    <button class="btn btn-primary" id="notifyEnableBtn" type="button" data-act="enable-push" hidden>开启通知</button>
+                                    <button class="btn btn-outline" id="notifyTestBtn" type="button" data-act="test-push-self" hidden>发送测试通知</button>
+                                    <button class="btn btn-danger" id="notifyDisableBtn" type="button" data-act="disable-push" hidden>关闭通知</button>
+                                </div>
+                                <p class="profile-sub profile-sub-tail" id="notifyHint"></p>
+                            </div>
+
+                            <!-- App 端通知：只有装了安卓 / 鸿蒙 App 才有意义 —— 网页自己发不了系统通知，
+                                 这两个测试按钮靠 App 壳注入的 CAHost 桥去触发原生通知，网页版（含 PWA）
+                                 没有这个桥，所以整块默认 hidden，有桥时才由 refreshAppStatus() 放出来，
+                                 不再像以前那样在网页版留一堆点了没反应的按钮。
+                                 原先属于「开发功能」卡，那张卡已删（清缓存刷新一并不用了）。 -->
+                            <div id="appPushBlock" class="card-divider" hidden>
+                                <label class="form-label">App 端通知</label>
+                                <!-- 本机通知开关状态：通知被系统关掉时本地提醒会被静默丢弃，用户点测试
+                                     没反应，得在这儿把真实原因说清而不是留白。无桥时这行也是空的。 -->
+                                <p class="profile-sub profile-sub-lead" id="appNotifyLine"></p>
+                                <p class="profile-sub profile-sub-lead">用最新一条真实活动 / 通知发一条测试推送，检查手机能否收到、点击能否跳到对应详情。</p>
+                                <div class="btn-row btn-row-2">
+                                    <button class="btn btn-outline" id="testActivityBtn" type="button" data-act="test-push" data-arg="activity">活动推送测试</button>
+                                    <button class="btn btn-outline" id="testNoticeBtn" type="button" data-act="test-push" data-arg="notice">通知推送测试</button>
+                                </div>
+                                <p class="profile-sub profile-sub-tail" id="pushHint"></p>
+                            </div>
+
+                            <!-- 课程提醒：仅 App 壳。提醒要到点弹出，网页版没有这个能力（本地排期靠原生的
+                                 AlarmManager），所以整块默认 hidden，由 refreshCourseCard() 判断有没有桥再显示。
+                                 设置也存在原生侧（SharedPreferences），这边只做读写，见 CAHost.courseReminderSettings。 -->
+                            <div id="courseCard" class="card-divider" hidden>
+                                <label class="form-label">课程提醒</label>
+                                <p class="profile-sub profile-sub-lead" id="courseStatus"></p>
+                                <div class="form-field mb-14">
+                                    <label class="form-label" for="courseLead">提前多久提醒</label>
+                                    <select class="form-input" id="courseLead" data-act="save-course-reminder">
+                                        <option value="0">不提前提醒</option>
+                                        <option value="5">提前 5 分钟</option>
+                                        <option value="10">提前 10 分钟</option>
+                                        <option value="15">提前 15 分钟</option>
+                                        <option value="20">提前 20 分钟</option>
+                                        <option value="30">提前 30 分钟</option>
+                                        <option value="60">提前 60 分钟</option>
+                                    </select>
+                                </div>
+                                <label class="check-row">
+                                    <input type="checkbox" id="courseAtStart" data-act="save-course-reminder"> 开课时再提醒一次
+                                </label>
+                                <p class="profile-sub profile-sub-tail">提醒在手机本地排期，不用联网；课表跟着后台同步更新。</p>
+                            </div>
+
+                            <!-- 后台通知：仅 App 壳。这是「App 没打开、手机放着不动时还能不能收到通知」的开关面，
+                                 整块默认 hidden，有桥时由 refreshBackgroundCard() 放出来。
+                                 只写本机能如实回答的东西；厂商的「自启动 / 后台管理」没有标准 API，读不到，
+                                 所以那里如实说「我们看不到，要你自己去设置里确认」—— 猜一个值糊上去比不显示更糟。 -->
+                            <div id="backgroundCard" class="card-divider" hidden>
+                                <label class="form-label">后台通知</label>
+                                <p class="profile-sub profile-sub-lead profile-sub-lines" id="backgroundStatus"></p>
+                                <label class="check-row">
+                                    <input type="checkbox" id="backgroundAlwaysOn" data-act="save-background-always-on"> 后台常驻，及时收到新通知
+                                </label>
+                                <p class="profile-sub profile-sub-even">开启后状态栏会出现「班级助理正在后台运行」（系统对常驻应用的硬性要求，不响铃也不弹出）；关掉照样收提醒，只是最多晚 15 分钟。</p>
+                                <div class="btn-row btn-row-2">
+                                    <button class="btn btn-outline" id="batteryBtn" type="button" data-act="open-battery-action">允许后台运行</button>
+                                    <button class="btn btn-outline" id="autoStartBtn" type="button" data-act="open-auto-start">自启动设置</button>
+                                </div>
+                                <!-- 「有没有允许后台运行」紧跟按钮行，不放在上面那段状态里：这一条是用户点完
+                                     系统弹窗、切回页面时最想确认的，放在按钮旁边才对得上眼睛（见 renderBackgroundStatus） -->
+                                <p class="profile-sub profile-sub-tail" id="batteryStatus"></p>
+                                <p class="profile-sub profile-sub-tail" id="backgroundHint"></p>
+                            </div>
                         </div>
                     </div>
- 
+
+                    <!-- 日历订阅（所有登录用户）。默认折叠（结构同 #prefCard / #pwdCard，见 toggleCollapse）：
+                         这是一次性设置，配好链接后基本不再改，常驻展开会占掉一大块。 -->
+                    <div class="profile-card collapse" id="calCard">
+                        <button type="button" class="collapse-head" data-act="toggle-collapse" data-arg="calCard" aria-expanded="false">
+                            <h2>日历订阅</h2>
+                            <svg class="collapse-arrow" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                        </button>
+                        <div class="collapse-body">
+                            <p class="profile-sub profile-sub-wide">订阅后，班级日程会自动同步到手机系统日历（iOS / 安卓 / 鸿蒙通用，订阅后无需再打开本页）。下面的选项会写进订阅链接，改完重新复制即可。</p>
+                            <div class="form-error" id="calError"></div>
+
+                            <div class="grid-150">
+                                <div class="form-field mb-0">
+                                    <label class="form-label" for="calRemind">提前提醒</label>
+                                    <select class="form-input" id="calRemind">
+                                        <option value="0">不提醒</option>
+                                        <option value="5">5 分钟</option>
+                                        <option value="15">15 分钟</option>
+                                        <option value="30" selected>30 分钟</option>
+                                        <option value="60">1 小时</option>
+                                        <option value="1440">1 天</option>
+                                    </select>
+                                </div>
+                                <div class="form-field mb-0">
+                                    <label class="form-label" for="calPast">包含过去</label>
+                                    <select class="form-input" id="calPast">
+                                        <option value="0">不包含</option>
+                                        <option value="7">最近 7 天</option>
+                                        <option value="30" selected>最近 30 天</option>
+                                        <option value="90">最近 90 天</option>
+                                    </select>
+                                </div>
+                                <div class="form-field mb-0">
+                                    <label class="form-label" for="calFuture">包含未来</label>
+                                    <select class="form-input" id="calFuture">
+                                        <option value="30">1 个月</option>
+                                        <option value="90">3 个月</option>
+                                        <option value="180">6 个月</option>
+                                        <option value="365" selected>1 年</option>
+                                        <option value="730">2 年</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <label class="check-row-note">
+                                <input type="checkbox" id="calNotices"> 把班级通知也加进日历（按发布当天全天显示）
+                            </label>
+
+                            <div class="form-field">
+                                <label class="form-label" for="calUrl">订阅链接</label>
+                                <input class="form-input" id="calUrl" type="text" readonly placeholder="正在获取订阅地址…">
+                            </div>
+                            <div class="btn-row">
+                                <button class="btn btn-primary" id="calCopyBtn" type="button">复制链接</button>
+                                <a class="btn btn-outline" id="calOpenBtn" href="#" rel="noopener">打开订阅</a>
+                                <button class="btn btn-danger" id="calResetBtn" type="button">重置密钥</button>
+                            </div>
+                            <p class="profile-sub profile-sub-tail">复制链接后，在手机日历里选择「添加订阅日历 / 从网址导入」粘贴即可；重置密钥会让旧链接立即失效（已订阅的设备需重新订阅）。</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 右列：安装到桌面 + 修改密码 + 管理员入口（仅手机端）+ 退出登录 + 关于软件。
+                     手机端会合并成单列，所以这里的顺序就是手机上的顺序：收起来的短卡在上、
+                     带按钮的大卡在下，一路划下来不会忽大忽小；桌面端按高度与左列对齐。 -->
+                <div class="split-col">
+                    <!-- 安装到桌面：只有 iOS 与 PC 会显示（由 app.js 的 shouldOfferInstall() 判定）。
+                         安卓 / 鸿蒙都已有原生 App，壳内靠 CAHost 桥识别后整块隐藏。 -->
+                    <div class="profile-card" id="installCard" hidden>
+                        <h2 class="card-title">安装到桌面</h2>
+                        <p class="profile-sub install-entry-text profile-sub-lead"></p>
+                        <button class="btn btn-primary btn-block install-entry-action" type="button" data-act="install-app" hidden>安装</button>
+                    </div>
+
+                    <!-- 通知一节已并入左列「偏好设置」卡片（原 #notifyCard 的位置），
+                         这里不再单独成卡。 -->
+
                     <div class="profile-card collapse" id="pwdCard">
-                        <button type="button" class="collapse-head" onclick="toggleCollapse('pwdCard')" aria-expanded="false">
+                        <button type="button" class="collapse-head" data-act="toggle-collapse" data-arg="pwdCard" aria-expanded="false">
                             <h2>修改密码</h2>
                             <svg class="collapse-arrow" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                         </button>
@@ -192,29 +237,40 @@
                                     <label class="form-label" for="confirmPassword">确认新密码</label>
                                     <input class="form-input" type="password" id="confirmPassword" placeholder="再次输入新密码" autocomplete="new-password">
                                 </div>
-                                <button class="btn btn-primary btn-block" id="pwdBtn" type="submit">确认修改</button>
+                                <button class="btn btn-primary btn-block" id="pwdBtn" type="submit">保存</button>
                             </form>
                         </div>
                     </div>
 
+                    <!-- 管理员面板入口（仅手机端；桌面端侧边栏已有该项）。
+                         排在修改密码之后：手机端一路划下来，收起的短卡都在上面，带按钮的大卡在下面。 -->
+                    <div class="profile-card only-mobile" id="adminEntryCard">
+                        <h2 class="card-title">管理员面板</h2>
+                        <p class="profile-sub profile-sub-wide">发布通知与活动、管理班级成员。</p>
+                        <button class="btn btn-primary btn-block" type="button" data-act="open-admin">进入管理员面板</button>
+                    </div>
+
                     <div class="profile-card card-danger">
-                        <h2 style="margin:0 0 8px;">退出登录</h2>
-                        <p class="profile-sub" style="margin:0 0 16px;">退出后需重新输入学号与密码登录。</p>
-                        <button class="btn btn-danger btn-block" onclick="window.parent.logout()">退出登录</button>
+                        <h2 class="card-title">退出登录</h2>
+                        <p class="profile-sub profile-sub-wide">退出后需重新输入学号与密码登录。</p>
+                        <button class="btn btn-danger btn-block" data-act="logout">退出登录</button>
                     </div>
 
                     <!-- 关于软件：版本号从原生桥取（网页版没有桥，显示「网页版」）；
-                         「检查更新」拿站点根目录的 version.json（version + url）与当前版本比较，
-                         读不到就只提示「检查更新失败」，不猜地址也不退回别的页面 -->
+                         「检查更新」先问 CAHost.platform() 自己是什么端，再从站点根目录的
+                         version.json 里读对应那一段（android / harmony）的 version + url 与当前版本比较；
+                         没有桥就不读任何一段；缺 version 或 url 只提示「检查更新失败」，不猜地址也不退回别的页面。
+                         这张卡不折叠：一共就四行，属于「短卡常显」那一类（同管理员入口 / 退出登录），
+                         而且它的高度正好把右列垫到与左列齐平。 -->
                     <div class="profile-card" id="aboutCard">
-                        <h2 style="margin:0 0 8px;">关于软件</h2>
+                        <h2 class="card-title">关于软件</h2>
                         <div class="info-list">
                             <div class="info-row"><span class="k">版本号</span><span class="v" id="aboutVersion">—</span></div>
-                            <div class="info-row"><span class="k">检查更新</span><span class="v"><button class="btn btn-outline btn-sm" type="button" id="updateBtn" onclick="checkUpdate()">检查更新</button></span></div>
+                            <div class="info-row"><span class="k">检查更新</span><span class="v"><button class="btn btn-outline btn-sm" type="button" id="updateBtn" data-act="check-update">检查更新</button></span></div>
                             <div class="info-row"><span class="k">项目仓库</span><span class="v"><a href="https://github.com/AJiang233/Class-Assistant" target="_blank" rel="noopener">Class-Assistant</a></span></div>
-                            <div class="info-row"><span class="k">开发者</span><span class="v">AJiang233 · TsoiTZF · TidalStarNan</span></div>
+                            <div class="info-row"><span class="k">开发者</span><span class="v">阿江_233 · 汐星楠 · TsoiTZF</span></div>
                         </div>
-                        <p class="profile-sub" id="updateHint" style="margin:14px 0 0;"></p>
+                        <p class="profile-sub profile-sub-tail" id="updateHint"></p>
                     </div>
                 </div>
             </div>
@@ -225,638 +281,26 @@
             <div class="modal">
                 <div class="modal-head">
                     <span class="modal-title">修改联系方式</span>
-                    <button type="button" class="modal-close" onclick="closeContactEdit()" aria-label="关闭">
+                    <button type="button" class="modal-close" data-act="close-contact-edit" aria-label="关闭">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                     </button>
                 </div>
                 <div class="modal-body">
                     <div class="form-error" id="contactError"></div>
-                    <div class="form-field" style="margin-bottom:0;">
+                    <div class="form-field mb-0">
                         <label class="form-label" for="contactInput">联系方式</label>
                         <input class="form-input" id="contactInput" type="text" placeholder="如：微信号 / 手机号（选填，留空表示不填）" autocomplete="off">
                     </div>
                 </div>
                 <div class="modal-foot">
-                    <button type="button" class="btn btn-outline" onclick="closeContactEdit()">取消</button>
-                    <button type="button" class="btn btn-primary" id="contactSaveBtn" onclick="saveContact()">保存</button>
+                    <button type="button" class="btn btn-outline" data-act="close-contact-edit">取消</button>
+                    <button type="button" class="btn btn-primary" id="contactSaveBtn" data-act="save-contact">保存</button>
                 </div>
             </div>
         </div>
     </div>
 
     <script src="assets/js/app.js"></script>
-    <script>
-    (function () {
-    // ===== 需要登录 =====
-    if (!requireAuth()) return;
-
-    // ===== 卡片折叠（默认收起，点击标题行展开/收起） =====
-    function toggleCollapse(id) {
-        var card = document.getElementById(id);
-        if (!card) return;
-        var open = card.classList.toggle('open');
-        var head = card.querySelector('.collapse-head');
-        if (head) head.setAttribute('aria-expanded', open ? 'true' : 'false');
-    }
-    window.toggleCollapse = toggleCollapse;
-
-    // ===== 管理员面板入口（仅手机端显示；无权限则直接移除该卡片） =====
-    if (!(canManageUsers() || canContentWrite())) {
-        var adminEntry = document.getElementById('adminEntryCard');
-        if (adminEntry) adminEntry.remove();
-    }
-    function openAdmin() {
-        try { window.parent.switchView('admin'); } catch (e) {}
-    }
-    window.openAdmin = openAdmin;
-
-    // ===== 修改联系方式（本人可改自己的） =====
-    function openContactEdit() {
-        var err = document.getElementById('contactError');
-        err.classList.remove('show');
-        document.getElementById('contactInput').value = currentContact;
-        document.getElementById('contactModal').classList.add('show');
-        document.body.style.overflow = 'hidden';
-    }
-    function closeContactEdit() {
-        document.getElementById('contactModal').classList.remove('show');
-        document.body.style.overflow = '';
-    }
-    async function saveContact() {
-        var err = document.getElementById('contactError');
-        err.classList.remove('show');
-        var value = document.getElementById('contactInput').value.trim();
-        if (value.length > 60) {
-            err.textContent = '联系方式最多 60 个字符';
-            err.classList.add('show');
-            return;
-        }
-        var btn = document.getElementById('contactSaveBtn');
-        btn.disabled = true; var t = btn.textContent; btn.textContent = '保存中…';
-        try {
-            await api('/api/auth/profile', { method: 'PUT', body: JSON.stringify({ contact: value }) });
-            // 同步本地会话缓存，避免其它页面读到旧的联系方式
-            try {
-                var u = getSession() || {};
-                u.contact = value;
-                localStorage.setItem(LS_USER, JSON.stringify(u));
-            } catch (e) {}
-            closeContactEdit();
-            loadProfile();
-        } catch (e) {
-            err.textContent = e.message;
-            err.classList.add('show');
-        } finally {
-            btn.disabled = false; btn.textContent = t;
-        }
-    }
-    // 点遮罩 / 按 ESC 关闭；输入框回车即保存
-    (function bindContactModal() {
-        var overlay = document.getElementById('contactModal');
-        overlay.addEventListener('click', function (e) { if (e.target === overlay) closeContactEdit(); });
-        document.addEventListener('keydown', function (e) {
-            if (e.key === 'Escape' && overlay.classList.contains('show')) closeContactEdit();
-        });
-        document.getElementById('contactInput').addEventListener('keydown', function (e) {
-            if (e.key === 'Enter') { e.preventDefault(); saveContact(); }
-        });
-    })();
-    window.openContactEdit = openContactEdit;
-    window.closeContactEdit = closeContactEdit;
-    window.saveContact = saveContact;
-
-    // ===== 强制刷新：清除缓存后重载整个应用（用于修复布局/样式异常） =====
-    async function forceRefresh() {
-        var btn = document.getElementById('reloadBtn');
-        if (btn) { btn.disabled = true; btn.textContent = '正在刷新…'; }
-        // 清 Cache Storage（PWA / Service Worker 缓存）
-        try {
-            if (window.caches && caches.keys) {
-                var keys = await caches.keys();
-                await Promise.all(keys.map(function (k) { return caches.delete(k); }));
-            }
-        } catch (e) {}
-        // 让 Service Worker 也去检查一次脚本更新（sw.js 本身是 no-cache，能拿到最新版）
-        try {
-            if (navigator.serviceWorker && navigator.serviceWorker.getRegistration) {
-                var reg = await navigator.serviceWorker.getRegistration();
-                if (reg && reg.update) await reg.update();
-            }
-        } catch (e) {}
-        // 清会话缓存（保留 localStorage：登录态与主题设置）
-        try { sessionStorage.clear(); } catch (e) {}
-        // 重载顶层窗口，并加时间戳绕过 HTTP 缓存
-        var target = window;
-        try { if (window.top && window.top !== window) target = window.top; } catch (e) {}
-        var next;
-        try {
-            var u = new URL(target.location.href);
-            u.searchParams.set('_r', Date.now());
-            next = u.toString();
-        } catch (e) {
-            var href = target.location.href.split('#')[0];
-            next = href + (href.indexOf('?') >= 0 ? '&' : '?') + '_r=' + Date.now();
-        }
-        target.location.replace(next);
-    }
-    window.forceRefresh = forceRefresh;
-
-    // ===== 通知（Web Push）=====
-    // 先做能力判定，再决定给不给按钮。iOS 只有「16.4+ 且已添加到主屏幕」的 PWA 才有推送：
-    //  - 系统版本过低 → 放弃推送这一项，如实说明（其余功能不受影响），不给死按钮
-    //  - 没加主屏     → 引导先添加，而不是弹一个必然失败的权限框
-    // 沿用本项目一贯原则：不支持就直说，不做假的成功反馈。
-    var pushSub = null;
-    var pushServerEnabled = false;
-
-    // isStandaloneMode() / isIOSDevice() / inNativeShell() 都来自 assets/js/app.js，这里不再重复定义
-
-    /** iOS 版本号压成整数比较：16.4 → 1604；iPadOS 13+ 的 UA 冻在 10_15，取不到就返回 null */
-    function iosVersionCode() {
-        var m = /OS (\d+)[._](\d+)/.exec(navigator.userAgent || '');
-        if (!m) return null;
-        return parseInt(m[1], 10) * 100 + parseInt(m[2], 10);
-    }
-    /** 本机是否具备收推送的前提（不含服务端是否配置） */
-    function detectPushCapability() {
-        // 原生壳（安卓 / 鸿蒙 App）自带推送通道，网页这套 Push API 在 WebView 里点不通，
-        // 与其给一个必然失败的按钮，不如直接说明
-        if (inNativeShell()) {
-            return {
-                ok: false,
-                status: '当前在 App 内，通知由 App 直接推送。',
-                hint: '不需要在这里开启，班级通知会由 App 自己送达。'
-            };
-        }
-        if (!('serviceWorker' in navigator) || !('Notification' in window)) {
-            return { ok: false, status: '此浏览器不支持通知。', hint: '班级消息请在群里查看。' };
-        }
-        if (isIOSDevice()) {
-            var code = iosVersionCode();
-            if (code !== null && code < 1604) {
-                return {
-                    ok: false,
-                    status: '系统版本过低，收不到推送。',
-                    hint: 'Safari 从 iOS 16.4 起才支持网页通知，你的系统低于这个版本。其余功能不受影响，班级消息请在群里查看。'
-                };
-            }
-            if (!isStandaloneMode()) {
-                return {
-                    ok: false,
-                    status: '还没添加到主屏幕。',
-                    hint: 'iPhone 上只有「添加到主屏幕」之后才能收到通知：点底部「分享」按钮 →「添加到主屏幕」，再从桌面图标打开本页即可开启。'
-                };
-            }
-        }
-        if (!('PushManager' in window)) {
-            return {
-                ok: false,
-                status: '本机没有可用的推送通道。',
-                hint: '系统未提供网页推送能力（iOS / iPadOS 需 16.4 及以上）。其余功能不受影响。'
-            };
-        }
-        return { ok: true, status: '', hint: '' };
-    }
-
-    /** serviceWorker.ready 在没有注册时会一直挂着，加超时避免界面卡在「正在检查」 */
-    function swRegistration(timeoutMs) {
-        var ready = navigator.serviceWorker && navigator.serviceWorker.ready;
-        if (!ready) return Promise.resolve(null);
-        return Promise.race([
-            ready,
-            new Promise(function (resolve) { setTimeout(function () { resolve(null); }, timeoutMs || 4000); })
-        ]);
-    }
-
-    function urlBase64ToUint8Array(base64) {
-        var s = String(base64).replace(/-/g, '+').replace(/_/g, '/');
-        var pad = s.length % 4 === 0 ? '' : '===='.slice(0, 4 - (s.length % 4));
-        var bin = atob(s + pad);
-        var out = new Uint8Array(bin.length);
-        for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-        return out;
-    }
-
-    function notifyEl(id) { return document.getElementById(id); }
-    function showNotifyBtn(id, visible) { var el = notifyEl(id); if (el) el.hidden = !visible; }
-
-    async function refreshNotify() {
-        var statusEl = notifyEl('notifyStatus');
-        var hintEl = notifyEl('notifyHint');
-        if (!statusEl) return;
-
-        var cap = detectPushCapability();
-        pushSub = null;
-
-        if (cap.ok) {
-            var reg = await swRegistration();
-            try { pushSub = reg ? await reg.pushManager.getSubscription() : null; } catch (e) { pushSub = null; }
-        }
-
-        var cfg = null;
-        var cfgError = false;
-        try { cfg = (await api('/api/push/config')).data; } catch (e) { cfgError = true; }
-        pushServerEnabled = !!(cfg && cfg.enabled);
-
-        var usable = cap.ok && pushServerEnabled;
-        showNotifyBtn('notifyEnableBtn', usable && !pushSub);
-        showNotifyBtn('notifyDisableBtn', usable && !!pushSub);
-        showNotifyBtn('notifyTestBtn', usable && !!pushSub);
-
-        if (!cap.ok) {
-            statusEl.textContent = cap.status;
-            hintEl.textContent = cap.hint;
-            return;
-        }
-        if (!pushServerEnabled) {
-            statusEl.textContent = cfgError ? '暂时拿不到推送配置。' : '服务端还没开启推送。';
-            hintEl.textContent = cfgError
-                ? '请检查网络后刷新重试。'
-                : '需要管理员在 Cloudflare 上配置 VAPID 密钥后才能使用通知。';
-            return;
-        }
-        if (pushSub) {
-            statusEl.textContent = '已开启：班级发布通知时会推送到这台设备。';
-            hintEl.textContent = '收不到时，先点「发送测试通知」确认这台设备本身是否正常。';
-        } else {
-            statusEl.textContent = '未开启：开启后，班级发布通知时会推送到这台设备。';
-            hintEl.textContent = '点「开启通知」后系统会弹一次权限询问，选择「允许」即可。';
-        }
-    }
-
-    async function enablePush() {
-        var hintEl = notifyEl('notifyHint');
-        var btn = notifyEl('notifyEnableBtn');
-        if (btn) btn.disabled = true;
-        hintEl.textContent = '正在开启…';
-        try {
-            // iOS 要求权限申请必须发生在用户点击手势内，所以先申请权限，再发网络请求
-            var perm = await Notification.requestPermission();
-            if (perm !== 'granted') {
-                hintEl.textContent = perm === 'denied'
-                    ? '你拒绝了通知权限。可在「设置 → 通知 → 班级助理」里重新允许后再试。'
-                    : '没有拿到通知权限，暂时无法开启。';
-                return;
-            }
-            var cfg = (await api('/api/push/config')).data;
-            if (!cfg || !cfg.enabled || !cfg.public_key) {
-                hintEl.textContent = '服务端还没开启推送，请联系管理员。';
-                return;
-            }
-            var reg = await swRegistration();
-            if (!reg) {
-                hintEl.textContent = '离线组件还没准备好，请刷新页面后重试。';
-                return;
-            }
-            var sub = await reg.pushManager.subscribe({
-                userVisibleOnly: true,
-                applicationServerKey: urlBase64ToUint8Array(cfg.public_key)
-            });
-            await api('/api/push/subscribe', { method: 'POST', body: JSON.stringify(sub.toJSON()) });
-        } catch (e) {
-            hintEl.textContent = '开启失败：' + (e && e.message ? e.message : e);
-            if (btn) btn.disabled = false;
-            return;
-        }
-        if (btn) btn.disabled = false;
-        await refreshNotify();
-        hintEl.textContent = '已开启，建议点一次「发送测试通知」确认能收到。';
-    }
-
-    async function disablePush() {
-        var hintEl = notifyEl('notifyHint');
-        var btn = notifyEl('notifyDisableBtn');
-        if (btn) btn.disabled = true;
-        try {
-            var reg = await swRegistration();
-            var sub = reg ? await reg.pushManager.getSubscription() : null;
-            if (sub) {
-                await api('/api/push/unsubscribe', { method: 'POST', body: JSON.stringify({ endpoint: sub.endpoint }) });
-                await sub.unsubscribe();
-            }
-        } catch (e) {
-            hintEl.textContent = '关闭失败：' + (e && e.message ? e.message : e);
-            if (btn) btn.disabled = false;
-            return;
-        }
-        if (btn) btn.disabled = false;
-        await refreshNotify();
-        hintEl.textContent = '已关闭，这台设备不会再收到推送。';
-    }
-
-    async function testPushSelf() {
-        var hintEl = notifyEl('notifyHint');
-        var btn = notifyEl('notifyTestBtn');
-        if (btn) btn.disabled = true;
-        hintEl.textContent = '发送中…';
-        try {
-            var res = await api('/api/push/test', { method: 'POST' });
-            hintEl.textContent = (res && res.data && res.data.message) || '已发送，请查看通知栏。';
-        } catch (e) {
-            hintEl.textContent = '发送失败：' + (e && e.message ? e.message : e);
-        }
-        if (btn) btn.disabled = false;
-    }
-
-    window.enablePush = enablePush;
-    window.disablePush = disablePush;
-    window.testPushSelf = testPushSelf;
-    refreshNotify();
-
-    // ===== 推送通知测试 =====
-    // 网页本身发不了系统通知，只有安卓壳注入的 CAHost 桥能触发原生通知；
-    // 网页版（含 PWA）没有这个桥，点了就只给一句提示，不做假的成功反馈。
-    function pushHint(text) {
-        document.getElementById('pushHint').textContent = text || '';
-    }
-    function testPush(kind) {
-        var btn = document.getElementById(kind === 'activity' ? 'testActivityBtn' : 'testNoticeBtn');
-        pushHint('');
-        if (!window.CAHost || typeof CAHost.testNotification !== 'function') {
-            pushHint('网页版没有系统通知通道，请安装安卓 App 后在本页测试。');
-            return;
-        }
-        var label = btn.textContent;
-        btn.disabled = true;
-        btn.textContent = '推送中…';
-        // 桥方法是同步阻塞的（原生那边要发请求），延时一拍先把按钮状态画出来再调
-        setTimeout(function () {
-            var msg = '';
-            try {
-                msg = CAHost.testNotification(kind);
-            } catch (e) {
-                msg = '推送失败：' + (e && e.message ? e.message : e);
-            }
-            btn.disabled = false;
-            btn.textContent = label;
-            pushHint(msg || '已发送，请查看手机通知栏。');
-        }, 0);
-    }
-    window.testPush = testPush;
-
-    // ===== 关于软件：版本号 + 检查更新 =====
-    // App 内取原生版本号（原生桥回传 BuildConfig.VERSION_NAME）；网页版没有桥，显示「网页版」
-    var appVersion = '';
-    (function loadAppVersion() {
-        try {
-            if (window.CAHost && typeof CAHost.appVersion === 'function') appVersion = CAHost.appVersion() || '';
-        } catch (e) {}
-        var el = document.getElementById('aboutVersion');
-        if (el) el.textContent = appVersion ? 'v' + appVersion : '网页版';
-    })();
-
-    /** 逐段按数字比较：0.10.0 > 0.9.0，直接比字符串会判反 */
-    function isNewer(latest, current) {
-        var a = String(latest).split('.'), b = String(current).split('.');
-        for (var i = 0; i < Math.max(a.length, b.length); i++) {
-            var x = parseInt(a[i], 10) || 0, y = parseInt(b[i], 10) || 0;
-            if (x !== y) return x > y;
-        }
-        return false;
-    }
-
-    // 「最新版本」写在站点根目录的 version.json（发版时改那里，与 CI 输入的 version_name 一致）；
-    // 带时间戳 + no-store 是绕开 Cloudflare 与 Service Worker 的缓存，否则检查更新永远看到旧值
-    async function checkUpdate() {
-        var btn = document.getElementById('updateBtn');
-        var hint = document.getElementById('updateHint');
-        var label = btn.textContent;
-        btn.disabled = true;
-        btn.textContent = '检查中…';
-        hint.textContent = '';
-        try {
-            var res = await fetch('version.json?_=' + Date.now(), { cache: 'no-store' });
-            if (!res.ok) throw new Error('HTTP ' + res.status);
-            var data = (await res.json()) || {};
-            var latest = String(data.version || '').trim();
-            // 只认 version.json 里写的 url：json 读不到（网络失败 / 不是 JSON / 缺 version 或 url）
-            // 就一律算失败，不猜地址、也不退回 Actions 构建产物页 —— 那页不是版本下载入口
-            var link = String(data.url || '').trim();
-            if (!latest || !link) {
-                hint.textContent = '检查更新失败';
-            } else if (!appVersion) {
-                hint.innerHTML = '当前是网页版，网页不需要更新；安卓安装包见 <a href="' + esc(link) + '" target="_blank" rel="noopener">下载地址</a>。';
-            } else if (isNewer(latest, appVersion)) {
-                hint.innerHTML = '发现新版本 v' + esc(latest) + '，<a href="' + esc(link) + '" target="_blank" rel="noopener">前往下载</a>';
-            } else {
-                hint.textContent = '已是最新版本（v' + appVersion + '）。';
-            }
-        } catch (e) {
-            hint.textContent = '检查更新失败';
-        }
-        btn.disabled = false;
-        btn.textContent = label;
-    }
-    window.checkUpdate = checkUpdate;
-
-    // ===== 加载我的资料 =====
-    var currentContact = '';
-    /** 更新时间：后端存的是 UTC（CURRENT_TIMESTAMP），展示时转为北京时间（+8） */
-    function fmtUpdateTime(d) {
-        if (!d) return '时间未知';
-        var t = Date.parse(String(d).replace(' ', 'T') + 'Z');
-        if (isNaN(t)) return d;
-        var bj = new Date(t + 8 * 3600 * 1000);
-        var p = function (n) { return (n < 10 ? '0' : '') + n; };
-        return bj.getUTCFullYear() + '-' + p(bj.getUTCMonth() + 1) + '-' + p(bj.getUTCDate())
-            + ' ' + p(bj.getUTCHours()) + ':' + p(bj.getUTCMinutes()) + ':' + p(bj.getUTCSeconds());
-    }
-    async function loadProfile() {
-        var card = document.getElementById('profileCard');
-        card.innerHTML = stateHTML('加载中…');
-        try {
-            var res = await api('/api/auth/me');
-            var u = res.data;
-            currentContact = u.contact || '';
-            card.innerHTML =
-                '<div class="profile-head">'
-                + '<div class="profile-avatar">' + esc((u.name || '?').charAt(0)) + '</div>'
-                + '<div>'
-                + '<div class="profile-name">' + esc(u.name || '') + '</div>'
-                + '<div class="profile-sub">学号 ' + esc(u.student_id || '') + '</div>'
-                + '</div>'
-                + '</div>'
-                + '<div class="info-list">'
-                + '<div class="info-row"><span class="k">职务</span><span class="v">' + positionsChipsHTML(u.positions) + '</span></div>'
-                + '<div class="info-row"><span class="k">联系方式</span>'
-                + '<span class="v" style="display:inline-flex;align-items:center;gap:10px;">'
-                + '<span id="contactValue">' + esc(u.contact || '未填写') + '</span>'
-                + '<button type="button" class="btn btn-outline btn-sm" onclick="openContactEdit()">修改</button>'
-                + '</span></div>'
-                + '<div class="info-row"><span class="k">更新时间</span><span class="v">' + esc(fmtUpdateTime(u.update_time)) + '</span></div>'
-                + '</div>';
-        } catch (err) {
-            card.innerHTML = stateHTML(err.message, true);
-        }
-    }
-    loadProfile();
-
-    // ===== 个性化：主题外观 =====
-    function currentThemeChoice() {
-        try { var v = localStorage.getItem('theme'); return (v === 'dark' || v === 'light') ? v : 'system'; } catch (e) { return 'system'; }
-    }
-    function applyTheme(choice) {
-        var resolved = choice === 'system'
-            ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
-            : choice;
-        document.documentElement.setAttribute('data-theme', resolved);
-        try {
-            if (choice === 'system') localStorage.removeItem('theme');
-            else localStorage.setItem('theme', choice);
-        } catch (e) {}
-        // 同步到应用壳（父窗口），保持一致
-        try {
-            if (window.parent && window.parent !== window && window.parent.document) {
-                window.parent.document.documentElement.setAttribute('data-theme', resolved);
-            }
-        } catch (e) {}
-    }
-    function markThemeSeg() {
-        var seg = document.getElementById('themeSeg');
-        if (!seg) return;
-        var cur = currentThemeChoice();
-        var btns = seg.querySelectorAll('.tab');
-        for (var i = 0; i < btns.length; i++) {
-            btns[i].classList.toggle('active', btns[i].getAttribute('data-theme-choice') === cur);
-        }
-        moveThemeSegPill();
-    }
-    // 滑动滑块：与移动端底栏同款，位置与尺寸按激活项实测写入
-    function moveThemeSegPill() {
-        var pill = document.getElementById('themeSegPill');
-        if (!pill) return;
-        var active = pill.parentNode.querySelector('.tab.active');
-        if (!active) { pill.style.opacity = '0'; return; }
-        pill.style.left = active.offsetLeft + 'px';
-        pill.style.top = active.offsetTop + 'px';
-        pill.style.width = active.offsetWidth + 'px';
-        pill.style.height = active.offsetHeight + 'px';
-        pill.style.opacity = '1';
-    }
-    (function bindThemeSeg() {
-        var seg = document.getElementById('themeSeg');
-        if (!seg) return;
-        seg.addEventListener('click', function (e) {
-            var btn = e.target;
-            while (btn && btn !== seg && !btn.getAttribute('data-theme-choice')) btn = btn.parentNode;
-            if (!btn || btn === seg) return;
-            applyTheme(btn.getAttribute('data-theme-choice'));
-            markThemeSeg();
-        });
-        window.addEventListener('storage', function (e) { if (e.key === 'theme') markThemeSeg(); });
-        markThemeSeg();
-        // 首帧布局稳定后再定位一次；旋屏/尺寸变化时重算
-        setTimeout(moveThemeSegPill, 0);
-        window.addEventListener('resize', moveThemeSegPill);
-    })();
-
-    // ===== 修改密码 =====
-    var pwdForm = document.getElementById('pwdForm');
-    pwdForm.addEventListener('submit', async function (e) {
-        e.preventDefault();
-        var errBox = document.getElementById('pwdError');
-        errBox.classList.remove('show');
-        var old_password = document.getElementById('oldPassword').value;
-        var new_password = document.getElementById('newPassword').value;
-        var confirm = document.getElementById('confirmPassword').value;
-        if (!old_password || !new_password || !confirm) { errBox.textContent = '请填写完整'; errBox.classList.add('show'); return; }
-        if (new_password.length < 6) { errBox.textContent = '新密码长度至少 6 位'; errBox.classList.add('show'); return; }
-        if (new_password !== confirm) { errBox.textContent = '两次输入的密码不一致'; errBox.classList.add('show'); return; }
-        var btn = document.getElementById('pwdBtn');
-        btn.disabled = true; var t = btn.textContent; btn.textContent = '提交中…';
-        try {
-            await api('/api/auth/change-password', { method: 'POST', body: JSON.stringify({ old_password: old_password, new_password: new_password }) });
-            errBox.classList.add('show');
-            errBox.textContent = '密码修改成功，请重新登录';
-            setTimeout(function () { if (window.parent.logout) window.parent.logout(); else { clearSession(); } }, 1200);
-        } catch (err) {
-            errBox.textContent = err.message;
-            errBox.classList.add('show');
-        } finally {
-            btn.disabled = false; btn.textContent = t;
-        }
-    });
-
-    // ===== 日历订阅 =====
-    var calUrlEl = document.getElementById('calUrl');
-    var calOpenBtn = document.getElementById('calOpenBtn');
-    var calCopyBtn = document.getElementById('calCopyBtn');
-    var calResetBtn = document.getElementById('calResetBtn');
-    var calBaseUrl = '';
-
-    function calRefresh() {
-        var url = '';
-        if (calBaseUrl) {
-            var u = new URL(calBaseUrl);
-            var remind = document.getElementById('calRemind').value;
-            var past = document.getElementById('calPast').value;
-            var future = document.getElementById('calFuture').value;
-            // 与服务端默认值相同的就不写进链接，保持简洁
-            if (remind !== '30') u.searchParams.set('remind', remind);
-            if (past !== '30') u.searchParams.set('past', past);
-            if (future !== '365') u.searchParams.set('future', future);
-            if (document.getElementById('calNotices').checked) u.searchParams.set('notices', '1');
-            url = u.toString();
-        }
-        calUrlEl.value = url;
-        calOpenBtn.href = url || '#';
-    }
-
-    ['calRemind', 'calPast', 'calFuture', 'calNotices'].forEach(function (id) {
-        document.getElementById(id).addEventListener('change', calRefresh);
-    });
-
-    (async function loadCalendarToken() {
-        try {
-            var res = await api('/api/calendar/token');
-            calBaseUrl = (res.data && res.data.url) || '';
-            calRefresh();
-        } catch (err) {
-            var box = document.getElementById('calError');
-            box.textContent = err.message || '获取订阅地址失败';
-            box.classList.add('show');
-        }
-    })();
-
-    calResetBtn.addEventListener('click', async function () {
-        if (!window.confirm('重置后旧订阅链接立即失效，已订阅的日历需要重新订阅。确定重置？')) return;
-        var errBox = document.getElementById('calError');
-        errBox.classList.remove('show');
-        var label = calResetBtn.textContent;
-        calResetBtn.disabled = true;
-        calResetBtn.textContent = '重置中…';
-        try {
-            var res = await api('/api/calendar/reset', { method: 'POST' });
-            calBaseUrl = (res.data && res.data.url) || '';
-            calRefresh();
-        } catch (err) {
-            errBox.textContent = err.message || '重置失败';
-            errBox.classList.add('show');
-        } finally {
-            calResetBtn.disabled = false;
-            calResetBtn.textContent = label;
-        }
-    });
-
-    calCopyBtn.addEventListener('click', function () {
-        if (!calUrlEl.value) return;
-        function done() {
-            calCopyBtn.textContent = '已复制';
-            setTimeout(function () { calCopyBtn.textContent = '复制链接'; }, 1500);
-        }
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-            navigator.clipboard.writeText(calUrlEl.value).then(done, function () {
-                calUrlEl.select();
-                document.execCommand('copy');
-                done();
-            });
-        } else {
-            calUrlEl.select();
-            document.execCommand('copy');
-            done();
-        }
-    });
-    })();
-    </script>
+    <script src="assets/js/account.js"></script>
 </body>
 </html>

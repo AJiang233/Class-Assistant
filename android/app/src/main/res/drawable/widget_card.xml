@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 桌面小组件里每张卡片的底（课表 / 今日活动共用）：一个圆角纯色块。
+     这一个 = 调色板的**靛蓝**（与网页的 accent #4F46E5 同色系掺白），
+     也是 widget_card_item.xml 里那层 ImageView 的默认 src；实际颜色由 WidgetCard.cardBgRes
+     按名字换成 sky / green / amber / rose / violet 里的一个（六个文件只有色号不同） -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/widget_chip" />
+    <corners android:radius="8dp" />
+</shape>

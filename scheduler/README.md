@@ -2,14 +2,23 @@
 
 门户网站继续跑在 Cloudflare Pages Functions 上。这里是 **Go 常驻进程**：轮询、抓取、对外限流这类要活着的事情放这边，不塞进无状态 Worker。
 
+代码不在这个目录，这里只放说明 —— 入口在 [`cmd/scheduler/`](../cmd/README.md)，规则在 [`internal/`](../internal/README.md)。
+
 ```
 class-assistant/
 ├── cmd/scheduler/     # 入口
-├── internal/vault/    # 与 Worker 同一套 AES-GCM Cookie 封存
+├── internal/vault/    # 与教务 Worker 同一套 AES-GCM Cookie 封存
 ├── internal/identity/ # 学号必须是本人
 ├── internal/roles/    # 预置职位不能写进 roles 表
 └── internal/ratelimit/# 进程内固定窗口限流
 ```
+
+## 与 Worker 共用同一套规则
+
+这是这个进程唯一的设计原则：**判定不许写第二遍**。
+
+- **Cookie 封存**：格式 `v1.<iv>.<ciphertext>`（AES-256-GCM）。密钥取 `COOKIE_SECRET`，缺省回退 `JWT_SECRET` 派生，**解密时两个都试** —— 否则后加 `COOKIE_SECRET` 会把旧记录锁死。与私有仓 `Class-Assistant-Private-API` 的 `src/utils/cookieVault.js` 交叉验证，两边产出的密文能互解
+- **学号比对 / 预置职位白名单 / 权限白名单**：学号比对与私有仓的 `identity.js` 同源，职位与权限与门户的 `web/backend/src/utils/permissions.js` 同源，都不另起一套
 
 ## 命令
 
@@ -25,4 +34,6 @@ go run ./cmd/scheduler run           # 长期运行
 
 ## 现状
 
-**当前只做封存自检**：`run` 每小时验证一次 vault 能封能解，确认进程活着、密钥配置没坏。课表/通知的真实轮询抓取还没接进来，跑这个进程不会替用户拉任何数据。抓取（`crawler/`）后续会复用 `internal/` 里的 vault / identity / roles / ratelimit，不另起一套规则。
+**当前只做封存自检**：`run` 每小时验证一次 vault 能封能解，确认进程活着、密钥配置没坏。课表 / 通知的真实轮询抓取还没接进来，跑这个进程不会替用户拉任何数据。
+
+抓取（`crawler/`）后续会复用 `internal/` 里的 vault / identity / roles / ratelimit，不另起一套规则。

@@ -2,7 +2,7 @@ import { ActivityModel } from '../models/activityModel.js';
 import { success, error, jsonResponse } from '../utils/response.js';
 import { toLocalDateTime } from '../utils/datetime.js';
 import { pageLimit, pageOffset } from '../utils/query.js';
-import { listByAudience } from '../utils/audience.js';
+import { canManageItem, canViewItem, itemForViewer, loadViewer, listByAudience } from '../utils/audience.js';
 import { pushToRemindAudience } from '../utils/push.js';
 
 /**
@@ -14,7 +14,7 @@ export async function handleCreateActivity(request, env, user, ctx) {
     const { title, content = '', location = '', start_time, end_time = '', remind_people = null } = body;
 
     if (!title || !start_time) {
-      return jsonResponse(error('标题、开始时间为必填字段', 'MISSING_FIELDS'), 400);
+      return jsonResponse(error('请填写标题和开始时间', 'MISSING_FIELDS'), 400);
     }
 
     const remind = remind_people ? JSON.stringify(remind_people) : null;
@@ -25,7 +25,9 @@ export async function handleCreateActivity(request, env, user, ctx) {
       location,
       start_time: toLocalDateTime(start_time),
       end_time: toLocalDateTime(end_time),
+      // 署名与归属都由服务端从登录态写，请求体里传什么都不作数
       publisher: user.name,
+      created_by: user.id,
       remind_people: remind
     });
 
@@ -41,7 +43,7 @@ export async function handleCreateActivity(request, env, user, ctx) {
     return jsonResponse(success({ message: '活动发布成功' }), 201);
   } catch (e) {
     console.error('发布活动失败:', e);
-    return jsonResponse(error('发布活动失败', 'CREATE_ACTIVITY_FAILED'), 500);
+    return jsonResponse(error('发布活动失败，请稍后重试', 'CREATE_ACTIVITY_FAILED'), 500);
   }
 }
 
@@ -69,7 +71,8 @@ export async function handleListActivities(request, env, user) {
 
     const activityModel = new ActivityModel(env.DB);
     // 提醒对象为空的条目对「不计入班级管理」的人不可见（安卓推送读的也是这个接口）
-    const list = await listByAudience(env, user.positions,
+    const viewer = await loadViewer(env, user);
+    const list = await listByAudience(viewer,
       (l, o) => (scope === 'all' ? activityModel.listAll(l, o) : activityModel.list(l, o, date)),
       limit, offset);
 
@@ -87,17 +90,20 @@ export async function handleGetActivity(request, env, user, params) {
   try {
     const id = parseInt(params.id);
     if (!id) {
-      return jsonResponse(error('无效的活动ID', 'INVALID_ID'), 400);
+      return jsonResponse(error('活动不存在', 'INVALID_ID'), 400);
     }
 
     const activityModel = new ActivityModel(env.DB);
     const activity = await activityModel.findById(id);
 
-    if (!activity) {
-      return jsonResponse(error('活动不存在', 'ACTIVITY_NOT_FOUND'), 404);
+    // 看不到的条目与不存在的条目回同一个 404（同通知单条读取，文案也保持一致）
+    const viewer = await loadViewer(env, user);
+    if (!activity || !canViewItem(activity.remind_people, viewer)) {
+      return jsonResponse(error('没有找到这条活动 —— 可能已被删除，也可能你不在提醒对象里', 'ACTIVITY_NOT_FOUND'), 404);
     }
 
-    return jsonResponse(success(activity));
+    // 定向名单只回给能发文的人（编辑表单要拿它预填）；canManage 供前端决定显不显示改/删按钮
+    return jsonResponse(success(itemForViewer(activity, viewer)));
   } catch (e) {
     console.error('获取活动失败:', e);
     return jsonResponse(error('获取活动失败', 'GET_ACTIVITY_FAILED'), 500);
@@ -105,16 +111,15 @@ export async function handleGetActivity(request, env, user, params) {
 }
 
 /**
- * 更新活动（需登录）
+ * 更新活动（需登录 + content:write + 是自己发布的）
  */
 export async function handleUpdateActivity(request, env, user, params) {
   try {
     const id = parseInt(params.id);
     if (!id) {
-      return jsonResponse(error('无效的活动ID', 'INVALID_ID'), 400);
+      return jsonResponse(error('活动不存在', 'INVALID_ID'), 400);
     }
 
-    const body = await request.json();
     const activityModel = new ActivityModel(env.DB);
 
     const existing = await activityModel.findById(id);
@@ -122,18 +127,30 @@ export async function handleUpdateActivity(request, env, user, params) {
       return jsonResponse(error('活动不存在', 'ACTIVITY_NOT_FOUND'), 404);
     }
 
-    // 提醒对象数组统一序列化为 JSON 字符串存储
-    const { start_time, end_time, ...rest } = body;
-    const payload = { ...rest };
-    if (start_time !== undefined) payload.start_time = toLocalDateTime(start_time);
-    if (end_time !== undefined) payload.end_time = toLocalDateTime(end_time);
-    if (payload.remind_people !== undefined && payload.remind_people !== null) {
-      payload.remind_people = Array.isArray(payload.remind_people) ? JSON.stringify(payload.remind_people) : payload.remind_people;
+    // 归属校验：content:write 只说明「能发内容」，不等于「能改别人发的内容」
+    const viewer = await loadViewer(env, user);
+    if (!canManageItem(existing, viewer)) {
+      return jsonResponse(error('只能编辑自己发布的活动', 'FORBIDDEN'), 403);
+    }
+
+    const body = await request.json().catch(() => ({}));
+
+    // 逐字段取，不整包透传：此前 ...rest 会把 publisher 一并写进库（见 issue #17）
+    const payload = {};
+    if (body.title !== undefined) payload.title = body.title;
+    if (body.content !== undefined) payload.content = body.content;
+    if (body.location !== undefined) payload.location = body.location;
+    if (body.start_time !== undefined) payload.start_time = toLocalDateTime(body.start_time);
+    if (body.end_time !== undefined) payload.end_time = toLocalDateTime(body.end_time);
+    if (body.remind_people !== undefined) {
+      payload.remind_people = Array.isArray(body.remind_people)
+        ? JSON.stringify(body.remind_people)
+        : body.remind_people;
     }
 
     await activityModel.update(id, payload);
 
-    return jsonResponse(success({ message: '活动更新成功' }));
+    return jsonResponse(success({ message: '活动已保存' }));
   } catch (e) {
     console.error('更新活动失败:', e);
     return jsonResponse(error('更新活动失败', 'UPDATE_ACTIVITY_FAILED'), 500);
@@ -141,13 +158,13 @@ export async function handleUpdateActivity(request, env, user, params) {
 }
 
 /**
- * 删除活动（需登录）
+ * 删除活动（需登录 + content:write + 是自己发布的）
  */
 export async function handleDeleteActivity(request, env, user, params) {
   try {
     const id = parseInt(params.id);
     if (!id) {
-      return jsonResponse(error('无效的活动ID', 'INVALID_ID'), 400);
+      return jsonResponse(error('活动不存在', 'INVALID_ID'), 400);
     }
 
     const activityModel = new ActivityModel(env.DB);
@@ -155,6 +172,11 @@ export async function handleDeleteActivity(request, env, user, params) {
     const existing = await activityModel.findById(id);
     if (!existing) {
       return jsonResponse(error('活动不存在', 'ACTIVITY_NOT_FOUND'), 404);
+    }
+
+    const viewer = await loadViewer(env, user);
+    if (!canManageItem(existing, viewer)) {
+      return jsonResponse(error('只能删除自己发布的活动', 'FORBIDDEN'), 403);
     }
 
     await activityModel.delete(id);

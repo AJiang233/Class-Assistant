@@ -3,12 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <title>通知 - 班级助理</title>
+    <title>班级通知 - 班级助理</title>
     <meta name="description" content="班级助理：班级通知列表与详情。">
     <meta name="color-scheme" content="light dark">
     <meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#07070c" media="(prefers-color-scheme: dark)">
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%232196f3'/%3E%3Cpath d='M16 24h32v18H26l-10 8z' fill='none' stroke='%23fff' stroke-width='3' stroke-linejoin='round'/%3E%3Cpath d='M24 30h16M24 34h10' stroke='%23fff' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='58 50 396 396'%3E%3Cdefs%3E%3Cmask id='ca-line-ko' maskUnits='userSpaceOnUse' x='-256' y='-256' width='1024' height='1024'%3E%3Crect x='-256' y='-256' width='1024' height='1024' fill='%23ffffff'/%3E%3Cpath d='M282,93 H390 A30,30 0 0 1 420,123 V175 A30,30 0 0 1 390,205 H338 L292,241 L304,205 H282 A30,30 0 0 1 252,175 V123 A30,30 0 0 1 282,93 Z' fill='%23000000' stroke='%23000000' stroke-width='36' stroke-linejoin='round' stroke-linecap='round'/%3E%3C/mask%3E%3C/defs%3E%3Cg mask='url(%23ca-line-ko)' fill='none' stroke='%23007aff' stroke-width='28' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M92,175 A172,172 0 0 1 232,208 L232,387 A172,172 0 0 0 92,354 Z'/%3E%3Cpath d='M372,175 A172,172 0 0 0 232,208 L232,387 A172,172 0 0 1 372,354 Z'/%3E%3C/g%3E%3Cpath d='M282,93 H390 A30,30 0 0 1 420,123 V175 A30,30 0 0 1 390,205 H338 L292,241 L304,205 H282 A30,30 0 0 1 252,175 V123 A30,30 0 0 1 282,93 Z' fill='none' stroke='%23007aff' stroke-width='28' stroke-linejoin='round' stroke-linecap='round'/%3E%3C/svg%3E">
+    <link rel="icon" type="image/png" sizes="192x192" href="assets/icons/icon-line-192.png">
+    <link rel="icon" type="image/png" sizes="512x512" href="assets/icons/icon-line-512.png">
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
     <!-- iOS 加到主屏后独立运行（无地址栏）。状态栏用 default：iOS 会为状态栏预留空间，
@@ -18,25 +20,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="班级助理">
     <link rel="stylesheet" href="assets/css/style.css">
-    <script>
-    /* 主题切换：localStorage('theme') 优先，其次跟随系统 prefers-color-scheme；同步写入 <html> 的 data-theme 防闪烁 */
-    (function () {
-        var KEY = 'theme';
-        var root = document.documentElement;
-        var mq = window.matchMedia('(prefers-color-scheme: dark)');
-        function system() { return mq.matches ? 'dark' : 'light'; }
-        function stored() { try { var v = localStorage.getItem(KEY); return (v === 'dark' || v === 'light') ? v : null; } catch (e) { return null; } }
-        function apply(t) { root.setAttribute('data-theme', t); }
-        function current() { return stored() || system(); }
-        apply(current());
-        function bind() {
-            if (mq.addEventListener) mq.addEventListener('change', function (e) { if (!stored()) apply(e.matches ? 'dark' : 'light'); });
-            else if (mq.addListener) mq.addListener(function (e) { if (!stored()) apply(e.matches ? 'dark' : 'light'); });
-            window.addEventListener('storage', function (e) { if (e.key === KEY) apply(current()); });
-        }
-        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind); else bind();
-    })();
-    </script>
+    <script src="assets/js/theme.js"></script>
 </head>
 <body>
     <div class="main">
@@ -55,7 +39,7 @@
                 <div class="modal">
                     <div class="modal-head">
                         <span class="modal-title">通知详情</span>
-                        <button type="button" class="modal-close" onclick="closeDetail()" aria-label="关闭">
+                        <button type="button" class="modal-close" data-act="close-detail" aria-label="关闭">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                         </button>
                     </div>
@@ -68,7 +52,7 @@
                 <div class="modal">
                     <div class="modal-head">
                         <span class="modal-title">编辑通知</span>
-                        <button type="button" class="modal-close" onclick="cancelEdit()" aria-label="关闭">
+                        <button type="button" class="modal-close" data-act="cancel-edit" aria-label="关闭">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                         </button>
                     </div>
@@ -87,7 +71,7 @@
                             <input id="editPublish" class="form-input" type="datetime-local" autocomplete="off">
                         </div>
                         <div class="form-field">
-                            <label class="form-label">存活至（选填，到期自动隐藏）</label>
+                            <label class="form-label">截止时间（选填，到期自动隐藏）</label>
                             <input id="editExpire" class="form-input" type="datetime-local" autocomplete="off">
                         </div>
                         <div class="form-field">
@@ -96,8 +80,8 @@
                         </div>
                     </div>
                     <div class="modal-foot">
-                        <button type="button" class="btn btn-outline" onclick="cancelEdit()">取消</button>
-                        <button type="button" class="btn btn-primary" id="editSubmitBtn" onclick="submitEdit()">保存</button>
+                        <button type="button" class="btn btn-outline" data-act="cancel-edit">取消</button>
+                        <button type="button" class="btn btn-primary" id="editSubmitBtn">保存</button>
                     </div>
                 </div>
             </div>
@@ -105,256 +89,6 @@
     </div>
 
     <script src="assets/js/app.js"></script>
-    <script>
-    (function () {
-    // ===== 需要登录 =====
-    if (!requireAuth()) return;
-
-    var modalOverlay = document.getElementById('detailModal');
-
-    // ===== 编辑入口：仅 content:write 权限者可用 =====
-    if (canContentWrite()) loadRemindChoices();
-
-    // ===== 提醒对象选择 =====
-    var remindChoices = [];
-
-    async function loadRemindChoices() {
-        try {
-            var res = await api('/api/auth/members-pick');
-            remindChoices = (res.data && res.data.list) || [];
-        } catch (e) {}
-    }
-
-    function renderRemindChoices(checkedNames) {
-        renderRemindBox('editRemind', remindChoices, checkedNames);
-    }
-
-    function collectRemind() {
-        var names = [];
-        document.querySelectorAll('#editRemind .remind-cb:checked').forEach(function (el) { names.push(el.value); });
-        return names;
-    }
-
-    var editingNoticeId = null;
-
-    // ===== 时间比较：与数据库一致的 "YYYY-MM-DD HH:MM:SS" 本地时间 =====
-    function nowKey() {
-        var d = new Date(); var pad = function (n) { return n < 10 ? '0' + n : '' + n; };
-        return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':00';
-    }
-
-    function statusOf(n) {
-        var p = String(n.publish_time || '');
-        var e = String(n.expire_time || '');
-        var now = nowKey();
-        if (p && p > now) return 'upcoming';
-        if (e && e <= now) return 'ended';
-        return 'ongoing';
-    }
-
-    function byPublishAsc(a, b) { return String(a.publish_time || '').localeCompare(String(b.publish_time || '')); }
-    function byPublishDesc(a, b) { return String(b.publish_time || '').localeCompare(String(a.publish_time || '')); }
-
-    function rowHTML(n) {
-        var pub = n.publisher ? '<span>' + icon('user') + esc(n.publisher) + '</span>' : '';
-        // 带跳转的通知（如表单填写页）在列表上给个标记；行本身是 button，
-        // 里面不能再塞可点元素，实际入口放在详情弹窗
-        var formBadge = n.link ? '<span class="badge badge-form">表单</span>' : '';
-        return '<button type="button" class="list-row" onclick="showDetail(' + n.id + ')">'
-            + '<div class="list-row-main">'
-            + '<div class="list-row-title">'
-            + '<span class="list-row-name">' + esc(n.title) + '</span>'
-            + '<span class="badge badge-' + esc(n.source || 'manual') + '">' + esc(sourceName(n.source)) + '</span>'
-            + formBadge
-            + '</div>'
-            + '<div class="list-row-meta">'
-            + pub
-            + '<span>' + icon('clock') + esc(fmtDate(n.publish_time)) + '</span>'
-            + '</div>'
-            + '</div>'
-            + '<svg class="list-row-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>'
-            + '</button>';
-    }
-
-    function groupHTML(title, rows, open) {
-        return '<details class="section-block"' + (open ? ' open' : '') + '>'
-            + '<summary class="section-head">'
-            + '<h2 class="section-title">' + title + '</h2>'
-            + '<span class="section-right">'
-            + '<span class="section-count">共 ' + rows.length + ' 条</span>'
-            + '<svg class="section-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>'
-            + '</span>'
-            + '</summary>'
-            + '<div class="list">' + rows.map(rowHTML).join('') + '</div>'
-            + '</details>';
-    }
-
-    // ===== 加载列表（按 正在进行 / 将要开始 / 已经结束 分组） =====
-    async function loadList() {
-        var el = document.getElementById('noticeListView');
-        el.innerHTML = skeletonHTML(5);
-        try {
-            var res = await api('/api/notices?scope=all');
-            var list = (res.data && res.data.list) || [];
-            if (!list.length) { el.innerHTML = stateHTML('暂无通知'); return; }
-            var groups = { ongoing: [], upcoming: [], ended: [] };
-            list.forEach(function (n) { groups[statusOf(n)].push(n); });
-            groups.ongoing.sort(byPublishAsc);
-            groups.upcoming.sort(byPublishAsc);
-            groups.ended.sort(byPublishDesc);
-            var html = '';
-            if (groups.ongoing.length) html += groupHTML('正在进行', groups.ongoing, true);
-            if (groups.upcoming.length) html += groupHTML('将要开始', groups.upcoming, false);
-            if (groups.ended.length) html += groupHTML('已经结束', groups.ended, false);
-            el.innerHTML = html;
-        } catch (err) {
-            el.innerHTML = stateHTML(err.message, true);
-        }
-    }
-    loadList();
-
-    // ===== 详情弹窗 =====
-    function openDetail() {
-        modalOverlay.classList.add('show');
-        document.body.style.overflow = 'hidden';
-    }
-    function closeDetail() {
-        modalOverlay.classList.remove('show');
-        document.body.style.overflow = '';
-    }
-    // 点遮罩空白处关闭
-    modalOverlay.addEventListener('click', function (e) {
-        if (e.target === modalOverlay) closeDetail();
-    });
-    // ESC 关闭
-    document.addEventListener('keydown', function (e) {
-        if (e.key === 'Escape' && modalOverlay.classList.contains('show')) closeDetail();
-    });
-
-    // ===== 编辑弹窗 =====
-    var editOverlay = document.getElementById('editModal');
-    function openEdit() {
-        editOverlay.classList.add('show');
-        document.body.style.overflow = 'hidden';
-    }
-    function closeEdit() {
-        editOverlay.classList.remove('show');
-        document.body.style.overflow = '';
-    }
-    editOverlay.addEventListener('click', function (e) {
-        if (e.target === editOverlay) cancelEdit();
-    });
-    document.addEventListener('keydown', function (e) {
-        if (e.key === 'Escape' && editOverlay.classList.contains('show')) cancelEdit();
-    });
-
-    async function showDetail(id) {
-        var card = document.getElementById('detailCard');
-        card.innerHTML = stateHTML('加载中…');
-        openDetail();
-        try {
-            var res = await api('/api/notices/' + id);
-            var n = res.data;
-            var badge = '<span class="badge badge-' + esc(n.source || 'manual') + '">' + esc(sourceName(n.source)) + '</span>'
-                + (n.link ? '<span class="badge badge-form">表单</span>' : '');
-            var meta = '<span>' + icon('clock') + '发布 ' + esc(fmtDate(n.publish_time)) + '</span>';
-            if (n.expire_time) meta += '<span>' + icon('clock') + '截止 ' + esc(fmtDate(n.expire_time)) + '</span>';
-            var byline = '<div class="detail-byline"><span>' + icon('user') + '通知人 ' + esc(n.publisher || '未知') + '</span></div>';
-            var remind = fmtRemind(n.remind_people);
-            var remindLine = remind ? '<div class="detail-remind"><span>' + icon('bell') + '被通知人 ' + esc(remind) + '</span></div>' : '';
-            var actBtns = canContentWrite()
-                ? '<div class="modal-foot">'
-                  + '<button type="button" class="btn btn-outline" onclick="startEdit(' + n.id + ')">修改</button>'
-                  + '<button type="button" class="btn btn-danger" onclick="deleteNotice(' + n.id + ')">删除</button>'
-                  + '</div>'
-                : '';
-            // 站内跳转用 target="_top"：通知页是嵌在主页 iframe 里的，跳外层才不会被套住
-            var formBtn = n.link
-                ? '<a class="btn btn-primary btn-block" style="margin-top:12px;" href="' + esc(n.link) + '" target="_top">去填写</a>'
-                : '';
-            card.innerHTML =
-                '<div class="detail-head"><div class="detail-title">' + esc(n.title) + '</div>' + badge + '</div>'
-                + '<div class="detail-meta">' + meta + '</div>'
-                + '<div class="detail-body">' + esc(n.content || '暂无通知内容') + '</div>'
-                + byline
-                + remindLine
-                + formBtn
-                + actBtns;
-        } catch (err) {
-            card.innerHTML = stateHTML(err.message, true);
-        }
-    }
-
-    async function deleteNotice(id) {
-        if (!confirm('确定删除该通知？')) return;
-        try {
-            await api('/api/notices/' + id, { method: 'DELETE' });
-            closeDetail();
-            loadList();
-        } catch (err) {
-            alert(err.message);
-        }
-    }
-
-    function startEdit(id) {
-        closeDetail();
-        api('/api/notices/' + id).then(function (res) {
-            var n = res.data;
-            editingNoticeId = id;
-            document.getElementById('editError').classList.remove('show');
-            document.getElementById('editTitle').value = n.title || '';
-            document.getElementById('editContent').value = n.content || '';
-            document.getElementById('editPublish').value = (n.publish_time || '').replace(' ', 'T').slice(0, 16);
-            document.getElementById('editExpire').value = (n.expire_time || '').replace(' ', 'T').slice(0, 16);
-            var names = [];
-            if (n.remind_people) { try { var arr = JSON.parse(n.remind_people); if (Array.isArray(arr)) names = arr; } catch (e) {} }
-            renderRemindChoices(names);
-            openEdit();
-        }).catch(function (err) { alert(err.message); });
-    }
-
-    function cancelEdit() {
-        closeEdit();
-        editingNoticeId = null;
-    }
-
-    async function submitEdit() {
-        var errBox = document.getElementById('editError');
-        errBox.classList.remove('show');
-        var title = document.getElementById('editTitle').value.trim();
-        var content = document.getElementById('editContent').value.trim();
-        var publish_time = document.getElementById('editPublish').value;
-        var expire_time = document.getElementById('editExpire').value || null;
-        if (!title || !publish_time) {
-            errBox.textContent = '标题、发布时间为必填';
-            errBox.classList.add('show'); return;
-        }
-        var btn = document.getElementById('editSubmitBtn');
-        btn.disabled = true; var t = btn.textContent; btn.textContent = '保存中…';
-        try {
-            var body = { title: title, content: content, publish_time: publish_time, expire_time: expire_time, remind_people: collectRemind() };
-            await api('/api/notices/' + editingNoticeId, { method: 'PUT', body: JSON.stringify(body) });
-            cancelEdit();
-            loadList();
-        } catch (err) {
-            errBox.textContent = err.message;
-            errBox.classList.add('show');
-        } finally {
-            btn.disabled = false; btn.textContent = t;
-        }
-    }
-
-    // 供内联 onclick 调用
-    window.showDetail = showDetail;
-
-    var deepNoticeId = new URLSearchParams(location.search).get('id');
-    if (deepNoticeId) showDetail(deepNoticeId);
-    window.deleteNotice = deleteNotice;
-    window.startEdit = startEdit;
-    window.cancelEdit = cancelEdit;
-    window.submitEdit = submitEdit;
-    window.closeDetail = closeDetail;
-    })();
-    </script>
+    <script src="assets/js/notices.js"></script>
 </body>
 </html>

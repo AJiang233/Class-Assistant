@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Preflight</title>
+    <style id="theme-vars">
+/* =====================================================================
+   班级助理 · 图标系统展示页设计令牌
+   ---------------------------------------------------------------------
+   来源：直接沿用 web/assets/css/style.css 的设计令牌，
+   品牌主色只有一个 —— 系统蓝 #007aff（深色模式 #0a84ff）。
+   前缀 ca- 为 Tailwind 语义桥接用（apply-html-head-contract.mjs 会读取）。
+   注意：自由探索模式下不生成 secondary / accent 品牌色。
+   ===================================================================== */
+
+:root {
+  color-scheme: light;
+
+  /* ── 品牌主色（唯一） ── */
+  --ca-primary: #007aff;
+  --ca-primary-foreground: #ffffff;
+  --ca-primary-lift: #4aa3ff;
+  --ca-primary-deep: #0060cc;
+
+  /* ── 语义灰阶 ── */
+  --ca-background: #f2f2f7;
+  --ca-foreground: #1d1d1f;
+  --ca-card: #ffffff;
+  --ca-card-foreground: #1d1d1f;
+  --ca-popover: #ffffff;
+  --ca-popover-foreground: #1d1d1f;
+  --ca-muted: #e9e9f0;
+  --ca-muted-foreground: #6b6b70;
+  --ca-border: rgba(60, 60, 67, 0.14);
+  --ca-input: rgba(60, 60, 67, 0.14);
+  --ca-ring: #007aff;
+
+  /* ── 状态色（仅用于真实状态，不用于分类） ── */
+  --state-success: #248a3d;
+  --state-warning: #b25000;
+  --state-error: #d70015;
+  --state-info: #007aff;
+
+  /* ── 圆角 / 描边 / 抬高 ── */
+  --ca-radius-sm: 4px;
+  --ca-radius-md: 8px;
+  --ca-radius-lg: 16px;
+  --ca-hairline: rgba(60, 60, 67, 0.10);
+  --ca-shadow-flat: 0 1px 2px rgba(16, 24, 40, 0.04);
+
+  /* ── 图标对照底色（取自站内浅/深色模式的实际 --bg，不随主题切换） ──
+     图标必须在两种底色上都成立，所以这两块对照底固定值、不由 .dark 覆盖。 */
+  --ca-preview-light: #f2f2f7;
+  --ca-preview-dark: #07070c;
+
+  /* ── 间距（8pt 栅格） ── */
+  --ca-space-1: 4px;
+  --ca-space-2: 8px;
+  --ca-space-3: 12px;
+  --ca-space-4: 16px;
+  --ca-space-5: 24px;
+  --ca-space-6: 32px;
+  --ca-space-7: 48px;
+  --ca-space-8: 80px;
+
+  /* ── 字体（与门户一致：SF Pro + 苹方） ── */
+  --ca-font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
+    system-ui, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
+    "Helvetica Neue", Arial, sans-serif;
+  --ca-font-mono: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
+
+  /* ── 动效 ── */
+  --ca-ease-standard: cubic-bezier(0.32, 0.72, 0, 1);
+  --ca-dur-fast: 150ms;
+  --ca-dur-base: 250ms;
+}
+
+.dark {
+  color-scheme: dark;
+
+  --ca-primary: #0a84ff;
+  --ca-primary-foreground: #ffffff;
+  --ca-primary-lift: #4aa3ff;
+  --ca-primary-deep: #004f9e;
+
+  --ca-background: #07070c;
+  --ca-foreground: #f5f5f7;
+  --ca-card: #1c1c1e;
+  --ca-card-foreground: #f5f5f7;
+  --ca-popover: #1c1c1e;
+  --ca-popover-foreground: #f5f5f7;
+  --ca-muted: rgba(255, 255, 255, 0.07);
+  --ca-muted-foreground: #98989d;
+  --ca-border: rgba(255, 255, 255, 0.14);
+  --ca-input: rgba(255, 255, 255, 0.14);
+  --ca-ring: #0a84ff;
+
+  --state-success: #30d158;
+  --state-warning: #ff9f0a;
+  --state-error: #ff453a;
+  --state-info: #0a84ff;
+
+  --ca-hairline: rgba(255, 255, 255, 0.09);
+  --ca-shadow-flat: 0 1px 2px rgba(0, 0, 0, 0.30);
+}
+
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.3.1/dist/index.global.js"></script>
+    <script src="https://unpkg.com/lucide@1.8.0/dist/umd/lucide.min.js"></script>
+    <style type="text/tailwindcss">
+  @theme inline {
+    --color-background: var(--ca-background);
+    --color-foreground: var(--ca-foreground);
+    --color-card: var(--ca-card);
+    --color-card-foreground: var(--ca-card-foreground);
+    --color-popover: var(--ca-popover);
+    --color-popover-foreground: var(--ca-popover-foreground);
+    --color-primary: var(--ca-primary);
+    --color-primary-foreground: var(--ca-primary-foreground);
+    --color-muted: var(--ca-muted);
+    --color-muted-foreground: var(--ca-muted-foreground);
+    --color-border: var(--ca-border);
+    --color-input: var(--ca-input);
+    --color-ring: var(--ca-ring);
+    --radius-sm: var(--ca-radius-sm);
+    --radius-md: var(--ca-radius-md);
+    --radius-lg: var(--ca-radius-lg);
+  }
+  @layer base {
+    body { background: var(--ca-background); color: var(--ca-foreground); }
+    td, th { @apply break-words; word-break: break-all; word-break: auto-phrase; }
+    th { @apply whitespace-nowrap; }
+  }
+    </style>
+    <style id="semantic-token-fallback">
+      .bg-background { background-color: var(--ca-background); }
+      .text-background { color: var(--ca-background); }
+      .border-background { border-color: var(--ca-background); }
+      .ring-background { --tw-ring-color: var(--ca-background); }
+      .bg-foreground { background-color: var(--ca-foreground); }
+      .text-foreground { color: var(--ca-foreground); }
+      .border-foreground { border-color: var(--ca-foreground); }
+      .ring-foreground { --tw-ring-color: var(--ca-foreground); }
+      .bg-card { background-color: var(--ca-card); }
+      .text-card { color: var(--ca-card); }
+      .border-card { border-color: var(--ca-card); }
+      .ring-card { --tw-ring-color: var(--ca-card); }
+      .bg-card-foreground { background-color: var(--ca-card-foreground); }
+      .text-card-foreground { color: var(--ca-card-foreground); }
+      .border-card-foreground { border-color: var(--ca-card-foreground); }
+      .ring-card-foreground { --tw-ring-color: var(--ca-card-foreground); }
+      .bg-popover { background-color: var(--ca-popover); }
+      .text-popover { color: var(--ca-popover); }
+      .border-popover { border-color: var(--ca-popover); }
+      .ring-popover { --tw-ring-color: var(--ca-popover); }
+      .bg-popover-foreground { background-color: var(--ca-popover-foreground); }
+      .text-popover-foreground { color: var(--ca-popover-foreground); }
+      .border-popover-foreground { border-color: var(--ca-popover-foreground); }
+      .ring-popover-foreground { --tw-ring-color: var(--ca-popover-foreground); }
+      .bg-primary { background-color: var(--ca-primary); }
+      .text-primary { color: var(--ca-primary); }
+      .border-primary { border-color: var(--ca-primary); }
+      .ring-primary { --tw-ring-color: var(--ca-primary); }
+      .bg-primary-foreground { background-color: var(--ca-primary-foreground); }
+      .text-primary-foreground { color: var(--ca-primary-foreground); }
+      .border-primary-foreground { border-color: var(--ca-primary-foreground); }
+      .ring-primary-foreground { --tw-ring-color: var(--ca-primary-foreground); }
+      .bg-muted { background-color: var(--ca-muted); }
+      .text-muted { color: var(--ca-muted); }
+      .border-muted { border-color: var(--ca-muted); }
+      .ring-muted { --tw-ring-color: var(--ca-muted); }
+      .bg-muted-foreground { background-color: var(--ca-muted-foreground); }
+      .text-muted-foreground { color: var(--ca-muted-foreground); }
+      .border-muted-foreground { border-color: var(--ca-muted-foreground); }
+      .ring-muted-foreground { --tw-ring-color: var(--ca-muted-foreground); }
+      .bg-border { background-color: var(--ca-border); }
+      .text-border { color: var(--ca-border); }
+      .border-border { border-color: var(--ca-border); }
+      .ring-border { --tw-ring-color: var(--ca-border); }
+      .bg-input { background-color: var(--ca-input); }
+      .text-input { color: var(--ca-input); }
+      .border-input { border-color: var(--ca-input); }
+      .ring-input { --tw-ring-color: var(--ca-input); }
+      .bg-ring { background-color: var(--ca-ring); }
+      .text-ring { color: var(--ca-ring); }
+      .border-ring { border-color: var(--ca-ring); }
+      .ring-ring { --tw-ring-color: var(--ca-ring); }
+    </style>
+    <style>
+      .no-scrollbar::-webkit-scrollbar { display: none; }
+      .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+      [data-icon] {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        -webkit-mask-size: contain;
+        mask-size: contain;
+        -webkit-mask-repeat: no-repeat;
+        mask-repeat: no-repeat;
+        -webkit-mask-position: center;
+        mask-position: center;
+        background-color: currentColor;
+      }
+    </style>
+</head>
+<body class="min-h-screen font-sans antialiased">
+    <main>
+    </main>
+    <script>lucide.createIcons();</script>
+</body>
+</html>

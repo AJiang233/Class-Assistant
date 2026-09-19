@@ -1,5 +1,6 @@
 package com.classassistant.app.notify
 
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -16,11 +17,62 @@ import com.classassistant.app.R
  */
 object Notifier {
 
-    const val CHANNEL_ACTIVITY = "activity_reminder"
-    const val CHANNEL_NOTICE = "class_notice"
+    /** 活动提醒渠道（v3：v1 时 DEFAULT、v2 提到 HIGH、v3 提到 MAX） */
+    const val CHANNEL_ACTIVITY = "activity_reminder_v3"
+
+    /** 活动渠道 v1 老 id：删掉，别白留一条在系统设置里 */
+    private const val CHANNEL_ACTIVITY_LEGACY = "activity_reminder"
+
+    /**
+     * 通知 / 表单待办的渠道 id。末尾那个 v3 **不能去掉**。
+     *
+     * 渠道重要性只在创建时生效，之后应用只能**下调**不能上调（用户手动改的更是永远优先）。
+     * v1 是 "class_notice"（DEFAULT，只响铃不弹横幅）→ v2 提到 HIGH（弹横幅）→ v3 提到 MAX。
+     * 直接给老 id 传 MAX 对已安装用户毫无作用 —— 那条渠道早就建好了，参数会被忽略。
+     * 所以每次调重要性只能换一个新 id 重建渠道（用户的新渠道默认跟着 app 的设置走）。
+     */
+    const val CHANNEL_NOTICE = "class_notice_v3"
+
+    /** 通知渠道 v1 / v2 老 id：留着没用，还会继续在系统设置里占一条，让用户分不清该关哪个 */
+    private const val CHANNEL_NOTICE_LEGACY = "class_notice"
+    private const val CHANNEL_NOTICE_V2_LEGACY = "class_notice_v2"
+
+    /**
+     * 课程提醒单独一条渠道：上课提醒和班级活动/通知是两件事，学生想静音的可能只是其中一类。
+     * 从 v1 "course_reminder"（HIGH）提到 v3 的 MAX —— 同「只能换新 id 才能上调」的规则。
+     */
+    const val CHANNEL_COURSE = "course_reminder_v3"
+
+    /** 课程渠道 v1 老 id */
+    private const val CHANNEL_COURSE_LEGACY = "course_reminder"
+
+    /**
+     * 前台服务那条常驻通知的渠道。IMPORTANCE_MIN：不响铃、不弹横幅、不进锁屏，
+     * 只在通知栏里占一行 —— 这是「让用户知道有东西在后台跑」的最低调形式。
+     *
+     * 为什么不能干脆不要通知：前台服务**必须**有可见通知，这是系统要求不是我们的选择。
+     * 用户想彻底去掉，要么去系统设置里关掉这条渠道（服务会继续跑），
+     * 要么到「个人中心 → 后台通知」把常驻关掉。
+     */
+    const val CHANNEL_BACKGROUND = "background_running"
+
+    /**
+     * 常驻通知的 id。**不能用小数字**：活动提醒直接用活动 id（1、2、3…），撞上就互相顶掉。
+     * 沿用通知 / 表单那套「分段留空间」的做法（见 SyncRunner.NOTICE_ID_BASE）。
+     */
+    const val ONGOING_ID = 300_000
 
     /** 点通知要直达的页面深链（?view=…&id=…），MainActivity 启动时拼到站点地址后面 */
     const val EXTRA_DEEP_LINK = "ca_deep_link"
+
+    /**
+     * 系统里「本应用能不能发通知」。Android 13+ 是用户在权限弹窗里选的，
+     * 更早的版本是通知渠道被关掉 —— areNotificationsEnabled() 两类都覆盖。
+     * 关掉之后 notify() 会抛 SecurityException（见下面 send 的 catch），也就是所有本地提醒
+     * 都被默默丢掉；个人页要能把这件事说出来（见 HostBridge.appStatus），所以单独查一次。
+     */
+    fun notificationsEnabled(context: Context): Boolean =
+        NotificationManagerCompat.from(context).areNotificationsEnabled()
 
     fun ensureChannels(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
@@ -29,20 +81,43 @@ object Notifier {
             NotificationChannel(
                 CHANNEL_ACTIVITY,
                 context.getString(R.string.channel_activity),
-                NotificationManager.IMPORTANCE_HIGH
+                NotificationManager.IMPORTANCE_MAX
             ).apply { description = context.getString(R.string.channel_activity_desc) }
         )
+        // MAX = 最高重要级（横幅 + 响铃 + 锁屏置顶）；用户仍可在系统设置里单独调低
         manager.createNotificationChannel(
             NotificationChannel(
                 CHANNEL_NOTICE,
                 context.getString(R.string.channel_notice),
-                NotificationManager.IMPORTANCE_DEFAULT
+                NotificationManager.IMPORTANCE_MAX
             ).apply { description = context.getString(R.string.channel_notice_desc) }
+        )
+        // 删掉 v1 / v2 老渠道：不删就白留几条在设置里，用户分不清该关哪个（幂等，不存在时是空操作）
+        manager.deleteNotificationChannel(CHANNEL_ACTIVITY_LEGACY)
+        manager.deleteNotificationChannel(CHANNEL_NOTICE_LEGACY)
+        manager.deleteNotificationChannel(CHANNEL_NOTICE_V2_LEGACY)
+        // 课程提醒
+        manager.createNotificationChannel(
+            NotificationChannel(
+                CHANNEL_COURSE,
+                context.getString(R.string.channel_course),
+                NotificationManager.IMPORTANCE_MAX
+            ).apply { description = context.getString(R.string.channel_course_desc) }
+        )
+        // 课程渠道 v1 老 id
+        manager.deleteNotificationChannel(CHANNEL_COURSE_LEGACY)
+        // 前台服务那条常驻通知：最低重要级，不响不弹，只在通知栏占一行（见 CHANNEL_BACKGROUND 的注释）
+        manager.createNotificationChannel(
+            NotificationChannel(
+                CHANNEL_BACKGROUND,
+                context.getString(R.string.channel_background),
+                NotificationManager.IMPORTANCE_MIN
+            ).apply { description = context.getString(R.string.channel_background_desc) }
         )
     }
 
     /** 活动到点提醒。notificationId 就是活动 id（Scheduler → AlarmReceiver 传的 event.id），
-     *  所以能直接拼深链；也正因为通知 id 被活动占用，通知那边得另开一段号（见 SyncWorker.NOTICE_ID_BASE）。 */
+     *  所以能直接拼深链；也正因为通知 id 被活动占用，通知那边得另开一段号（见 SyncRunner.NOTICE_ID_BASE）。 */
     fun notifyActivity(
         context: Context,
         notificationId: Int,
@@ -66,6 +141,50 @@ object Notifier {
         deepLink: String? = null
     ) {
         send(context, CHANNEL_NOTICE, notificationId, title, body, deepLink)
+    }
+
+    /**
+     * 上课提醒。落地页是网页的课表页 —— 课表没有「单节课详情」这种页面，
+     * 深链只能到列表；用户点进来看到的就是整周课表，够用。
+     */
+    fun notifyCourse(context: Context, notificationId: Int, title: String, body: String) {
+        send(context, CHANNEL_COURSE, notificationId, title, body, "?view=academic")
+    }
+
+    /**
+     * 前台服务要的那条常驻通知。点击回**主页**。
+     *
+     * 文案是「点这里打开应用」，用户点它要的是「回到应用看看」，不是被塞进某个子页面
+     * —— 原来写的是 `?view=notices`（issue #10：点进去会落到一个自己没要去的页面）。
+     *
+     * `?view=home` 不在网页侧 index.js 那张白名单里也不用管：白名单只拦「非主页的直达」，
+     * 主页本就是 `?view=` 取不到合法值时的默认落点。
+     *
+     * 不复用 send()：那条是「提醒」—— 高重要级 + autoCancel（点掉就消失）；
+     * 这条是「公告」—— 最低重要级 + ongoing（不该被顺手划掉，它是服务还在跑的凭据）。
+     */
+    fun ongoingNotification(context: Context): Notification {
+        ensureChannels(context)
+        val intent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra(EXTRA_DEEP_LINK, "?view=home")
+        }
+        val pending = PendingIntent.getActivity(
+            context,
+            ONGOING_ID,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        return NotificationCompat.Builder(context, CHANNEL_BACKGROUND)
+            .setSmallIcon(R.drawable.ic_notify)
+            .setContentTitle(context.getString(R.string.background_title))
+            .setContentText(context.getString(R.string.background_text))
+            .setContentIntent(pending)
+            // 渠道重要级在 26+ 说了算，这两行是给更老的系统兜底
+            .setPriority(NotificationCompat.PRIORITY_MIN)
+            .setShowWhen(false)
+            .setOngoing(true)
+            .build()
     }
 
     private fun send(
@@ -93,12 +212,16 @@ object Notifier {
             .setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setContentIntent(pending)
+            // 渠道重要级在 26+ 说了算；24-25 没有渠道，靠这一行决定要不要弹 heads-up 横幅
+            // （MAX 是 7.x 能给的最高档，与 8+ 渠道的 IMPORTANCE_MAX 对齐）
+            .setPriority(NotificationCompat.PRIORITY_MAX)
             .setAutoCancel(true)
             .build()
         try {
             NotificationManagerCompat.from(context).notify(id, notification)
         } catch (e: SecurityException) {
-            // 用户未授予通知权限，静默跳过
+            // 用户未授予通知权限，静默跳过。这条提醒就这么没了 —— 个人页会显示
+            // 「本机通知：未开启」把原因指出来（见 Notifier.notificationsEnabled / HostBridge.appStatus）
         }
     }
 }

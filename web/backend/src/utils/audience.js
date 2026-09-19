@@ -1,17 +1,33 @@
 /**
- * 「提醒对象」可见性过滤
+ * 「提醒对象」可见性与内容归属 —— 「谁看得到 / 谁能改」只在这里实现一次
  *
- * 规则：提醒对象为空（null / '' / []）= 默认全班；但带「不计入班级管理」权限（class:exclude）
- * 的人不算全班的一员 —— 只有在提醒对象里被明确勾选（写了姓名或用户 id）才通知。
+ * 可见性：提醒对象为空（null / '' / []）= 默认全班；但带「不计入班级管理」权限（class:exclude）
+ * 的人不算全班的一员 —— 只有在提醒对象里被明确勾选（写了姓名或用户 id）才可见 / 才通知。
  *
- * 网页列表与安卓推送读的都是 /api/notices 与 /api/activities，所以这条规则只在这里实现一次，
- * 安卓侧不需要再写一遍（SyncWorker 原有的 remind_people 判断保留即可）。
- * 表单的「我的待办 / 未交名单」口径相同，但那边要按姓名 / id 逐个匹配，
- * 走的是 formHandler 里的 parseRemindNames，没有复用本文件的判定。
+ * 网页列表、安卓推送、日历订阅、表单读的都是这一条规则。判定必须只有一份：
+ * 任何「按 id 取一条」「按名单挑人」「按页取列表」的地方都从这里取，
+ * 别在各自的 handler 里重写 —— 之前单条读取、日历订阅、表单详情三处各写各的，
+ * 结果就是「不计入班级管理」的规则只挡住了列表，其余三条路径全绕过去了。
+ *
+ * 归属：通知 / 活动 / 表单统一 —— 改与删只认创建者本人，或持有 user:manage 的班委
+ * （见 canManageItem）。三者的归属字段名不同（通知/活动是 created_by、表单是 creator_id），
+ * 由 ownerIdOf 抹平，别在各自的 handler 里各判一遍。
+ *
+ * 读取放宽一档：canViewItem 让能发文的人也能打开自己没被定向到的单条内容，
+ * 否则「编辑入口点进去 404」——列表上看得见、点进去打不开。
+ * 表单详情同理，但它放行的是「能管理的人」（创建者或 user:manage），不是所有 content:write：
+ * 学习委员没有理由打开班长的表单，而班长要能点进「提交明细」。
  */
 import { RoleModel } from '../models/roleModel.js';
 import { UserModel } from '../models/userModel.js';
-import { buildRoleMap, hasPermission, isEveryoneRemind, PERM_EXCLUDE } from './permissions.js';
+import {
+  PERM_CONTENT_WRITE,
+  PERM_EXCLUDE,
+  PERM_USER_MANAGE,
+  buildRoleMap,
+  hasPermission,
+  isEveryoneRemind
+} from './permissions.js';
 
 /** roles 表 → { 职位名: [权限] }。职位权限现算现用，避免吃旧会话里的职位 */
 export async function loadRoleMap(env) {
@@ -25,7 +41,7 @@ export function isExcludedFromClass(positions, roleMap) {
 
 /**
  * 解析提醒对象名单（姓名或用户 id）。空 = 全班。
- * 与前端 remindMe()、formHandler 的应交名单同一口径，所以放在这里只写一份。
+ * 与前端 remindMe() 同一口径，所以放在这里只写一份。
  */
 export function parseRemindNames(raw) {
   if (!raw) return [];
@@ -43,25 +59,122 @@ export function parseRemindNames(raw) {
 }
 
 /**
- * 「谁该收到推送」—— 与列表可见性同一口径，但方向相反（那边是过滤给谁看，这边是算出推给谁）：
+ * 读出这位用户的读取上下文：可见性要用到的 excluded，以及接口要顺势用到的权限位。
+ *
+ * 每个请求只查一次 roles 表 —— 单条读取既要判「这条 ta 能不能看」，又要决定
+ * 「要不要把定向名单给出去」，分头算会把同一次查询做两三遍。
+ *
+ * @returns {Promise<{user: Object, excluded: boolean, canWrite: boolean, canManageUsers: boolean}>}
+ */
+export async function loadViewer(env, user) {
+  const roleMap = await loadRoleMap(env);
+  return {
+    user,
+    excluded: isExcludedFromClass(user.positions, roleMap),
+    canWrite: hasPermission(user.positions, PERM_CONTENT_WRITE, roleMap),
+    canManageUsers: hasPermission(user.positions, PERM_USER_MANAGE, roleMap)
+  };
+}
+
+/**
+ * 这条内容对这位用户可见吗 —— 单条读取、日历订阅、表单详情都过这里。
+ * 列表走 listByAudience（分页版，多一步「凑不满就继续取下一页」）。
+ */
+export function canView(raw, viewer) {
+  if (isEveryoneRemind(raw)) return !viewer.excluded;
+  const names = parseRemindNames(raw);
+  return names.includes(String(viewer.user.name)) || names.includes(String(viewer.user.id));
+}
+
+/**
+ * 「按 id 取一条」用的判定：在 canView 之上给能发文的人放行 ——
+ * 班委要能打开一条自己没被定向到的通知/活动去修改或删除，否则编辑入口就断了。
+ * 真能不能改由 canManageItem 决定。
+ *
+ * 日历订阅不要用这个：班委的日历里不该出现全班的定向内容。
+ */
+export function canViewItem(raw, viewer) {
+  return viewer.canWrite || canView(raw, viewer);
+}
+
+/**
+ * 这条内容是谁发的。通知 / 活动写的是 `created_by`，表单写的是 `creator_id` ——
+ * 语义相同（发布那一刻的作者），字段名不同只是因为表单表建得更早：
+ * migrations/2026-09-14-content-owner.sql 只给通知 / 活动补了 created_by。
+ * 归属判定要同时认这两处，所以在这里取一次，别在各自的 handler 里各写一份。
+ */
+function ownerIdOf(row) {
+  if (!row) return null;
+  if (row.created_by != null) return row.created_by;
+  if (row.creator_id != null) return row.creator_id;
+  return null;
+}
+
+/**
+ * 这条内容能不能被修改 / 删除：创建者本人，或持有 user:manage 的班委。
+ * 通知 / 活动 / 表单共用这一条（表单的改、删、明细、进度、导出都走它）。
+ *
+ * 归属字段为空 = 迁移（migrations/2026-09-14-content-owner.sql）之前发的，
+ * 不知道归谁，一律按「需要 user:manage」处理 —— 不一刀切拒绝，否则老内容谁都动不了。
+ */
+export function canManageItem(row, viewer) {
+  const owner = ownerIdOf(row);
+  if (owner == null) return viewer.canManageUsers;
+  return Number(owner) === Number(viewer.user.id) || viewer.canManageUsers;
+}
+
+/**
+ * 条目的定向名单只给能发文的人看（编辑表单要拿它预填），普通读者不需要。
+ * 名单里是姓名与用户 id，不必让每个登录用户都能拉到。
+ */
+export function withoutRemindPeople(row, viewer) {
+  if (viewer.canWrite) return row;
+  const { remind_people, ...rest } = row;
+  return rest;
+}
+
+/**
+ * 单条响应的形状：按上面两条规则裁剪，并附上 canManage 给前端决定
+ * 显不显示「修改 / 删除」按钮（不附的话，学习委员会看到一个必然 403 的按钮）。
+ */
+export function itemForViewer(row, viewer) {
+  return { ...withoutRemindPeople(row, viewer), canManage: canManageItem(row, viewer) };
+}
+
+/**
+ * 从一批用户里挑出该内容的受众 —— 与 canView 是同一判定的反方向：
+ * 那边问「这条内容 ta 看不看得到」，这边问「这条内容该通知谁」。
+ *
+ * @param {Array} users 全班用户
+ * @param {string} raw 原始 remind_people
+ * @param {(u: Object) => boolean} [isExcluded] 判断某个用户是否「不计入班级管理」
+ */
+export function pickAudience(users, raw, isExcluded = () => false) {
+  const names = parseRemindNames(raw);
+  if (!names.length) return users.filter((u) => !isExcluded(u));
+  return users.filter((u) => names.includes(String(u.name)) || names.includes(String(u.id)));
+}
+
+/**
+ * 「谁该收到推送」：
  *  - 提醒对象为空 = 全班减去「不计入班级管理」的人
  *  - 提醒对象非空 = 名单里被明确写到的姓名或 id（含被排除组的人，只要被点名）
  *
- * 推送和通知/活动/表单列表读的必须是同一份判定，否则会出现「列表里看不到却收到推送」。
+ * 推送和列表读的必须是同一份判定，否则会出现「列表里看不到却收到推送」。
  *
  * @param {string} remindPeople 原始 remind_people 字段
  * @param {{excludeUserId?: number}} [options] 排除某个用户（发布者不发给自己）
  */
 export async function resolveRemindUsers(env, remindPeople, options = {}) {
   const users = await new UserModel(env.DB).list();
-  const names = parseRemindNames(remindPeople);
 
   let out;
-  if (!names.length) {
-    const roleMap = await loadRoleMap(env);
-    out = users.filter((u) => !isExcludedFromClass(u.positions, roleMap));
+  if (parseRemindNames(remindPeople).length) {
+    // 有名单时不必查 roles：被点名的人一律算在内
+    out = pickAudience(users, remindPeople);
   } else {
-    out = users.filter((u) => names.includes(String(u.name)) || names.includes(String(u.id)));
+    const roleMap = await loadRoleMap(env);
+    out = pickAudience(users, remindPeople, (u) => isExcludedFromClass(u.positions, roleMap));
   }
 
   if (options.excludeUserId != null) {
@@ -72,18 +185,19 @@ export async function resolveRemindUsers(env, remindPeople, options = {}) {
 
 /**
  * 按可见性取一页列表：排除组的人看不到「提醒对象为空」的条目。
+ * 定向条目不在这一层按姓名过滤（那是前端与 App 各自的 remindMe 判断），
+ * 这里只处理「不计入班级管理」这一条服务端规则。
  *
  * 过滤发生在取数之后，被滤掉的行会占掉这一页的名额，所以凑不满 limit 时继续取下一页——
  * 否则排在后面的「明确勾选」条目会永远取不到（客户端通常一次只拉一页）。
  *
  * ponytail: 排除组可能多查几次 D1。没把谓词下推到 SQL，是为了不让这份筛选口径在
- * 4 个查询里各复制一份（容易和 isEveryoneRemind 走偏）；排除组本身稀有，够用。
+ * 4 个查询里各复制一份；排除组本身稀有，够用。
  *
  * @param {(limit:number, offset:number) => Promise<Array>} fetchPage 取原始一页
  */
-export async function listByAudience(env, positions, fetchPage, limit, offset = 0) {
-  const roleMap = await loadRoleMap(env);
-  if (!isExcludedFromClass(positions, roleMap)) return fetchPage(limit, offset);
+export async function listByAudience(viewer, fetchPage, limit, offset = 0) {
+  if (!viewer.excluded) return fetchPage(limit, offset);
 
   const out = [];
   let rawOffset = offset;

@@ -1,14 +1,47 @@
 <!--
-  应用图标源文件（标准版）：满幅方形背景，图形居中。
+  应用图标源文件（标准版）：满幅方形底板，图形居中。
   iOS 会自己加圆角遮罩，所以这里不做圆角、不留透明边。
-  重新生成 PNG：见 assets/icons/README 说明（resvg 一次性渲染，产物入库）。
+  构图：翻开的书本（主）+ 右上角对话气泡（次），气泡压在书上，书本轮廓在气泡处挖空。
+  底板渐变与网页内 .brand-mark 的 linear-gradient(160deg, #4aa3ff, #007aff 55%, #0060cc) 对齐。
+
+  几何要点（改动时请连同 icon-maskable.svg 与安卓端
+  android/app/src/main/res/drawable/ic_launcher.xml 一起改）：
+  1) 书页四边分工：外缘与书脊是「竖直直线」，上缘与下缘是「真圆弧」。
+     用 A（arc）而不是 Q（贝塞尔），因为这两条弧是同心概念上的平行弧 ——
+     半径相同、凸向相同，视觉上互相平行，圆心都落在下方。
+  2) 弧参数由实测参考比例推出：弧高 / 弦长 = 0.109，故 R = 172；
+     外缘与书脊的落差 33（占页宽 140 的 0.235）。
+  3) 书页竖向比 179 / 140 ≈ 1.28。整体墨迹包围盒宽 351、高 317，
+     中心比画布中心高 16 —— 书为主体偏下、气泡在右上，等分居中会显得下沉。
 -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
-  <rect width="512" height="512" fill="#2196f3"/>
-  <g transform="translate(256 256) scale(10) translate(-32 -37)"
-     fill="none" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round">
-    <path d="M16 24h32v18H26l-10 8z"/>
-    <path d="M24 30h16"/>
-    <path d="M24 34h10"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="班级助理">
+  <defs>
+    <linearGradient id="ca-bg" x1="0.281" y1="-0.103" x2="0.719" y2="1.103">
+      <stop offset="0" stop-color="#4aa3ff"/>
+      <stop offset="0.55" stop-color="#007aff"/>
+      <stop offset="1" stop-color="#0060cc"/>
+    </linearGradient>
+
+    <!-- 挖空蒙版：气泡轮廓外扩 18 后从书本描边上抹掉，形成「气泡在前」的净空。
+         蒙版区域给足余量，避免贴边裁剪；被蒙版引用的 <g> 自身不带 transform，
+         这样蒙版坐标系就是画布空间，与下面的路径坐标一致。 -->
+    <mask id="ca-knockout" maskUnits="userSpaceOnUse" x="-256" y="-256" width="1024" height="1024">
+      <rect x="-256" y="-256" width="1024" height="1024" fill="#ffffff"/>
+      <path d="M282,93 H390 A30,30 0 0 1 420,123 V175 A30,30 0 0 1 390,205 H338 L292,241 L304,205 H282 A30,30 0 0 1 252,175 V123 A30,30 0 0 1 282,93 Z"
+            fill="#000000" stroke="#000000" stroke-width="36" stroke-linejoin="round" stroke-linecap="round"/>
+    </mask>
+  </defs>
+
+  <rect width="512" height="512" fill="url(#ca-bg)"/>
+
+  <!-- 书本：外缘 / 书脊 竖直，上缘 / 下缘 圆弧，描边 23 ≈ 画布 4.5% -->
+  <g mask="url(#ca-knockout)" fill="none" stroke="#ffffff" stroke-width="23"
+     stroke-linecap="round" stroke-linejoin="round">
+    <path d="M92,175 A172,172 0 0 1 232,208 L232,387 A172,172 0 0 0 92,354 Z"/>
+    <path d="M372,175 A172,172 0 0 0 232,208 L232,387 A172,172 0 0 1 372,354 Z"/>
   </g>
+
+  <!-- 对话气泡：横向长方形 + 左下尾巴，压在书本右上角 -->
+  <path d="M282,93 H390 A30,30 0 0 1 420,123 V175 A30,30 0 0 1 390,205 H338 L292,241 L304,205 H282 A30,30 0 0 1 252,175 V123 A30,30 0 0 1 282,93 Z"
+        fill="none" stroke="#ffffff" stroke-width="23" stroke-linejoin="round" stroke-linecap="round"/>
 </svg>

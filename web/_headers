@@ -1,7 +1,46 @@
-# Cloudflare Pages 静态资源缓存控制
+# Cloudflare Pages 静态资源缓存控制 + 安全响应头
 # 作用：CSS/JS 每次到源站校验（no-cache），文件变更后用户刷新即生效；
 #       未变更时服务器返回 304，浏览器使用本地缓存，不浪费流量。
 # 需要严格强缓存（进一步省流量）时，可在 HTML 引用里加 ?v=版本号 手动换名。
+
+# ===== 安全响应头（全站） =====
+# X-Frame-Options 必须是 SAMEORIGIN，不能写 DENY：
+# 本站页面之间确实互相嵌套（index.html 用 iframe 装 notices / activities / academic /
+# account / admin），DENY 会把自家 iframe 一起挡掉，整个应用直接白屏。
+# 这里要挡的只是外站嵌套（防管理员面板被点击劫持）。
+#
+# CSP 逐条说明：
+#   script-src 'self'
+#       页面里已经没有内联 <script>，也没有内联 onclick —— 内联事件处理器（onclick 这类）
+#       用哈希是放行不了的，只有加 'unsafe-inline' 才行，那等于没上 CSP。所以页面逻辑都抽到了
+#       assets/js/{theme,app,index,notices,...}.js，动态生成的按钮统一走 app.js 里的
+#       delegate() 事件委托。以后再往页面里写内联 handler，按钮会静默失效（点了没反应），
+#       别为了图快加 'unsafe-inline'；backend/test/csp.test.js 会把这种回退挡住。
+#   script-src / connect-src 里的 cloudflareinsights 是唯一的第三方例外
+#       Cloudflare 在边缘给 Pages 注入 Web Analytics 的 beacon：脚本取自
+#       static.cloudflareinsights.com，上报打 cloudflareinsights.com。
+#       只写 'self' 会把它挡掉 —— 统计静默失效，而且每次加载都多一条控制台资源报错。
+#       所以按需放行这两个精确主机（没用通配符）。本站自己不加载任何其它第三方脚本，
+#       要再加来源请同时改 csp.test.js 的白名单断言，别默默放宽。
+#   style-src 'self'
+#       页面里已经没有内联 style 属性，也没有 <style> 块 —— 原先散落各处的一两句样式
+#       都收进了 assets/css/style.css（文件末尾那段「CSP 收紧配套」注释里列了全部新增类）。
+#       注意：JS 里通过 CSSOM 写的（el.style.width / setProperty）不受 style-src 限制，
+#       滑块定位、学分进度条宽度、层级缩进这类动态值仍然留在 JS 里。
+#       隐藏/显示统一走 [hidden] 属性（style.css 顶部有 [hidden]{display:none!important}）。
+#   img-src 'self' data:      favicon 用的是 data:image/svg+xml
+#   connect-src 'self'        前端与后端同域（app.js 里 API_BASE 为空），另加 beacon 上报域
+#   frame-src 'self'          自家 iframe 之间要能嵌套
+#   object-src 'none'         不用插件（<object>/<embed>/<applet>）
+#   base-uri 'self'           不允许注入 <base> 改写相对地址
+#   form-action 'self'        表单不往站外提交
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self' https://static.cloudflareinsights.com; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://cloudflareinsights.com; frame-src 'self'; frame-ancestors 'self'; object-src 'none'; base-uri 'self'; form-action 'self'
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: SAMEORIGIN
+  Referrer-Policy: strict-origin-when-cross-origin
+  Strict-Transport-Security: max-age=31536000; includeSubDomains
+
 /assets/*
   Cache-Control: public, max-age=0, must-revalidate
 
@@ -11,9 +50,31 @@
 /
   Cache-Control: public, max-age=0, must-revalidate
 
+# 规范地址（去扩展名）：站点把 /notices.html 308 跳到 /notices，
+# sw.js 的预热清单与离线回退用的也是这些地址。
+# 它们既不匹配 /*.html 也不匹配 /，不显式写出来就拿不到 no-cache。
+/notices
+  Cache-Control: public, max-age=0, must-revalidate
+
+/activities
+  Cache-Control: public, max-age=0, must-revalidate
+
+/academic
+  Cache-Control: public, max-age=0, must-revalidate
+
+/forms
+  Cache-Control: public, max-age=0, must-revalidate
+
+/admin
+  Cache-Control: public, max-age=0, must-revalidate
+
+/account
+  Cache-Control: public, max-age=0, must-revalidate
+
 # PWA 清单与 Service Worker：必须每次到源站校验。
 # sw.js 一旦被缓存住，用户会长期停在旧版本（旧缓存卡死问题的根源之一），
 # 所以这里显式声明 no-cache，与 assets 的 must-revalidate 区分开。
+# 这两条放在最后：_headers 里同名头以后出现的规则为准，避免被上面的规则覆盖掉。
 /manifest.json
   Cache-Control: no-cache
   Content-Type: application/manifest+json

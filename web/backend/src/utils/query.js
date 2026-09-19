@@ -3,8 +3,11 @@
  */
 
 export function clampInt(raw, min, max, fallback) {
-  const n = parseInt(raw, 10);
-  if (Number.isNaN(n)) return fallback;
+  // parseInt 会截断（'10abc' → 10）也会误读科学计数法（'1e9' → 1），先严格校验收敛
+  const text = String(raw == null ? '' : raw).trim();
+  if (!/^-?\d+$/.test(text)) return fallback;
+  const n = Number(text);
+  if (!Number.isFinite(n)) return fallback;
   return Math.min(max, Math.max(min, n));
 }
 

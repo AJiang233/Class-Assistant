@@ -11,7 +11,8 @@ import (
 	"strings"
 )
 
-// 密文格式与 Worker cookieVault.js 一致：v1.<iv>.<ciphertext>，AES-256-GCM。
+// 密文格式与教务 Worker（私有仓 Class-Assistant-Private-API）的 cookieVault.js 一致：
+// v1.<iv>.<ciphertext>，AES-256-GCM。
 // 密钥：COOKIE_SECRET，没有则用 JWT_SECRET + ":academic-cookie-v1"。
 // 解密按现用密钥再试 JWT 派生，后加 COOKIE_SECRET 不能把旧记录锁死。
 

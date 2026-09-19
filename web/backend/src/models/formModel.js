@@ -16,6 +16,28 @@ export const EDIT_POLICY = Object.freeze({
 const FORM_COLUMNS = `id, title, description, fields, edit_policy, anonymous, status, deadline,
        creator_id, creator_name, remind_people, notice_id, created_at`;
 
+/**
+ * 拼 UPDATE 的 SET 子句与参数。
+ * update() 与 updateIfUnsubmitted() 共用一份列名映射 —— 各写一遍的话，将来加一列只会改到
+ * 其中一处，另一条路径就静默地少写一列，两个入口的行为悄悄分叉。
+ */
+function buildSet(data) {
+  const fields = [];
+  const values = [];
+
+  if (data.title !== undefined) { fields.push('title = ?'); values.push(data.title); }
+  if (data.description !== undefined) { fields.push('description = ?'); values.push(data.description); }
+  if (data.fields !== undefined) { fields.push('fields = ?'); values.push(data.fields); }
+  if (data.edit_policy !== undefined) { fields.push('edit_policy = ?'); values.push(data.edit_policy); }
+  if (data.anonymous !== undefined) { fields.push('anonymous = ?'); values.push(data.anonymous); }
+  if (data.status !== undefined) { fields.push('status = ?'); values.push(data.status); }
+  if (data.deadline !== undefined) { fields.push('deadline = ?'); values.push(data.deadline); }
+  if (data.remind_people !== undefined) { fields.push('remind_people = ?'); values.push(data.remind_people); }
+  if (data.notice_id !== undefined) { fields.push('notice_id = ?'); values.push(data.notice_id); }
+
+  return { fields, values };
+}
+
 export class FormModel {
   constructor(db) {
     this.db = db;
@@ -44,7 +66,13 @@ export class FormModel {
     return result;
   }
 
-  /** 表单列表（班委管理面板），带提交数 */
+  /**
+   * 表单列表（班委管理面板），带提交数 —— 列出**全部**。
+   *
+   * 每一行按查看者裁剪（谁的能改、谁的名单不给看）在 handler 里做，
+   * 见 formHandler.js 的 formForViewer：面板要能看清「班里发过哪些表单」，
+   * 但四个操作按钮都要求是创建者，所以过滤落在响应的一行而不是这条 SQL 上。
+   */
   async listAll(limit = 50, offset = 0) {
     const result = await this.db.prepare(
       `SELECT ${FORM_COLUMNS},
@@ -56,7 +84,7 @@ export class FormModel {
 
   /**
    * 我的表单（首页待办 / 填写页）：未关闭的表单 + 本人提交状态。
-   * 是否算「待填」由 handler 结合 edit_policy 与截止时间判断。
+   * 哪些显示、进 pending 还是 editable，由 handler 结合 edit_policy 与截止时间判断。
    */
   async listMine(userId, limit = 100) {
     const result = await this.db.prepare(
@@ -73,25 +101,36 @@ export class FormModel {
 
   /** 更新表单（只更新传入的字段） */
   async update(id, data) {
-    const fields = [];
-    const values = [];
-
-    if (data.title !== undefined) { fields.push('title = ?'); values.push(data.title); }
-    if (data.description !== undefined) { fields.push('description = ?'); values.push(data.description); }
-    if (data.fields !== undefined) { fields.push('fields = ?'); values.push(data.fields); }
-    if (data.edit_policy !== undefined) { fields.push('edit_policy = ?'); values.push(data.edit_policy); }
-    if (data.anonymous !== undefined) { fields.push('anonymous = ?'); values.push(data.anonymous); }
-    if (data.status !== undefined) { fields.push('status = ?'); values.push(data.status); }
-    if (data.deadline !== undefined) { fields.push('deadline = ?'); values.push(data.deadline); }
-    if (data.remind_people !== undefined) { fields.push('remind_people = ?'); values.push(data.remind_people); }
-    if (data.notice_id !== undefined) { fields.push('notice_id = ?'); values.push(data.notice_id); }
-
+    const { fields, values } = buildSet(data);
     if (fields.length === 0) return { success: true };
 
     values.push(id);
     return this.db.prepare(
       `UPDATE forms SET ${fields.join(', ')} WHERE id = ?`
     ).bind(...values).run();
+  }
+
+  /**
+   * 条件更新：只有「这个表单还没有任何提交」时才真正写下去，返回是否写进去了。
+   *
+   * 为什么要有这么一个入口：改字段前得先判断有没有人提交过（提交过就锁字段，否则旧答案的
+   * key 会悬空），而「先 SELECT 再 UPDATE」是两步，中间那个窗口里有人提交，字段照样被改掉，
+   * 闸门就形同虚设。把判定并进 UPDATE 的 WHERE，判定与写入落到同一条语句，窗口消失 ——
+   * D1 没有事务，这是能拿到的最强保证。
+   *
+   * changes === 0 只说明「没写进去」，严格讲也可能是 id 不存在；调用方都先经 loadOwnedForm
+   * 把表单读出来核对过归属，所以这里按「已被提交锁住」解释。
+   */
+  async updateIfUnsubmitted(id, data) {
+    const { fields, values } = buildSet(data);
+    if (fields.length === 0) return true;
+
+    values.push(id, id);
+    const res = await this.db.prepare(
+      `UPDATE forms SET ${fields.join(', ')}
+        WHERE id = ? AND NOT EXISTS (SELECT 1 FROM form_submissions WHERE form_id = ?)`
+    ).bind(...values).run();
+    return (res?.meta?.changes ?? 0) > 0;
   }
 
   /** 删除表单（连带删除其提交） */

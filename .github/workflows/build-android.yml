@@ -27,7 +27,15 @@ jobs:
           distribution: 'temurin'
 
       - name: Setup Android SDK
+        # packages 必须显式写成 'platform-tools'，不能用这个 action 的默认值。
+        # 它的默认值是 'tools platform-tools'，而 Google 从 2026-09-15 起不再提供 sdkmanager 的
+        # `tools` 包（上游 issue #537）：默认值会让 sdkmanager 报 "Failed to find package 'tools'"
+        # 并直接 exit 1，SDK 根本没装上，后面的 gradlew 全都连不上。只留 platform-tools 就绕开了，
+        # 我们本来也不需要那个已废弃的旧 tools —— cmdline-tools 由这个 action 自己按
+        # cmdline-tools-version 装，不受影响。
         uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools'
 
       - name: Grant execute permission for gradlew
         run: chmod +x android/gradlew
@@ -37,7 +45,6 @@ jobs:
           VERSION_CODE: ${{ github.event.inputs.version_code }}
           VERSION_NAME: ${{ github.event.inputs.version_name }}
         run: |
-          # Kotlin 没有前导零字面量，00101 会让脚本编译直接失败，所以先规整成纯十进制整数
           if ! [[ "$VERSION_CODE" =~ ^[0-9]+$ ]]; then
             echo "::error::version_code 必须是纯数字，收到：$VERSION_CODE"
             exit 1
@@ -53,11 +60,17 @@ jobs:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         run: |
           if [ -z "$KEYSTORE_BASE64" ]; then
-            echo "::error::缺少 Secrets.KEYSTORE_BASE64，正式签名构建无法进行（生成方式见 README 的安卓端一节）"
+            echo "::error::缺少 Secrets.KEYSTORE_BASE64，正式签名构建无法进行（生成方式见 android/README.md 的「签名与发版」一节）"
             exit 1
           fi
           echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
           echo "CA_KEYSTORE_FILE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+
+      - name: Unit tests
+        # 课表的日期逻辑（第几周 / 下一个有课的日子 / 闹钟编号）只有单测能兜住：
+        # 算错了不会崩，只会悄悄显示错的那一天。放在打包之前，红了就别发版。
+        run: ./gradlew testDebugUnitTest
+        working-directory: android
 
       - name: Build Release APK
         env:

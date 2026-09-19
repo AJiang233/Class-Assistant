@@ -1,0 +1,140 @@
+{
+  "data": [
+    {
+      "id": "page-icon-system",
+      "title": "图标系统",
+      "type": "page",
+      "version": 1,
+      "createdAt": 1789819200000,
+      "canvasData": {
+        "x": 0,
+        "y": 0,
+        "group": 0,
+        "layoutSnapshot": {
+          "version": 1,
+          "contentHeight": 2517,
+          "viewportWidth": 1440,
+          "sourceHash": "fnv1a-75628fbe",
+          "measuredAt": 1789755918745
+        }
+      },
+      "devMetadata": {
+        "htmlSrc": "pages/icon-system.html",
+        "interactions": []
+      }
+    },
+    {
+      "id": "image-001",
+      "title": "应用图标（标准版）",
+      "type": "image",
+      "version": 1,
+      "createdAt": 1789819200000,
+      "canvasData": {
+        "x": 0,
+        "y": 791,
+        "naturalSize": {
+          "width": 512,
+          "height": 512
+        }
+      },
+      "devMetadata": {
+        "imageSrc": "assets/icon-app.svg"
+      }
+    },
+    {
+      "id": "image-002",
+      "title": "应用图标（安卓自适应）",
+      "type": "image",
+      "version": 1,
+      "createdAt": 1789819200000,
+      "canvasData": {
+        "x": 480,
+        "y": 791,
+        "naturalSize": {
+          "width": 512,
+          "height": 512
+        }
+      },
+      "devMetadata": {
+        "imageSrc": "assets/icon-app-maskable.svg"
+      }
+    },
+    {
+      "id": "image-004",
+      "title": "界面内品牌标记",
+      "type": "image",
+      "version": 1,
+      "createdAt": 1789819200000,
+      "canvasData": {
+        "x": 960,
+        "y": 791,
+        "naturalSize": {
+          "width": 24,
+          "height": 24
+        }
+      },
+      "devMetadata": {
+        "imageSrc": "assets/icon-mark.svg"
+      }
+    },
+    {
+      "id": "image-005",
+      "title": "网页主图标（透明线条版）",
+      "type": "image",
+      "version": 1,
+      "createdAt": 1789819200000,
+      "canvasData": {
+        "x": 1440,
+        "y": 791,
+        "naturalSize": {
+          "width": 512,
+          "height": 512
+        }
+      },
+      "devMetadata": {
+        "imageSrc": "assets/icon-line.svg"
+      }
+    },
+    {
+      "id": "image-006",
+      "title": "网页主图标 PNG 512",
+      "type": "image",
+      "version": 1,
+      "createdAt": 1789819200000,
+      "canvasData": {
+        "x": 1920,
+        "y": 791,
+        "naturalSize": {
+          "width": 512,
+          "height": 512
+        }
+      },
+      "devMetadata": {
+        "imageSrc": "assets/icon-line-512.png"
+      }
+    },
+    {
+      "id": "image-007",
+      "title": "网页主图标 PNG 192",
+      "type": "image",
+      "version": 1,
+      "createdAt": 1789819200000,
+      "canvasData": {
+        "x": 2400,
+        "y": 791,
+        "naturalSize": {
+          "width": 192,
+          "height": 192
+        }
+      },
+      "devMetadata": {
+        "imageSrc": "assets/icon-line-192.png"
+      }
+    }
+  ],
+  "config": {
+    "autoLayout": true,
+    "deviceType": "desktop",
+    "projectName": "班级助理图标系统"
+  }
+}

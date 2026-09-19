@@ -4,7 +4,6 @@ title: "Bug："
 labels:
   - 未分类
 assignees: []
-type: Bug
 
 body:
   - type: checkboxes
@@ -23,7 +22,7 @@ body:
     id: bug_description
     attributes:
       label: Bug 描述
-      description: 清晰简洁地描述这个 Bug 是什么
+      description: 清晰简洁地描述这个 Bug 是什么（仅文本，请勿粘贴图片）
       placeholder: 请描述这个 Bug...
     validations:
       required: true
@@ -32,7 +31,7 @@ body:
     id: reproduce_steps
     attributes:
       label: 复现步骤
-      description: 请提供可复现该问题的步骤
+      description: 请提供可复现该问题的步骤（仅文本，请勿粘贴图片）
       placeholder: |
         1. 
         2. 
@@ -44,9 +43,8 @@ body:
     id: logs_screenshots
     attributes:
       label: 错误日志 / 截图
-      description: 粘贴控制台、终端日志或截图。请勿包含密钥、Token 等敏感信息
+      description: 粘贴控制台、终端日志，或直接拖拽/粘贴截图。请勿包含密钥、Token 等敏感信息
       placeholder: |
         粘贴日志，或将截图拖拽到此处...
-      render: shell
     validations:
       required: false

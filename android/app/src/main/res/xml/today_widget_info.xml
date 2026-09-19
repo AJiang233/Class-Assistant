@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 尺寸：长 2 格、高 2 格。框架按 min = 70n − 30 换算格子数（这是 n 格的上限），
+     于是 2 格 110dp、3 格 180dp；写大一点就跳成下一格，卡片周围多出一整格空白。
+     与课表卡片取同一档：两块都是「标题 + 可滚动的三行卡片列表」，摆在一起才对得齐
+     （原先两块都是 4 格 × 3 格，2026-09-14 一起调到 3×2，2026-09-16 又一起调到 2×2，
+     见 issue #73；变窄之后的文字截断代价见 courses_widget_info.xml 那段注释）。 -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
-    android:minWidth="180dp"
+    android:minWidth="110dp"
     android:minHeight="110dp"
     android:updatePeriodMillis="1800000"
     android:initialLayout="@layout/widget_today"

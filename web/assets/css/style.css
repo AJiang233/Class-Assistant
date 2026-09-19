@@ -27,14 +27,9 @@
 :root {
   color-scheme: light;
 
-  /* ── Apple 系统色（HIG System Colors） ── */
+  /* ── Apple 系统色（HIG System Colors）── */
   --sys-blue: #007aff;
   --sys-blue-dark: #0a84ff;
-  --sys-green: #34c759;
-  --sys-red: #ff3b30;
-  --sys-orange: #ff9500;
-  --sys-indigo: #5856d6;
-  --sys-teal: #5ac8fa;
 
   /* ── 背景层级（systemGroupedBackground / secondarySystemGroupedBackground） ── */
   --bg: #f2f2f7;
@@ -51,9 +46,14 @@
   --border-strong: rgba(60, 60, 67, 0.24);
   --separator: rgba(60, 60, 67, 0.10);
 
+  /* ── 卡片内的排版 ── */
+  /* 标题到内容的间距：常显卡靠 .card-title 的 margin-bottom，折叠卡靠 .collapse-body 的
+     margin-top —— 两处必须同值。手机端缩一档的覆盖写在 21 的媒体查询里，基础值就必须留在
+     这里：同特异性的 :root 谁在后谁生效，定义放文件末尾会把媒体查询里的覆盖盖掉。 */
+  --card-title-gap: 16px;
+
   /* ── 强调色 ── */
   --accent: var(--sys-blue);
-  --accent-hover: #0069d9;
   --accent-soft: rgba(0, 122, 255, 0.10);
   --accent-ring: rgba(0, 122, 255, 0.28);
 
@@ -120,7 +120,6 @@
   --dur-base: 250ms;
   --dur-slow: 350ms;
   --dur-press: 160ms;
-  --transition: var(--dur-base) var(--ease-standard);
 
   --container: 1160px;
   --nav-height: 60px;
@@ -154,7 +153,6 @@
   --separator: rgba(255, 255, 255, 0.09);
 
   --accent: var(--sys-blue-dark);
-  --accent-hover: #3b9bff;
   --accent-soft: rgba(10, 132, 255, 0.18);
   --accent-ring: rgba(10, 132, 255, 0.42);
 
@@ -371,6 +369,12 @@ body {
    内容层按钮用标准材质填充（不做玻璃）；按压给轻微回弹 + 指针高光。
    ═══════════════════════════════════════════════════════════════════ */
 
+/* 没有这条，hidden 属性对 .btn 之类自带 display 的组件是失效的：
+   作者样式表的 display 会盖掉浏览器默认的 [hidden]{display:none}，
+   于是「隐藏」的按钮照样画出来（个人页的通知 / 安装按钮都栽过）。
+   加 !important 是为了不被后面任何 .btn 变体的 display 反超。 */
+[hidden] { display: none !important; }
+
 .btn {
   position: relative; isolation: isolate;
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
@@ -501,6 +505,9 @@ a.list-row { color: inherit; text-decoration: none; }
 .badge-crawler { background: var(--success-soft); color: var(--success); border-color: color-mix(in srgb, var(--success) 30%, transparent); }
 .badge-danger { background: var(--danger-soft); color: var(--danger); border-color: color-mix(in srgb, var(--danger) 30%, transparent); }
 .badge-form { background: var(--success-soft); color: var(--success); border-color: color-mix(in srgb, var(--success) 30%, transparent); }
+/* 编辑策略（随时可修改 / 截止前可修改 / 提交后不可修改）：只是附加说明，
+   不上语义色，免得跟左边「待填写 / 已提交」的状态徽章抢眼 */
+.badge-policy { background: var(--bg-sunken); color: var(--text-tertiary); border-color: var(--border); }
 
 /* ═══════════════════════════════════════════════════════════════════
    10 · 详情内容
@@ -596,9 +603,10 @@ a.list-row { color: inherit; text-decoration: none; }
 @media (max-width: 640px) {
   .modal-overlay { padding: 12px; align-items: center; }
   .modal { max-height: 90vh; border-radius: var(--radius-lg); }
-  .modal-body { padding: 18px; }
-  .modal-head { padding: 15px 18px; }
-  .modal-foot { padding: 12px 18px; }
+  /* 弹窗是手机上的表单容器，内边距跟着「元素内边距收一档」一起收（桌面的 22px 偏肥） */
+  .modal-body { padding: 16px; }
+  .modal-head { padding: 14px 16px; }
+  .modal-foot { padding: 12px 16px; }
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -793,20 +801,26 @@ input[type="checkbox"]:disabled { opacity: 0.5; cursor: not-allowed; }
    13 · 空状态 / 骨架屏
    ═══════════════════════════════════════════════════════════════════ */
 
+/* 空态一律**不带入场动画**（这里以前有一条 blockIn），两个原因：
+   1) 它总是被塞进一张已经有入场动画的卡片里（.list / .ac-card / 课表卡），自己再动一次是重复的；
+   2) 更要紧的是绘制层：它一旦被提升成独立合成层，外层卡片那层半透明底会被烘进它的裁剪里，
+      而这层的边界是**首次布局**时定下的 —— 冷启动时 WebView 还没按 viewport meta 收窄，那次是宽布局。
+      结果是这块底色以满幅宽度画到屏幕两侧，卡片自己的圆角与边框却仍然正常（issue #76：
+      我的表单卡片的空态「边界消失且与屏幕全宽」；同页另两张有内容的卡片不受影响，因为它们的
+      行层与卡片同宽，即使边界陈旧也看不出来）。不起动画就没有这一层，问题从机制上消失。
+      要再给这里加入场动画，请先在手机上按「冷启动 + 卡片空态」把 #76 复现一遍确认不复发。 */
 .state {
   text-align: center; padding: 56px 20px; color: var(--text-secondary);
-  animation: blockIn var(--dur-slow) var(--ease-standard) both;
 }
-.state::before {
-  content: ""; display: block; width: 52px; height: 52px; margin: 0 auto 14px;
-  border-radius: 50%;
-  background: var(--material-muted);
-  box-shadow: inset 0 0 0 1px var(--border), var(--specular);
-}
+/* 图标由 stateHTML 输出（见 app.js 的 DETAIL_ICONS）：错误 = 三角感叹号、空数据 = 收件箱、
+   加载中 = 钟。这里只管尺寸与颜色 —— 用的是 icon() 里那支 14px 的 svg，靠下面这条放大到
+   32px（svg 标签上的 width/height 属性只是表现层默认值，CSS 会盖过它）。
+   原先这里是 .state::before 画的一个 52px 实心圆（--material-muted 底 + 内描边 + 高光）：
+   形状本身不带信息量，却一眼就是 iOS 设置页那副样子，所以换成真图标（issue #74）。 */
 .state svg { width: 32px; height: 32px; color: var(--text-tertiary); margin-bottom: 12px; }
 .state p { font-size: 0.94rem; }
 .state.error { color: var(--danger); }
-.state.error::before { background: var(--danger-soft); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--danger) 28%, transparent); }
+.state.error svg { color: var(--danger); }
 
 .skeleton-row {
   display: flex; flex-direction: column; gap: 10px;
@@ -878,6 +892,9 @@ input[type="checkbox"]:disabled { opacity: 0.5; cursor: not-allowed; }
 .member-sub { font-size: 0.84rem; color: var(--text-tertiary); margin-top: 3px; }
 .member-actions { display: flex; gap: 6px; flex-shrink: 0; }
 .member-actions .btn { padding: 4px 11px; font-size: 0.82rem; min-height: 28px; }
+/* 表单管理卡片：标题与按钮占第一行，meta 落到它们下方一行（按钮涨到 4 个后横排会挤） */
+.form-admin-row { flex-wrap: wrap; }
+.form-admin-meta { flex: 1 1 100%; }
 
 /* 管理职位：分组小标题 */
 .roles-group-label { font-size: 0.82rem; color: var(--text-tertiary); margin: 14px 0 2px; }
@@ -911,7 +928,7 @@ input[type="checkbox"]:disabled { opacity: 0.5; cursor: not-allowed; }
   transition: transform var(--dur-slow) var(--ease-spring);
 }
 .collapse.open .collapse-arrow { transform: rotate(180deg); }
-.collapse-body { display: none; margin-top: 16px; }
+.collapse-body { display: none; margin-top: var(--card-title-gap); }
 .collapse.open .collapse-body { display: block; animation: blockIn var(--dur-slow) var(--ease-standard) both; }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -985,6 +1002,20 @@ input[type="checkbox"]:disabled { opacity: 0.5; cursor: not-allowed; }
   animation: blockIn var(--dur-slow) var(--ease-standard) both;
 }
 .beta-banner svg { width: 17px; height: 17px; flex-shrink: 0; }
+
+/* 离线提示条（app.js 的 renderOfflineNotice 插入）：断网时出现在内容最上方，滚动时贴住顶部。
+   sticky 而不是 fixed —— 插在正常流里，不用给页面加占位内边距，也不会盖住底栏。
+   同样一句「没网」，在 App 里与浏览器里说的不是一回事（见 app.js），所以文案由那边给。 */
+.offline-notice {
+  position: sticky; top: 0; z-index: 90;
+  padding: 9px 15px; margin-bottom: 18px;
+  border-radius: var(--radius-md);
+  background: var(--danger-soft); color: var(--danger);
+  font-size: 0.85rem; font-weight: 600; line-height: 1.5;
+  /* 断网图标 + 文案一行排开（图标取 currentColor，继承 danger 色） */
+  display: flex; align-items: center; gap: 7px;
+}
+.offline-notice svg { flex-shrink: 0; }
 
 /* ═══════════════════════════════════════════════════════════════════
    18 · 应用壳
@@ -1357,23 +1388,35 @@ body.app-mode { overflow: hidden; }
   ::-webkit-scrollbar { width: 0; height: 0; }
 
   /* 底部让出底栏高度 + 安全区 + 一点呼吸空间（内容会从底栏下方滚过）；
-     左右用 max() 兼顾横屏刘海遮挡。 */
+     左右用 max() 兼顾横屏刘海遮挡。
+     页面内边距比桌面端给得更足（上 24 / 左右 20，桌面是 40/28，但手机屏更窄、更容易觉得贴边）：
+     边缘留白够，卡片才不像被屏幕裁掉。相应地下面各元素的内边距再收一档 ——
+     一增一减之后，卡片里的正文宽度基本没变，变的是「屏幕边到卡片」与「卡片边到文字」的分配。 */
   .main {
-    padding: 20px max(16px, var(--safe-right)) calc(var(--nav-height) + var(--safe-bottom) + 20px) max(16px, var(--safe-left));
+    padding: 24px max(20px, var(--safe-right)) calc(var(--nav-height) + var(--safe-bottom) + 24px) max(20px, var(--safe-left));
   }
   .page-head { margin-bottom: 18px; }
   .page-title { font-size: 1.45rem; }
   .page-desc { font-size: 0.88rem; margin-top: 5px; }
 
-  .profile-card, .split-grid .profile-card { padding: 18px 16px; }
-  .profile-head { gap: 14px; padding-bottom: 16px; }
+  /* ── 元素内边距整体收一档（配合上面 .main 加宽）──
+     卡片、行、按钮、输入框各减 1~2px，把留白从元素内部挪到屏幕边缘。
+     命中区不受影响：.form-input / .btn / .chip 都有 min-height 兜着，收掉的只是文字到边框的距离。
+     唯一没动的是下面分段控件的 .tab —— 它没有 min-height，那 11px 内边距**就是**它的命中区。 */
+  .profile-card, .split-grid .profile-card { padding: 16px 14px; }
+  /* 日历是手机首页最上面那张大卡，桌面的 22px 在手机上偏肥。学业卡片 .ac-card 同理，
+     但它的基础规则定义在文件更后面（源码顺序），写在会被那里盖掉，只能放到 ≤640 那块去——
+     那边有说明。这两张卡的目标值保持一致。 */
+  .calendar { padding: 16px 14px; }
+  .profile-head { gap: 14px; padding-bottom: 14px; }
   .profile-avatar { width: 46px; height: 46px; font-size: 1.06rem; }
   .profile-name { font-size: 1.07rem; }
   .profile-sub { font-size: 0.84rem; }
-  .info-row { padding: 11px 2px; font-size: 0.89rem; }
-  .collapse-body { margin-top: 12px; }
+  .info-row { padding: 9px 2px; font-size: 0.89rem; }
+  /* .card-title 与 .collapse-body 一起跟着缩，两处始终同值 */
+  :root { --card-title-gap: 12px; }
 
-  .list-row { padding: 14px 15px; gap: 12px; }
+  .list-row { padding: 12px 13px; gap: 12px; }
   .list-row-title { font-size: 0.98rem; margin-bottom: 4px; }
   .list-row-meta { font-size: 0.82rem; gap: 11px; }
   .badge { padding: 3px 8px; font-size: 0.74rem; }
@@ -1383,7 +1426,7 @@ body.app-mode { overflow: hidden; }
   /* 关键：iOS Safari 在聚焦 font-size < 16px 的输入框时会强制放大整个页面。
      用 max() 兜住 16px 下限 —— 字号只会变大不会变小，从而消除聚焦缩放跳动。 */
   .form-input {
-    padding: 10px 12px;
+    padding: 9px 11px;
     font-size: max(16px, 0.95rem);
     min-height: var(--tap-min);
   }
@@ -1391,11 +1434,12 @@ body.app-mode { overflow: hidden; }
      特异度更高会盖掉上面的 16px，这里显式加一级权重复位，同样避开聚焦缩放。 */
   .form-input.ac-select { font-size: max(16px, 0.95rem); }
   select.form-input { padding-right: 36px; background-position: right 11px center; }
-  /* 按钮纵向收紧：min-height 44→40，padding 同步减小（与 chip 的 38px 折中同一量级） */
-  .btn { padding: 8px 16px; font-size: 0.89rem; min-height: 40px; }
+  /* 按钮纵向收紧：min-height 44→40，padding 同步减小（与 chip 的 38px 折中同一量级）。
+     左右再各收 2px：min-height 兜住命中区，收掉的只是文字到边框的距离。 */
+  .btn { padding: 7px 14px; font-size: 0.89rem; min-height: 40px; }
   .btn-row .btn { padding-left: 4px; padding-right: 4px; font-size: 0.84rem; }
   /* chip 是多选标签，成组密集排列，取 38px 折中（仍明显大于桌面端） */
-  .chip { padding: 7px 12px; font-size: 0.85rem; min-height: 38px; }
+  .chip { padding: 6px 10px; font-size: 0.85rem; min-height: 38px; }
   .tabs { padding: 3px; margin-bottom: 18px; }
   .tab { padding: 11px 0; font-size: 0.88rem; }
 
@@ -1405,38 +1449,33 @@ body.app-mode { overflow: hidden; }
   .cal-today-btn { height: var(--tap-min); padding: 0 14px; }
 
   .detail-title { font-size: 1.34rem; margin-bottom: 10px; }
-  .detail-meta { font-size: 0.84rem; gap: 6px 16px; padding-bottom: 14px; margin-bottom: 18px; }
+  .detail-meta { font-size: 0.84rem; gap: 6px 16px; padding-bottom: 12px; margin-bottom: 18px; }
   .detail-body { font-size: 1rem; line-height: 1.8; }
-  .detail-byline { margin-top: 18px; padding-top: 14px; }
+  .detail-byline { margin-top: 18px; padding-top: 12px; }
 
   .beta-banner { padding: 10px 12px; font-size: 0.84rem; margin-bottom: 16px; }
 
   /* 移动端减少逐条错峰，避免长列表出现等待感 */
   .list-row { animation-delay: 0ms !important; }
 
-  /* 教务工具栏：窄屏让筛选下拉独占一行，避免与按钮挤在同一行 */
-  .ac-toolbar { gap: 10px; }
-  .ac-select { min-width: 0; width: 100%; }
+  /* 教务的移动端规则住在第 22 节（见那里 .ac-card 那条注释）：基础规则在文件更后面，
+     同特异度会反超这里 —— .ac-toolbar / .ac-select 写过这儿、被盖掉过（issue #83）。 */
   .ac-code-row .btn { min-width: 96px; }
 }
 
 /* ── 21.3 小屏手机（≤400px，如 iPhone SE / mini）────────────────── */
 @media (max-width: 400px) {
   .main {
-    padding: 16px max(12px, var(--safe-right)) calc(var(--nav-height) + var(--safe-bottom) + 16px) max(12px, var(--safe-left));
+    padding: 20px max(16px, var(--safe-right)) calc(var(--nav-height) + var(--safe-bottom) + 20px) max(16px, var(--safe-left));
   }
   .page-title { font-size: 1.32rem; }
 
-  .calendar, .ac-card, .profile-card, .split-grid .profile-card { padding: 15px 13px; }
+  .calendar, .ac-card, .profile-card, .split-grid .profile-card { padding: 14px 12px; }
   .cal-day { font-size: 0.78rem; }
   .cal-nav .icon-btn { width: 40px; height: 40px; }
 
-  .credit-stats { grid-template-columns: repeat(2, 1fr); }
-  .credit-row { grid-template-columns: minmax(0, 1fr) 34px 34px 34px 34px 56px; font-size: 0.76rem; }
-  .credit-row-head { font-size: 0.7rem; }
-
-  .modal-head { padding: 14px 15px; }
-  .modal-body { padding: 15px; }
+  .modal-head { padding: 13px 14px; }
+  .modal-body { padding: 14px; }
 }
 
 /* ── 21.4 手机横屏（高度被压得很矮，底栏需收窄）────────────────── */
@@ -1529,7 +1568,9 @@ body.app-mode { overflow: hidden; }
   gap: 12px; flex-wrap: wrap; margin-bottom: 18px;
 }
 .ac-toolbar-left { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
-.ac-toolbar-right { display: flex; align-items: center; gap: 8px; }
+/* margin-left: auto 是必要的：切到「学业达成」时会收起左侧的学年学期，
+   只靠 space-between 的话右侧这组按钮会跑到左边去 */
+.ac-toolbar-right { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 .ac-select-label { font-size: 0.85rem; font-weight: 600; color: var(--text-secondary); }
 .ac-select { width: auto; min-width: 158px; padding: 8px 12px; font-size: 0.87rem; }
 .ac-meta { font-size: 0.79rem; color: var(--text-tertiary); }
@@ -1540,6 +1581,17 @@ body.app-mode { overflow: hidden; }
   background: var(--danger-soft); color: var(--danger);
   font-size: 0.87rem; font-weight: 600; line-height: 1.5;
 }
+
+/* 「当前显示的是缓存」这类提醒：一行小字，不要红底横幅。
+   教务登录态一天左右就会被重置一次，为它拉一条红底提示，用户会以为课表坏了 ——
+   实际上数据好好的，只是这次没去教务拿到最新的。两件事要分开说。 */
+.ac-alert.ac-hint {
+  padding: 0; margin: 0 0 14px; background: none;
+  color: var(--text-tertiary); font-size: 0.79rem; font-weight: 400;
+}
+
+/* 子标签（课表 / 学业达成）：沿用 .tabs 分段控件，仅把与下方工具栏的间距对齐 */
+.ac-seg { margin-bottom: 18px; }
 
 .ac-success { display: none; font-size: 0.88rem; font-weight: 600; color: var(--success); margin-bottom: 14px; }
 .ac-success.show { display: block; }
@@ -1638,11 +1690,96 @@ body.app-mode { overflow: hidden; }
 .cr-num { text-align: right; font-variant-numeric: tabular-nums; }
 .cr-state { text-align: right; }
 
+/* ── 课程成绩（issue #38）── */
+/* 汇总卡：只有平均分与平均绩点；统计口径写在下面那行小字里，不做成标签堆叠 */
+.grade-summary-stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+.grade-summary-note { margin-top: 10px; }
+
+/* 按学期分组：组头是学年学期 + 门数，组内一条条成绩 */
+.grade-group { margin-top: 14px; }
+.grade-group-head {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
+  padding: 0 4px 6px;
+}
+.grade-group-title { font-size: 0.86rem; font-weight: 600; color: var(--text-secondary); }
+.grade-group-count { font-size: 0.78rem; color: var(--text-tertiary); }
+
+/* 单条成绩。展开用 <details>：CSP 下页面里不能写内联事件，而 details 自带
+   键盘操作与读屏语义，展开状态也不用自己维护 */
+.grade-row {
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  overflow: hidden;
+}
+.grade-row + .grade-row { margin-top: 8px; }
+.grade-head {
+  display: flex; align-items: center; gap: 12px;
+  padding: 11px 14px;
+  cursor: pointer;
+  list-style: none;
+}
+/* 去掉默认三角，换成右侧会翻转的箭头 */
+.grade-head::-webkit-details-marker { display: none; }
+.grade-head::marker { content: ''; }
+.grade-head::after {
+  content: '';
+  flex: 0 0 auto;
+  width: 7px; height: 7px;
+  border-right: 1.6px solid var(--text-tertiary);
+  border-bottom: 1.6px solid var(--text-tertiary);
+  transform: rotate(45deg);
+  transition: transform 0.2s ease;
+}
+.grade-row[open] .grade-head::after { transform: rotate(225deg); }
+.grade-main { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
+.grade-name { font-size: 0.93rem; font-weight: 600; color: var(--text); word-break: break-word; }
+.grade-sub { font-size: 0.76rem; color: var(--text-tertiary); }
+.grade-mark {
+  display: inline-block; margin-left: 6px; padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-sunken); color: var(--text-secondary);
+  font-size: 0.72rem;
+}
+.grade-right { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.grade-score {
+  font-size: 1.12rem; font-weight: 700; color: var(--text);
+  font-variant-numeric: tabular-nums; line-height: 1.1;
+}
+.grade-point { font-size: 0.73rem; color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
+
+.grade-detail { padding: 2px 14px 12px; border-top: 1px solid var(--separator); }
+.grade-line { display: flex; gap: 12px; padding: 5px 0; font-size: 0.8rem; }
+.grade-line-key { flex: 0 0 5.5em; color: var(--text-tertiary); }
+.grade-line-val { flex: 1; color: var(--text-secondary); word-break: break-word; }
+
 @media (max-width: 640px) {
-  .ac-card { padding: 18px 16px; }
+  /* ⚠️ 这条必须留在 .ac-card **基础规则之后**：那条基础规则（22px）定义在文件更后面，
+     同特异度下按源码顺序它会盖掉写在前面那些 21.x 手机端块里的值 —— 写在那儿等于没写。
+     ≤400 那块里的 .ac-card 也是因此失效的，所以小屏手机上这张卡取的是这一档，而不是 14px 12px；
+     日历 .calendar 不受这个约束（基础规则在手机端块之前），它的手机端值放在 21.2 里。 */
+  .ac-card { padding: 16px 14px; }
+  /* .ac-toolbar / .ac-select 同理（issue #83）：基础规则（gap:12px / min-width:158px）
+     就在本块上方几行，窄屏声明必须排在这里才盖得住 —— 以前写在 21.2，手机上筛选下拉
+     一直是 158px 宽而不是满宽。 */
+  .ac-toolbar { gap: 10px; }
+  .ac-select { min-width: 0; width: 100%; }
   .credit-stats { grid-template-columns: repeat(2, 1fr); }
   .credit-row { grid-template-columns: minmax(0, 1fr) 38px 38px 38px 38px 62px; gap: 2px; font-size: 0.79rem; padding: 8px 4px; }
   .credit-row-head { font-size: 0.73rem; }
+  /* 成绩的手机端值放在这里（而不是 21.x 那些手机端块里）：.grade-head 等基础规则
+     就在本块上方，写在那边的手机端块里会被这些基础规则按源码顺序反超 —— 与上面
+     .ac-card 那条是同一个坑（issue #83 记的也是这类） */
+  .grade-head { padding: 10px 12px; }
+  .grade-detail { padding: 2px 12px 10px; }
+  .grade-line { font-size: 0.78rem; }
+}
+
+/* ≤400（SE / mini）：学分表的列再收一档（issue #83）。同样必须住在这节、排在基础规则
+   （52px 列）与本块（38px 列）之后 —— 原来写在 21.3，两档都被更后面的规则盖掉，
+   小屏上一直是 38px 档。 */
+@media (max-width: 400px) {
+  .credit-row { grid-template-columns: minmax(0, 1fr) 34px 34px 34px 34px 56px; font-size: 0.76rem; }
+  .credit-row-head { font-size: 0.7rem; }
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -1727,3 +1864,85 @@ body.app-mode { overflow: hidden; }
     scroll-behavior: auto !important;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   CSP 收紧配套：原先写在标签上的内联样式
+   ── 为什么在这里 ──
+   style-src 现在只放行 'self'（见 web/_headers），页面里再写 style="..."
+   会被浏览器整条丢掉（**不是**只丢那一条声明，是整个属性失效），所以散落在
+   HTML 与 innerHTML 字符串里的一两句样式统一收到这里：
+     · 纯间距 → .mt-* / .mb-* 工具类（只列确实用到的档位，不是通用分层）
+     · 有结构含义的（登录容器、卡片分隔线、勾选行、字段行…）→ 语义类
+   隐藏/显示一律用 [hidden] 属性（上面已有 [hidden]{display:none!important}），
+   JS 侧对应 el.hidden = true/false。
+   注意：JS 里通过 CSSOM 写的（el.style.width = … / setProperty）不受 CSP 限制，
+   滑块定位、进度条宽度这类动态值仍然留在 JS 里，没有搬到这里。
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── 间距 ── */
+.mt-0 { margin-top: 0; }
+.mt-6 { margin-top: 6px; }
+.mt-8 { margin-top: 8px; }
+.mt-10 { margin-top: 10px; }
+.mt-12 { margin-top: 12px; }
+.mt-14 { margin-top: 14px; }
+.mb-0 { margin-bottom: 0; }
+.mb-8 { margin-bottom: 8px; }
+.mb-12 { margin-bottom: 12px; }
+.mb-14 { margin-bottom: 14px; }
+
+/* ── 单属性小工具 ── */
+.grow { flex: 1; }
+.w-auto { width: auto; }
+
+/* 主壳里登录视图的容器（原内联 max-width / 居中 / 左右内边距） */
+.login-wrap { max-width: 420px; margin: 48px auto; padding: 0 16px; }
+
+/* ── 卡片内的排版 ── */
+/* 标题到内容的间距：走 --card-title-gap（基础值在顶部 :root，手机端在 21 的媒体查询里缩一档）——
+   常显卡用这里的 margin-bottom，折叠卡用 .collapse-body 的 margin-top，两处必须同值，
+   一个 16 一个 8 并排看就是「一松一紧」。 */
+.card-title { margin: 0 0 var(--card-title-gap); }
+/* .profile-sub 的几种段位：说明文字在内容之前 / 结果提示跟在按钮之后 / 段落之间留白 */
+.profile-sub-lead { margin: 0 0 14px; }
+.profile-sub-tail { margin: 14px 0 0; }
+.profile-sub-wide { margin: 0 0 16px; }
+.profile-sub-even { margin: 14px 0 14px; }
+/* 一段说明里要换行（如后台通知状态行：第二行是系统待机档位）：靠 pre-line 认文本里的 \n，
+   这样两行仍属于同一个 <p>，不会吃到 .profile-sub-lead 那 14px 的段落间距 */
+.profile-sub-lines { white-space: pre-line; }
+/* 卡片下半区（通知 / 后台常驻 / 课程提醒 / 日历订阅…）：用一条分隔线与上一块断开 */
+.card-divider { margin-top: 24px; padding-top: 22px; border-top: 1px solid var(--separator); }
+
+/* ── 表单 ── */
+/* 一行勾选项：整行可点（原来是标签上的内联 display/margin） */
+.field-check { display: block; margin: 6px 0; }
+/* 卡片里更轻量的一行勾选项 */
+.check-row { display: flex; align-items: center; gap: 8px; font-size: 0.89rem; color: var(--text); cursor: pointer; }
+.check-row-note { display: flex; align-items: center; gap: 8px; margin: 12px 0 14px; font-size: 0.9rem; color: var(--text-secondary); cursor: pointer; }
+/* 按钮行：默认三列（.btn-row），这两个是「两列」与「单行等高」 */
+.btn-row-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.btn-row-inline { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); }
+/* 自适应列宽的多列表单（日历订阅的三个选项） */
+.grid-150 { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+
+/* ── 提醒对象选择区 ── */
+/* 没有成员可提醒（.remind-hint）与搜索后全被滤掉（.remind-empty）的提示文字 */
+.remind-hint,
+.remind-empty { font-size: 0.85rem; opacity: 0.6; }
+
+/* 名单加载失败（issue #78）：与「暂无成员」是两回事，用强调色并加粗，
+   让「保存被禁止、别把它当全班发出去」一眼可见（吸收自 PR #86） */
+.remind-text-error { opacity: 1; color: var(--danger); font-weight: 600; }
+
+/* ── 成员列表 / 资料卡 ── */
+/* 贴边的一行（列表里已经有自己的分隔与内边距，不想再叠加 info-row 的左右内边距） */
+.member-row-flush { padding-left: 0; padding-right: 0; }
+/* 左右分散的一行（.member-line 默认按基线对齐，这里要居中并两端撑开） */
+.member-line-spread { justify-content: space-between; align-items: center; }
+/* 「值」区里带按钮，需要行内 flex 对齐 */
+.info-row .v-actions { display: inline-flex; align-items: center; gap: 10px; }
+
+/* ── 表单字段编辑器（管理员面板动态生成的每一行） ── */
+.fld-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 8px 0; }
+.fld-required-row { display: flex; align-items: center; gap: 6px; white-space: nowrap; font-size: 0.9rem; color: var(--text-secondary); cursor: pointer; }

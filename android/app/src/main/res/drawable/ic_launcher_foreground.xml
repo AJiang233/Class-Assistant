@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  自适应图标（API 26+ 生效）的前景层：白色书本 + 右上角对话气泡，透明底。
+
+  坐标换算：设计稿画布 512，maskable 版把图形整体缩到 80%（绕中心），
+  换到 108 视口后系数为 108/512 * 0.8 = 0.16875，即 v = 10.8 + 0.16875x。
+  描边宽同理：23 * 0.16875 = 3.88125。
+  图形墨迹因此只占画布约 55%，落在自适应图标 66dp 安全圆内，裁成任何形状都不切笔画。
+
+  【为什么不是直接照搬 SVG 的 mask】Android VectorDrawable 没有 <mask>，
+  只有「相交」语义的 clip-path，做不出「从书本描边里挖掉气泡」这种减法。
+  这里改用等价画法：先用与背景层**完全相同坐标**的渐变，填一块气泡外扩 18 的净空，
+  再画白色气泡描边。
+    - 净空区域 = 气泡主体外扩 18（设计稿 252..420 × 93..205、圆角 30 → 234..438 × 75..223、圆角 48）。
+      设计稿的 mask 正是这条外扩轮廓，两者对书本描边的抹除范围一致
+      （气泡尾巴那截外扩落在书页空腔里，压不到任何描边，无需单独补齐）。
+    - 渐变按坐标取值，所以这块填色与背景层严丝合缝，
+      气泡内部看到的仍是同一块底板蓝，不会出现色块边界。
+  **改这里的坐标就必须同步改 ic_launcher_background.xml 的渐变起止点**，
+  以及 drawable/ic_launcher.xml、web/assets/icons/icon.svg 的几何。
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- 书本：外缘 / 书脊竖直，上缘 / 下缘圆弧（R = 172 * 0.16875 = 29.025） -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="3.88125"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M26.325,40.33125 A29.025,29.025 0 0 1 49.95,45.9 L49.95,76.10625 A29.025,29.025 0 0 0 26.325,70.5375 Z" />
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="3.88125"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M73.575,40.33125 A29.025,29.025 0 0 0 49.95,45.9 L49.95,76.10625 A29.025,29.025 0 0 1 73.575,70.5375 Z" />
+
+    <!-- 气泡净空：气泡外扩 18，填背景层同一条渐变，把压在气泡处的书本描边抹掉 -->
+    <path android:pathData="M58.3875,23.45625 H76.6125 A8.1,8.1 0 0 1 84.7125,31.55625 V40.33125 A8.1,8.1 0 0 1 76.6125,48.43125 H58.3875 A8.1,8.1 0 0 1 50.2875,40.33125 V31.55625 A8.1,8.1 0 0 1 58.3875,23.45625 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="30.348"
+                android:startY="-11.124"
+                android:endX="77.652"
+                android:endY="119.124"
+                android:type="linear">
+                <item android:offset="0" android:color="#FF4AA3FF" />
+                <item android:offset="0.55" android:color="#FF007AFF" />
+                <item android:offset="1" android:color="#FF0060CC" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- 对话气泡：横向长方形 + 左下尾巴，压在书本右上角 -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="3.88125"
+        android:strokeLineJoin="round"
+        android:strokeLineCap="round"
+        android:pathData="M58.3875,26.49375 H76.6125 A5.0625,5.0625 0 0 1 81.675,31.55625 V40.33125 A5.0625,5.0625 0 0 1 76.6125,45.39375 H67.8375 L60.075,51.46875 L62.1,45.39375 H58.3875 A5.0625,5.0625 0 0 1 53.325,40.33125 V31.55625 A5.0625,5.0625 0 0 1 58.3875,26.49375 Z" />
+</vector>
