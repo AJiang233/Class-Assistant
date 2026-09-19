@@ -216,10 +216,10 @@
                                     <label class="form-label" for="regContact">联系方式</label>
                                     <input class="form-input" type="text" id="regContact" placeholder="选填" autocomplete="off">
                                 </div>
-                                <!-- 邮箱由管理员代填：新账号的验证状态一定是 0（本人收码才算验证过），
-                                     所以这里的徽章只会是「未验证」——填了才显示，空着不显示 -->
+                                <!-- 邮箱由管理员代填，新账号一律是「未验证」（本人收码才算验证过）。
+                                     这里刻意不放验证状态徽章：新账号只有这一种状态，标出来只是噪音 -->
                                 <div class="form-field">
-                                    <label class="form-label" for="regEmail">邮箱 <span class="badge" id="regEmailBadge" hidden></span></label>
+                                    <label class="form-label" for="regEmail">邮箱</label>
                                     <input class="form-input" type="email" id="regEmail" placeholder="选填，填了需本人收码验证" autocomplete="off">
                                 </div>
                                 <div class="form-field">

@@ -910,6 +910,11 @@ input[type="checkbox"]:disabled { opacity: 0.5; cursor: not-allowed; }
 /* 管理职位：分组小标题 */
 .roles-group-label { font-size: 0.82rem; color: var(--text-tertiary); margin: 14px 0 2px; }
 .roles-group-label:first-child { margin-top: 0; }
+/* 小标题要贴着它下面那一组：标签自己只有 2px 下边距，但 .info-row 自带 13px 上内边距、
+   空状态块更是 56px —— 两下一叠，标题与内容之间就凭空多出一截。
+   组与组之间靠标签自己的 14px 上边距分隔，下面不需要再垫 */
+.roles-group-label + .info-row { padding-top: 5px; }
+.roles-group-label + .state { padding-top: 18px; }
 
 .split-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
 .split-col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
@@ -1954,7 +1959,11 @@ body.app-mode { overflow: hidden; }
 /* 左右分散的一行（.member-line 默认按基线对齐，这里要居中并两端撑开） */
 .member-line-spread { justify-content: space-between; align-items: center; }
 /* 「值」区里带按钮，需要行内 flex 对齐 */
-.info-row .v-actions { display: inline-flex; align-items: center; gap: 10px; }
+.info-row .v-actions { display: inline-flex; align-items: center; gap: 10px; min-width: 0; }
+/* 邮箱这类可能很长的值：在一行内省略，而不是折行把这一行撑成两行高。
+   min-width: 0 是必需的 —— flex 子项默认不肯缩到内容宽度以下，不给它收缩的余地，
+   省略号就没机会出现。右侧按钮不用管：它缩到 min-content（「管理」两个字）就停住了 */
+.info-row .v-actions > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ── 表单字段编辑器（管理员面板动态生成的每一行） ── */
 .fld-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 8px 0; }

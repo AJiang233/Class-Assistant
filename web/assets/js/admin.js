@@ -384,15 +384,6 @@ function setEmailBadge(el, verified, text) {
     el.hidden = false;
 }
 
-/** 「添加成员」的邮箱框：填了就标「未验证」（新账号一律从 0 开始），清空则收起徽章 */
-function syncRegEmailBadge() {
-    var input = document.getElementById('regEmail');
-    var badge = document.getElementById('regEmailBadge');
-    if (!input || !badge) return;
-    if (!input.value.trim()) { badge.hidden = true; return; }
-    setEmailBadge(badge, false, '未验证');
-}
-
 /**
  * 「编辑成员」的邮箱框：值没动就照原样显示，一改就显示「未验证」。
  * 之所以要看「动没动」：后端只在地址真的变了时才清零验证状态（改姓名不该让人重新验证），
@@ -493,7 +484,6 @@ function initMemberManagement() {
             errBox.classList.add('show');
             errBox.textContent = email ? '注册成功（邮箱待本人验证）' : '注册成功';
             regForm.reset();
-            syncRegEmailBadge();
             loadMembers();
         } catch (err) {
             errBox.textContent = err.message;
@@ -503,9 +493,8 @@ function initMemberManagement() {
         }
     });
 
-    // 徽章跟着输入走：填了 / 改了邮箱，立刻反映「保存之后会是什么状态」，
-    // 而不是等保存完再让用户去成员列表里对
-    document.getElementById('regEmail').addEventListener('input', syncRegEmailBadge);
+    // 编辑弹窗那颗徽章跟着输入走：改了邮箱，立刻反映「保存之后会是什么状态」，
+    // 而不是等保存完再让用户去成员列表里对。（添加成员不放徽章：新账号一律未验证）
     document.getElementById('editEmail').addEventListener('input', syncEditEmailBadge);
 }
 
