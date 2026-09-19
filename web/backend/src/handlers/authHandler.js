@@ -1,6 +1,7 @@
 import { UserModel } from '../models/userModel.js';
 import { RoleModel } from '../models/roleModel.js';
 import { EmailCodeModel } from '../models/emailCodeModel.js';
+import { EmailSubscriptionModel } from '../models/emailSubscriptionModel.js';
 import { hashPassword, verifyPassword } from '../utils/crypto.js';
 import { sign } from '../utils/jwt.js';
 import { success, error, jsonResponse } from '../utils/response.js';
@@ -676,6 +677,8 @@ export async function handleUnbindEmail(request, env, user) {
     const userModel = new UserModel(env.DB);
     await userModel.update(user.id, { email: null, email_verified: 0 });
     await new EmailCodeModel(env.DB).clear(user.id, 'verify');
+    // 解绑 = 邮箱没了，订阅失去承载体，一并清零（保留行，见模型注释）
+    await new EmailSubscriptionModel(env.DB).resetToZero(user.id);
 
     const fresh = await userModel.findById(user.id);
     const permissions = await computePermissions(env, fresh.positions);
@@ -686,6 +689,47 @@ export async function handleUnbindEmail(request, env, user) {
   } catch (e) {
     console.error('解绑邮箱失败:', e);
     return jsonResponse(error('解绑邮箱失败，请稍后重试', 'UNBIND_EMAIL_FAILED'), 500);
+  }
+}
+
+/**
+ * 读取当前用户的订阅开关（需登录）
+ * 未绑定 / 未验证也照常返回（全 0 或实际值），前端自己决定显不显示订阅区。
+ */
+export async function handleGetEmailSubscriptions(request, env, user) {
+  try {
+    const subs = await new EmailSubscriptionModel(env.DB).get(user.id);
+    return jsonResponse(success({ subscriptions: subs }));
+  } catch (e) {
+    console.error('读取订阅设置失败:', e);
+    return jsonResponse(error('读取订阅设置失败，请稍后重试', 'GET_SUBSCRIPTIONS_FAILED'), 500);
+  }
+}
+
+/**
+ * 保存订阅开关（需登录）
+ * body: { activities, notices, forms }（布尔或 0/1）
+ *
+ * 只有「已绑且已验证」的邮箱才收得到订阅邮件，所以这里拦一道：
+ * 前端订阅区只在已验证时显示，直接调接口的绕过前端也存不进去（409）。
+ */
+export async function handleSetEmailSubscriptions(request, env, user) {
+  try {
+    if (Number(user.email_verified) !== 1 || !user.email) {
+      return jsonResponse(error('请先验证邮箱再设置订阅', 'EMAIL_NOT_VERIFIED'), 409);
+    }
+    const body = await request.json().catch(() => ({}));
+    const toBool = (v) => v === true || v === 1 || v === '1';
+    const subscriptions = {
+      activities: toBool(body.activities),
+      notices: toBool(body.notices),
+      forms: toBool(body.forms)
+    };
+    await new EmailSubscriptionModel(env.DB).set(user.id, subscriptions);
+    return jsonResponse(success({ subscriptions }));
+  } catch (e) {
+    console.error('保存订阅设置失败:', e);
+    return jsonResponse(error('保存订阅设置失败，请稍后重试', 'SET_SUBSCRIPTIONS_FAILED'), 500);
   }
 }
 

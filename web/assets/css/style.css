@@ -1956,3 +1956,11 @@ body.app-mode { overflow: hidden; }
 .auth-note { margin: 14px 0 0; font-size: 0.85rem; line-height: 1.6; color: var(--text-secondary); text-align: center; }
 /* 邮箱弹窗里「验证码 + 发送验证码」一行：输入框吃掉剩余宽度，按钮不被挤扁 */
 #emailModal .fld-row .form-input { flex: 1; min-width: 0; }
+/* 弹窗标题后的状态徽章：与标题同行、垂直居中，徽章本身有 3px 10px 内边距，间隙别挤太紧 */
+.modal-title-wrap { display: flex; align-items: center; gap: 10px; }
+/* 解绑按钮行：弹窗内最后一行，给点间距即可（原来的 card-divider 上边框已去掉） */
+#emailUnbindRow { margin-top: 20px; }
+/* 订阅区：分订阅在「全部订阅」下面缩进一档，视觉上形成「总开关 → 分项」的层级 */
+#emailSubSection .sub-list { padding-left: 22px; }
+/* 订阅区的保存按钮：与复选框之间留出间距，避免贴着最后一项 */
+#emailSubSaveBtn { margin-top: 16px; }

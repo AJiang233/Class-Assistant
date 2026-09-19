@@ -299,12 +299,17 @@
             </div>
         </div>
 
-        <!-- 邮箱弹窗：邮箱的绑定 / 更换 / 解绑全在这里做，资料卡那一行只显示状态与一个「管理」。
+        <!-- 邮箱弹窗：邮箱的绑定 / 更换 / 解绑全在这里做，资料卡那一行只显示邮箱与一个「管理」，
+             验证状态徽章在这个弹窗的标题后。
              发码那一刻后端就把邮箱记成「已填未验证」，只有点「保存」（＝验码通过）才置为已验证。 -->
         <div class="modal-overlay" id="emailModal">
             <div class="modal">
                 <div class="modal-head">
-                    <span class="modal-title">邮箱管理</span>
+                    <div class="modal-title-wrap">
+                        <span class="modal-title">邮箱管理</span>
+                        <!-- 验证状态徽章在这里（已验证 / 未验证），资料卡那行不再重复放徽章 -->
+                        <span class="badge badge-ok" id="emailTitleBadge" hidden></span>
+                    </div>
                     <button type="button" class="modal-close" data-act="close-email-edit" aria-label="关闭">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                     </button>
@@ -315,18 +320,42 @@
                         <label class="form-label" for="emailInput">邮箱</label>
                         <input class="form-input" id="emailInput" type="email" placeholder="如：zhangsan@qq.com" autocomplete="email">
                     </div>
-                    <div class="form-field mb-0">
-                        <label class="form-label" for="emailCodeInput">验证码</label>
-                        <div class="fld-row">
-                            <input class="form-input" id="emailCodeInput" type="text" inputmode="numeric" maxlength="6" placeholder="6 位数字" autocomplete="one-time-code">
-                            <button class="btn btn-outline" type="button" id="emailSendCodeBtn" data-act="send-email-code">发送验证码</button>
+                    <div id="emailCodeSection">
+                        <div class="form-field mb-0">
+                            <label class="form-label" for="emailCodeInput">验证码</label>
+                            <div class="fld-row">
+                                <input class="form-input" id="emailCodeInput" type="text" inputmode="numeric" maxlength="6" placeholder="6 位数字" autocomplete="one-time-code">
+                                <button class="btn btn-outline" type="button" id="emailSendCodeBtn" data-act="send-email-code">发送验证码</button>
+                            </div>
                         </div>
+                        <p class="auth-note">验证码 10 分钟内有效。收不到就看看垃圾邮件；同一个邮箱 1 分钟内只能发一次。</p>
                     </div>
-                    <p class="auth-note">验证码 10 分钟内有效。收不到就看看垃圾邮件；同一个邮箱 1 分钟内只能发一次。</p>
                     <!-- 解绑只在「已绑且已验证」时出现（JS 控制 hidden）：邮箱是找回密码的凭据，
                          解绑等于把那条路关掉，所以放在弹窗里并要一次确认，不在资料卡上直接给按钮 -->
-                    <div class="card-divider" id="emailUnbindRow" hidden>
+                    <div id="emailUnbindRow" hidden>
                         <button type="button" class="btn btn-outline btn-block" data-act="unbind-email">解绑邮箱</button>
+                    </div>
+                    <!-- 订阅通知：只有邮箱已验证才显示（JS 控制 hidden）。「全部订阅」与三项分订阅联动：
+                         勾全部＝三项全勾；取消任一分项＝「全部订阅」跟着取消（没全勾就不算全部）。
+                         解绑邮箱后订阅清零、这一整块跟着隐藏。 -->
+                    <div class="card-divider" id="emailSubSection" hidden>
+                        <label class="check-row">
+                            <input type="checkbox" id="subAll" data-act="toggle-sub-all"> 全部订阅
+                        </label>
+                        <div class="sub-list">
+                            <label class="check-row">
+                                <input type="checkbox" id="subActivities" data-act="toggle-sub-one" data-kind="activities"> 活动订阅
+                            </label>
+                            <label class="check-row">
+                                <input type="checkbox" id="subNotices" data-act="toggle-sub-one" data-kind="notices"> 通知订阅
+                            </label>
+                            <label class="check-row">
+                                <input type="checkbox" id="subForms" data-act="toggle-sub-one" data-kind="forms"> 表单订阅
+                            </label>
+                        </div>
+                        <!-- 勾选只改本地状态，点「保存订阅」才写后端（避免每勾一下都发一次请求） -->
+                        <button type="button" class="btn btn-primary btn-block" id="emailSubSaveBtn" data-act="save-email-subs">保存订阅</button>
+                        <p class="profile-sub profile-sub-tail">勾选后，新的活动 / 通知 / 待填表单会同步发到你的邮箱。</p>
                     </div>
                 </div>
                 <div class="modal-foot">

@@ -2,16 +2,19 @@ import assert from 'node:assert/strict';
 import { describe, it, beforeEach, afterEach } from 'node:test';
 
 import { EmailCodeModel } from '../src/models/emailCodeModel.js';
+import { EmailSubscriptionModel } from '../src/models/emailSubscriptionModel.js';
 import {
   handleSendEmailCode,
   handleVerifyEmail,
   handleUnbindEmail,
+  handleGetEmailSubscriptions,
+  handleSetEmailSubscriptions,
   handleForgotSend,
   handleForgotReset
 } from '../src/handlers/authHandler.js';
 import { withAuth } from '../src/middleware/auth.js';
 import { sign } from '../src/utils/jwt.js';
-import { emailEnabled, renderVerifyEmail, genEmailCode } from '../src/utils/email.js';
+import { emailEnabled, renderVerifyEmail, renderActivityEmail, renderNoticeEmail, renderFormEmail, genEmailCode, sendSubscribedEmail } from '../src/utils/email.js';
 
 const SECRET = 'test-secret-for-email';
 
@@ -31,10 +34,11 @@ let seq = 0;
  *
  * 未实现的语句直接抛错，免得实现里换了 SQL 而测试悄悄放过。
  */
-function fakeDb({ users = [], codes = [] } = {}) {
+function fakeDb({ users = [], codes = [], subs = [] } = {}) {
   const state = {
     users: users.map((u) => ({ ...u })),
-    codes: codes.map((c) => ({ id: c.id ?? ++seq, attempts: 0, used_at: null, ...c }))
+    codes: codes.map((c) => ({ id: c.id ?? ++seq, attempts: 0, used_at: null, ...c })),
+    subs: subs.map((s) => ({ sub_activities: 0, sub_notices: 0, sub_forms: 0, ...s }))
   };
 
   function selectUsers(sql, args) {
@@ -94,7 +98,28 @@ function fakeDb({ users = [], codes = [] } = {}) {
       row.used_at = utcNow();
       return changes(1);
     }
-    if (/DELETE FROM email_subscriptions/.test(sql)) return changes(0);
+    if (/DELETE FROM email_subscriptions/.test(sql)) {
+      const before = state.subs.length;
+      state.subs = state.subs.filter((s) => s.user_id !== args[0]);
+      return changes(before - state.subs.length);
+    }
+    // UPSERT：已有行就更新，没有就插
+    if (/INSERT INTO email_subscriptions/.test(sql)) {
+      const [userId, a, n, f] = args;
+      const existing = state.subs.find((s) => s.user_id === userId);
+      if (existing) {
+        existing.sub_activities = a; existing.sub_notices = n; existing.sub_forms = f;
+      } else {
+        state.subs.push({ user_id: userId, sub_activities: a, sub_notices: n, sub_forms: f });
+      }
+      return changes(1);
+    }
+    if (/UPDATE email_subscriptions/.test(sql)) {
+      const row = state.subs.find((s) => s.user_id === args[0]);
+      if (!row) return changes(0);
+      row.sub_activities = 0; row.sub_notices = 0; row.sub_forms = 0;
+      return changes(1);
+    }
     if (/UPDATE users SET/.test(sql)) {
       const id = args[args.length - 1];
       const row = state.users.find((u) => u.id === id);
@@ -131,6 +156,14 @@ function fakeDb({ users = [], codes = [] } = {}) {
                 && c.created_at > utcNow(-60)) ? { 1: 1 } : null;
             }
             if (/FROM email_codes/.test(sql)) return activeCode(args);
+            if (/FROM email_subscriptions/.test(sql)) {
+              const row = state.subs.find((s) => s.user_id === args[0]);
+              if (!row) return null;
+              // sendSubscribedEmail 用 AS subscribed 取单列，其余取整行
+              const alias = sql.match(/SELECT (sub_\w+) AS subscribed/);
+              if (alias) return { subscribed: row[alias[1]] };
+              return { sub_activities: row.sub_activities, sub_notices: row.sub_notices, sub_forms: row.sub_forms };
+            }
             if (/FROM roles/.test(sql)) return null;
             throw new Error('假 D1 未实现的 first 语句: ' + sql);
           },
@@ -477,5 +510,145 @@ describe('邮件模板', () => {
     assert.match(html, /123456/);
     assert.match(html, /班级助理/);
     assert.match(html, /10 分钟/);
+  });
+});
+
+describe('订阅推送模板', () => {
+  it('活动模板：标题、时间地点都在邮件里，带「查看活动」按钮', () => {
+    const html = renderActivityEmail({
+      title: '班会', content: '请大家准时到', location: '教室A',
+      start_time: '2026-09-20 15:00', link: '/activities?id=1'
+    });
+    assert.match(html, /新活动/);
+    assert.match(html, /班会/);
+    assert.match(html, /2026-09-20 15:00/);
+    assert.match(html, /教室A/);
+    assert.match(html, /查看活动/);
+    assert.match(html, /href="\/activities\?id=1"/);
+  });
+
+  it('通知模板：正文照常出现，带「查看详情」按钮', () => {
+    const html = renderNoticeEmail({ title: '周末大扫除', content: '周六上午集合', link: '/notices?id=2' });
+    assert.match(html, /新通知/);
+    assert.match(html, /周末大扫除/);
+    assert.match(html, /周六上午集合/);
+    assert.match(html, /查看详情/);
+  });
+
+  it('表单模板：截止时间与「去填写」按钮', () => {
+    const html = renderFormEmail({ title: '秋游意向', description: '选目的地', deadline: '2026-09-25 20:00', link: '/forms?id=3' });
+    assert.match(html, /新表单/);
+    assert.match(html, /秋游意向/);
+    assert.match(html, /截止时间：2026-09-25 20:00/);
+    assert.match(html, /去填写/);
+  });
+
+  it('用户可控内容一律转义，不把脚本直接拼进邮件（与验证码模板同一口径）', () => {
+    const html = renderNoticeEmail({ title: 'a<b>', content: '<script>alert(1)</script>' });
+    assert.doesNotMatch(html, /<script>alert/);
+    assert.match(html, /&lt;script&gt;/);
+  });
+
+  it('推送邮件带退订说明，不带验证码那套「若非本人操作」警示', () => {
+    const html = renderActivityEmail({ title: '班会' });
+    assert.match(html, /可在设置内退订/);
+    assert.doesNotMatch(html, /若非本人操作/);
+  });
+});
+
+describe('邮箱订阅', () => {
+  const verifiedUser = { id: 1, student_id: '2024001', name: '张三', positions: '学生', email: 'a@qq.com', email_verified: 1 };
+
+  it('模型：无行返回全关；set 写入；resetToZero 清零且保留行', async () => {
+    const db = fakeDb();
+    const model = new EmailSubscriptionModel(db);
+
+    assert.deepEqual(await model.get(1), { activities: false, notices: false, forms: false });
+
+    await model.set(1, { activities: true, notices: false, forms: true });
+    assert.deepEqual(await model.get(1), { activities: true, notices: false, forms: true });
+
+    // 再次 set 是覆盖不是叠加（UPSERT 语义）
+    await model.set(1, { activities: false, notices: true, forms: true });
+    assert.deepEqual(await model.get(1), { activities: false, notices: true, forms: true });
+
+    await model.resetToZero(1);
+    assert.deepEqual(await model.get(1), { activities: false, notices: false, forms: false });
+    // 行保留：解绑后重绑仍是「设过订阅」而不是「从未设置」
+    assert.equal(db._state.subs.length, 1);
+  });
+
+  it('读接口：返回当前订阅（未验证也照常返回）', async () => {
+    const db = fakeDb({ subs: [{ user_id: 1, sub_notices: 1 }] });
+    const res = await handleGetEmailSubscriptions(post('/x', {}), ENV(db), { ...verifiedUser, email_verified: 0 });
+    assert.equal(res.status, 200);
+    assert.deepEqual((await json(res)).data.subscriptions, { activities: false, notices: true, forms: false });
+  });
+
+  it('写接口：未验证 / 未绑定的邮箱存不进去（409，防绕过前端）', async () => {
+    const db = fakeDb();
+    const res = await handleSetEmailSubscriptions(
+      post('/x', { activities: true, notices: true, forms: true }),
+      ENV(db),
+      { ...verifiedUser, email_verified: 0 }
+    );
+    assert.equal(res.status, 409);
+    assert.equal(db._state.subs.length, 0, '未验证时一行都不该写');
+  });
+
+  it('写接口：已验证可保存，布尔与 0/1 都认', async () => {
+    const db = fakeDb();
+    const res = await handleSetEmailSubscriptions(
+      post('/x', { activities: 1, notices: 0, forms: '1' }),
+      ENV(db),
+      verifiedUser
+    );
+    assert.equal(res.status, 200);
+    assert.deepEqual((await json(res)).data.subscriptions, { activities: true, notices: false, forms: true });
+    assert.deepEqual(db._state.subs[0], { user_id: 1, sub_activities: 1, sub_notices: 0, sub_forms: 1 });
+  });
+
+  it('解绑邮箱：邮箱清空、验证码作废、订阅一并清零', async () => {
+    const db = fakeDb({
+      users: [{ id: 1, student_id: '2024001', name: '张三', positions: '学生', email: 'a@qq.com', email_verified: 1 }],
+      codes: [{ id: 5, user_id: 1, email: 'a@qq.com', code: '123456', purpose: 'verify', expires_at: utcNow(600), created_at: utcNow() }],
+      subs: [{ user_id: 1, sub_activities: 1, sub_notices: 1, sub_forms: 1 }]
+    });
+    const res = await handleUnbindEmail(post('/x', {}), ENV(db), { ...verifiedUser });
+    assert.equal(res.status, 200);
+    assert.equal(db._state.users[0].email, null);
+    assert.equal(db._state.codes.length, 0);
+    assert.deepEqual(db._state.subs[0], { user_id: 1, sub_activities: 0, sub_notices: 0, sub_forms: 0 });
+  });
+
+  it('订阅发信：邮箱未验证 → 不发（UNVERIFIED）；订阅没开 → 不发（UNSUBSCRIBED）；都过 → 真发', async () => {
+    stubbedFetch = stubFetch();
+    const db = fakeDb({
+      users: [
+        { id: 1, email: 'a@qq.com', email_verified: 0 },
+        { id: 2, email: 'b@qq.com', email_verified: 1 }
+      ],
+      subs: [{ user_id: 2, sub_activities: 1 }]
+    });
+    const mail = { subject: '新活动', html: '<p>hi</p>' };
+
+    const unverified = await sendSubscribedEmail(ENV(db), db, { userId: 1, kind: 'activities', ...mail });
+    assert.deepEqual(unverified, { ok: false, reason: 'UNVERIFIED' });
+
+    const unsubscribed = await sendSubscribedEmail(ENV(db), db, { userId: 2, kind: 'notices', ...mail });
+    assert.deepEqual(unsubscribed, { ok: false, reason: 'UNSUBSCRIBED' });
+
+    const sent = await sendSubscribedEmail(ENV(db), db, { userId: 2, kind: 'activities', ...mail });
+    assert.deepEqual(sent, { ok: true });
+    assert.equal(stubbedFetch.sent.length, 1, '只有校验通过的那一封真正发出去');
+    assert.equal(stubbedFetch.sent[0].to, 'b@qq.com');
+  });
+
+  it('订阅发信：未知订阅类型直接报错，不静默放行', async () => {
+    const db = fakeDb({ users: [{ id: 1, email: 'a@qq.com', email_verified: 1 }] });
+    await assert.rejects(
+      () => sendSubscribedEmail(ENV(db), db, { userId: 1, kind: 'scores', subject: 'x', html: 'x' }),
+      /未知的订阅类型/
+    );
   });
 });

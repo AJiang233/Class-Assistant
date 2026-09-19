@@ -7,6 +7,8 @@ import {
   handleSendEmailCode,
   handleVerifyEmail,
   handleUnbindEmail,
+  handleGetEmailSubscriptions,
+  handleSetEmailSubscriptions,
   handleForgotSend,
   handleForgotReset,
   handleListUsers,
@@ -61,6 +63,15 @@ export async function authRoutes(request, env, ctx) {
   }
   if (path === '/api/auth/email/unbind' && method === 'POST') {
     return withAuth(handleUnbindEmail)(request, env, ctx);
+  }
+
+  // 邮箱订阅（需要认证）：读 / 写订阅开关。订阅区只在邮箱已验证时显示，
+  // 但读接口对未验证也照常返回，前端自行决定显隐。
+  if (path === '/api/auth/email/subscriptions' && method === 'GET') {
+    return withAuth(handleGetEmailSubscriptions)(request, env, ctx);
+  }
+  if (path === '/api/auth/email/subscriptions' && method === 'POST') {
+    return withAuth(handleSetEmailSubscriptions)(request, env, ctx);
   }
 
   // 忘记密码（公开）：发重置码 → 验码重置并登录。

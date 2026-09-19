@@ -114,6 +114,44 @@ export async function sendEmail(env, { to, subject, html, replyTo } = {}) {
   return res.json().catch(() => ({}));
 }
 
+/** 订阅类型 → email_subscriptions 列名。新增订阅类目（如「成绩订阅」）时在这里加一行 */
+const SUBSCRIPTION_COLUMNS = {
+  activities: 'sub_activities',
+  notices: 'sub_notices',
+  forms: 'sub_forms'
+};
+
+/**
+ * 订阅类邮件的统一发送入口 —— 「每次发信都先验证」就体现在这里：
+ *   1. 邮箱必须已验证（email_verified=1）。未验证的邮箱收订阅邮件没有意义，
+ *      验证码 / 找回密码那两类事务邮件不走这里（它们本来就该发）。
+ *   2. 对应订阅位必须开着（email_subscriptions[kind]=1）。
+ *
+ * 现在还没有调用点：活动 / 通知 / 表单推送按订阅发信是下一期的事，
+ * 先把两道校验钉在这个唯一的订阅发信口上，到时不至于每个推送处各写一遍。
+ *
+ * @returns {{ok:true} | {ok:false, reason:'UNVERIFIED'|'UNSUBSCRIBED'}}
+ *   UNVERIFIED   用户邮箱未验证（或没绑）
+ *   UNSUBSCRIBED 该订阅位没开
+ */
+export async function sendSubscribedEmail(env, db, { userId, kind, to, subject, html, replyTo } = {}) {
+  const col = SUBSCRIPTION_COLUMNS[kind];
+  if (!col) throw new EmailError(`未知的订阅类型: ${kind}`, 'EMAIL_SEND_FAILED');
+
+  const user = await db.prepare(
+    'SELECT email, email_verified FROM users WHERE id = ?'
+  ).bind(userId).first();
+  if (!user || Number(user.email_verified) !== 1) return { ok: false, reason: 'UNVERIFIED' };
+
+  const sub = await db.prepare(
+    `SELECT ${col} AS subscribed FROM email_subscriptions WHERE user_id = ?`
+  ).bind(userId).first();
+  if (!sub || Number(sub.subscribed) !== 1) return { ok: false, reason: 'UNSUBSCRIBED' };
+
+  await sendEmail(env, { to: to || user.email, subject, html, replyTo });
+  return { ok: true };
+}
+
 /**
  * 生成 6 位数字验证码。
  * 用 crypto.getRandomValues 而不是 Math.random：后者可预测，验证码被猜到等于账号被接管。
@@ -237,5 +275,62 @@ export function renderResetEmail(code) {
     intro: '你好，我们收到了你的密码重置申请。请在页面输入下方验证码以设置新密码：',
     code,
     footer: '此类邮件不可在设置内退订，若非本人反复收到，请与我们（QxwkStudio@outlook.com）联系。'
+  });
+}
+
+/** 订阅推送邮件的统一退订说明。活动 / 通知 / 表单都是订阅类邮件，不像验证码那样「不可退订」—— footer 给出去向，免得收件人点举报伤发件域名信誉 */
+const SUBSCRIPTION_FOOTER =
+  '此类邮件可在设置内退订（个人中心 → 邮箱管理 → 订阅通知），不想再收到可随时关闭。若非本人反复收到，请与我们（QxwkStudio@outlook.com）联系。';
+
+/** 库里的时间串是 'YYYY-MM-DD HH:MM:SS'（utils/datetime.js 的 toLocalDateTime），邮件里只留到分钟 */
+function emailTime(value) {
+  return String(value == null ? '' : value).replace('T', ' ').slice(0, 16);
+}
+
+/**
+ * 活动推送模板。参数与活动行字段同名（见 activityHandler），推送接入时把列表 / 详情行
+ * 原样传进来即可，调用点不用做字段翻译。content / location / title 是用户可控内容，
+ * 一律经 escHtml 转义再拼进邮件，防客户端注入（与验证码模板同一口径）。
+ */
+export function renderActivityEmail({ title = '', content = '', location = '', start_time = '', link = '' } = {}) {
+  const head = [emailTime(start_time), String(location).trim()].filter(Boolean).join(' · ');
+  const text = String(content).replace(/\s+/g, ' ').trim();
+  const body = [head, text].filter(Boolean).map(escHtml).join('<br>');
+  return renderBrandEmail({
+    title: '班级助理 · 新活动',
+    intro: `班里发布了新活动《${escHtml(title)}》：`,
+    body,
+    cta: link ? { url: link, label: '查看活动' } : null,
+    warn: '',
+    footer: SUBSCRIPTION_FOOTER
+  });
+}
+
+/** 通知推送模板。参数与通知行字段同名（见 noticeHandler）；link 给到站内通知页或表单页 */
+export function renderNoticeEmail({ title = '', content = '', link = '' } = {}) {
+  const text = String(content).replace(/\s+/g, ' ').trim();
+  return renderBrandEmail({
+    title: '班级助理 · 新通知',
+    intro: `班里发布了新通知《${escHtml(title)}》：`,
+    body: escHtml(text),
+    cta: link ? { url: link, label: '查看详情' } : null,
+    warn: '',
+    footer: SUBSCRIPTION_FOOTER
+  });
+}
+
+/** 表单推送模板。参数与表单行字段同名（见 formHandler）；deadline 是截止时间，link 到填写页 */
+export function renderFormEmail({ title = '', description = '', deadline = '', link = '' } = {}) {
+  const parts = [];
+  if (deadline) parts.push(`截止时间：${emailTime(deadline)}`);
+  const text = String(description).replace(/\s+/g, ' ').trim();
+  if (text) parts.push(text);
+  return renderBrandEmail({
+    title: '班级助理 · 新表单',
+    intro: `有一份待填表单《${escHtml(title)}》：`,
+    body: parts.map(escHtml).join('<br>'),
+    cta: link ? { url: link, label: '去填写' } : null,
+    warn: '',
+    footer: SUBSCRIPTION_FOOTER
   });
 }
