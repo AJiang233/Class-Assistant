@@ -107,7 +107,9 @@ function openEmailEdit() {
     var codeSection = document.getElementById('emailCodeSection');
     codeSection.hidden = verified;
     if (!verified) document.getElementById('emailCodeInput').value = '';
-    document.getElementById('emailSaveBtn').hidden = verified;
+    // 底部「保存」两种状态下都在，所以这里不再按状态隐藏它：未验证＝验码完成绑定，
+    // 已验证＝保存订阅开关（分发见 saveEmailCard）。已验证时下面没有码可提交，
+    // 它就是这个弹窗里唯一的提交按钮，藏了就只剩「取消」。
     var unbindRow = document.getElementById('emailUnbindRow');
     if (unbindRow) unbindRow.hidden = !verified;
     // 订阅区只对已验证的邮箱开放；打开时拉一次最新订阅（别的端改过也能同步到）
@@ -187,12 +189,12 @@ function subKindBox(kind) {
     return { activities: 'subActivities', notices: 'subNotices', forms: 'subForms' }[kind];
 }
 
-/** 从后端拉最新订阅，回填复选框与「全部订阅」 */
+/** 从后端拉最新订阅，回填开关与「全部订阅」 */
 async function loadEmailSubscriptions() {
-    // 回填完成前禁用「保存订阅」：currentSubs 还是上次的值（首次是初始全关），
+    // 回填完成前禁用弹窗底部「保存」：currentSubs 还是上次的值（首次是初始全关），
     // 这时候点保存会把没回填的状态覆盖到后端。无论成败都要恢复按钮——
-    // 失败时用户按当前勾选保存也是自洽的（复选框显示的就是当前 UI 状态）。
-    var saveBtn = document.getElementById('emailSubSaveBtn');
+    // 失败时用户按当前开关保存也是自洽的（开关显示的就是当前 UI 状态）。
+    var saveBtn = document.getElementById('emailSaveBtn');
     if (saveBtn) saveBtn.disabled = true;
     try {
         var res = await api('/api/auth/email/subscriptions', { method: 'GET' });
@@ -219,7 +221,7 @@ function allSubsOn() {
     return currentSubs.activities && currentSubs.notices && currentSubs.forms;
 }
 
-/** 勾了「全部订阅」：三项同步勾上 / 取消。只改本地状态，点「保存订阅」才写后端 */
+/** 开了「全部订阅」：三项同步打开 / 关闭。只改本地状态，点弹窗底部「保存」才写后端 */
 function applySubAll() {
     currentSubs.activities = subEl('subAll').checked;
     currentSubs.notices = subEl('subAll').checked;
@@ -229,15 +231,27 @@ function applySubAll() {
     subEl('subForms').checked = currentSubs.forms;
 }
 
-/** 勾了某一项分订阅：没全勾时「全部订阅」跟着取消。只改本地状态，点「保存订阅」才写后端 */
+/** 开了某一项分订阅：没全开时「全部订阅」跟着关闭。只改本地状态，点弹窗底部「保存」才写后端 */
 function applySubOne(kind) {
     currentSubs[kind] = subEl(subKindBox(kind)).checked;
     subEl('subAll').checked = allSubsOn();
 }
 
-/** 点「保存订阅」才把勾选结果 POST 给后端；成功后按钮短暂显示「已保存」 */
+/**
+ * 弹窗底部「保存」的分发：未验证＝提交验证码完成绑定，已验证＝保存订阅开关。
+ * 两者共用一个按钮（见 openEmailEdit 里的注释），所以按当前验证状态分流。
+ */
+function saveEmailCard() {
+    if (currentEmailVerified) saveEmailSubscriptions();
+    else verifyEmail();
+}
+
+/**
+ * 已验证态下由底部「保存」调用：把开关结果 POST 给后端；成功后按钮短暂显示「已保存」。
+ * 失败要如实说 —— 底部「保存」现在是弹窗里唯一的提交出口，静默失败就等于「点了没反应」。
+ */
 async function saveEmailSubscriptions() {
-    var btn = document.getElementById('emailSubSaveBtn');
+    var btn = document.getElementById('emailSaveBtn');
     if (!btn || btn.disabled) return;
     btn.disabled = true;
     var t = btn.textContent;
@@ -255,6 +269,7 @@ async function saveEmailSubscriptions() {
         btn.disabled = false;
         btn.textContent = t;
         console.error('保存订阅设置失败:', e);
+        emailError('保存订阅失败，请稍后重试');
     }
 }
 
@@ -1081,13 +1096,12 @@ delegate(document, 'click', '[data-act="save-contact"]', function () { saveConta
 delegate(document, 'click', '[data-act="open-email-edit"]', function () { openEmailEdit(); });
 delegate(document, 'click', '[data-act="close-email-edit"]', function () { closeEmailEdit(); });
 delegate(document, 'click', '[data-act="send-email-code"]', function () { sendEmailCode(); });
-delegate(document, 'click', '[data-act="verify-email"]', function () { verifyEmail(); });
+delegate(document, 'click', '[data-act="save-email"]', function () { saveEmailCard(); });
 delegate(document, 'click', '[data-act="unbind-email"]', function () { unbindEmail(); });
-// 订阅开关：勾「全部订阅」三项同步；勾任一分项时「全部订阅」按是否全勾联动。
-// 勾选只改本地状态（change），「保存订阅」按钮（click）才把结果写后端
+// 订阅开关：开「全部订阅」三项同步；开任一分项时「全部订阅」按是否全开联动。
+// 开关只改本地状态（change），结果由弹窗底部「保存」一并写后端（click → saveEmailCard）
 delegate(document, 'change', '[data-act="toggle-sub-all"]', function () { applySubAll(); });
 delegate(document, 'change', '[data-act="toggle-sub-one"]', function (el) {
     applySubOne(el.getAttribute('data-kind'));
 });
-delegate(document, 'click', '[data-act="save-email-subs"]', function () { saveEmailSubscriptions(); });
 })();

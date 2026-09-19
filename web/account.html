@@ -279,7 +279,7 @@
                         <div class="info-list">
                             <div class="info-row"><span class="k">版本号</span><span class="v" id="aboutVersion">—</span></div>
                             <div class="info-row"><span class="k">检查更新</span><span class="v"><button class="btn btn-outline btn-sm" type="button" id="updateBtn" data-act="check-update">检查更新</button></span></div>
-                            <div class="info-row"><span class="k">项目仓库</span><span class="v"><a href="https://github.com/AJiang233/Class-Assistant" target="_blank" rel="noopener">Class-Assistant</a></span></div>
+                            <div class="info-row"><span class="k">开源仓库</span><span class="v"><a href="https://github.com/AJiang233/Class-Assistant" target="_blank" rel="noopener">Class-Assistant</a></span></div>
                             <div class="info-row"><span class="k">开发者</span><span class="v">阿江_233 · 汐星楠 · TsoiTZF</span></div>
                         </div>
                         <p class="profile-sub profile-sub-tail" id="updateHint"></p>
@@ -301,7 +301,7 @@
                     <div class="form-error" id="contactError"></div>
                     <div class="form-field mb-0">
                         <label class="form-label" for="contactInput">联系方式</label>
-                        <input class="form-input" id="contactInput" type="text" placeholder="如：微信号 / 手机号（选填，留空表示不填）" autocomplete="off">
+                        <input class="form-input" id="contactInput" type="text" placeholder="手机号（选填，留空表示不填）" autocomplete="off">
                     </div>
                 </div>
                 <div class="modal-foot">
@@ -329,7 +329,7 @@
                 <div class="modal-body">
                     <div class="form-error" id="emailError"></div>
                     <div class="form-field">
-                        <label class="form-label" for="emailInput">邮箱</label>
+                        <label class="form-label" for="emailInput">邮箱（填QQ邮箱有头像~）</label>
                         <input class="form-input" id="emailInput" type="email" placeholder="如：zhangsan@qq.com" autocomplete="email">
                     </div>
                     <div id="emailCodeSection">
@@ -381,14 +381,14 @@
                                 </span>
                             </label>
                         </div>
-                        <!-- 勾选只改本地状态，点「保存订阅」才写后端（避免每勾一下都发一次请求） -->
-                        <button type="button" class="btn btn-primary btn-block" id="emailSubSaveBtn" data-act="save-email-subs">保存订阅</button>
-                        <p class="profile-sub profile-sub-tail">勾选后，新的活动 / 通知 / 待填表单会同步发到你的邮箱。</p>
+                        <!-- 订阅开关只改本地状态，点下方「保存」才写后端（避免每拨一下都发一次请求）——
+                             这个保存按钮与邮箱验证是同一个：未验证时＝验码完成绑定，已验证时＝保存订阅 -->
+                        <p class="profile-sub profile-sub-tail">开启后，新的活动 / 通知 / 待填表单会同步发到你的邮箱；改动点下方「保存」生效。</p>
                     </div>
                 </div>
                 <div class="modal-foot">
                     <button type="button" class="btn btn-outline" data-act="close-email-edit">取消</button>
-                    <button type="button" class="btn btn-primary" id="emailSaveBtn" data-act="verify-email">保存</button>
+                    <button type="button" class="btn btn-primary" id="emailSaveBtn" data-act="save-email">保存</button>
                 </div>
             </div>
         </div>

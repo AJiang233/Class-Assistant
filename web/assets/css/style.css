@@ -896,6 +896,10 @@ input[type="checkbox"]:disabled { opacity: 0.5; cursor: not-allowed; }
 .member-sub { font-size: 0.84rem; color: var(--text-tertiary); margin-top: 3px; }
 .member-actions { display: flex; gap: 6px; flex-shrink: 0; }
 .member-actions .btn { padding: 4px 11px; font-size: 0.82rem; min-height: 28px; }
+/* 自定义职位行：名称与编辑 / 删除占第一行，权限说明落到它们下面单独一行
+   （同 .form-admin-row 的排法）。默认职位没有按钮，说明本来就在名字下面，不需要这层 */
+.role-row { flex-wrap: wrap; }
+.role-meta { flex: 1 1 100%; margin-top: 6px; }
 /* 表单管理卡片：标题与按钮占第一行，meta 落到它们下方一行（按钮涨到 4 个后横排会挤） */
 .form-admin-row { flex-wrap: wrap; }
 .form-admin-meta { flex: 1 1 100%; }
@@ -1919,8 +1923,6 @@ body.app-mode { overflow: hidden; }
 .card-divider { margin-top: 24px; padding-top: 22px; border-top: 1px solid var(--separator); }
 
 /* ── 表单 ── */
-/* 一行勾选项：整行可点（原来是标签上的内联 display/margin） */
-.field-check { display: block; margin: 6px 0; }
 /* 按钮行：默认三列（.btn-row），这两个是「两列」与「单行等高」 */
 .btn-row-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .btn-row-inline { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); }
@@ -1990,5 +1992,3 @@ body.app-mode { overflow: hidden; }
 .switch input:checked + .switch-track { background: var(--accent); }
 .switch input:checked + .switch-track::after { transform: translateX(18px); }
 .switch input:focus-visible + .switch-track { outline: 2px solid var(--accent-ring); }
-/* 订阅区的保存按钮：与复选框之间留出间距，避免贴着最后一项 */
-#emailSubSaveBtn { margin-top: 16px; }

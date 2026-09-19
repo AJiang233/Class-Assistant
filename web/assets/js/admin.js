@@ -289,15 +289,17 @@ function renderRoleList() {
                 + '<button type="button" class="btn btn-danger" data-act="del-role" data-id="' + escAttr(r.id) + '">删除</button>'
                 + '</div>'
             : '';
-        return '<div class="info-row member-row">'
+        // 权限说明挂在行下面而不是 .member-main 里：按钮多的行（编辑 / 删除）下，
+        // 说明挤在名字下方会把那一行撑高、与按钮错位，落到按钮下面单独一行读起来更顺
+        return '<div class="info-row member-row role-row">'
             + '<div class="member-main">'
             + '<div class="member-line">'
             + '<span class="member-name">' + esc(r.name) + '</span>'
             + '<span class="member-pos">自定义</span>'
             + '</div>'
-            + '<div class="member-sub">' + esc(rolePermText(r.permissions)) + '</div>'
             + '</div>'
             + actions
+            + '<div class="member-sub role-meta">' + esc(rolePermText(r.permissions)) + '</div>'
             + '</div>';
     }).join('');
     el.innerHTML = '<div class="roles-group-label">默认职位（不可修改 / 删除）</div>'
@@ -595,7 +597,9 @@ function fieldRowHTML() {
         + '<option value="radio">单选</option><option value="checkbox">多选</option>'
         + '<option value="number">数字</option><option value="date">日期</option>'
         + '</select>'
-        + '<label class="fld-required-row"><input type="checkbox" class="fld-required"> 必填</label>'
+        + '<label class="fld-required-row"><span>必填</span><span class="switch">'
+        + '<input type="checkbox" class="fld-required"><span class="switch-track" aria-hidden="true"></span>'
+        + '</span></label>'
         + '</div>'
         + '<div class="mb-8"><input class="form-input fld-label" type="text" placeholder="字段内容，如：姓名" autocomplete="off"></div>'
         + '<div class="fld-options-wrap" hidden><input class="form-input fld-options" type="text" placeholder="选项，用英文逗号分隔，如：午餐,晚餐" autocomplete="off"></div>'
