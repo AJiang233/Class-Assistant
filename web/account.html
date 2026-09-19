@@ -298,6 +298,43 @@
                 </div>
             </div>
         </div>
+
+        <!-- 邮箱弹窗：邮箱的绑定 / 更换 / 解绑全在这里做，资料卡那一行只显示状态与一个「管理」。
+             发码那一刻后端就把邮箱记成「已填未验证」，只有点「保存」（＝验码通过）才置为已验证。 -->
+        <div class="modal-overlay" id="emailModal">
+            <div class="modal">
+                <div class="modal-head">
+                    <span class="modal-title">邮箱管理</span>
+                    <button type="button" class="modal-close" data-act="close-email-edit" aria-label="关闭">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-error" id="emailError"></div>
+                    <div class="form-field">
+                        <label class="form-label" for="emailInput">邮箱</label>
+                        <input class="form-input" id="emailInput" type="email" placeholder="如：zhangsan@qq.com" autocomplete="email">
+                    </div>
+                    <div class="form-field mb-0">
+                        <label class="form-label" for="emailCodeInput">验证码</label>
+                        <div class="fld-row">
+                            <input class="form-input" id="emailCodeInput" type="text" inputmode="numeric" maxlength="6" placeholder="6 位数字" autocomplete="one-time-code">
+                            <button class="btn btn-outline" type="button" id="emailSendCodeBtn" data-act="send-email-code">发送验证码</button>
+                        </div>
+                    </div>
+                    <p class="auth-note">验证码 10 分钟内有效。收不到就看看垃圾邮件；同一个邮箱 1 分钟内只能发一次。</p>
+                    <!-- 解绑只在「已绑且已验证」时出现（JS 控制 hidden）：邮箱是找回密码的凭据，
+                         解绑等于把那条路关掉，所以放在弹窗里并要一次确认，不在资料卡上直接给按钮 -->
+                    <div class="card-divider" id="emailUnbindRow" hidden>
+                        <button type="button" class="btn btn-outline btn-block" data-act="unbind-email">解绑邮箱</button>
+                    </div>
+                </div>
+                <div class="modal-foot">
+                    <button type="button" class="btn btn-outline" data-act="close-email-edit">取消</button>
+                    <button type="button" class="btn btn-primary" id="emailSaveBtn" data-act="verify-email">保存</button>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script src="assets/js/app.js"></script>

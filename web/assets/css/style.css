@@ -508,6 +508,10 @@ a.list-row { color: inherit; text-decoration: none; }
 /* 编辑策略（随时可修改 / 截止前可修改 / 提交后不可修改）：只是附加说明，
    不上语义色，免得跟左边「待填写 / 已提交」的状态徽章抢眼 */
 .badge-policy { background: var(--bg-sunken); color: var(--text-tertiary); border-color: var(--border); }
+/* 邮箱验证状态：已验证用成功色；未验证/未绑定用中性色 ——
+   邮箱没验证不算出错（别用 danger 红），但它也确实还救不回密码，所以不能和已验证同色 */
+.badge-ok { background: var(--success-soft); color: var(--success); border-color: color-mix(in srgb, var(--success) 30%, transparent); }
+.badge-muted { background: var(--bg-sunken); color: var(--text-tertiary); border-color: var(--border); }
 
 /* ═══════════════════════════════════════════════════════════════════
    10 · 详情内容
@@ -1946,3 +1950,9 @@ body.app-mode { overflow: hidden; }
 /* ── 表单字段编辑器（管理员面板动态生成的每一行） ── */
 .fld-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 8px 0; }
 .fld-required-row { display: flex; align-items: center; gap: 6px; white-space: nowrap; font-size: 0.9rem; color: var(--text-secondary); cursor: pointer; }
+
+/* ── 邮箱验证 ── */
+/* 登录页「忘记密码」提示：比正文小一档、居中、弱化，别抢登录按钮的注意力 */
+.auth-note { margin: 14px 0 0; font-size: 0.85rem; line-height: 1.6; color: var(--text-secondary); text-align: center; }
+/* 邮箱弹窗里「验证码 + 发送验证码」一行：输入框吃掉剩余宽度，按钮不被挤扁 */
+#emailModal .fld-row .form-input { flex: 1; min-width: 0; }

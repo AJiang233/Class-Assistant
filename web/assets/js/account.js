@@ -64,6 +64,118 @@ async function saveContact() {
     });
 })();
 
+// ===== 邮箱（绑定 / 验证 / 解绑）=====
+// 两步：填邮箱 → 发验证码 → 填码。点「发送验证码」这一刻后端就把邮箱记成「已填未验证」，
+// 只有验码通过才置为已验证 —— 所以资料卡要如实把这三种状态分开显示，别混成「已绑定」。
+// 忘记密码的重置接口（/api/auth/forgot/*）本期只有后端，页面没做流程（见 index.html 登录页的提示）。
+var currentEmail = '';
+var currentEmailVerified = false;
+
+/**
+ * 邮箱那一格的内容：地址 + 验证状态徽章。
+ * 未绑定时不给徽章 —— 那时没有状态可言，写「未绑定」两个字就够了。
+ */
+function emailCellHTML(u) {
+    if (!u.email) return '<span>未绑定</span>';
+    return '<span>' + esc(u.email) + '</span>'
+        + '<span class="badge ' + (u.email_verified ? 'badge-ok' : 'badge-muted') + '">'
+        + (u.email_verified ? '已验证' : '未验证') + '</span>';
+}
+
+function openEmailEdit() {
+    var err = document.getElementById('emailError');
+    err.classList.remove('show');
+    err.textContent = '';
+    // 带上当前邮箱：已绑定的要看得见自己绑的是哪个，未验证的直接接着验（预填省一次输入）
+    document.getElementById('emailInput').value = currentEmail || '';
+    document.getElementById('emailCodeInput').value = '';
+    // 只有「已绑且已验证」才给解绑；其余状态整块不出现，不给点不出结果的按钮
+    var unbindRow = document.getElementById('emailUnbindRow');
+    if (unbindRow) unbindRow.hidden = !(currentEmail && currentEmailVerified);
+    document.getElementById('emailModal').classList.add('show');
+}
+
+function closeEmailEdit() {
+    document.getElementById('emailModal').classList.remove('show');
+}
+
+function emailError(msg) {
+    var err = document.getElementById('emailError');
+    err.textContent = msg;
+    err.classList.add('show');
+}
+
+async function sendEmailCode() {
+    var email = document.getElementById('emailInput').value.trim();
+    if (!email) { emailError('请先填写邮箱地址'); return; }
+    var btn = document.getElementById('emailSendCodeBtn');
+    btn.disabled = true; var t = btn.textContent; btn.textContent = '发送中…';
+    try {
+        await api('/api/auth/email/send-code', { method: 'POST', body: JSON.stringify({ email: email }) });
+        emailError('验证码已发送，请查收邮件（10 分钟内有效）');
+    } catch (e) {
+        // 服务端的 429（1 分钟内发过）/ 409（邮箱被占）/ 503（未配邮件服务）都在这儿如实显示
+        emailError(e.message);
+    } finally {
+        btn.disabled = false; btn.textContent = t;
+    }
+}
+
+async function verifyEmail() {
+    var email = document.getElementById('emailInput').value.trim();
+    var code = document.getElementById('emailCodeInput').value.trim();
+    if (!email) { emailError('请先填写邮箱地址'); return; }
+    if (!/^\d{6}$/.test(code)) { emailError('请输入 6 位数字验证码'); return; }
+    var btn = document.getElementById('emailSaveBtn');
+    btn.disabled = true; var t = btn.textContent; btn.textContent = '保存中…';
+    try {
+        var res = await api('/api/auth/email/verify', { method: 'POST', body: JSON.stringify({ email: email, code: code }) });
+        applyEmailUser(res);
+        closeEmailEdit();
+    } catch (e) {
+        emailError(e.message);
+    } finally {
+        btn.disabled = false; btn.textContent = t;
+    }
+}
+
+async function unbindEmail() {
+    if (!window.confirm('解绑后将无法用邮箱找回密码，确定解绑？')) return;
+    try {
+        var res = await api('/api/auth/email/unbind', { method: 'POST' });
+        applyEmailUser(res);
+    } catch (e) {
+        alert(e.message);
+    }
+}
+
+/** 接口回的 user 同时刷两处：资料卡，以及本地会话（别的页面读的是后者） */
+function applyEmailUser(res) {
+    var u = res && res.data && res.data.user;
+    if (!u) return;
+    renderProfile(u);
+    var s = getSession() || {};
+    s.email = u.email;
+    s.email_verified = u.email_verified;
+    localStorage.setItem(LS_USER, JSON.stringify(s));
+}
+
+// 点遮罩 / 按 ESC 关闭；邮箱框回车＝发码，验证码框回车＝验证
+(function bindEmailModal() {
+    var overlay = document.getElementById('emailModal');
+    if (!overlay) return;
+    overlay.addEventListener('click', function (e) { if (e.target === overlay) closeEmailEdit(); });
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && overlay.classList.contains('show')) closeEmailEdit();
+    });
+    document.getElementById('emailInput').addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { e.preventDefault(); sendEmailCode(); }
+    });
+    document.getElementById('emailCodeInput').addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { e.preventDefault(); verifyEmail(); }
+    });
+})();
+
 // ===== 通知（Web Push）=====
 // 先做能力判定，再决定给不给按钮。iOS 只有「16.4+ 且已添加到主屏幕」的 PWA 才有推送：
 //  - 系统版本过低 → 放弃推送这一项，如实说明（其余功能不受影响），不给死按钮
@@ -632,6 +744,8 @@ async function loadProfile() {
 function renderProfile(u) {
     var card = document.getElementById('profileCard');
     currentContact = u.contact || '';
+    currentEmail = u.email || '';
+    currentEmailVerified = !!u.email_verified;
     card.innerHTML =
         '<div class="profile-head">'
         + '<div class="profile-avatar">' + esc((u.name || '?').charAt(0)) + '</div>'
@@ -646,6 +760,14 @@ function renderProfile(u) {
         + '<span class="v v-actions">'
         + '<span id="contactValue">' + esc(u.contact || '未填写') + '</span>'
         + '<button type="button" class="btn btn-outline btn-sm" data-act="open-contact-edit">编辑</button>'
+        + '</span></div>'
+        // 邮箱：与联系方式同一行的形状（标签 + 值 + 右侧动作），值后面跟一个状态徽章。
+        // 绑定 / 更换 / 解绑都收进弹窗，行上只留一个「管理」—— 全摊在行上会随状态变出三四种按钮，
+        // 既不整齐，也让「要改邮箱去哪」这件事没有唯一入口。
+        + '<div class="info-row"><span class="k">邮箱</span>'
+        + '<span class="v v-actions">'
+        + emailCellHTML(u)
+        + '<button type="button" class="btn btn-outline btn-sm" data-act="open-email-edit">管理</button>'
         + '</span></div>'
         // 「上次同步时间」= App 上次成功拉完数据的时刻（安卓 WorkManager / 鸿蒙 workScheduler，
         // 由桥 CAHost.appStatus() 读回），只在 App 里有意义：网页版没有这个桥，整行 hidden
@@ -847,4 +969,9 @@ delegate(document, 'click', '[data-act="check-update"]', function () { checkUpda
 delegate(document, 'click', '[data-act="open-contact-edit"]', function () { openContactEdit(); });
 delegate(document, 'click', '[data-act="close-contact-edit"]', function () { closeContactEdit(); });
 delegate(document, 'click', '[data-act="save-contact"]', function () { saveContact(); });
+delegate(document, 'click', '[data-act="open-email-edit"]', function () { openEmailEdit(); });
+delegate(document, 'click', '[data-act="close-email-edit"]', function () { closeEmailEdit(); });
+delegate(document, 'click', '[data-act="send-email-code"]', function () { sendEmailCode(); });
+delegate(document, 'click', '[data-act="verify-email"]', function () { verifyEmail(); });
+delegate(document, 'click', '[data-act="unbind-email"]', function () { unbindEmail(); });
 })();

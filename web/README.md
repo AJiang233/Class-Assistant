@@ -13,7 +13,7 @@
 
 已上线 `class.qxwkstudio.top`。
 
-- **账号与权限**：学号 + 密码登录（PBKDF2 加盐哈希）、JWT 鉴权；班长/团支书/学习委员等预设职位 + 自定义职位权限，支持一人多职位（权限取并集）；成员管理、修改密码、个人资料（联系方式）自助修改
+- **账号与权限**：学号 + 密码登录（PBKDF2 加盐哈希）、JWT 鉴权；班长/团支书/学习委员等预设职位 + 自定义职位权限，支持一人多职位（权限取并集）；成员管理、修改密码、个人资料（联系方式）自助修改、邮箱绑定与验证（邮箱验证码；**找回密码的后端接口已就绪**，页面流程本期未做）。改动 / 重置密码会把此前签发的令牌全部作废（见下面「安全说明」的会话失效一条）
 - **内容管理**：通知与活动的发布 / 编辑 / 删除（统一弹窗表单）、通知过期自动隐藏与归档查看、提醒对象选择（支持按职位一键全选，如「通知所有团员」）
 - **界面体验**：液态玻璃设计（浅色 / 深色双主题）、响应式布局（小屏隐藏侧栏、改为底部导航，并针对手机做字号密度适配）、班级主页（日历 + 当日通知/活动 + 详情弹窗）、折叠式管理员面板（左栏发布内容 / 右栏管理成员）、个人中心（资料 / 偏好设置 / 日历订阅 / 安装到桌面 / 修改密码 / 退出登录）与「关于软件」卡片（版本号 / 检查更新 / 项目仓库 / 开发者）
 - **日历订阅**：一键生成 `.ics` 订阅链接，可自定义「提前提醒时间 / 包含过去与未来的范围 / 是否包含班级通知」，并支持重置密钥。订阅源与网页列表**同一套可见性判定**：key 只证明「你是谁」，不代表能看到全班内容，所以活动和通知都按 `remind_people` 逐条过滤（key 无效返回 403，不是 404 —— 那是鉴权失败，不是路由不存在）
@@ -49,9 +49,9 @@ web/                            # Cloudflare Pages 项目根目录（直接部�
 │       ├── index.js            # fetch 入口（CORS 预检 + 路由分发 + 404）
 │       ├── routes/             # 路由分发：auth / notices / activities / forms / calendar / academic（只做转发）
 │       ├── handlers/           # 业务逻辑：认证 / 通知 / 活动 / 表单 / 日历订阅
-│       ├── models/             # D1 数据访问（users / notices / activities / roles / forms）
-│       ├── middleware/         # CORS / JWT 认证 / 权限 / 日志
-│       └── utils/              # 统一响应 / PBKDF2 / JWT / 权限映射 / 提醒对象可见性 / 时间处理 / iCalendar 生成
+│       ├── models/             # D1 数据访问（users / notices / activities / roles / forms / push 订阅 / 邮箱验证码）
+│       ├── middleware/         # CORS / JWT 认证（含改密后的令牌失效） / 权限 / 日志
+│       └── utils/              # 统一响应 / PBKDF2 / JWT / 权限映射 / 提醒对象可见性 / 时间处理 / iCalendar 生成 / 邮件发送
 ├── migrations/                 # 增量迁移（已有库按需执行；新库直接跑 schema.sql）
 ├── schema.sql                  # D1 表结构
 ├── wrangler.toml               # 本地开发绑定（DB + ACADEMIC_API，生产绑定在 Pages 面板配置）
@@ -115,6 +115,11 @@ web/                            # Cloudflare Pages 项目根目录（直接部�
 | GET | `/api/auth/roles` | 登录 | 自定义职位列表（含 id/name/permissions）+ `presets`（系统预置职位的权限表，供「管理职位」卡片展示默认职位权限 —— 前端不再手抄一份后端 `ROLE_PERMISSIONS`，issue #84） |
 | POST | `/api/auth/roles` | `user:manage` | 新增/更新自定义职位（同名则覆盖权限） |
 | DELETE | `/api/auth/roles/:id` | `user:manage` | 删除自定义职位 |
+| POST | `/api/auth/email/send-code` | 登录 | 发绑定邮箱的验证码（body `{email}`）。同时把邮箱记成「已填未验证」；1 分钟内重复发返回 429；邮箱被他人占用返回 409；未配邮件服务返回 503 |
+| POST | `/api/auth/email/verify` | 登录 | 验码并置为已验证（body `{email, code}`）。失败文案不区分「码不对」与「码过期」（防试探）；错满 5 次返回 429 需重新获取 |
+| POST | `/api/auth/email/unbind` | 登录 | 解绑邮箱（清空并作废未用的验证码）。不需要验证码：解绑要求已登录 |
+| POST | `/api/auth/forgot/send` | 公开 | 发找回密码的重置码（body `{email}`）。**只对已绑定且已验证的邮箱真发信**，其余情况回同一句成功文案（防账号枚举） |
+| POST | `/api/auth/forgot/reset` | 公开 | 验码重置并直接登录（body `{email, code, new_password}`），返回新 `token` + `user`；失败一律回「验证码错误或已过期」 |
 
 ```jsonc
 // 注册 POST /api/auth/register（body，需 user:manage）
@@ -330,8 +335,14 @@ CREATE TABLE users (
   auth_key       TEXT,                      -- 预留（Agent/Webhook 认证）
   positions      TEXT DEFAULT '学生',        -- 职位：单个字符串或 JSON 数组字符串；没有职务一律存 '学生'（唯一写法）
   contact        TEXT,
+  email          TEXT,                       -- 邮箱；未绑定为 NULL（不要写空串，见下面的唯一索引）
+  email_verified INTEGER DEFAULT 0,          -- 0 已填未验证 / 1 已验证；邮箱真的变了就重置为 0
+  password_changed_at INTEGER,               -- 改密时刻（Unix 秒）；NULL = 从未改过。用于让旧 JWT 立即失效
   update_time    DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+-- 一个邮箱只能归一个账号；COLLATE NOCASE 与「写入侧统一转小写」互为双保险
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email COLLATE NOCASE) WHERE email IS NOT NULL;
 
 CREATE TABLE notices (
   id             INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -394,11 +405,38 @@ CREATE TABLE form_submissions (             -- 表单提交：每人每表一条
 );
 
 CREATE INDEX IF NOT EXISTS idx_form_submissions_form ON form_submissions(form_id);
+
+-- 邮箱验证码：绑定验证与找回密码共用一张表，靠 purpose 区分。
+-- 时间刻意走 UTC（CURRENT_TIMESTAMP / datetime('now')），与上面那些表的本地时间字符串不同 ——
+-- 有效期与重发间隔全在 SQL 里算，不经后端时区转换
+CREATE TABLE email_codes (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id    INTEGER NOT NULL,
+  email      TEXT NOT NULL,
+  code       TEXT NOT NULL,                -- 6 位数字
+  purpose    TEXT NOT NULL,                -- 'verify' 绑定验证 | 'reset' 找回密码
+  attempts   INTEGER DEFAULT 0,            -- 试错计数，满 5 次作废（原子占坑）
+  expires_at TEXT NOT NULL,
+  used_at    TEXT,                         -- NULL = 未使用（用后即焚）
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 邮件订阅开关（功能以后再接，先落列）。只覆盖班务推送；
+-- 验证码 / 找回密码这类事务邮件不读它 —— 开关全关也得收得到
+CREATE TABLE email_subscriptions (
+  user_id         INTEGER PRIMARY KEY,
+  sub_activities  INTEGER DEFAULT 0,       -- 活动订阅
+  sub_notices     INTEGER DEFAULT 0,       -- 通知订阅
+  sub_forms       INTEGER DEFAULT 0,       -- 表单订阅
+  updated_at      TEXT DEFAULT CURRENT_TIMESTAMP
+);
 ```
 
 > 新库直接用 `schema.sql` 建表；已有库执行 `migrations/2026-09-17-student-role.sql`（把「没有职务」归一到存 `'学生'`、并清掉误写入的预置职位）、
 > `migrations/2026-09-12-forms.sql`（表单 `forms` / `form_submissions` 两张表 + 通知 `link` 列），
 > 以及历史迁移：`ALTER TABLE notices ADD COLUMN expire_time DATETIME;`、创建 `roles` 表。
+> 邮箱那一条是 `migrations/2026-09-19-email.sql`（`users` 三列 + `email_codes` / `email_subscriptions` 两张表，
+> `npm run db:migrate:email`）—— 其中的 `ALTER` 是一次性的，新库直接跑 `schema.sql` 即可，不必再执行它。
 >
 > 教务那几张表（`academic_bindings` / `academic_timetable` / `academic_credits` / `academic_grades` /
 > `academic_mfa_sessions`）已归私有 Worker 的库 `class-assistant-private-api`，建表语句见该仓库的 `schema.sql`。
@@ -422,7 +460,7 @@ CREATE INDEX IF NOT EXISTS idx_form_submissions_form ON form_submissions(form_id
 - **表单**：`forms.html` 是填写页（从首页「我的表单」或通知里的「去填写」进入，不在导航里）；首页「我的表单」栏同时列待填与已提交，显示与否只看策略与截止时间——「随时可修改」不删除就不消失，其余两种到截止时间前不消失；发布端在「添加表单」中编排字段（每行左选类型、右勾必填，选择类字段用英文逗号分隔选项，字段带前端序号）、按 `edit_policy` 控制提交后能否改、可匿名、可同时下发通知；「管理表单」每行可「停止收集 / 恢复收集」（停止需二次确认，只改 `status` 不删数据，停止后同学那边不再列出也不能提交）、「修改时间」（截止时间 + 允许修改）、看「结果」（提交进度 + 未交名单，明细按需加载）、「删除」（二次确认，连带提交）；列表**列出全部表单**（好让班委看清班里发过哪些），但管不了的那几行不给这四个按钮——后端要求创建者本人或持 `user:manage` 的班委，前端按每行的 `can_manage` 隐藏
 - **发布/编辑弹窗**：统一弹窗形式；可选「提醒对象」（成员以标签多选，上方可按职位快捷选择，并支持搜索过滤）、通知可设「截止时间」（到期自动隐藏）。**提醒对象名单加载失败时不当作「没有成员」**：编辑与发布（通知 / 活动 / 表单）都会被拦截并提示，避免把定向内容静默发成全班可见（issue #78）；名单恢复后重开弹窗自动重取
 - **列表与详情**：列表行「标题 + 徽章」、元信息带图标（发布人 / 时间 / 地点），点击条目标题弹出详情弹窗
-- **个人中心**：资料（联系方式可自助修改；「上次同步时间」按北京时间显示，且仅 App 壳内有、网页版整行不出现）、个性化 / 偏好设置（主题外观 跟随系统 / 浅色 / 深色 三选一，同卡片内下方为通知：网页推送仅网页端，iOS 需 16.4 且已加到主屏，其余情况如实说明原因，App 壳内不显示；再下方「App 端通知」块放活动/通知推送测试与一行本机状态：通知开关，数据来自 `CAHost.appStatus()`，网页版没有这个桥就整块隐藏；通知被系统关掉时推送测试会直接说明原因而不是假装成功）、日历订阅（默认折叠；可自定义提醒提前量/时间范围/是否含通知，并可重置密钥）、安装到桌面（仅 iOS 与 PC 显示，安卓 / 鸿蒙已有原生 App 不引导）、修改密码、关于软件（版本号 + 检查更新 + 项目仓库 + 协作方；版本号取自原生桥，检查更新先问原生桥 `CAHost.platform()` 自己是什么端、再读站点根目录 `version.json` 里对应那一段）、退出登录（红色警示卡）
+- **个人中心**：资料（联系方式可自助修改；邮箱那行是「地址 + 状态徽章（已验证 / 未验证 / 未绑定）」右侧跟一个「管理」—— 绑定 / 更换 / 解绑全在弹窗里做，行上不给三个状态各摊一个按钮，弹窗内才有「解绑」（仅已绑且已验证时）；「上次同步时间」按北京时间显示，且仅 App 壳内有、网页版整行不出现）、个性化 / 偏好设置（主题外观 跟随系统 / 浅色 / 深色 三选一，同卡片内下方为通知：网页推送仅网页端，iOS 需 16.4 且已加到主屏，其余情况如实说明原因，App 壳内不显示；再下方「App 端通知」块放活动/通知推送测试与一行本机状态：通知开关，数据来自 `CAHost.appStatus()`，网页版没有这个桥就整块隐藏；通知被系统关掉时推送测试会直接说明原因而不是假装成功）、日历订阅（默认折叠；可自定义提醒提前量/时间范围/是否含通知，并可重置密钥）、安装到桌面（仅 iOS 与 PC 显示，安卓 / 鸿蒙已有原生 App 不引导）、修改密码、关于软件（版本号 + 检查更新 + 项目仓库 + 协作方；版本号取自原生桥，检查更新先问原生桥 `CAHost.platform()` 自己是什么端、再读站点根目录 `version.json` 里对应那一段）、退出登录（红色警示卡）
   - **课程提醒**（偏好设置卡片里的 `#courseCard`，紧接「App 端通知」）：整块默认 `hidden`，只有检测到 `CAHost.courseReminderSettings` 才显示 —— 上课提醒要到点弹出，靠的是原生 `AlarmManager` 排期，网页版没有这个能力，给个点了没反应的开关不如不给。设置存在原生侧，网页只读写；桥返回 `{"lead":15,"atStart":true,"courseCount":23}`，其中 `courseCount` 是为了区分「今天没课」与「本机根本没有课表数据」——用户把开关打开却什么都没发生，得能看出是哪一种。改完即存（无保存按钮），原生侧立刻重排闹钟
 - **学业**：`academic.html` —— 页内分「课表 / 学业达成 / 成绩」三个子标签（两端统一；切到「学业达成」时收起只对课表生效的学年学期筛选，成绩页仍然用它选学期）；「课表」页为按节次网格渲染的课表（当前周高亮、非本周淡出，窄屏横向滚动）+ 未安排课程（接在课表下方，无数据时整块隐藏）；「学业达成」页为学分看板（要求/已获/在修/还需 + 逐课程体系明细）；「成绩」页按学期分组列出课程成绩，顶部只放平均分与平均绩点（口径见上面教务一节，缓考 / 等级制成绩 / 教务标了「不参与统计」的课都不计入），每条可展开看课程号、学分、成绩性质与成绩标识，默认档是「全部学期」；未绑定时提供三条绑定路径（App 一键 / 学号密码代登录 / 手动粘贴 Cookie 并附分步指引）；账号开了多因子认证时，学号密码代登录会自动进入第二步（下发验证码 → 回填 → 完成绑定，带 60 秒重发倒计时）
 - **API 封装**：`assets/js/app.js` 提供 `api(path, options)`，自动附带 `Bearer` token、401 自动回登录页；`options.raw` 可让调用方直接拿到 `Response`（导出 CSV 这类二进制用，同样走 401 清会话）
@@ -444,7 +482,8 @@ CREATE INDEX IF NOT EXISTS idx_form_submissions_form ON form_submissions(form_id
 1. **创建 Pages 项目**：构建根目录设为 `web/`（或本地 `npm run deploy`）
 2. **绑定资源（Settings → Functions）**：
    - **D1 database bindings**：变量名 `DB` → 选择 `class-assistant` 数据库
-   - **Environment variables（Secrets）**：`JWT_SECRET`、`COOKIE_SECRET`（各自 `openssl rand -hex 32`，不要写进仓库）
+   - **Environment variables（Secrets）**：`JWT_SECRET`（`openssl rand -hex 32`，不要写进仓库）、`EMAIL_API_KEY`（Resend 的发信密钥，邮箱验证与找回密码要用；不配则相关接口统一回 503，其余功能照常）。发件域名需先在 Resend 后台完成 SPF/DKIM 验证，发件人可另配 `EMAIL_FROM` 覆盖（默认 `班级助理 <no-reply@class.qxwkstudio.top>`）
+     （`COOKIE_SECRET` 不在 Pages 侧：教务会话的封存密钥只归私有 Worker `class-assistant-private-api` 用）
 3. **一键建表**：新库 `npm run db:remote`；已有库可执行 `npm run db:migrate`（清掉误写入的预置职位名），再按需补其它历史迁移（表单 / 推送 / 内容归属各有一条 `db:migrate:*` 脚本）
 4. **自定义域名**：Pages → Custom domains → 添加域名，在域名商把 CNAME 指向 `<项目名>.pages.dev`
 5. **部署**：`cd web; npm install; npm run deploy`（`wrangler pages deploy .`），或关联 git 仓库 push 自动构建
@@ -472,6 +511,9 @@ CREATE INDEX IF NOT EXISTS idx_form_submissions_form ON form_submissions(form_id
 - 系统预置职位（学生/班长/团支书/学习委员）不允许写入 `roles` 表覆盖全班权限；
   写入口（`assertCustomRoleName` / `handleCreateRole`）会拒绝，读表时 `buildRoleMap` 也忽略预置名
   —— 就算库里残留一行同名的（如早期建的「学生」），它也不会叠加到全班同名职位上
+- **邮箱验证码**：6 位数字由 `crypto.getRandomValues` 生成（不用 `Math.random` —— 它可预测，验证码被猜到等于账号被接管）；**一码制**（发新码先删该用户同用途旧码）；**60 秒限发**；**试错上限 5 次**且用原子占坑实现（`UPDATE ... WHERE attempts < 5`，命中行数就是名额），并发下也绕不过去；验过即焚（`used_at`），并发重放只成功一次；错满作废、需重新获取。换邮箱后发给旧邮箱的码立刻失效（按 `email` 比对）
+- **找回密码只认「已绑定且已验证」的邮箱**，且未注册 / 未验证一律回同一句成功文案、也不发信 —— 防的是拿这个接口枚举「谁注册过」。**残余面**：同一邮箱连发两次时，真实存在的账号会撞 429 而未注册的不会，试探者据此仍能区分；要堵住得给不存在的邮箱也记限发记录，代价与收益不成比例，已在代码注释里记明、本期不处理
+- **会话失效（改密后旧令牌立即作废）**：改密、忘记密码重置、管理员重置成员密码三处都写 `users.password_changed_at`（Unix 秒），鉴权时拿令牌的 `iat` 与它比。JWT 是无状态的、没有会话表可撤销，这一比就是「轮换会话」的等价物 —— 漏掉任何一条写入，那位用户手上的旧令牌在接下来 7 天里还能继续用。比较用 `<` 不用 `<=`：改密当刻重新签发的令牌与它同秒，必须继续有效
 - 内容写操作（发布/编辑/删除）与成员管理均按职位鉴权
 - **对外请求都带目标约束**（issue #21），三处出口各自钉住，改动时别拆：
   - **推送端点白名单**：`endpoint` 完全由客户端提供，只校验 `https:` 是不够的 —— 一个指向私网 / 环回 / 云元数据地址的端点存进来后，服务端会带着 VAPID 头去 POST 它（盲 SSRF），而「测试推送」还会把状态码回读给用户（等于端口探测器）。现在订阅时（`pushHandler.validSubscription`）与投递时（`sendWebPush`，两个调用方都走它）都只认 `utils/webpush.js` 的 `PUSH_HOST_SUFFIXES`（fcm.googleapis.com / push.services.mozilla.com / push.apple.com / notify.windows.com）。**每条只写厂商专属的推送区，或实测确认过的那一个主机，别放行混着别的服务的宽域**（比如 `googleapis.com`）；Apple 那条刻意留了整段 `push.apple.com`（Safari 实测端点是 `web.push.apple.com`）—— 清单写窄了的代价是那台设备从此静默收不到通知，而 iOS 最依赖 Web Push；日志里只记主机名，端点路径里的发送凭据不进日志。

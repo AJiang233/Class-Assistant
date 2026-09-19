@@ -1,8 +1,10 @@
 import { UserModel } from '../models/userModel.js';
 import { RoleModel } from '../models/roleModel.js';
+import { EmailCodeModel } from '../models/emailCodeModel.js';
 import { hashPassword, verifyPassword } from '../utils/crypto.js';
 import { sign } from '../utils/jwt.js';
 import { success, error, jsonResponse } from '../utils/response.js';
+import { sendEmail, EmailError, renderVerifyEmail, renderResetEmail } from '../utils/email.js';
 import {
   parsePositions,
   getPermissions,
@@ -19,6 +21,9 @@ const PASSWORD_MIN = 6;
 const PASSWORD_MAX = 72;
 const NAME_MAX = 40;
 const CONTACT_MAX = 60;
+const EMAIL_MAX = 120;
+/** 邮箱格式故意宽松：只挡明显不是邮箱的输入，真正的「这个邮箱是不是你的」靠验证码 */
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /**
  * 对外暴露的用户信息（登录响应、/api/auth/me、成员列表共用）
@@ -33,8 +38,66 @@ function publicUser(user, permissions) {
     name: user.name,
     positions: user.positions,
     contact: user.contact,
+    // 未绑定给空串而不是 null：前端判断「填没填」只用真值判断，少一层 null 分支
+    email: user.email || '',
+    email_verified: Number(user.email_verified) === 1,
     permissions
   };
+}
+
+/**
+ * 邮箱归一化：去空白 + 转小写。
+ *
+ * 必须统一，否则 `A@qq.com` 与 `a@qq.com` 会被当成两个账号 ——
+ * 一份邮箱两个账号的后果是找回密码时分不清该重置谁。
+ * 唯一索引上另有 COLLATE NOCASE 兜底（migrations/2026-09-19-email.sql），那道是防绕过的，
+ * 不是这里的替代品。
+ */
+function normalizeEmail(v) {
+  return String(v == null ? '' : v).trim().toLowerCase();
+}
+
+/** 邮箱格式校验：返回错误文案，通过返回 null */
+function validateEmail(email) {
+  if (!email) return '请填写邮箱地址';
+  if (email.length > EMAIL_MAX) return `邮箱最多 ${EMAIL_MAX} 个字符`;
+  if (!EMAIL_RE.test(email)) return '请输入正确的邮箱地址';
+  return null;
+}
+
+/**
+ * 把「通不过的验证码」翻译成响应。
+ * 文案刻意不区分「没有这个码」与「码填错了」：能区分就等于告诉试探者「这个邮箱确实在等他验证」。
+ */
+function codeRejected(reason) {
+  if (reason === 'TOO_MANY') {
+    return jsonResponse(error('验证码错误次数过多，请重新获取', 'EMAIL_CODE_TOO_MANY'), 429);
+  }
+  if (reason === 'MISMATCH') {
+    return jsonResponse(error('验证码不正确', 'EMAIL_CODE_INVALID'), 400);
+  }
+  return jsonResponse(error('验证码已失效，请重新获取', 'EMAIL_CODE_EXPIRED'), 400);
+}
+
+/**
+ * 发信失败：未配置与发送失败要分成两档 —— 前者找管理员，后者过会儿再试。
+ */
+function emailFailure(e) {
+  const code = e instanceof EmailError ? e.code : 'EMAIL_SEND_FAILED';
+  if (code === 'EMAIL_NOT_CONFIGURED') {
+    console.error('未配置 EMAIL_API_KEY，邮箱相关功能不可用');
+    return jsonResponse(error('邮件服务未配置，请联系管理员', 'EMAIL_NOT_CONFIGURED'), 503);
+  }
+  return jsonResponse(error('邮件发送失败，请稍后重试', 'EMAIL_SEND_FAILED'), 502);
+}
+
+/**
+ * 记下改密时刻（Unix 秒），让此前签发的令牌全部作废 —— 比对逻辑在 middleware/auth.js。
+ * 三条改密路径都必须过它：用户自助改密、忘记密码重置、管理员重置成员密码。
+ * 漏掉任何一条，那位用户手上的旧令牌就能继续用满 7 天。
+ */
+function passwordChangedAtNow() {
+  return Math.floor(Date.now() / 1000);
 }
 
 function jwtExpiresIn(env) {
@@ -271,7 +334,13 @@ export async function handleChangePassword(request, env, user) {
     }
 
     const { hash: newHash, salt: newSalt } = await hashPassword(newPassword);
-    await userModel.update(existing.id, { password_hash: `${newSalt}:${newHash}` });
+    await userModel.update(existing.id, {
+      password_hash: `${newSalt}:${newHash}`,
+      // 改密即作废此前签发的所有令牌，含当前这台设备上的那一枚 ——
+      // 前端本来就要求「改密后重新登录」（account.js 的改密表单），所以这里不回带新令牌，
+      // 与既有行为一致。哪天改成「改完直接留在登录态」，再把这枚新令牌返回给前端存下即可。
+      password_changed_at: passwordChangedAtNow()
+    });
 
     return jsonResponse(success({ message: '密码修改成功' }));
   } catch (e) {
@@ -287,7 +356,13 @@ export async function handleListUsers(request, env, user) {
   try {
     const userModel = new UserModel(env.DB);
     const list = await userModel.list();
-    const members = list.map(u => ({ ...u, positions: parsePositions(u.positions) }));
+    // 邮箱形状与 publicUser 对齐（空串 + 布尔），免得前端在成员列表与个人中心之间写两套判断
+    const members = list.map(u => ({
+      ...u,
+      positions: parsePositions(u.positions),
+      email: u.email || '',
+      email_verified: Number(u.email_verified) === 1
+    }));
     return jsonResponse(success({ list: members, total: members.length }));
   } catch (e) {
     console.error('获取成员列表失败:', e);
@@ -385,6 +460,8 @@ export async function handleUpdateUser(request, env, user, params) {
       }
       const { hash, salt } = await hashPassword(pwd);
       data.password_hash = `${salt}:${hash}`;
+      // 重置密码同样要作废那位同学手上的旧令牌，否则他在接下来 7 天里还能继续用
+      data.password_changed_at = passwordChangedAtNow();
     }
 
     await userModel.update(id, data);
@@ -473,5 +550,253 @@ export async function handleDeleteRole(request, env, user, params) {
   } catch (e) {
     console.error('删除自定义职位失败:', e);
     return jsonResponse(error('删除自定义职位失败，请稍后重试', 'DELETE_ROLE_FAILED'), 500);
+  }
+}
+
+/* ===== 邮箱验证与忘记密码 =====
+ *
+ * 两条流程共用 utils/email.js（发信）与 models/emailCodeModel.js（码的生命周期）：
+ *   绑定验证：send-code（登录）→ verify（登录）
+ *   忘记密码：forgot/send（公开）→ forgot/reset（公开）
+ *
+ * 落库时机刻意定在「信确实发出去了之后」：先落库再发信的话，一旦发信失败或被 60 秒限发拦住，
+ * 用户的邮箱就已经被改成新的、验证状态也被打回了，而他手上什么都没收到。
+ */
+
+/**
+ * 发送绑定邮箱的验证码（需登录）
+ * body: { email }
+ *
+ * 绑邮箱是两步（填 → 验码），中间态就是「已填未验证」，也就是 users.email_verified=0 ——
+ * 这一列正是为它存在的。同一个已验证邮箱重复点「发送」不会把状态打回未验证，
+ * 只有邮箱真的变了才重置（否则用户点一下就"掉验证"了）。
+ */
+export async function handleSendEmailCode(request, env, user) {
+  try {
+    const body = await request.json().catch(() => ({}));
+    const email = normalizeEmail(body.email);
+    const invalid = validateEmail(email);
+    if (invalid) return jsonResponse(error(invalid, 'INVALID_EMAIL'), 400);
+
+    const userModel = new UserModel(env.DB);
+    const taken = await userModel.findByEmail(email);
+    if (taken && Number(taken.id) !== Number(user.id)) {
+      // 先查一次是为了别白花一封信；真正的闸门是数据库上的唯一索引
+      return jsonResponse(error('该邮箱已被其他成员使用', 'EMAIL_TAKEN'), 409);
+    }
+
+    const codeModel = new EmailCodeModel(env.DB);
+    const issued = await codeModel.issue(user.id, email, 'verify');
+    if (!issued.ok) {
+      return jsonResponse(error('验证码发送过于频繁，请稍后再试', 'EMAIL_CODE_TOO_SOON'), 429);
+    }
+
+    try {
+      await sendEmail(env, {
+        to: email,
+        subject: '班级助理 · 邮箱验证码',
+        html: renderVerifyEmail(issued.code)
+      });
+    } catch (e) {
+      // 信没发出去就把刚写的码撤掉：留着的话，重发会被 60 秒限发拦住，
+      // 用户要干等一分钟才能再试，而这一轮他根本没收到信
+      await codeModel.clear(user.id, 'verify');
+      return emailFailure(e);
+    }
+
+    // 信发出去了才落库。换邮箱时把验证状态重置为 0（新邮箱得重新验）。
+    const changed = email !== normalizeEmail(user.email);
+    if (changed) {
+      await userModel.update(user.id, { email, email_verified: 0 });
+    }
+
+    return jsonResponse(success({ message: '验证码已发送', email }));
+  } catch (e) {
+    console.error('发送邮箱验证码失败:', e);
+    return jsonResponse(error('发送验证码失败，请稍后重试', 'SEND_EMAIL_CODE_FAILED'), 500);
+  }
+}
+
+/**
+ * 校验验证码并完成邮箱绑定（需登录）
+ * body: { email, code }
+ */
+export async function handleVerifyEmail(request, env, user) {
+  try {
+    const body = await request.json().catch(() => ({}));
+    const email = normalizeEmail(body.email);
+    const code = String(body.code == null ? '' : body.code).trim();
+
+    const invalid = validateEmail(email);
+    if (invalid) return jsonResponse(error(invalid, 'INVALID_EMAIL'), 400);
+    if (!/^\d{6}$/.test(code)) return jsonResponse(error('请输入 6 位验证码', 'MISSING_CODE'), 400);
+
+    const userModel = new UserModel(env.DB);
+    const taken = await userModel.findByEmail(email);
+    if (taken && Number(taken.id) !== Number(user.id)) {
+      return jsonResponse(error('该邮箱已被其他成员使用', 'EMAIL_TAKEN'), 409);
+    }
+
+    const result = await new EmailCodeModel(env.DB).verify(user.id, {
+      purpose: 'verify',
+      email,
+      code
+    });
+    if (!result.ok) return codeRejected(result.reason);
+
+    try {
+      await userModel.update(user.id, { email, email_verified: 1 });
+    } catch (e) {
+      // 唯一索引是最后一道闸：并发下两个账号同时验同一个邮箱，第二个会在这里被数据库拒掉。
+      // 到这一步码已经消耗掉了，属可接受 —— 反正这个邮箱他也绑不上。
+      console.error('写入邮箱失败（可能是唯一索引冲突）:', e);
+      return jsonResponse(error('该邮箱已被其他成员使用', 'EMAIL_TAKEN'), 409);
+    }
+
+    const fresh = await userModel.findById(user.id);
+    const permissions = await computePermissions(env, fresh.positions);
+    return jsonResponse(success({
+      message: '邮箱已验证',
+      user: publicUser(fresh, permissions)
+    }));
+  } catch (e) {
+    console.error('验证邮箱失败:', e);
+    return jsonResponse(error('验证邮箱失败，请稍后重试', 'VERIFY_EMAIL_FAILED'), 500);
+  }
+}
+
+/**
+ * 解绑邮箱（需登录）
+ *
+ * 不需要验证码：解绑的风险是把「找回密码」这条路关掉，而这件事本来就要求用户已登录。
+ * 顺手清掉未用的绑定码，免得用户在别处留着一条还能用的码。
+ */
+export async function handleUnbindEmail(request, env, user) {
+  try {
+    const userModel = new UserModel(env.DB);
+    await userModel.update(user.id, { email: null, email_verified: 0 });
+    await new EmailCodeModel(env.DB).clear(user.id, 'verify');
+
+    const fresh = await userModel.findById(user.id);
+    const permissions = await computePermissions(env, fresh.positions);
+    return jsonResponse(success({
+      message: '已解绑邮箱',
+      user: publicUser(fresh, permissions)
+    }));
+  } catch (e) {
+    console.error('解绑邮箱失败:', e);
+    return jsonResponse(error('解绑邮箱失败，请稍后重试', 'UNBIND_EMAIL_FAILED'), 500);
+  }
+}
+
+/**
+ * 忘记密码 · 发送重置码（公开，无需登录）
+ * body: { email }
+ *
+ * **只对已绑定且已验证的邮箱真发信**，其余情况一律回同一句成功文案，
+ * 否则这个接口就成了「查这个邮箱有没有注册过班级助理」的枚举工具。
+ *
+ * 已知残余面（写在这里免得以后被当成 bug 查）：同一邮箱连发两次，第二次会撞 60 秒限发返回 429，
+ * 而未注册的邮箱永远回 200 —— 试探者据此仍能区分出「这个邮箱注册过」。
+ * 要彻底堵住得给不存在的邮箱也记一条限发记录（多一张表或一个哨兵 user_id），
+ * 而它泄漏的只是「某人用没用班级助理」，与代价不成比例，本期不做。
+ */
+export async function handleForgotSend(request, env) {
+  // 统一文案。先构造好，所有「不该发信」的分支都回它
+  const generic = success({ message: '如果该邮箱已绑定并验证，我们已发送重置验证码' });
+  try {
+    const body = await request.json().catch(() => ({}));
+    const email = normalizeEmail(body.email);
+    const invalid = validateEmail(email);
+    // 格式错误可以如实报 —— 这暴露的是请求的毛病，不是账号的存在性
+    if (invalid) return jsonResponse(error(invalid, 'INVALID_EMAIL'), 400);
+
+    const userModel = new UserModel(env.DB);
+    const target = await userModel.findByEmail(email);
+    if (!target || Number(target.email_verified) !== 1) return jsonResponse(generic);
+
+    const codeModel = new EmailCodeModel(env.DB);
+    const issued = await codeModel.issue(target.id, email, 'reset');
+    if (!issued.ok) {
+      return jsonResponse(error('验证码发送过于频繁，请稍后再试', 'EMAIL_CODE_TOO_SOON'), 429);
+    }
+
+    try {
+      await sendEmail(env, {
+        to: email,
+        subject: '班级助理 · 重置密码',
+        html: renderResetEmail(issued.code)
+      });
+    } catch (e) {
+      await codeModel.clear(target.id, 'reset');
+      return emailFailure(e);
+    }
+
+    return jsonResponse(generic);
+  } catch (e) {
+    console.error('发送重置验证码失败:', e);
+    return jsonResponse(error('发送验证码失败，请稍后重试', 'SEND_EMAIL_CODE_FAILED'), 500);
+  }
+}
+
+/**
+ * 忘记密码 · 重置并登录（公开，无需登录）
+ * body: { email, code, new_password }
+ *
+ * 校验失败一律回「验证码错误或已过期」，不区分「这个邮箱没注册」——
+ * 与 forgot/send 同一个理由。
+ */
+export async function handleForgotReset(request, env) {
+  try {
+    const body = await request.json().catch(() => ({}));
+    const email = normalizeEmail(body.email);
+    const code = String(body.code == null ? '' : body.code).trim();
+    const newPassword = String(body.new_password == null ? '' : body.new_password);
+
+    const invalid = validateEmail(email);
+    if (invalid) return jsonResponse(error(invalid, 'INVALID_EMAIL'), 400);
+    if (newPassword.length < PASSWORD_MIN || newPassword.length > PASSWORD_MAX) {
+      return jsonResponse(error(`新密码长度须为 ${PASSWORD_MIN}–${PASSWORD_MAX} 位`, 'WEAK_PASSWORD'), 400);
+    }
+    if (!env.JWT_SECRET) {
+      console.error('未配置 JWT_SECRET，无法签发登录态');
+      return jsonResponse(error('服务端暂时不可用，请联系管理员', 'SERVER_MISCONFIGURED'), 500);
+    }
+
+    const rejected = () => jsonResponse(error('验证码错误或已过期', 'EMAIL_CODE_INVALID'), 400);
+
+    const userModel = new UserModel(env.DB);
+    const target = await userModel.findByEmail(email);
+    if (!target || Number(target.email_verified) !== 1) return rejected();
+
+    const result = await new EmailCodeModel(env.DB).verify(target.id, {
+      purpose: 'reset',
+      email,
+      code
+    });
+    if (!result.ok) return rejected();
+
+    const { hash, salt } = await hashPassword(newPassword);
+    await userModel.update(target.id, {
+      password_hash: `${salt}:${hash}`,
+      // 重置即作废此前所有令牌；下面再签一枚新的给本人 —— 也正好把被盗的会话踢下线
+      password_changed_at: passwordChangedAtNow()
+    });
+
+    const token = await sign(
+      { id: target.id, student_id: target.student_id, name: target.name },
+      env.JWT_SECRET,
+      jwtExpiresIn(env)
+    );
+    const fresh = await userModel.findById(target.id);
+    const permissions = await computePermissions(env, fresh.positions);
+
+    return jsonResponse(success({
+      token,
+      user: publicUser(fresh, permissions)
+    }));
+  } catch (e) {
+    console.error('重置密码失败:', e);
+    return jsonResponse(error('重置密码失败，请稍后重试', 'RESET_PASSWORD_FAILED'), 500);
   }
 }
