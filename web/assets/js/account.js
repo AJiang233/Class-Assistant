@@ -902,6 +902,8 @@ function renderProfile(u) {
         + '</div>';
     // 上面这段是新造的 DOM，行内元素要重新取值
     refreshAppStatus();
+    // 填了 QQ 邮箱就换成 WeAvatar 头像（不是 QQ 邮箱、或取不到头像都保持上面的首字母）
+    applyEmailAvatar(card.querySelector('.profile-avatar'), u.email, 112);
 }
 
 // App 壳：原生层先给缓存（首帧不必等网络），后台刷新完把新数据推回这里重绘

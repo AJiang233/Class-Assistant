@@ -152,12 +152,14 @@ test("script-src 不放行内联脚本与 eval", () => {
   assert.ok(/'self'/.test(script), 'script-src 至少放行同源脚本');
 });
 
-test('第三方来源白名单只留 Cloudflare 统计那一份', () => {
-  // 来源写死在这里是有意的：以后想再放行一个第三方脚本/接口，必须先改这条用例 ——
+test('第三方来源白名单逐条写死：统计两份 + 头像源一处', () => {
+  // 来源写死在这里是有意的：以后想再放行一个第三方脚本/接口/图片源，必须先改这条用例 ——
   // 否则 CSP 会在「顺手加个域名」里悄悄退化成没有。
   const sources = (name) => cspDirectives().get(name).split(/\s+/).filter((s) => s !== name);
   assert.deepEqual(sources('script-src'), ["'self'", 'https://static.cloudflareinsights.com']);
   assert.deepEqual(sources('connect-src'), ["'self'", 'https://cloudflareinsights.com']);
+  // weavatar.com 是绑了 QQ 邮箱后的头像源（app.js 的 qqAvatarUrl）
+  assert.deepEqual(sources('img-src'), ["'self'", 'data:', 'https://weavatar.com']);
 });
 
 test("style-src 只放行 'self'（内联样式已全部外置到 style.css）", () => {

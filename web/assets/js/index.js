@@ -71,6 +71,9 @@ function fillAuthArea(authed, user) {
             + '<span class="user-sub">' + esc(user && user.student_id ? user.student_id : '') + '</span>'
             + '</span>'
             + '</div>';
+        // 填了 QQ 邮箱就换成 WeAvatar 头像（不是 QQ 邮箱、或取不到头像都保持上面的首字母）。
+        // 这里读的是登录时缓存的会话，所以在个人页刚填好邮箱的话，要等下次加载本页才换过来。
+        applyEmailAvatar(area.querySelector('.user-avatar'), user && user.email, 68);
     } else {
         area.innerHTML = '<button type="button" class="btn btn-primary" data-view="login">登录</button>';
     }

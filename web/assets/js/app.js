@@ -691,6 +691,59 @@ function escAttr(t) {
 }
 
 /**
+ * QQ 邮箱的头像地址（WeAvatar）。
+ *
+ * 只对 @qq.com 返回地址：WeAvatar 会替我们取 QQ / Gravatar 的头像，其余邮箱基本取不到，
+ * 白发一次请求还多一条 404 控制台报错，不如直接用首字母。不要求邮箱已验证 ——
+ * 头像只有本人看得见，而弹窗上的提示是「填 QQ 邮箱有头像」，加个验证门槛反而对不上。
+ *
+ * 哈希用浏览器原生的 crypto.subtle 算 SHA256 —— WeAvatar 官方支持 SHA256 与 MD5 且推荐
+ * SHA256（见 https://weavatar.com/doc）；原生的没有 MD5，为一张头像引一个纯 JS 的 MD5
+ * 实现不划算。crypto.subtle 只在安全上下文（https / localhost）里存在，取不到就当没头像。
+ *
+ * d=404：没头像时让 WeAvatar 回 404（实测如此），我们保持首字母占位，
+ * 而不是显示它的默认图。
+ */
+async function qqAvatarUrl(email, size) {
+  const addr = String(email == null ? '' : email).trim().toLowerCase();
+  if (!/@qq\.com$/.test(addr)) return null;
+  if (typeof crypto === 'undefined' || !crypto.subtle) return null;
+  try {
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(addr));
+    const hex = Array.from(new Uint8Array(buf))
+      .map(function (b) { return b.toString(16).padStart(2, '0'); })
+      .join('');
+    return 'https://weavatar.com/avatar/' + hex + '?s=' + size + '&d=404';
+  } catch (e) {
+    // 哈希算不出来不是用户能处理的事，静默退回首字母
+    return null;
+  }
+}
+
+/**
+ * 把邮箱头像塞进已经渲染好的首字母占位里。不是 QQ 邮箱、取不到地址、图片加载失败，
+ * 都保持首字母。
+ *
+ * 先用一个游离的 Image 探一次，onload 才替换 —— 直接塞进去的话，加载中会先闪一个空圆，
+ * 失败时还得把首字母补回来。卡片是整块 innerHTML 重绘的，所以 onload 里要再确认节点
+ * 还在文档里，否则会往一块已被丢弃的 DOM 上挂图片。
+ */
+async function applyEmailAvatar(el, email, size) {
+  if (!el) return;
+  const url = await qqAvatarUrl(email, size);
+  if (!url) return;
+  const probe = new Image();
+  probe.alt = '';
+  probe.referrerPolicy = 'no-referrer';   // 别把页面地址带给第三方
+  probe.onload = function () {
+    if (!el.isConnected) return;
+    el.textContent = '';
+    el.appendChild(probe);
+  };
+  probe.src = url;
+}
+
+/**
  * href 白名单：只放行站内相对路径与 http(s)，挡掉 javascript: / data: 这类伪协议。
  * 属性转义管不了协议型 XSS，两者要一起用。
  */
