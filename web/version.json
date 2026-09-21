@@ -1,8 +1,8 @@
 {
   "_note": "「个人中心 → 关于软件 → 检查更新」读这里。按平台分段，网页用 CAHost.platform() 判断自己在哪一段，只读自己那一段（纯网页版没有原生桥，任何一段都不读）。每段的 version 必须与该端安装包的版本号一致（安卓 = build-android.yml 输入的 version_name；鸿蒙 = app.json5 里的 versionName），url 是该端安装包的稳定直链 —— version 或 url 缺任何一个，页面只提示「检查更新失败」，不会退回别的地址。注意：GitHub Release 页面上 release-assets.githubusercontent.com/... 那种带签名的临时地址几十分钟就过期，不能写进来，要用 github.com/<owner>/<repo>/releases/download/<tag>/<文件名> 这种稳定地址。",
   "android": {
-    "version": "0.7.0",
-    "url": "https://github.com/AJiang233/Class-Assistant/releases/download/v0.7.0/ClassAssistant-0.7.0.apk"
+    "version": "1.0.0",
+    "url": "https://github.com/AJiang233/Class-Assistant/releases/download/v1.0.0/ClassAssistant-1.0.0.apk"
   },
   "harmony": {
     "version": "0.1.0",
