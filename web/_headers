@@ -16,7 +16,7 @@
 #       assets/js/{theme,app,index,notices,...}.js，动态生成的按钮统一走 app.js 里的
 #       delegate() 事件委托。以后再往页面里写内联 handler，按钮会静默失效（点了没反应），
 #       别为了图快加 'unsafe-inline'；backend/test/csp.test.js 会把这种回退挡住。
-#   script-src / connect-src 里的 cloudflareinsights 是唯一的第三方例外
+#   script-src / connect-src 里的 cloudflareinsights 是脚本与接口侧唯一的第三方例外
 #       Cloudflare 在边缘给 Pages 注入 Web Analytics 的 beacon：脚本取自
 #       static.cloudflareinsights.com，上报打 cloudflareinsights.com。
 #       只写 'self' 会把它挡掉 —— 统计静默失效，而且每次加载都多一条控制台资源报错。
@@ -28,14 +28,16 @@
 #       注意：JS 里通过 CSSOM 写的（el.style.width / setProperty）不受 style-src 限制，
 #       滑块定位、学分进度条宽度、层级缩进这类动态值仍然留在 JS 里。
 #       隐藏/显示统一走 [hidden] 属性（style.css 顶部有 [hidden]{display:none!important}）。
-#   img-src 'self' data:      favicon 用的是 data:image/svg+xml
+#   img-src 'self' data: https://weavatar.com
+#       favicon 用的是 data:image/svg+xml；weavatar.com 是「填了 QQ 邮箱」之后的头像源
+#       （见 app.js 的 qqAvatarUrl，只对 @qq.com 请求），同样只放行精确主机。
 #   connect-src 'self'        前端与后端同域（app.js 里 API_BASE 为空），另加 beacon 上报域
 #   frame-src 'self'          自家 iframe 之间要能嵌套
 #   object-src 'none'         不用插件（<object>/<embed>/<applet>）
 #   base-uri 'self'           不允许注入 <base> 改写相对地址
 #   form-action 'self'        表单不往站外提交
 /*
-  Content-Security-Policy: default-src 'self'; script-src 'self' https://static.cloudflareinsights.com; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://cloudflareinsights.com; frame-src 'self'; frame-ancestors 'self'; object-src 'none'; base-uri 'self'; form-action 'self'
+  Content-Security-Policy: default-src 'self'; script-src 'self' https://static.cloudflareinsights.com; style-src 'self'; img-src 'self' data: https://weavatar.com; font-src 'self'; connect-src 'self' https://cloudflareinsights.com; frame-src 'self'; frame-ancestors 'self'; object-src 'none'; base-uri 'self'; form-action 'self'
   X-Content-Type-Options: nosniff
   X-Frame-Options: SAMEORIGIN
   Referrer-Policy: strict-origin-when-cross-origin

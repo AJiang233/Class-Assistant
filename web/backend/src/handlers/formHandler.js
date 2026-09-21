@@ -15,6 +15,8 @@ import { toLocalDateTime } from '../utils/datetime.js';
 import { pageLimit, pageOffset } from '../utils/query.js';
 import { canView, canManageItem, isExcludedFromClass, loadRoleMap, loadViewer, pickAudience } from '../utils/audience.js';
 import { pushToRemindAudience } from '../utils/push.js';
+import { pushSubscribedEmails } from '../utils/emailPush.js';
+import { renderNoticeEmail, renderFormEmail } from '../utils/email.js';
 import {
   parseJson, parseFields, normalizeFields, validateAnswers, submitGate, isPastDeadline
 } from './formValidation.js';
@@ -187,6 +189,37 @@ export async function handleCreateForm(request, env, user, ctx) {
       tag: `form-${formId}`,
       excludeUserId: user.id
     });
+
+    // 订阅邮件（用户口径：通知 / 表单各按各的订阅发）：
+    //   - 表单本身 → 表单订阅（kind forms）
+    //   - 勾选「同时下发通知」→ 那条联动通知 → 通知订阅（kind notices）
+    // 同时订了通知和表单的同学会收两封，这是刻意为之：两类内容在站内本就是两个入口。
+    // 收件人口径与推送一致（utils/audience.js 的 resolveRemindUsers），链接必须给绝对地址。
+    const origin = new URL(request.url).origin;
+    const formLink = `${origin}/forms.html?id=${formId}`;
+    await pushSubscribedEmails(env, ctx, 'forms', {
+      remindPeople: remind,
+      excludeUserId: user.id,
+      subject: `【班级助理】新表单：${title}`,
+      html: renderFormEmail({
+        title,
+        description: body.description,
+        deadline,
+        link: formLink
+      })
+    });
+    if (linkedNotice) {
+      await pushSubscribedEmails(env, ctx, 'notices', {
+        remindPeople: remind,
+        excludeUserId: user.id,
+        subject: `【班级助理】新通知：${linkedNotice.title}`,
+        html: renderNoticeEmail({
+          title: linkedNotice.title,
+          content: linkedNotice.content,
+          link: formLink
+        })
+      });
+    }
 
     return jsonResponse(success({ message: '表单已添加', id: formId }), 201);
   } catch (e) {

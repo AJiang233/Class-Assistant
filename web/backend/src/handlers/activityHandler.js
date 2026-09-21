@@ -4,6 +4,8 @@ import { toLocalDateTime } from '../utils/datetime.js';
 import { pageLimit, pageOffset } from '../utils/query.js';
 import { canManageItem, canViewItem, itemForViewer, loadViewer, listByAudience } from '../utils/audience.js';
 import { pushToRemindAudience } from '../utils/push.js';
+import { pushSubscribedEmails } from '../utils/emailPush.js';
+import { renderActivityEmail } from '../utils/email.js';
 
 /**
  * 发布活动（需登录）
@@ -38,6 +40,22 @@ export async function handleCreateActivity(request, env, user, ctx) {
       url: activityId ? '/?view=activities&id=' + activityId : '/?view=activities',
       tag: activityId ? 'activity-' + activityId : undefined,
       excludeUserId: user.id
+    });
+
+    // 订阅邮件：与推送同一收件人口径（utils/audience.js），waitUntil 里逐封发。
+    // 链接必须是绝对地址 —— 邮件客户端不会把 /?view=... 解析成本站页面。
+    const origin = new URL(request.url).origin;
+    await pushSubscribedEmails(env, ctx, 'activities', {
+      remindPeople: remind,
+      excludeUserId: user.id,
+      subject: `【班级助理】新活动：${title}`,
+      html: renderActivityEmail({
+        title,
+        content,
+        location,
+        start_time,
+        link: activityId ? `${origin}/?view=activities&id=${activityId}` : `${origin}/?view=activities`
+      })
     });
 
     return jsonResponse(success({ message: '活动发布成功' }), 201);

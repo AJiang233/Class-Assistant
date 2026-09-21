@@ -11,6 +11,8 @@ import {
   listByAudience
 } from '../utils/audience.js';
 import { pushToRemindAudience } from '../utils/push.js';
+import { pushSubscribedEmails } from '../utils/emailPush.js';
+import { renderNoticeEmail } from '../utils/email.js';
 
 /**
  * 发布通知（需登录）
@@ -49,6 +51,20 @@ export async function handleCreateNotice(request, env, user, ctx) {
       url: noticeId ? '/?view=notices&id=' + noticeId : '/?view=notices',
       tag: noticeId ? 'notice-' + noticeId : undefined,
       excludeUserId: user.id
+    });
+
+    // 订阅邮件：与推送同一收件人口径（utils/audience.js），waitUntil 里逐封发。
+    // 链接必须是绝对地址 —— 邮件客户端不会把 /?view=... 解析成本站页面。
+    const origin = new URL(request.url).origin;
+    await pushSubscribedEmails(env, ctx, 'notices', {
+      remindPeople: remind,
+      excludeUserId: user.id,
+      subject: `【班级助理】新通知：${title}`,
+      html: renderNoticeEmail({
+        title,
+        content,
+        link: noticeId ? `${origin}/?view=notices&id=${noticeId}` : `${origin}/?view=notices`
+      })
     });
 
     return jsonResponse(success({ message: '通知发布成功' }), 201);

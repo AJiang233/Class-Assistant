@@ -508,6 +508,13 @@ a.list-row { color: inherit; text-decoration: none; }
 /* 编辑策略（随时可修改 / 截止前可修改 / 提交后不可修改）：只是附加说明，
    不上语义色，免得跟左边「待填写 / 已提交」的状态徽章抢眼 */
 .badge-policy { background: var(--bg-sunken); color: var(--text-tertiary); border-color: var(--border); }
+/* 邮箱验证状态：已验证用成功色；未验证/未绑定用中性色 ——
+   邮箱没验证不算出错（别用 danger 红），但它也确实还救不回密码，所以不能和已验证同色 */
+.badge-ok { background: var(--success-soft); color: var(--success); border-color: color-mix(in srgb, var(--success) 30%, transparent); }
+.badge-muted { background: var(--bg-sunken); color: var(--text-tertiary); border-color: var(--border); }
+/* 表单标签里的状态徽章（管理员添加 / 修改成员时标邮箱的验证状态）：
+   badge 是 inline-flex，基线落在它的底边，直接跟在标签文字后面会往下坠，往中间提一格 */
+.form-label .badge { vertical-align: middle; }
 
 /* ═══════════════════════════════════════════════════════════════════
    10 · 详情内容
@@ -892,6 +899,10 @@ input[type="checkbox"]:disabled { opacity: 0.5; cursor: not-allowed; }
 .member-sub { font-size: 0.84rem; color: var(--text-tertiary); margin-top: 3px; }
 .member-actions { display: flex; gap: 6px; flex-shrink: 0; }
 .member-actions .btn { padding: 4px 11px; font-size: 0.82rem; min-height: 28px; }
+/* 自定义职位行：名称与编辑 / 删除占第一行，权限说明落到它们下面单独一行
+   （同 .form-admin-row 的排法）。默认职位没有按钮，说明本来就在名字下面，不需要这层 */
+.role-row { flex-wrap: wrap; }
+.role-meta { flex: 1 1 100%; margin-top: 6px; }
 /* 表单管理卡片：标题与按钮占第一行，meta 落到它们下方一行（按钮涨到 4 个后横排会挤） */
 .form-admin-row { flex-wrap: wrap; }
 .form-admin-meta { flex: 1 1 100%; }
@@ -899,6 +910,11 @@ input[type="checkbox"]:disabled { opacity: 0.5; cursor: not-allowed; }
 /* 管理职位：分组小标题 */
 .roles-group-label { font-size: 0.82rem; color: var(--text-tertiary); margin: 14px 0 2px; }
 .roles-group-label:first-child { margin-top: 0; }
+/* 小标题要贴着它下面那一组：标签自己只有 2px 下边距，但 .info-row 自带 13px 上内边距、
+   空状态块更是 56px —— 两下一叠，标题与内容之间就凭空多出一截。
+   组与组之间靠标签自己的 14px 上边距分隔，下面不需要再垫 */
+.roles-group-label + .info-row { padding-top: 5px; }
+.roles-group-label + .state { padding-top: 18px; }
 
 .split-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
 .split-col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
@@ -1142,6 +1158,10 @@ body.app-mode { overflow: hidden; }
   font-size: 0.93rem; font-weight: 700;
   box-shadow: var(--specular);
 }
+/* 邮箱头像（WeAvatar）：图片铺满圆形占位，多出来的按 cover 裁掉 ——
+   圆形边界由 overflow 裁，否则方图会盖出圆外 */
+.profile-avatar, .user-avatar { overflow: hidden; }
+.profile-avatar img, .user-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .user-info { display: flex; flex-direction: column; gap: 1px; min-width: 0; overflow: hidden; line-height: 1.3; }
 .user-name { font-size: 0.89rem; font-weight: 650; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .user-sub { font-size: 0.79rem; color: var(--text-tertiary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -1915,16 +1935,14 @@ body.app-mode { overflow: hidden; }
 .card-divider { margin-top: 24px; padding-top: 22px; border-top: 1px solid var(--separator); }
 
 /* ── 表单 ── */
-/* 一行勾选项：整行可点（原来是标签上的内联 display/margin） */
-.field-check { display: block; margin: 6px 0; }
-/* 卡片里更轻量的一行勾选项 */
-.check-row { display: flex; align-items: center; gap: 8px; font-size: 0.89rem; color: var(--text); cursor: pointer; }
-.check-row-note { display: flex; align-items: center; gap: 8px; margin: 12px 0 14px; font-size: 0.9rem; color: var(--text-secondary); cursor: pointer; }
 /* 按钮行：默认三列（.btn-row），这两个是「两列」与「单行等高」 */
 .btn-row-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .btn-row-inline { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); }
 /* 自适应列宽的多列表单（日历订阅的三个选项） */
 .grid-150 { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+/* 日历订阅里的「通知进日历」开关：上面是 grid-150、下面是订阅链接，保持原来
+   check-row-note 的上下呼吸感（普通 switch-row 只用于连续的行，这里孤行要自带 margin） */
+#calCard .switch-row { margin: 12px 0 14px; }
 
 /* ── 提醒对象选择区 ── */
 /* 没有成员可提醒（.remind-hint）与搜索后全被滤掉（.remind-empty）的提示文字 */
@@ -1941,8 +1959,52 @@ body.app-mode { overflow: hidden; }
 /* 左右分散的一行（.member-line 默认按基线对齐，这里要居中并两端撑开） */
 .member-line-spread { justify-content: space-between; align-items: center; }
 /* 「值」区里带按钮，需要行内 flex 对齐 */
-.info-row .v-actions { display: inline-flex; align-items: center; gap: 10px; }
+.info-row .v-actions { display: inline-flex; align-items: center; gap: 10px; min-width: 0; }
+/* 邮箱这类可能很长的值：在一行内省略，而不是折行把这一行撑成两行高。
+   min-width: 0 是必需的 —— flex 子项默认不肯缩到内容宽度以下，不给它收缩的余地，
+   省略号就没机会出现。右侧按钮不用管：它缩到 min-content（「管理」两个字）就停住了 */
+.info-row .v-actions > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ── 表单字段编辑器（管理员面板动态生成的每一行） ── */
 .fld-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 8px 0; }
 .fld-required-row { display: flex; align-items: center; gap: 6px; white-space: nowrap; font-size: 0.9rem; color: var(--text-secondary); cursor: pointer; }
+
+/* ── 邮箱验证 ── */
+/* 登录页「忘记密码」提示：比正文小一档、居中、弱化，别抢登录按钮的注意力 */
+.auth-note { margin: 14px 0 0; font-size: 0.85rem; line-height: 1.6; color: var(--text-secondary); text-align: center; }
+/* 邮箱弹窗里「验证码 + 发送验证码」一行：输入框吃掉剩余宽度，按钮不被挤扁 */
+#emailModal .fld-row .form-input { flex: 1; min-width: 0; }
+/* 弹窗标题后的状态徽章：与标题同行、垂直居中，徽章本身有 3px 10px 内边距，间隙别挤太紧 */
+.modal-title-wrap { display: flex; align-items: center; gap: 10px; }
+/* 解绑按钮行：弹窗内最后一行，给点间距即可（原来的 card-divider 上边框已去掉） */
+#emailUnbindRow { margin-top: 20px; }
+/* 订阅区：分订阅在「全部订阅」下面缩进一档，视觉上形成「总开关 → 分项」的层级；
+   margin-top 与开关行间距（.switch-row + .switch-row 的 12px）同值，总开关和分项之间不留缝 */
+#emailSubSection .sub-list { padding-left: 22px; margin-top: 12px; }
+/* 滑动开关行：文字在左、开关靠右（iOS 设置列表的排法），行间留出呼吸感。
+   邮箱订阅弹窗与个人页各卡片共用这一套。 */
+.switch-row {
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 0.89rem; color: var(--text); cursor: pointer;
+}
+.switch-row + .switch-row { margin-top: 12px; }
+/* 开关本体：checkbox 视觉隐藏（opacity:0）但保留可点、可聚焦与 checked 语义，
+   JS 里对 checked 的读写与 change 事件全部照旧，不用动页面逻辑 */
+.switch { position: relative; width: 44px; height: 26px; flex-shrink: 0; }
+.switch input {
+    position: absolute; inset: 0; margin: 0; opacity: 0; cursor: pointer; z-index: 1;
+}
+.switch-track {
+    position: absolute; inset: 0; border-radius: 999px;
+    background: rgba(120, 120, 128, 0.32); /* 中性灰在浅深主题下都成立，不必另写深色覆盖 */
+    transition: background 0.15s;
+}
+.switch-track::after {
+    content: ''; position: absolute; top: 2px; left: 2px;
+    width: 22px; height: 22px; border-radius: 50%;
+    background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+    transition: transform 0.15s;
+}
+.switch input:checked + .switch-track { background: var(--accent); }
+.switch input:checked + .switch-track::after { transform: translateX(18px); }
+.switch input:focus-visible + .switch-track { outline: 2px solid var(--accent-ring); }

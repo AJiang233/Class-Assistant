@@ -111,8 +111,12 @@
                                         <option value="60">提前 60 分钟</option>
                                     </select>
                                 </div>
-                                <label class="check-row">
-                                    <input type="checkbox" id="courseAtStart" data-act="save-course-reminder"> 开课时再提醒一次
+                                <label class="switch-row">
+                                    <span>开课时再提醒一次</span>
+                                    <span class="switch">
+                                        <input type="checkbox" id="courseAtStart" data-act="save-course-reminder">
+                                        <span class="switch-track" aria-hidden="true"></span>
+                                    </span>
                                 </label>
                                 <p class="profile-sub profile-sub-tail">提醒在手机本地排期，不用联网；课表跟着后台同步更新。</p>
                             </div>
@@ -124,8 +128,12 @@
                             <div id="backgroundCard" class="card-divider" hidden>
                                 <label class="form-label">后台通知</label>
                                 <p class="profile-sub profile-sub-lead profile-sub-lines" id="backgroundStatus"></p>
-                                <label class="check-row">
-                                    <input type="checkbox" id="backgroundAlwaysOn" data-act="save-background-always-on"> 后台常驻，及时收到新通知
+                                <label class="switch-row">
+                                    <span>后台常驻，及时收到新通知</span>
+                                    <span class="switch">
+                                        <input type="checkbox" id="backgroundAlwaysOn" data-act="save-background-always-on">
+                                        <span class="switch-track" aria-hidden="true"></span>
+                                    </span>
                                 </label>
                                 <p class="profile-sub profile-sub-even">开启后状态栏会出现「班级助理正在后台运行」（系统对常驻应用的硬性要求，不响铃也不弹出）；关掉照样收提醒，只是最多晚 15 分钟。</p>
                                 <div class="btn-row btn-row-2">
@@ -184,8 +192,12 @@
                                 </div>
                             </div>
 
-                            <label class="check-row-note">
-                                <input type="checkbox" id="calNotices"> 把班级通知也加进日历（按发布当天全天显示）
+                            <label class="switch-row">
+                                <span>把班级通知加进日历（全天显示）</span>
+                                <span class="switch">
+                                    <input type="checkbox" id="calNotices">
+                                    <span class="switch-track" aria-hidden="true"></span>
+                                </span>
                             </label>
 
                             <div class="form-field">
@@ -267,7 +279,7 @@
                         <div class="info-list">
                             <div class="info-row"><span class="k">版本号</span><span class="v" id="aboutVersion">—</span></div>
                             <div class="info-row"><span class="k">检查更新</span><span class="v"><button class="btn btn-outline btn-sm" type="button" id="updateBtn" data-act="check-update">检查更新</button></span></div>
-                            <div class="info-row"><span class="k">项目仓库</span><span class="v"><a href="https://github.com/AJiang233/Class-Assistant" target="_blank" rel="noopener">Class-Assistant</a></span></div>
+                            <div class="info-row"><span class="k">开源仓库</span><span class="v"><a href="https://github.com/AJiang233/Class-Assistant" target="_blank" rel="noopener">Class-Assistant</a></span></div>
                             <div class="info-row"><span class="k">开发者</span><span class="v">阿江_233 · 汐星楠 · TsoiTZF</span></div>
                         </div>
                         <p class="profile-sub profile-sub-tail" id="updateHint"></p>
@@ -289,12 +301,94 @@
                     <div class="form-error" id="contactError"></div>
                     <div class="form-field mb-0">
                         <label class="form-label" for="contactInput">联系方式</label>
-                        <input class="form-input" id="contactInput" type="text" placeholder="如：微信号 / 手机号（选填，留空表示不填）" autocomplete="off">
+                        <input class="form-input" id="contactInput" type="text" placeholder="手机号（选填，留空表示不填）" autocomplete="off">
                     </div>
                 </div>
                 <div class="modal-foot">
                     <button type="button" class="btn btn-outline" data-act="close-contact-edit">取消</button>
                     <button type="button" class="btn btn-primary" id="contactSaveBtn" data-act="save-contact">保存</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 邮箱弹窗：邮箱的绑定 / 更换 / 解绑全在这里做，资料卡那一行只显示邮箱与一个「管理」，
+             验证状态徽章在这个弹窗的标题后。
+             发码那一刻后端就把邮箱记成「已填未验证」，只有点「保存」（＝验码通过）才置为已验证。 -->
+        <div class="modal-overlay" id="emailModal">
+            <div class="modal">
+                <div class="modal-head">
+                    <div class="modal-title-wrap">
+                        <span class="modal-title">邮箱管理</span>
+                        <!-- 验证状态徽章在这里（已验证 / 未验证），资料卡那行不再重复放徽章 -->
+                        <span class="badge badge-ok" id="emailTitleBadge" hidden></span>
+                    </div>
+                    <button type="button" class="modal-close" data-act="close-email-edit" aria-label="关闭">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-error" id="emailError"></div>
+                    <div class="form-field">
+                        <label class="form-label" for="emailInput">邮箱（填QQ邮箱有头像~）</label>
+                        <input class="form-input" id="emailInput" type="email" placeholder="如：zhangsan@qq.com" autocomplete="email">
+                    </div>
+                    <div id="emailCodeSection">
+                        <div class="form-field mb-0">
+                            <label class="form-label" for="emailCodeInput">验证码</label>
+                            <div class="fld-row">
+                                <input class="form-input" id="emailCodeInput" type="text" inputmode="numeric" maxlength="6" placeholder="6 位数字" autocomplete="one-time-code">
+                                <button class="btn btn-outline" type="button" id="emailSendCodeBtn" data-act="send-email-code">发送验证码</button>
+                            </div>
+                        </div>
+                        <p class="auth-note">验证码 10 分钟内有效。收不到就看看垃圾邮件；同一个邮箱 1 分钟内只能发一次。</p>
+                    </div>
+                    <!-- 解绑只在「已绑且已验证」时出现（JS 控制 hidden）：邮箱是找回密码的凭据，
+                         解绑等于把那条路关掉，所以放在弹窗里并要一次确认，不在资料卡上直接给按钮 -->
+                    <div id="emailUnbindRow" hidden>
+                        <button type="button" class="btn btn-outline btn-block" data-act="unbind-email">解绑邮箱</button>
+                    </div>
+                    <!-- 订阅通知：只有邮箱已验证才显示（JS 控制 hidden）。「全部订阅」与三项分订阅联动：
+                         勾全部＝三项全勾；取消任一分项＝「全部订阅」跟着取消（没全勾就不算全部）。
+                         解绑邮箱后订阅清零、这一整块跟着隐藏。 -->
+                    <div class="card-divider" id="emailSubSection" hidden>
+                        <label class="switch-row">
+                            <span>全部订阅</span>
+                            <span class="switch">
+                                <input type="checkbox" id="subAll" data-act="toggle-sub-all">
+                                <span class="switch-track" aria-hidden="true"></span>
+                            </span>
+                        </label>
+                        <div class="sub-list">
+                            <label class="switch-row">
+                                <span>活动订阅</span>
+                                <span class="switch">
+                                    <input type="checkbox" id="subActivities" data-act="toggle-sub-one" data-kind="activities">
+                                    <span class="switch-track" aria-hidden="true"></span>
+                                </span>
+                            </label>
+                            <label class="switch-row">
+                                <span>通知订阅</span>
+                                <span class="switch">
+                                    <input type="checkbox" id="subNotices" data-act="toggle-sub-one" data-kind="notices">
+                                    <span class="switch-track" aria-hidden="true"></span>
+                                </span>
+                            </label>
+                            <label class="switch-row">
+                                <span>表单订阅</span>
+                                <span class="switch">
+                                    <input type="checkbox" id="subForms" data-act="toggle-sub-one" data-kind="forms">
+                                    <span class="switch-track" aria-hidden="true"></span>
+                                </span>
+                            </label>
+                        </div>
+                        <!-- 订阅开关只改本地状态，点下方「保存」才写后端（避免每拨一下都发一次请求）——
+                             这个保存按钮与邮箱验证是同一个：未验证时＝验码完成绑定，已验证时＝保存订阅 -->
+                        <p class="profile-sub profile-sub-tail">开启后，新的活动 / 通知 / 待填表单会同步发到你的邮箱；改动点下方「保存」生效。</p>
+                    </div>
+                </div>
+                <div class="modal-foot">
+                    <button type="button" class="btn btn-outline" data-act="close-email-edit">取消</button>
+                    <button type="button" class="btn btn-primary" id="emailSaveBtn" data-act="save-email">保存</button>
                 </div>
             </div>
         </div>

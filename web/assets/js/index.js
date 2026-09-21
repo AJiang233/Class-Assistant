@@ -71,6 +71,9 @@ function fillAuthArea(authed, user) {
             + '<span class="user-sub">' + esc(user && user.student_id ? user.student_id : '') + '</span>'
             + '</span>'
             + '</div>';
+        // 填了 QQ 邮箱就换成 WeAvatar 头像（不是 QQ 邮箱、或取不到头像都保持上面的首字母）。
+        // 这里读的是登录时缓存的会话，所以在个人页刚填好邮箱的话，要等下次加载本页才换过来。
+        applyEmailAvatar(area.querySelector('.user-avatar'), user && user.email, 68);
     } else {
         area.innerHTML = '<button type="button" class="btn btn-primary" data-view="login">登录</button>';
     }
@@ -106,6 +109,9 @@ function switchView(key, slideDir) {
     var authed = !!localStorage.getItem(LS_TOKEN);
     // 未登录访问受保护视图 → 显示登录视图
     if (!authed && key !== 'home' && key !== 'login') key = 'login';
+    // 管理员面板只对能管理的人开。侧栏入口是按权限藏的，但 ?view=admin 深链与滑动切页
+    // 都不经过那个入口 —— 光藏按钮拦不住，闸门钉在这里，三个入口共用（同 canManagePanel 的注释）
+    if (key === 'admin' && !canManagePanel()) key = 'home';
     currentView = key;
     // 当前应高亮的导航项：未登录显示登录视图时，"个人中心"保持高亮
     var navKey = key === 'login' ? 'account' : key;
@@ -159,9 +165,12 @@ function renderGreeting() {
 }
 
 // ===== 移动端左右滑动切页 =====
-// 顺序与底部导航一致。教务页（课表）同样可划入划出：课表的横向滚动
+// 顺序与底部导航一致；管理员面板排在最后 —— 底部导航里没有它，移动端由个人中心进入，
+// 所以从它右滑＝回个人中心。（桌面侧栏把它排在个人中心之前，那是侧栏自己的顺序，不影响这里。）
+// 除登录视图外不再有「哪个页面不给滑动」的豁免：只要进了这串列表就能划入划出。
+// 教务页（课表）同样可划入划出：课表的横向滚动
 // 由 isHorizontallyScrollable 单独让位，不需要在页级再拦一道。
-var SWIPE_PAGES = ['home', 'notices', 'activities', 'academic', 'account'];
+var SWIPE_PAGES = ['home', 'notices', 'activities', 'academic', 'account', 'admin'];
 var SWIPE_THRESHOLD = 35;
 // 屏幕左缘约 20px 是 iOS 系统「返回上一层」手势的判定区。
 // 我们的监听是 passive 的、无法 preventDefault，若不在起点就放手，
@@ -181,11 +190,14 @@ function isHorizontallyScrollable(el, win) {
 }
 
 function swipeTo(dir) {
-    var i = SWIPE_PAGES.indexOf(currentView);
+    // 不能进管理员面板的人，列表里就当没有它：在个人中心左滑应当「到头停住」，
+    // 而不是被 switchView 的权限闸门改写后跳回主页（那会像划错页）
+    var pages = canManagePanel() ? SWIPE_PAGES : SWIPE_PAGES.filter(function (k) { return k !== 'admin'; });
+    var i = pages.indexOf(currentView);
     if (i < 0) return;
     var j = i + dir;
-    if (j < 0 || j >= SWIPE_PAGES.length) return;   // 两端停住，不循环
-    switchView(SWIPE_PAGES[j], dir);
+    if (j < 0 || j >= pages.length) return;   // 两端停住，不循环
+    switchView(pages[j], dir);
 }
 
 /** 给一个文档（主壳或同源 iframe 内文档）挂横向滑动监听；只监听不拦截，滚动不受影响 */

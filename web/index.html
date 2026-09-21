@@ -91,7 +91,7 @@
                     </div>
                     <div class="beta-banner">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-                        <span>系统内测中，功能与数据仍在调整，敬请留意</span>
+                        <span>1.0版本公测中，仍在修复bug，敬请留意</span>
                     </div>
                     <div class="home-layout">
                         <div class="calendar">
@@ -172,6 +172,10 @@
                             </div>
                             <button class="btn btn-primary btn-block" id="loginBtn" type="submit">登录</button>
                         </form>
+                        <!-- 忘记密码：本期只有后端接口（/api/auth/forgot/*），页面不做流程，
+                             所以这里如实写成「找班委重置」而不是给一个点不动的入口。
+                             哪天把找回页面做出来，把这句话换成入口即可。 -->
+                        <p class="auth-note">忘记密码？请联系班长或团支书重置。</p>
                     </div>
                 </div>
             </div>

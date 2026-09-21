@@ -9,3 +9,9 @@ INTERNAL_TOKEN=replace-with-the-same-value-as-the-worker
 
 # 注意：教务会话 Cookie 的封存密钥 COOKIE_SECRET 不在这里。
 # 它只被私有 Worker 使用（在那边 `wrangler secret put COOKIE_SECRET`），Pages 侧不再需要。
+
+# 邮件服务（Resend）密钥，邮箱验证与忘记密码要靠它发信。
+# 不配也不会崩：邮箱相关接口统一回 503「邮件服务未配置」，其余功能照常。
+# 发件域名需先在 Resend 后台完成 SPF/DKIM 验证；发件人可用 EMAIL_FROM 覆盖
+# （默认 "班级助理 <no-reply@class.qxwkstudio.top>"）。
+EMAIL_API_KEY=re_replace-with-your-resend-key

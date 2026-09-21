@@ -289,15 +289,17 @@ function renderRoleList() {
                 + '<button type="button" class="btn btn-danger" data-act="del-role" data-id="' + escAttr(r.id) + '">删除</button>'
                 + '</div>'
             : '';
-        return '<div class="info-row member-row">'
+        // 权限说明挂在行下面而不是 .member-main 里：按钮多的行（编辑 / 删除）下，
+        // 说明挤在名字下方会把那一行撑高、与按钮错位，落到按钮下面单独一行读起来更顺
+        return '<div class="info-row member-row role-row">'
             + '<div class="member-main">'
             + '<div class="member-line">'
             + '<span class="member-name">' + esc(r.name) + '</span>'
             + '<span class="member-pos">自定义</span>'
             + '</div>'
-            + '<div class="member-sub">' + esc(rolePermText(r.permissions)) + '</div>'
             + '</div>'
             + actions
+            + '<div class="member-sub role-meta">' + esc(rolePermText(r.permissions)) + '</div>'
             + '</div>';
     }).join('');
     el.innerHTML = '<div class="roles-group-label">默认职位（不可修改 / 删除）</div>'
@@ -370,6 +372,34 @@ function renderEditPosPicker(selected) {
     renderPosPicker('editPosPicker', selected);
 }
 
+// ===== 成员邮箱：验证状态徽章 =====
+// 与个人中心那个邮箱徽章同一套语义色：已验证＝成功色，未验证＝中性色（未验证不算出错，不上红）
+var editingMemberEmail = '';        // 打开弹窗时该成员的邮箱（小写归一，用来判断值动没动）
+var editingMemberEmailVerified = false;
+
+function setEmailBadge(el, verified, text) {
+    if (!el) return;
+    el.className = 'badge ' + (verified ? 'badge-ok' : 'badge-muted');
+    el.textContent = text;
+    el.hidden = false;
+}
+
+/**
+ * 「编辑成员」的邮箱框：值没动就照原样显示，一改就显示「未验证」。
+ * 之所以要看「动没动」：后端只在地址真的变了时才清零验证状态（改姓名不该让人重新验证），
+ * 徽章若一律说「未验证」，就会出现「界面说未验证、库里其实还是已验证」的错位。
+ */
+function syncEditEmailBadge() {
+    var input = document.getElementById('editEmail');
+    var badge = document.getElementById('editEmailBadge');
+    if (!input || !badge) return;
+    var value = input.value.trim().toLowerCase();
+    if (!value) { badge.hidden = true; return; }
+    var untouched = value === editingMemberEmail;
+    setEmailBadge(badge, untouched && editingMemberEmailVerified,
+        untouched && editingMemberEmailVerified ? '已验证' : '未验证');
+}
+
 function startEditMember(id) {
     var m = (membersCache || []).filter(function (x) { return String(x.id) === String(id); })[0];
     if (!m) { alert('未找到该成员'); return; }
@@ -377,6 +407,10 @@ function startEditMember(id) {
     document.getElementById('editName').value = m.name || '';
     renderEditPosPicker(parsePositionsList(m.positions));
     document.getElementById('editContact').value = m.contact || '';
+    document.getElementById('editEmail').value = m.email || '';
+    editingMemberEmail = String(m.email || '').trim().toLowerCase();
+    editingMemberEmailVerified = !!m.email_verified;
+    syncEditEmailBadge();
     document.getElementById('editPassword').value = '';
     document.getElementById('editMemberError').classList.remove('show');
     editingMemberId = id;
@@ -393,6 +427,7 @@ async function saveMember() {
     errBox.classList.remove('show');
     var name = document.getElementById('editName').value.trim();
     var contact = document.getElementById('editContact').value.trim();
+    var email = document.getElementById('editEmail').value.trim();
     var password = document.getElementById('editPassword').value;
     if (!name) { errBox.textContent = '姓名不能为空'; errBox.classList.add('show'); return; }
     if (password && password.length < 6) { errBox.textContent = '新密码长度至少 6 位'; errBox.classList.add('show'); return; }
@@ -401,7 +436,7 @@ async function saveMember() {
     var btn = document.getElementById('editMemberBtn');
     btn.disabled = true; var t = btn.textContent; btn.textContent = '保存中…';
     try {
-        var payload = { name: name, positions: positions, contact: contact };
+        var payload = { name: name, positions: positions, contact: contact, email: email };
         if (password) payload.password = password;
         await api('/api/auth/users/' + editingMemberId, { method: 'PUT', body: JSON.stringify(payload) });
         cancelEditMember();
@@ -435,6 +470,7 @@ function initMemberManagement() {
         var name = document.getElementById('regName').value.trim();
         var password = document.getElementById('regPassword').value;
         var contact = document.getElementById('regContact').value.trim();
+        var email = document.getElementById('regEmail').value.trim();
         // 多选职务标签
         var positions = [];
         document.querySelectorAll('#regPosPicker .pos-cb:checked').forEach(function (cb) { positions.push(cb.value); });
@@ -443,10 +479,10 @@ function initMemberManagement() {
         var btn = document.getElementById('regBtn');
         btn.disabled = true; var t = btn.textContent; btn.textContent = '注册中…';
         try {
-            var payload = { student_id: student_id, name: name, password: password, positions: positions, contact: contact };
+            var payload = { student_id: student_id, name: name, password: password, positions: positions, contact: contact, email: email };
             await api('/api/auth/register', { method: 'POST', body: JSON.stringify(payload) });
             errBox.classList.add('show');
-            errBox.textContent = '注册成功';
+            errBox.textContent = email ? '注册成功（邮箱待本人验证）' : '注册成功';
             regForm.reset();
             loadMembers();
         } catch (err) {
@@ -456,6 +492,10 @@ function initMemberManagement() {
             btn.disabled = false; btn.textContent = t;
         }
     });
+
+    // 编辑弹窗那颗徽章跟着输入走：改了邮箱，立刻反映「保存之后会是什么状态」，
+    // 而不是等保存完再让用户去成员列表里对。（添加成员不放徽章：新账号一律未验证）
+    document.getElementById('editEmail').addEventListener('input', syncEditEmailBadge);
 }
 
 // ===== datetime-local 空值提示：用「未填写」替换原生的 yyyy/mm/dd 占位 =====
@@ -595,7 +635,9 @@ function fieldRowHTML() {
         + '<option value="radio">单选</option><option value="checkbox">多选</option>'
         + '<option value="number">数字</option><option value="date">日期</option>'
         + '</select>'
-        + '<label class="fld-required-row"><input type="checkbox" class="fld-required"> 必填</label>'
+        + '<label class="fld-required-row"><span>必填</span><span class="switch">'
+        + '<input type="checkbox" class="fld-required"><span class="switch-track" aria-hidden="true"></span>'
+        + '</span></label>'
         + '</div>'
         + '<div class="mb-8"><input class="form-input fld-label" type="text" placeholder="字段内容，如：姓名" autocomplete="off"></div>'
         + '<div class="fld-options-wrap" hidden><input class="form-input fld-options" type="text" placeholder="选项，用英文逗号分隔，如：午餐,晚餐" autocomplete="off"></div>'

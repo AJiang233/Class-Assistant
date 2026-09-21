@@ -49,11 +49,27 @@ export class UserModel {
   }
 
   /**
-   * 根据 ID 查找用户（不含敏感字段）
+   * 按邮箱查找用户（绑定查重、找回密码都用它）
+   * 邮箱统一小写存储（handlers/authHandler.js 的 normalizeEmail），所以这里按传入值精确匹配，
+   * 不再做 LOWER() —— 用 LOWER() 会让 idx_users_email 那个表达式索引用不上。
+   */
+  async findByEmail(email) {
+    const result = await this.db.prepare(
+      'SELECT id, student_id, name, positions, email, email_verified FROM users WHERE email = ?'
+    ).bind(email).first();
+    return result;
+  }
+
+  /**
+   * 根据 ID 查找用户（不含密码等敏感字段）
+   *
+   * password_changed_at 一并取出：middleware 的 loadFreshUser 要用它比对 JWT 里的 iat，
+   * 判断这个令牌是不是在改密之前签发的。它是时间戳不是凭据，且对外响应走 publicUser 白名单，
+   * 不会因此漏出去。
    */
   async findById(id) {
     const result = await this.db.prepare(
-      'SELECT id, student_id, name, positions, contact FROM users WHERE id = ?'
+      'SELECT id, student_id, name, positions, contact, email, email_verified, password_changed_at FROM users WHERE id = ?'
     ).bind(id).first();
     return result;
   }
@@ -61,11 +77,13 @@ export class UserModel {
   /**
    * 获取全部班级成员（不含敏感字段）
    * 注意 handleListUsers 是整行展开（{ ...u }）下发的，这里选了什么字段就等于对外发了什么，
-   * 所以 update_time 也从这里拿掉，免得绕过 publicUser 从成员列表漏出去
+   * 所以 update_time 从下面拿掉了，免得绕过 publicUser 从成员列表漏出去。
+   * email 是**故意**留着的：班长要能看到谁还没验证邮箱，才好去催。
+   * password_changed_at 不放这里 —— 成员列表没有它的消费点。
    */
   async list() {
     const result = await this.db.prepare(
-      'SELECT id, student_id, name, positions, contact FROM users ORDER BY id ASC'
+      'SELECT id, student_id, name, positions, contact, email, email_verified FROM users ORDER BY id ASC'
     ).all();
     return result.results;
   }
@@ -82,8 +100,15 @@ export class UserModel {
 
   /**
    * 根据 ID 删除用户
+   *
+   * 连带清掉邮箱验证码与订阅开关：D1 里没建外键（现有表也都没用外键），只能靠代码收。
+   * 漏了 email_codes 会留下无主验证码；真正麻烦的是 users.email 的唯一索引 ——
+   * 残留的订阅行本身不影响它，但把「删除成员必须清干净」这条口径定在模型里，
+   * 就不会有人在别处新增一张 user 附属表时忘了收尾。
    */
   async delete(id) {
+    await this.db.prepare('DELETE FROM email_codes WHERE user_id = ?').bind(id).run();
+    await this.db.prepare('DELETE FROM email_subscriptions WHERE user_id = ?').bind(id).run();
     const result = await this.db.prepare(
       'DELETE FROM users WHERE id = ?'
     ).bind(id).run();
@@ -92,13 +117,17 @@ export class UserModel {
 
   /**
    * 创建用户
+   *
+   * email 由管理员在「添加成员」里代填（选填）。**email_verified 一律写 0**：管理员填的地址
+   * 没有走过验证码，不能替那位同学把邮箱「验证」了 —— 否则找回密码的凭据就由管理员说了算。
+   * 这里显式写 0 而不吃列的默认值：这是一条需求，不是可以依赖的实现细节。
    */
   async create(userData) {
-    const { student_id, name, password_hash, positions = '学生', contact = '' } = userData;
+    const { student_id, name, password_hash, positions = '学生', contact = '', email = null } = userData;
     const result = await this.db.prepare(
-      `INSERT INTO users (student_id, name, password_hash, positions, contact, update_time)
-       VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
-    ).bind(student_id, name, password_hash, positions, contact).run();
+      `INSERT INTO users (student_id, name, password_hash, positions, contact, email, email_verified, update_time)
+       VALUES (?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP)`
+    ).bind(student_id, name, password_hash, positions, contact, email).run();
     return result;
   }
 
@@ -113,6 +142,9 @@ export class UserModel {
     if (data.positions !== undefined) { fields.push('positions = ?'); values.push(data.positions); }
     if (data.contact !== undefined) { fields.push('contact = ?'); values.push(data.contact); }
     if (data.password_hash !== undefined) { fields.push('password_hash = ?'); values.push(data.password_hash); }
+    if (data.email !== undefined) { fields.push('email = ?'); values.push(data.email); }
+    if (data.email_verified !== undefined) { fields.push('email_verified = ?'); values.push(data.email_verified); }
+    if (data.password_changed_at !== undefined) { fields.push('password_changed_at = ?'); values.push(data.password_changed_at); }
 
     if (fields.length === 0) return { success: true };
 

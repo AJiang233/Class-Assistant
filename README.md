@@ -2,7 +2,7 @@
 
 一个面向「班长」角色的 AI 助理系统：把转发通知、活动提醒、同学答疑、材料催收等机械化的班级事务，逐步交给 AI 与自动化流程完成。
 
-目前状态：**Web 门户与安卓端已可用**（账号体系 / 通知与活动管理 / 移动端适配 / 系统日历订阅 / 安卓的本地提醒、桌面小组件），并已完成一轮安全加固；鸿蒙端**开发已暂停**，代码移至 `harmony` 分支（见下表）；Go 常驻调度进程已跑通封存自检骨架，Agent / 爬虫 / 知识库等模块在逐步建设中。
+目前状态：**Web 门户与安卓端已可用**（账号体系与邮箱验证 / 通知与活动管理 / 移动端适配 / 系统日历订阅 / 安卓的本地提醒、桌面小组件），并已完成一轮安全加固；鸿蒙端**开发已暂停**，代码移至 `harmony` 分支（见下表）；Go 常驻调度进程已跑通封存自检骨架，Agent / 爬虫 / 知识库等模块在逐步建设中。
 
 ## 项目背景
 
@@ -26,14 +26,15 @@
 
 Go 模块声明在根目录 `go.mod`（go 1.22，模块路径 `github.com/AJiang233/Class-Assistant`）。
 
-另有 `.github/`（CI 工作流 + Issue / PR 模板）与 `.claude/artifacts/plans/`（设计文档归档），是工具目录，不算项目模块。
+另有 `.github/`（CI 工作流 + Issue / PR 模板）与 `.claude/artifacts/plans/`（设计文档归档），是工具目录，不算项目模块。各版本的更新日志见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 功能规划
 
 - ✅ 日程与提醒： 已落地两条路径 —— 系统日历订阅（全平台通用）、安卓本地到点提醒
 - ✅ 个性化门户：Cloudflare 网站 + 账号体系，按职位/角色展示内容与权限
-- ✅ 教务数据同步：同步个人课表与学业达成（学分看板）；绑定支持 App 一键、学号密码代登录、手动粘贴 Cookie 三条路径
+- ✅ 教务数据同步：同步个人课表、课程成绩与学业达成（学分看板），成绩按学期爬取并缓存；绑定支持 App 一键、学号密码代登录、手动粘贴 Cookie 三条路径
 - ✅ 移动端：安卓原生套壳（WebView + 本地提醒 + 桌面小组件）；iOS 通过 Web + 系统日历订阅覆盖
+- ✅ 账号与邮箱：邮箱绑定与验证（6 位验证码、一码制 + 60 秒限发 + 5 次试错上限）、填了 QQ 邮箱后显示其头像；**邮件订阅推送已接通** —— 发布通知 / 活动 / 表单时按订阅给提醒对象发邮件（与网页列表、安卓推送同一套可见性口径，批量筛人与批量发信），订阅开关在个人中心；找回密码的后端接口已就绪（凭已验证邮箱发重置码），页面流程待做；改密 / 被重置密码后旧登录态立即失效
 - 通知抓取与归档：轮询班级工作群，拉取新通知并结构化归档（规划中）
 - 智能转发：根据通知内容判断是否需要转发到班级群，并支持人工复核（规划中）
 - 知识库问答：爬取学生手册、教务处文件等归档进 RAG，群内 @ 助手即可答疑（规划中）
@@ -55,13 +56,13 @@ Go 模块声明在根目录 `go.mod`（go 1.22，模块路径 `github.com/AJiang
 
 ## 协作分工
 
-> 依据本仓库的提交记录（`git shortlog -sn`，以及各目录下的 author）整理，**截至 0.5.4**；同一人可能留下过多个提交身份（`TidalStarNan` 与 `汐星楠`），已合并统计。
+> 依据本仓库的提交记录（`git shortlog -sn`，以及各目录下的 author）整理，**截至 1.0.0**；同一人可能留下过多个提交身份（`TidalStarNan` 与 `汐星楠`），已合并统计。
 
 | 贡献者 | 主要工作 |
 | --- | --- |
-| AJiang233 | 后端 API / 鉴权与权限体系 / 通知与活动数据模型、CAS 代登录的 Cookie 罐与会话换取判定、课表页错误分支兜底、前端 API 超时兜底；Web 课表与学分看板、班级主页与管理员页面、移动端适配、个人中心卡片折叠与两列排布；安全加固（全站 CSP、内联脚本与内联事件处理器全部外置）；安卓端（WebView 套壳、下拉刷新、本地提醒、桌面小组件、日历订阅、离线可用、后台常驻与深 Doze 兜底）；安卓到鸿蒙的交接文档 |
+| AJiang233 | 后端 API / 鉴权与权限体系 / 通知与活动数据模型、CAS 代登录的 Cookie 罐与会话换取判定、课表页错误分支兜底、前端 API 超时兜底；Web 课表与学分看板、班级主页与管理员页面、移动端适配、个人中心卡片折叠与两列排布；安全加固（全站 CSP、内联脚本与内联事件处理器全部外置）；安卓端（WebView 套壳、下拉刷新、本地提醒、桌面小组件、日历订阅、离线可用、后台常驻与深 Doze 兜底）；成绩查询（服务端按学期爬取并缓存）与教务访问拆到独立私有 Worker、教务上游数据上界与会话过期缓存兜底、图标系统换新设计稿 |
 | TsoiTZF | Go 常驻调度（`cmd/scheduler` + `internal/`：Cookie 封存 / 学号比对 / 职位白名单 / 进程内限流，密文格式与 Worker 交叉验证）、安全审查与加固（教务越权、自定义职位提权、密码长度、MFA 次数上限） |
-| TidalStarNan | 架构迁移到 Cloudflare Pages（`functions/` 接管 `/api/*`）、Web 前端主体开发与移动端布局适配修复（班级主页 / 通知 / 活动 / 账号 / 管理员页面 / 弹窗 / 表单）；安卓端 GitHub Actions 打包、通知渠道改弹横幅与通知 / 活动深链、按提醒对象过滤与推送扇出分批、后台同步压到各自的周期下限、图标统一、制作「检查更新」功能；桌面小组件改版；模块 README 拆分与各次发版记账（`version.json`）；0.3.2 之后的三端审计与修复批次与通知渠道 v3+MAX 升级、推送测试异步化及回调转发 |
+| TidalStarNan | 架构迁移到 Cloudflare Pages（`functions/` 接管 `/api/*`）、Web 前端主体开发与移动端布局适配修复（班级主页 / 通知 / 活动 / 账号 / 管理员页面 / 弹窗 / 表单）；安卓端 GitHub Actions 打包、通知渠道改弹横幅与通知 / 活动深链、按提醒对象过滤与推送扇出分批、后台同步压到各自的周期下限、图标统一、制作「检查更新」功能；桌面小组件改版；模块 README 拆分与各次发版记账（`version.json`）；0.3.2 之后的三端审计与修复批次与通知渠道 v3+MAX 升级、推送测试异步化及回调转发；邮箱绑定与验证与邮件传输层、改密令牌失效 |
 | juuuua | 鸿蒙端**初版**（ArkTS + ArkWeb 套壳与 `CAHost` JS 桥、workScheduler 后台同步、reminderAgentManager 到点提醒、服务卡片「今日活动」、教务绑定流程）；之后各轮的端到端对齐与修补见 `TidalStarNan` 一行 |
 
 ## Roadmap
@@ -80,48 +81,6 @@ Go 模块声明在根目录 `go.mod`（go 1.22，模块路径 `github.com/AJiang
 
 本项目用于个人学习与班级服务，请遵守各平台使用条款，并注意保护同学的个人隐私信息。教务绑定只允许本人学号，会话 Cookie 加密落库；生产环境的 `JWT_SECRET` / `COOKIE_SECRET` 必须配成 Secrets，不要写进仓库（Pages Secrets 配一次即可，Go 调度进程读同名环境变量）；本地开发复制 `web/.dev.vars.example` 为 `web/.dev.vars`。
 
-## 本地网络：git 连不上 GitHub 时
+## git 连不上 GitHub 时
 
-仓库在 GitHub 上，而**国内直连 GitHub 的 git 通道经常不通**。典型表现是：
-
-```
-fatal: unable to access 'https://github.com/...': Failed to connect to github.com port 443 after 21000 ms
-fatal: unable to access 'https://github.com/...': Recv failure: Connection was reset
-```
-
-有两点容易误判，先说明：
-
-- **同一时刻浏览器 / `gh` 可能完全正常**（能打开仓库页、能开 PR），只有 git 推不上去。那是因为它们解析到的 IP 与 TLS 指纹和 git 不同，走的是能通的那条路 —— 所以「网页能打开」证明不了 git 能推。
-- **重试偶尔能成，但不可靠**。同一台机器上 `github.com` 往往只解析到一个 IP（如 `20.205.243.166`），那个 IP 的 443 时通时不通。
-
-机器上一般已经开着代理（Clash / mihomo 之类，本地监听在 `127.0.0.1:7897` 这一档端口上），但 **git 默认不读系统代理设置** —— 这是「明明有代理却还是推不上去」的原因。显式给它指过去即可：
-
-```bash
-# 只在这一次命令上生效，不改任何配置
-git -c http.proxy=http://127.0.0.1:7897 push
-
-# 或者写进全局配置
-git config --global http.proxy http://127.0.0.1:7897
-git config --global --unset http.proxy        # 想取消时
-```
-
-端口换成你自己代理的。判断通没通最快的办法是 `git ls-remote origin` —— 能列出分支就是通了。
-
-### 别的工具要不要也走代理
-
-- **`gh` CLI 与浏览器**：通常不用管，实测能直连（同样是因为它们走的 IP 与 git 不同）。
-- **`wrangler` 的其余命令**（`deploy` / `d1 execute --remote`）：实测直连也正常。
-- **`wrangler tail` 必须走代理**，这是唯一一个会「静默失败」的。它的实时日志是一条 websocket，那个域名在国内被 DNS 污染 —— 典型报错是连到了 Facebook 的 IP 段：
-
-  ```
-  Error: connect ETIMEDOUT 31.13.95.38:443
-  ```
-
-  不报错的时候更坑：它会照常打印 `Successfully created tail, expires at ...`，然后**一条事件也收不到**，很容易被误判成「这段时间根本没有请求进来」。wrangler 认 `HTTPS_PROXY`：
-
-  ```powershell
-  $env:HTTPS_PROXY = "http://127.0.0.1:7897"
-  npx wrangler tail <worker 名> --format json
-  ```
-
-  给对了代理它会先打印一行 `Proxy environment variables detected. We'll use your proxy for fetch requests.`；建议配 `--format json`，每条事件一行、不缓冲，便于直接看和抓取。
+- 请将git的连接模式改为SSH（git@github.com:AJiang233/Class-Assistant.git）

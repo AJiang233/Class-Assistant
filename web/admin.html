@@ -131,7 +131,13 @@
                                 </select>
                             </div>
                             <div class="form-field">
-                                <label class="field-check"><input type="checkbox" id="fcAnonymous"> 匿名提交（只记录谁已交，不记录谁答了什么）</label>
+                                <label class="switch-row">
+                                    <span>匿名提交（只记录谁已交）</span>
+                                    <span class="switch">
+                                        <input type="checkbox" id="fcAnonymous">
+                                        <span class="switch-track" aria-hidden="true"></span>
+                                    </span>
+                                </label>
                             </div>
                             <div class="form-field">
                                 <label class="form-label">字段</label>
@@ -143,7 +149,13 @@
                                 <div id="fcRemind" class="remind-box"></div>
                             </div>
                             <div class="form-field">
-                                <label class="field-check"><input type="checkbox" id="fcNotice"> 同时下发一条通知（带「去填写」按钮）</label>
+                                <label class="switch-row">
+                                    <span>同时下发一条通知（带「去填写」按钮）</span>
+                                    <span class="switch">
+                                        <input type="checkbox" id="fcNotice">
+                                        <span class="switch-track" aria-hidden="true"></span>
+                                    </span>
+                                </label>
                                 <input id="fcNoticeContent" class="form-input mt-6" type="text" placeholder="通知内容（选填）" autocomplete="off">
                             </div>
                             <button type="button" class="btn btn-primary btn-block" id="fcSubmitBtn" data-act="submit-form-create">添加表单</button>
@@ -204,6 +216,12 @@
                                     <label class="form-label" for="regContact">联系方式</label>
                                     <input class="form-input" type="text" id="regContact" placeholder="选填" autocomplete="off">
                                 </div>
+                                <!-- 邮箱由管理员代填，新账号一律是「未验证」（本人收码才算验证过）。
+                                     这里刻意不放验证状态徽章：新账号只有这一种状态，标出来只是噪音 -->
+                                <div class="form-field">
+                                    <label class="form-label" for="regEmail">邮箱</label>
+                                    <input class="form-input" type="email" id="regEmail" placeholder="选填，填了需本人收码验证" autocomplete="off">
+                                </div>
                                 <div class="form-field">
                                     <label class="form-label">职位（可多选，留空则为「学生」）</label>
                                     <div class="pos-picker" id="regPosPicker"></div>
@@ -238,9 +256,27 @@
                             </div>
                             <div class="form-field">
                                 <label class="form-label">该职位的权限（可选，不勾选则仅为称号）</label>
-                                <label class="field-check"><input type="checkbox" id="rolePermWrite" value="content:write"> 可发布、修改、删除活动与通知，创建、管理表单</label>
-                                <label class="field-check"><input type="checkbox" id="rolePermManage" value="user:manage"> 可注册账号、管理班级成员、添加、管理职位</label>
-                                <label class="field-check"><input type="checkbox" id="rolePermExclude" value="class:exclude"> 不计入班级管理（提醒对象为空时不算全班，需在提醒对象里明确勾选才通知）</label>
+                                <label class="switch-row">
+                                    <span>可发布、修改、删除活动与通知，创建、管理表单</span>
+                                    <span class="switch">
+                                        <input type="checkbox" id="rolePermWrite" value="content:write">
+                                        <span class="switch-track" aria-hidden="true"></span>
+                                    </span>
+                                </label>
+                                <label class="switch-row">
+                                    <span>可注册账号、管理班级成员、添加、管理职位</span>
+                                    <span class="switch">
+                                        <input type="checkbox" id="rolePermManage" value="user:manage">
+                                        <span class="switch-track" aria-hidden="true"></span>
+                                    </span>
+                                </label>
+                                <label class="switch-row">
+                                    <span>不计入班级管理（提醒对象为空时不算全班，需在提醒对象里明确勾选才通知）</span>
+                                    <span class="switch">
+                                        <input type="checkbox" id="rolePermExclude" value="class:exclude">
+                                        <span class="switch-track" aria-hidden="true"></span>
+                                    </span>
+                                </label>
                             </div>
                             <button type="button" class="btn btn-primary btn-block" id="roleAddBtn" data-act="add-role">添加职位</button>
                         </div>
@@ -272,6 +308,13 @@
                     <div class="form-field">
                         <label class="form-label">联系方式</label>
                         <input id="editContact" class="form-input" type="text" placeholder="选填" autocomplete="off">
+                    </div>
+                    <!-- 邮箱：徽章跟着当前值走 —— 没改动就如实显示原来的验证状态，一改就变「未验证」，
+                         因为保存时后端会把状态清零（本人要重新收码），徽章得与保存后的结果一致 -->
+                    <div class="form-field">
+                        <label class="form-label" for="editEmail">邮箱 <span class="badge" id="editEmailBadge" hidden></span></label>
+                        <input id="editEmail" class="form-input" type="email" placeholder="选填，留空表示清掉" autocomplete="off">
+                        <p class="profile-sub">改动邮箱后验证状态清零，需要本人重新收码验证。</p>
                     </div>
                     <div class="form-field">
                         <label class="form-label">重置密码（留空则不修改）</label>

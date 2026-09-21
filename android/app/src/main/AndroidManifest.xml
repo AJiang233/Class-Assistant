@@ -80,15 +80,15 @@
 
         <!-- 桌面小组件：今日活动。
 
-             android:label / android:icon 决定它在系统「添加小组件」列表里显示什么：
-             名字取自 receiver 的 label，图标取自 receiver 的 icon —— **两个都不写就回退到
-             application 那一份**（label = 班级助理、icon = 应用图标），于是两个组件在列表里
-             连名字带图标长得一模一样。只写 name / exported 是不够的。 -->
+             android:label 决定它在系统「添加小组件」列表里显示的名字 —— 不写就回退到
+             application 那一份（「班级助理」），两个组件在那里就分不清谁是谁了。
+             图标**刻意不写**：2026-09-19 起两块都带上了 previewImage 缩略图（见 res/xml/ 下
+             两个 *_widget_info.xml），名字 + 缩略图已经够区分，再挂一套矢量图标只是多一份要
+             跟着卡片样式改的东西；不写会回退成应用图标，正是想要的。 -->
         <receiver
             android:name=".widget.TodayWidgetProvider"
             android:exported="true"
-            android:label="@string/widget_title"
-            android:icon="@drawable/ic_widget_today">
+            android:label="@string/widget_title">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>
@@ -97,12 +97,12 @@
                 android:resource="@xml/today_widget_info" />
         </receiver>
 
-        <!-- 桌面小组件：课表。label / icon 的作用同上一条，两个组件各自独立。 -->
+        <!-- 桌面小组件：课表。label 的作用同上一条（图标同样刻意不写，靠 label + 缩略图区分），
+             两个组件各自独立。 -->
         <receiver
             android:name=".widget.CoursesWidgetProvider"
             android:exported="true"
-            android:label="@string/courses_widget_title"
-            android:icon="@drawable/ic_widget_courses">
+            android:label="@string/courses_widget_title">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>

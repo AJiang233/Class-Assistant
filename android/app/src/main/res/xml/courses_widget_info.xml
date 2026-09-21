@@ -16,12 +16,18 @@
          不会换行把卡片撑高。110dp 是下限，真机上多数机型的实际宽度比它大。
        - 高：110dp 扣掉标题与内边距后只完整露得下一张课卡，「今天还剩几节」要靠往下滚 ——
          课卡本来就是可滚动的列表（见 CoursesWidgetService），课多时不会丢内容。
-     改课卡行数 / 字号 / 内边距前先回来看这个算式。 -->
+     改课卡行数 / 字号 / 内边距前先回来看这个算式。
+
+     预览缩略图（previewImage）：小工具选择界面里显示的那张图，尺寸与放法同今日活动那块
+     （today_widget_info.xml 里有完整说明：正方形、drawable-nodpi、不用 previewLayout）。
+     这块显示的是课程表，组件尺寸或卡片样式一改，这张缩略图就要重出 —— 缩略图与实际样子
+     对不上的话，用户是被骗着把组件拖到桌面上的。 -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     android:minWidth="110dp"
     android:minHeight="110dp"
     android:updatePeriodMillis="1800000"
     android:initialLayout="@layout/widget_courses"
+    android:previewImage="@drawable/widget_courses_preview"
     android:resizeMode="horizontal|vertical"
     android:widgetCategory="home_screen"
     android:description="@string/courses_widget_desc" />
