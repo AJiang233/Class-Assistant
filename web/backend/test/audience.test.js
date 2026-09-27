@@ -134,6 +134,33 @@ describe('可见性判定', () => {
     assert.equal(out.length, 2);
     assert.ok(out.every((r) => r.remind_people));
   });
+
+  it('管理员不受「不计入班级管理」限制：列表照常给全部（含默认全班）', async () => {
+    // 「班长」+「旁听生」：权限取并集，excluded 与 content:write 同时成立
+    const admin = await loadViewer({ DB: fakeDb({ roles: [旁听生] }) },
+      { ...班长, positions: '["班长","旁听生"]' });
+    assert.equal(admin.excluded, true, '前提：这个人确实被标为不计入班级管理');
+    assert.equal(admin.canWrite, true);
+
+    const rows = [{ remind_people: null }, { remind_people: null }];
+    const out = await listByAudience(admin, async () => rows, 2, 0);
+
+    assert.equal(out.length, 2, '管理员看得到「默认全班」的条目');
+  });
+
+  it('只持 content:write 的被排除者不算管理员：列表仍过滤「默认全班」', async () => {
+    const writer = await loadViewer({ DB: fakeDb({ roles: [旁听生] }) },
+      { id: 4, name: '学习委员', positions: '["学习委员","旁听生"]' });
+    assert.equal(writer.excluded, true);
+    assert.equal(writer.canWrite, true);
+    assert.equal(writer.canManageUsers, false, '学习委员没有 user:manage，不该被放宽');
+
+    const page = () => [{ remind_people: null }, { remind_people: JSON.stringify(['学习委员']) }];
+    const out = await listByAudience(writer, async (l, o) => (o === 0 ? page() : []), 2, 0);
+
+    assert.equal(out.length, 1);
+    assert.equal(out[0].remind_people, JSON.stringify(['学习委员']));
+  });
 });
 
 // ===== 三条被绕过的读取路径 =====
@@ -146,6 +173,24 @@ describe('单条读取', () => {
 
     assert.equal(res.status, 404);
     assert.equal((await json(res)).code, 'NOTICE_NOT_FOUND');
+  });
+
+  it('被标为不计入班级管理的班委，按 id 取全班通知：照常打开', async () => {
+    const env = { DB: fakeDb({ roles: [旁听生], notice: { id: 5, title: '全班通知', remind_people: null } }) };
+    const admin = { ...班长, positions: '["班长","旁听生"]' };
+
+    const res = await handleGetNotice(req('/api/notices/5'), env, admin, { id: '5' });
+
+    assert.equal(res.status, 200);
+  });
+
+  it('只有 content:write 的班委仍能打开自己没被定向到的单条（编辑入口要用）', async () => {
+    const env = { DB: fakeDb({ notice: { id: 5, title: '定向通知', remind_people: JSON.stringify(['小李']) } }) };
+    const 学习委员 = { id: 4, name: '学习委员', positions: '学习委员' };
+
+    const res = await handleGetNotice(req('/api/notices/5'), env, 学习委员, { id: '5' });
+
+    assert.equal(res.status, 200);
   });
 
   it('班上同学取得到，但响应里不带定向名单', async () => {
