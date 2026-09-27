@@ -187,6 +187,7 @@ export async function handleCreateForm(request, env, user, ctx) {
       body: pushed.body,
       url: `/forms.html?id=${formId}`,
       tag: `form-${formId}`,
+      kind: 'form',
       excludeUserId: user.id
     });
 

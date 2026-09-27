@@ -29,7 +29,7 @@
 #       滑块定位、学分进度条宽度、层级缩进这类动态值仍然留在 JS 里。
 #       隐藏/显示统一走 [hidden] 属性（style.css 顶部有 [hidden]{display:none!important}）。
 #   img-src 'self' data: https://weavatar.com
-#       favicon 用的是 data:image/svg+xml；weavatar.com 是「填了 QQ 邮箱」之后的头像源
+#       data: 供 style.css 里下拉箭头那张内嵌 SVG 用（favicon 已改为 PNG）；weavatar.com 是「填了 QQ 邮箱」之后的头像源
 #       （见 app.js 的 qqAvatarUrl，只对 @qq.com 请求），同样只放行精确主机。
 #   connect-src 'self'        前端与后端同域（app.js 里 API_BASE 为空），另加 beacon 上报域
 #   frame-src 'self'          自家 iframe 之间要能嵌套

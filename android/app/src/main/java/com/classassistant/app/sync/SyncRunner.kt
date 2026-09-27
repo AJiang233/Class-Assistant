@@ -241,7 +241,7 @@ object SyncRunner {
 
         for (i in pick.fresh) {
             val (id, _, title) = items[i]
-            Notifier.notifyNotice(
+            Notifier.notifyForm(
                 context,
                 FORM_ID_BASE + id,
                 "新的待填表单：$title",
@@ -337,10 +337,14 @@ object SyncRunner {
     }
 
     /**
-     * 个人页「推送通知测试」用：拉最新一条真实活动 / 通知，按其 id 与深链发一条本地通知，
+     * 个人页「推送通知测试」用：拉最新一条真实活动 / 通知 / 表单，按其 id 与深链发一条本地通知，
      * 让用户自查推送是否可达、点通知能否跳到对应详情。
-     * kind 为 "activity" / "notice"；返回值是一句结果提示，网页直接展示（不做二次判断）。
-     * 复用真实 id：和正式提醒同号，重复点会覆盖而不是叠一堆，深链也一致。
+     * kind 为 "activity" / "notice" / "form"；返回值是一句结果提示，网页直接展示（不做二次判断）。
+     * 复用真实 id：和正式提醒同号，重复点会覆盖而不是叠一堆，深链也一致 —— 这也是它**必须**
+     * 依赖「班里真有一条内容」的原因：通知没法凭空编一条点进去有东西的详情。
+     *
+     * 「班里还没有内容」与「请求失败」要分两句话：新班级里一条活动都没有属正常空态，
+     * 回「请检查网络」会把用户支去查网络（网络其实好好的），得让他知道该先发一条内容。
      */
     fun pushTestNotification(context: Context, kind: String): String {
         val token = Store.token(context) ?: return "请先登录后再测试推送"
@@ -350,39 +354,73 @@ object SyncRunner {
         if (!Notifier.notificationsEnabled(context)) {
             return "通知权限未开启，收不到提醒。请到「系统设置 → 通知」里允许「班级助理」发通知"
         }
-        val res = when (kind) {
-            "activity" -> Api.get("/api/activities?scope=all&limit=1", token)
-            "notice" -> Api.get("/api/notices?scope=all&limit=1", token)
+
+        // 各类型取「最新一条真实内容」：活动 / 通知走列表接口（都是最新在前 —— 活动按
+        // start_time DESC、通知按 publish_time DESC），表单走 /api/forms/mine 的 data.pending
+        // （ORDER BY created_at DESC）；全交过时 pending 为空，退回 editable，免得「有表单却报没有」。
+        val row: JSONObject = when (kind) {
+            "activity", "notice" -> {
+                val isActivity = kind == "activity"
+                val res = Api.get(
+                    if (isActivity) "/api/activities?scope=all&limit=1" else "/api/notices?scope=all&limit=1",
+                    token
+                )
+                if (res is Api.Res.Unauthorized) return "登录态已失效，请重新登录"
+                res.listOrNull()?.firstOrNull()
+                    ?: return if (res is Api.Res.Ok) "班里还没有${if (isActivity) "活动" else "通知"}，先发一条再来测试"
+                    else "拉取失败，请检查网络后重试"
+            }
+            "form" -> {
+                val res = Api.get("/api/forms/mine", token)
+                if (res is Api.Res.Unauthorized) return "登录态已失效，请重新登录"
+                val data = res.dataOrNull()
+                data?.optJSONArray("pending")?.optJSONObject(0)
+                    ?: data?.optJSONArray("editable")?.optJSONObject(0)
+                    ?: return if (res is Api.Res.Ok) "班里还没有表单，先发一个再来测试"
+                    else "拉取失败，请检查网络后重试"
+            }
             else -> return "未知的推送类型"
         }
-        if (res is Api.Res.Unauthorized) return "登录态已失效，请重新登录"
-        // 取最新一条：两个列表接口都是最新在前（活动按 start_time DESC，通知按 publish_time DESC）
-        val row = res.listOrNull()?.firstOrNull() ?: return "没有拉到数据，请检查网络"
+
         val id = row.optInt("id", 0)
         if (id == 0) return "数据缺少 id，无法推送"
 
         Notifier.ensureChannels(context)
-        return if (kind == "activity") {
-            val title = row.optString("title").ifBlank { "班级活动" }
-            val start = parseServerTime(row.optString("start_time"))
-            Notifier.notifyActivity(
-                context,
-                id,
-                title,
-                if (start != null) "${formatDayClock(start)} 开始" else "即将开始",
-                row.optString("location")
-            )
-            "已发送活动提醒：$title"
-        } else {
-            val title = row.optString("title").ifBlank { "班级通知" }
-            Notifier.notifyNotice(
-                context,
-                NOTICE_ID_BASE + id,
-                title,
-                row.optString("content").replace("\n", " ").take(120).ifBlank { "点击查看详情" },
-                "?view=notices&id=$id"
-            )
-            "已发送通知提醒：$title"
+        return when (kind) {
+            "activity" -> {
+                val title = row.optString("title").ifBlank { "班级活动" }
+                val start = parseServerTime(row.optString("start_time"))
+                Notifier.notifyActivity(
+                    context,
+                    id,
+                    title,
+                    if (start != null) "${formatDayClock(start)} 开始" else "即将开始",
+                    row.optString("location")
+                )
+                "已发送活动提醒：$title"
+            }
+            "form" -> {
+                val title = row.optString("title").ifBlank { "待填表单" }
+                Notifier.notifyForm(
+                    context,
+                    FORM_ID_BASE + id,
+                    "新的待填表单：$title",
+                    "待填表单，点击打开填写",
+                    "forms.html?id=$id"
+                )
+                "已发送表单提醒：$title"
+            }
+            else -> {
+                val title = row.optString("title").ifBlank { "班级通知" }
+                Notifier.notifyNotice(
+                    context,
+                    NOTICE_ID_BASE + id,
+                    title,
+                    row.optString("content").replace("\n", " ").take(120).ifBlank { "点击查看详情" },
+                    "?view=notices&id=$id"
+                )
+                "已发送通知提醒：$title"
+            }
         }
     }
 }

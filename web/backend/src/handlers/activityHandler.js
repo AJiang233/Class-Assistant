@@ -39,6 +39,7 @@ export async function handleCreateActivity(request, env, user, ctx) {
       body: activityBody(content, location, start_time),
       url: activityId ? '/?view=activities&id=' + activityId : '/?view=activities',
       tag: activityId ? 'activity-' + activityId : undefined,
+      kind: 'activity',
       excludeUserId: user.id
     });
 

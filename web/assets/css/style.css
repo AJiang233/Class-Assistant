@@ -330,14 +330,16 @@ body {
    5 · 品牌标记
    ═══════════════════════════════════════════════════════════════════ */
 
+/* 品牌标记：图形改由 Logo（assets/icons/icon-192.png）自带圆角底板，
+   容器不再画蓝色渐变底与蓝色辉光，只留尺寸、圆角与一处中性投影。 */
 .brand-mark {
   width: 30px; height: 30px; border-radius: 9px;
-  background: linear-gradient(160deg, #4aa3ff, var(--sys-blue) 55%, #0060cc);
-  box-shadow: var(--specular), 0 4px 12px rgba(0, 122, 255, 0.36);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
   display: flex; align-items: center; justify-content: center; flex-shrink: 0;
   position: relative; isolation: isolate; overflow: hidden;
   transition: transform var(--dur-base) var(--ease-spring), box-shadow var(--dur-base) var(--ease-standard);
 }
+.brand-mark img { width: 100%; height: 100%; display: block; }
 @media (hover: hover) {
   .sidebar-brand:hover .brand-mark,
   .auth-brand:hover .brand-mark { transform: scale(1.06) rotate(-2deg); }
@@ -954,8 +956,7 @@ input[type="checkbox"]:disabled { opacity: 0.5; cursor: not-allowed; }
 .auth-brand { text-align: center; margin-bottom: 26px; }
 .auth-mark {
   width: 46px; height: 46px; border-radius: 13px; margin: 0 auto 14px;
-  background: linear-gradient(160deg, #4aa3ff, var(--sys-blue) 55%, #0060cc);
-  box-shadow: var(--specular), 0 8px 22px -6px rgba(0, 122, 255, 0.48);
+  box-shadow: 0 8px 22px -6px rgba(0, 0, 0, 0.28);
 }
 .auth-title { font-size: 1.22rem; font-weight: 700; letter-spacing: -0.018em; color: var(--text); }
 

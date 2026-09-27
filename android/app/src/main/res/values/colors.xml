@@ -5,6 +5,11 @@
     <color name="window_bg_light">#F2F2F7</color>
     <color name="window_bg_dark">#07070C</color>
 
+    <!-- 自适应图标底板色（见 drawable-anydpi-v26/ic_launcher.xml）：取自 Logo
+         圆角底板边缘的浅色。图标前景 PNG 自带同一片浅色底板，透明圆角处露出它
+         不会出现色块边界。 -->
+    <color name="ic_launcher_background">#EEF2F2</color>
+
     <!-- 桌面小组件文字。widget_today.xml 里是直接写死的十六进制，
          课表小组件有一行要按「已上完」变灰（RemoteViews 里只能从代码 setTextColor），
          所以这两个颜色必须以资源形式存在，代码与布局取同一份 -->

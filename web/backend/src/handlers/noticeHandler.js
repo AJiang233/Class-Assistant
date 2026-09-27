@@ -50,6 +50,7 @@ export async function handleCreateNotice(request, env, user, ctx) {
       body: excerpt(content),
       url: noticeId ? '/?view=notices&id=' + noticeId : '/?view=notices',
       tag: noticeId ? 'notice-' + noticeId : undefined,
+      kind: 'notice',
       excludeUserId: user.id
     });
 

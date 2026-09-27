@@ -33,7 +33,8 @@ export function pushEnabled(env) {
  * @param {Object} env
  * @param {Object} ctx Pages Functions 的 ctx（提供 waitUntil）
  * @param {string} remindPeople 原始 remind_people 字段（空 = 全班）
- * @param {{title:string, body:string, url:string, tag?:string, excludeUserId?:number}} payload
+ * @param {{title:string, body:string, url:string, tag?:string, kind?:string, excludeUserId?:number}} payload
+ *        kind 是内容类型（notice / activity / form），只为让客户端选对通知图标，不影响收件人
  */
 export async function pushToRemindAudience(env, ctx, remindPeople, payload) {
   const vapid = vapidConfig(env);
@@ -66,6 +67,9 @@ async function sendAll(env, vapid, remindPeople, payload) {
     url: payload.url || '/'
   };
   if (payload.tag) message.tag = payload.tag;
+  // kind 交给 SW 选通知图标（通知 / 活动 / 表单各一套，见 sw.js 的 PUSH_ICONS）；
+  // 不带就由 SW 回退应用图标（个人页的测试推送走这一支）。
+  if (payload.kind) message.kind = payload.kind;
 
   const dead = [];
   const ok = [];
