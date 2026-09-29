@@ -57,6 +57,16 @@ export class NoticeModel {
     return result.results;
   }
 
+  /** 日历以发布日期为全天事件，包含窗口内已过期和未发布的通知。 */
+  async listForCalendar(from, to, limit = 200, offset = 0) {
+    const result = await this.db.prepare(
+      `SELECT id, title, content, publish_time, remind_people
+       FROM notices WHERE publish_time >= ? AND publish_time <= ?
+       ORDER BY publish_time ASC, id ASC LIMIT ? OFFSET ?`
+    ).bind(from, to, limit, offset).all();
+    return result.results;
+  }
+
   /**
    * 根据 ID 获取通知（带 created_by，供更新/删除校验归属）
    */

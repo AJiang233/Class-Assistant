@@ -57,6 +57,16 @@ export class ActivityModel {
     return result.results;
   }
 
+  /** 日历先限定日期窗口，再分页；窗口外的远期活动不能占满名额。 */
+  async listForCalendar(from, to, limit = 200, offset = 0) {
+    const result = await this.db.prepare(
+      `SELECT id, title, content, location, start_time, end_time, remind_people
+       FROM activities WHERE start_time >= ? AND start_time <= ?
+       ORDER BY start_time ASC, id ASC LIMIT ? OFFSET ?`
+    ).bind(from, to, limit, offset).all();
+    return result.results;
+  }
+
   /**
    * 根据 ID 获取活动（带 created_by，供更新/删除校验归属）
    */

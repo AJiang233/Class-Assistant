@@ -1,6 +1,6 @@
 import { ActivityModel } from '../models/activityModel.js';
 import { success, error, jsonResponse } from '../utils/response.js';
-import { toLocalDateTime } from '../utils/datetime.js';
+import { normalizeTimeRange } from '../utils/datetime.js';
 import { pageLimit, pageOffset } from '../utils/query.js';
 import { canManageItem, canViewItem, itemForViewer, loadViewer, listByAudience } from '../utils/audience.js';
 import { pushToRemindAudience } from '../utils/push.js';
@@ -18,6 +18,10 @@ export async function handleCreateActivity(request, env, user, ctx) {
     if (!title || !start_time) {
       return jsonResponse(error('请填写标题和开始时间', 'MISSING_FIELDS'), 400);
     }
+    const times = normalizeTimeRange(start_time, end_time);
+    if (!times) {
+      return jsonResponse(error('活动时间不正确，结束时间不能早于开始时间', 'INVALID_TIME'), 400);
+    }
 
     const remind = remind_people ? JSON.stringify(remind_people) : null;
     const activityModel = new ActivityModel(env.DB);
@@ -25,8 +29,8 @@ export async function handleCreateActivity(request, env, user, ctx) {
       title,
       content,
       location,
-      start_time: toLocalDateTime(start_time),
-      end_time: toLocalDateTime(end_time),
+      start_time: times.start,
+      end_time: times.end,
       // 署名与归属都由服务端从登录态写，请求体里传什么都不作数
       publisher: user.name,
       created_by: user.id,
@@ -159,8 +163,17 @@ export async function handleUpdateActivity(request, env, user, params) {
     if (body.title !== undefined) payload.title = body.title;
     if (body.content !== undefined) payload.content = body.content;
     if (body.location !== undefined) payload.location = body.location;
-    if (body.start_time !== undefined) payload.start_time = toLocalDateTime(body.start_time);
-    if (body.end_time !== undefined) payload.end_time = toLocalDateTime(body.end_time);
+    if (body.start_time !== undefined || body.end_time !== undefined) {
+      const times = normalizeTimeRange(
+        body.start_time !== undefined ? body.start_time : existing.start_time,
+        body.end_time !== undefined ? body.end_time : existing.end_time
+      );
+      if (!times) {
+        return jsonResponse(error('活动时间不正确，结束时间不能早于开始时间', 'INVALID_TIME'), 400);
+      }
+      if (body.start_time !== undefined) payload.start_time = times.start;
+      if (body.end_time !== undefined) payload.end_time = times.end;
+    }
     if (body.remind_people !== undefined) {
       payload.remind_people = Array.isArray(body.remind_people)
         ? JSON.stringify(body.remind_people)

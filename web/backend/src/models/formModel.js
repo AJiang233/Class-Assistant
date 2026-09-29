@@ -151,16 +151,22 @@ export class FormModel {
    * 提交 / 覆盖提交（每人每表一条）。
    * created_at 只在首次写入时产生，覆盖时保持不变，仅刷新 updated_at。
    */
-  async submit(formId, userId, studentId, name, answers) {
-    return this.db.prepare(
+  async submit(form, userId, studentId, name, answers) {
+    // 与字段修改互斥：只写入仍符合已校验定义的表单；截止、关闭和覆盖策略在写入时再判一次。
+    const result = await this.db.prepare(
       `INSERT INTO form_submissions (form_id, user_id, student_id, name, answers, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+       SELECT id, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+       FROM forms
+       WHERE id = ? AND fields = ? AND remind_people IS ? AND status = 'open'
+         AND (edit_policy = 'always' OR deadline IS NULL OR deadline >= datetime('now', '+8 hours'))
        ON CONFLICT(form_id, user_id) DO UPDATE SET
          student_id = excluded.student_id,
          name = excluded.name,
          answers = excluded.answers,
-         updated_at = CURRENT_TIMESTAMP`
-    ).bind(formId, userId, studentId, name, answers).run();
+         updated_at = CURRENT_TIMESTAMP
+       WHERE (SELECT edit_policy FROM forms WHERE id = excluded.form_id) != 'none'`
+    ).bind(userId, studentId, name, answers, form.id, form.fields, form.remind_people).run();
+    return (result?.meta?.changes ?? 0) > 0;
   }
 
   /**

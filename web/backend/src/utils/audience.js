@@ -228,13 +228,17 @@ export async function listByAudience(viewer, fetchPage, limit, offset = 0) {
   if (!viewer.excluded || canSeeAllContent(viewer)) return fetchPage(limit, offset);
 
   const out = [];
-  let rawOffset = offset;
+  // offset 指过滤后的行数；直接作为数据库偏移会重复返回上一页末尾的定向条目。
+  let rawOffset = 0;
+  let skipped = 0;
   while (out.length < limit) {
     const rows = await fetchPage(limit, rawOffset);
     if (!rows.length) break;
     for (const row of rows) {
       if (out.length >= limit) break;
-      if (!isEveryoneRemind(row.remind_people)) out.push(row);
+      if (isEveryoneRemind(row.remind_people)) continue;
+      if (skipped < offset) skipped++;
+      else out.push(row);
     }
     rawOffset += rows.length;
     if (rows.length < limit) break;

@@ -11,7 +11,7 @@ import { FormModel, EDIT_POLICY } from '../models/formModel.js';
 import { UserModel } from '../models/userModel.js';
 import { NoticeModel } from '../models/noticeModel.js';
 import { success, error, jsonResponse } from '../utils/response.js';
-import { toLocalDateTime } from '../utils/datetime.js';
+import { toLocalDateTime, formatLocalDateTime, normalizeTimeRange } from '../utils/datetime.js';
 import { pageLimit, pageOffset } from '../utils/query.js';
 import { canView, canManageItem, isExcludedFromClass, loadRoleMap, loadViewer, pickAudience } from '../utils/audience.js';
 import { pushToRemindAudience } from '../utils/push.js';
@@ -27,14 +27,6 @@ const MAX_TITLE_LEN = 100;
 const MAX_DESC_LEN = 1000;
 
 // ===== 通用工具 =====
-
-/** 服务端补「当前本地时间」字符串，与 SQL 里的 datetime('now','+8 hours') 同一口径 */
-function nowLocalDateTime() {
-  const d = new Date(Date.now() + 8 * 3600 * 1000);
-  const p = (n) => String(n).padStart(2, '0');
-  return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())} ` +
-    `${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}`;
-}
 
 /** 锁屏只显示一两行，推送正文截一段即可 */
 function excerptText(text, max = 80) {
@@ -118,6 +110,13 @@ export async function handleCreateForm(request, env, user, ctx) {
     const remind = normalizeRemind(body.remind_people);
     if (remind === false) return jsonResponse(error('提醒对象格式不正确', 'INVALID_REMIND'), 400);
 
+    const noticeTimes = body.notice ? normalizeTimeRange(
+      body.notice_publish_time || formatLocalDateTime(), body.notice_expire_time
+    ) : null;
+    if (body.notice && !noticeTimes) {
+      return jsonResponse(error('通知时间不正确，过期时间不能早于发布时间', 'INVALID_TIME'), 400);
+    }
+
     const model = new FormModel(env.DB);
     const formId = await model.create({
       title,
@@ -147,12 +146,12 @@ export async function handleCreateForm(request, env, user, ctx) {
         linkedNoticeId = await noticeModel.create({
           title: noticeTitle,
           content: noticeContent,
-          publish_time: toLocalDateTime(body.notice_publish_time) || nowLocalDateTime(),
+          publish_time: noticeTimes.start,
           publisher: user.name,
           // 联动下发的通知同样记归属：否则创建者自己都改不了这条通知（见 issue #17）
           created_by: user.id,
           remind_people: remind,
-          expire_time: toLocalDateTime(body.notice_expire_time),
+          expire_time: noticeTimes.end,
           link: `/forms.html?id=${formId}`
         });
         if (linkedNoticeId) await model.update(formId, { notice_id: linkedNoticeId });
@@ -584,7 +583,10 @@ export async function handleSubmitForm(request, env, user, params) {
     if (!va.ok) return jsonResponse(error(va.message, va.code), 400);
 
     // 学号姓名一律取服务端登录态，请求体里的同名字段一概忽略
-    await model.submit(id, user.id, user.student_id, user.name, JSON.stringify(va.answers));
+    const wrote = await model.submit(form, user.id, user.student_id, user.name, JSON.stringify(va.answers));
+    if (!wrote) {
+      return jsonResponse(error('表单或提交状态已变化，请刷新后重试', 'FORM_CHANGED'), 409);
+    }
 
     return jsonResponse(success({ message: mine ? '已更新提交' : '提交成功' }));
   } catch (e) {

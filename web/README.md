@@ -7,6 +7,29 @@
 - 数据库：Cloudflare D1（SQLite）
 - 文案：面向用户的中文措辞与术语统一口径见 [`COPY.md`](../COPY.md)（新增 / 改动文案前对照一下）
 
+## 本地回归验证
+
+在 `web/` 运行 `npm test`。测试使用 Node 原生测试框架；需要 **Node 22.13+，推荐 Node 24 LTS**。`backend/test/dataConsistency.test.js` 使用内置 `node:sqlite` 与项目 `schema.sql`，验证实际 SQL 的分页、日历窗口及表单并发写入，不需要连接 Cloudflare 或安装额外测试依赖。
+
+班务时间统一按北京时间（UTC+8）解释，与开发机和 Worker 的宿主时区无关。表单在写入时重新检查字段定义、提交名单、关闭状态、截止时间和编辑策略；期间状态变化返回 `409 FORM_CHANGED`，刷新后再提交。通知和活动的无效时间、结束早于开始返回 `400 INVALID_TIME`，可选结束时间仍可清空。表单联动通知使用相同校验。
+
+日历先按请求日期窗口筛选，再按受众分页，每种内容最多输出 200 条，按时间先后取数。排除成员的列表分页将 `offset` 解释为过滤后的条目数。
+
+跨时区回归可在 PowerShell 中运行（环境变量仅在当前终端生效，结束后恢复）：
+
+```powershell
+$previousTz = $env:TZ
+try {
+  foreach ($testZone in @('UTC', 'Asia/Shanghai', 'America/New_York')) {
+    $env:TZ = $testZone
+    node --test backend/test/dataConsistency.test.js
+    if ($LASTEXITCODE -ne 0) { throw "时区 $testZone 的测试失败" }
+  }
+} finally {
+  $env:TZ = $previousTz
+}
+```
+
 ---
 
 ## 当前状态

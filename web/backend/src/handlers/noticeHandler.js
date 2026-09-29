@@ -1,6 +1,6 @@
 import { NoticeModel } from '../models/noticeModel.js';
 import { success, error, jsonResponse } from '../utils/response.js';
-import { toLocalDateTime } from '../utils/datetime.js';
+import { normalizeTimeRange } from '../utils/datetime.js';
 import { pageLimit, pageOffset } from '../utils/query.js';
 import { isSafeLink } from '../utils/link.js';
 import {
@@ -28,19 +28,23 @@ export async function handleCreateNotice(request, env, user, ctx) {
     if (!isSafeLink(link)) {
       return jsonResponse(error('跳转地址只能是本站页面', 'INVALID_LINK'), 400);
     }
+    const times = normalizeTimeRange(publish_time, expire_time);
+    if (!times) {
+      return jsonResponse(error('通知时间不正确，过期时间不能早于发布时间', 'INVALID_TIME'), 400);
+    }
 
     const remind = remind_people ? JSON.stringify(remind_people) : null;
     const noticeModel = new NoticeModel(env.DB);
     const noticeId = await noticeModel.create({
       title,
       content,
-      publish_time: toLocalDateTime(publish_time),
+      publish_time: times.start,
       // 署名与归属都由服务端从登录态写，请求体里传什么都不作数
       publisher: user.name,
       created_by: user.id,
       remind_people: remind,
       source: 'manual',
-      expire_time: toLocalDateTime(expire_time),
+      expire_time: times.end,
       link: link ? String(link).trim() : null
     });
 
@@ -187,8 +191,17 @@ export async function handleUpdateNotice(request, env, user, params) {
     const payload = {};
     if (body.title !== undefined) payload.title = body.title;
     if (body.content !== undefined) payload.content = body.content;
-    if (body.publish_time !== undefined) payload.publish_time = toLocalDateTime(body.publish_time);
-    if (body.expire_time !== undefined) payload.expire_time = toLocalDateTime(body.expire_time);
+    if (body.publish_time !== undefined || body.expire_time !== undefined) {
+      const times = normalizeTimeRange(
+        body.publish_time !== undefined ? body.publish_time : existing.publish_time,
+        body.expire_time !== undefined ? body.expire_time : existing.expire_time
+      );
+      if (!times) {
+        return jsonResponse(error('通知时间不正确，过期时间不能早于发布时间', 'INVALID_TIME'), 400);
+      }
+      if (body.publish_time !== undefined) payload.publish_time = times.start;
+      if (body.expire_time !== undefined) payload.expire_time = times.end;
+    }
     if (body.remind_people !== undefined) {
       payload.remind_people = Array.isArray(body.remind_people)
         ? JSON.stringify(body.remind_people)
