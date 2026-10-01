@@ -2,7 +2,7 @@
  * 「提醒对象」可见性与内容归属 —— 「谁看得到 / 谁能改」只在这里实现一次
  *
  * 可见性：提醒对象为空（null / '' / []）= 默认全班；但带「不计入班级管理」权限（class:exclude）
- * 的人不算全班的一员 —— 只有在提醒对象里被明确勾选（写了姓名或用户 id）才可见 / 才通知。
+ * 的人不算全班的一员 —— 只有在提醒对象里被明确勾选（写了用户 ID）才可见 / 才通知。
  *
  * 网页列表、安卓推送、日历订阅、表单读的都是这一条规则。判定必须只有一份：
  * 任何「按 id 取一条」「按名单挑人」「按页取列表」的地方都从这里取，
@@ -44,8 +44,8 @@ export function isExcludedFromClass(positions, roleMap) {
 }
 
 /**
- * 解析提醒对象名单（姓名或用户 id）。空 = 全班。
- * 与前端 remindMe() 同一口径，所以放在这里只写一份。
+ * 解析迁移后的提醒对象 ID 名单。空 = 全班。
+ * 页面个人列表、日历、同步与投递共用此判定。
  */
 export function parseRemindNames(raw) {
   if (!raw) return [];
@@ -74,6 +74,7 @@ export async function loadViewer(env, user) {
   const roleMap = await loadRoleMap(env);
   return {
     user,
+    roleMap,
     excluded: isExcludedFromClass(user.positions, roleMap),
     canWrite: hasPermission(user.positions, PERM_CONTENT_WRITE, roleMap),
     canManageUsers: hasPermission(user.positions, PERM_USER_MANAGE, roleMap)
@@ -105,7 +106,7 @@ export function canSeeAllContent(viewer) {
 export function canView(raw, viewer) {
   if (isEveryoneRemind(raw)) return !viewer.excluded;
   const names = parseRemindNames(raw);
-  return names.includes(String(viewer.user.name)) || names.includes(String(viewer.user.id));
+  return names.includes(String(viewer.user.id));
 }
 
 /**
@@ -150,7 +151,7 @@ export function canManageItem(row, viewer) {
 
 /**
  * 条目的定向名单只给能发文的人看（编辑表单要拿它预填），普通读者不需要。
- * 名单里是姓名与用户 id，不必让每个登录用户都能拉到。
+ * 名单里是用户 ID，不必让每个登录用户都能拉到。
  */
 export function withoutRemindPeople(row, viewer) {
   if (viewer.canWrite) return row;
@@ -177,13 +178,13 @@ export function itemForViewer(row, viewer) {
 export function pickAudience(users, raw, isExcluded = () => false) {
   const names = parseRemindNames(raw);
   if (!names.length) return users.filter((u) => !isExcluded(u));
-  return users.filter((u) => names.includes(String(u.name)) || names.includes(String(u.id)));
+  return users.filter((u) => names.includes(String(u.id)));
 }
 
 /**
  * 「谁该收到推送」：
  *  - 提醒对象为空 = 全班减去「不计入班级管理」的人
- *  - 提醒对象非空 = 名单里被明确写到的姓名或 id（含被排除组的人，只要被点名）
+ *  - 提醒对象非空 = 名单里被明确写到的用户 ID（含被排除组的人，只要被点名）
  *
  * 推送和列表读的必须是同一份判定，否则会出现「列表里看不到却收到推送」。
  *
@@ -210,8 +211,8 @@ export async function resolveRemindUsers(env, remindPeople, options = {}) {
 
 /**
  * 按可见性取一页列表：排除组的人看不到「提醒对象为空」的条目。
- * 定向条目不在这一层按姓名过滤（那是前端与 App 各自的 remindMe 判断），
- * 这里只处理「不计入班级管理」这一条服务端规则。
+ * 此入口用于全部台账，只处理「不计入班级管理」；
+ * 个人列表由模型 listPersonal 在 SQL 分页之前过滤，Android 使用增量同步。
  *
  * 管理员整段跳过（见 canSeeAllContent）：持 user:manage 的管理员要在「全部通知 / 活动」页
  * 看到全班的台账，哪怕他自己被标成了「不计入班级管理」。

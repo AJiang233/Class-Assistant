@@ -1,11 +1,9 @@
+import { normalizeRecipients } from '../utils/recipients.js';
 import { ActivityModel } from '../models/activityModel.js';
 import { success, error, jsonResponse } from '../utils/response.js';
 import { normalizeTimeRange } from '../utils/datetime.js';
 import { pageLimit, pageOffset } from '../utils/query.js';
 import { canManageItem, canViewItem, itemForViewer, loadViewer, listByAudience } from '../utils/audience.js';
-import { pushToRemindAudience } from '../utils/push.js';
-import { pushSubscribedEmails } from '../utils/emailPush.js';
-import { renderActivityEmail } from '../utils/email.js';
 
 /**
  * 发布活动（需登录）
@@ -23,7 +21,8 @@ export async function handleCreateActivity(request, env, user, ctx) {
       return jsonResponse(error('活动时间不正确，结束时间不能早于开始时间', 'INVALID_TIME'), 400);
     }
 
-    const remind = remind_people ? JSON.stringify(remind_people) : null;
+    const remind = await normalizeRecipients(env.DB, remind_people);
+    if (remind === false) return jsonResponse(error('提醒对象必须是有效的用户 ID 数组', 'INVALID_REMIND'), 400);
     const activityModel = new ActivityModel(env.DB);
     const activityId = await activityModel.create({
       title,
@@ -37,46 +36,13 @@ export async function handleCreateActivity(request, env, user, ctx) {
       remind_people: remind
     });
 
-    // 推送：收件人与活动列表同一判定（utils/audience.js），发送在 waitUntil 里不拖慢响应
-    await pushToRemindAudience(env, ctx, remind, {
-      title: String(title),
-      body: activityBody(content, location, start_time),
-      url: activityId ? '/?view=activities&id=' + activityId : '/?view=activities',
-      tag: activityId ? 'activity-' + activityId : undefined,
-      kind: 'activity',
-      excludeUserId: user.id
-    });
-
-    // 订阅邮件：与推送同一收件人口径（utils/audience.js），waitUntil 里逐封发。
-    // 链接必须是绝对地址 —— 邮件客户端不会把 /?view=... 解析成本站页面。
-    const origin = new URL(request.url).origin;
-    await pushSubscribedEmails(env, ctx, 'activities', {
-      remindPeople: remind,
-      excludeUserId: user.id,
-      subject: `【班级助理】新活动：${title}`,
-      html: renderActivityEmail({
-        title,
-        content,
-        location,
-        start_time,
-        link: activityId ? `${origin}/?view=activities&id=${activityId}` : `${origin}/?view=activities`
-      })
-    });
+    // 数据库触发器与业务写入一起登记持久投递事件，由定时消费者处理。
 
     return jsonResponse(success({ message: '活动发布成功' }), 201);
   } catch (e) {
     console.error('发布活动失败:', e);
     return jsonResponse(error('发布活动失败，请稍后重试', 'CREATE_ACTIVITY_FAILED'), 500);
   }
-}
-
-/** 锁屏上给一行「时间 + 地点」，比正文更实用 */
-function activityBody(content, location, startTime) {
-  const time = String(startTime == null ? '' : startTime).replace('T', ' ').slice(0, 16);
-  const parts = [time, location ? String(location).trim() : ''].filter(Boolean);
-  const head = parts.join(' · ');
-  const text = head || String(content || '').replace(/\s+/g, ' ').trim();
-  return text.length > 80 ? text.slice(0, 80) + '…' : text;
 }
 
 /**
@@ -95,11 +61,14 @@ export async function handleListActivities(request, env, user) {
     const activityModel = new ActivityModel(env.DB);
     // 提醒对象为空的条目对「不计入班级管理」的人不可见（安卓推送读的也是这个接口）
     const viewer = await loadViewer(env, user);
-    const list = await listByAudience(viewer,
+    const mine = url.searchParams.get('audience') === 'mine';
+    const list = mine ? await activityModel.listPersonal(viewer, limit + 1, offset, date, scope) : await listByAudience(viewer,
       (l, o) => (scope === 'all' ? activityModel.listAll(l, o) : activityModel.list(l, o, date)),
       limit, offset);
 
-    return jsonResponse(success({ list, total: list.length }));
+    const page = mine ? list.slice(0, limit) : list;
+    return jsonResponse(success({ list: page, total: page.length,
+      nextOffset: mine && list.length > limit ? offset + limit : null }));
   } catch (e) {
     console.error('获取活动列表失败:', e);
     return jsonResponse(error('获取活动列表失败', 'LIST_ACTIVITIES_FAILED'), 500);
@@ -175,9 +144,8 @@ export async function handleUpdateActivity(request, env, user, params) {
       if (body.end_time !== undefined) payload.end_time = times.end;
     }
     if (body.remind_people !== undefined) {
-      payload.remind_people = Array.isArray(body.remind_people)
-        ? JSON.stringify(body.remind_people)
-        : body.remind_people;
+      payload.remind_people = await normalizeRecipients(env.DB, body.remind_people);
+      if (payload.remind_people === false) return jsonResponse(error('提醒对象必须是有效的用户 ID 数组', 'INVALID_REMIND'), 400);
     }
 
     await activityModel.update(id, payload);

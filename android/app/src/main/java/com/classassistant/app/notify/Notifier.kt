@@ -248,6 +248,7 @@ object Notifier {
             // （MAX 是 7.x 能给的最高档，与 8+ 渠道的 IMPORTANCE_MAX 对齐）
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setAutoCancel(true)
+            .setOnlyAlertOnce(true)
         // 彩色 Logo 放大的大图标位；小图标仍是上面那版单色剪影
         kind.largeIcon?.let { builder.setLargeIcon(BitmapFactory.decodeResource(context.resources, it)) }
         val notification = builder.build()

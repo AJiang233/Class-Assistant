@@ -311,17 +311,17 @@ async function loadCalendar() {
     // 上一轮的圆点，用户会以为那些日子今天真有活动
     eventDates.clear();
     try {
-        var res = await api('/api/activities?scope=all&limit=200');
+        var res = await personalList('/api/activities?scope=all&audience=mine&limit=100');
         var list = (res.data && res.data.list) || [];
         // 只标「提醒当前账户（含全班）」的日子，与当日列表口径一致
-        list.filter(function (a) { return remindMe(a.remind_people); })
+        list
             .forEach(function (a) { expand(eventDates, a.start_time, a.end_time); });
     } catch (e) {}
     noticeDates.clear();
     try {
-        var nres = await api('/api/notices?scope=all&limit=200');
+        var nres = await personalList('/api/notices?scope=all&audience=mine&limit=100');
         var nlist = (nres.data && nres.data.list) || [];
-        nlist.filter(function (n) { return remindMe(n.remind_people); })
+        nlist
             .forEach(function (n) { expand(noticeDates, n.publish_time, n.expire_time); });
     } catch (e) {}
     var now = new Date();
@@ -403,33 +403,32 @@ function refreshDay() {
     loadForms();
 }
 
-// 当前账户是否在提醒名单内：remind_people 为空视为「全班」（提醒所有人）
-function remindMe(raw) {
-    if (!raw) return true;
-    var s = String(raw).trim();
-    var arr;
-    if (s.charAt(0) === '[') {
-        try { var parsed = JSON.parse(s); if (Array.isArray(parsed)) arr = parsed; } catch (e) { return true; }
-    } else {
-        arr = s.split(',');
-    }
-    arr = (arr || []).map(function (x) { return String(x).trim(); }).filter(Boolean);
-    if (!arr.length) return true;
-    var u = getSession();
-    var meName = (u && u.name) ? String(u.name) : '';
-    var meId = (u && u.id != null) ? String(u.id) : '';
-    return (meName !== '' && arr.indexOf(meName) >= 0) || (meId !== '' && arr.indexOf(meId) >= 0);
+/** 首页与日历消费完整个人列表；服务端每页先筛受众，续页沿用同一查询。 */
+async function personalList(path) {
+    var rows = [], offset = 0;
+    do {
+        var res = await api(path + '&offset=' + offset);
+        if (!res.data || !Array.isArray(res.data.list)) throw new Error('列表响应格式不正确');
+        rows = rows.concat(res.data.list);
+        var next = res.data.nextOffset;
+        if (next == null) break;
+        if (next <= offset || next > 10000) throw new Error('列表数据过多，请缩小日期范围');
+        offset = next;
+    } while (true);
+    return { data: { list: rows } };
 }
 
 async function loadNotices(date) {
     var el = document.getElementById('noticeList');
     el.innerHTML = skeletonHTML(3);
-    var key = '/api/notices?limit=50' + (date ? '&date=' + encodeURIComponent(date) : '');
+    var key = '/api/notices?audience=mine&limit=100' + (date ? '&date=' + encodeURIComponent(date) : '');
     var render = function (data) { renderNotices(date, (data && data.list) || []); };
     // App 壳：原生层先给缓存、后台刷新完把新数据推回这个键上（网页版注册了也不会被调用）
-    onApiData(key, render);
+    onApiData(key + '&offset=0', async function () {
+        try { render((await personalList(key)).data); } catch (e) {}
+    });
     try {
-        var res = await api(key);
+        var res = await personalList(key);
         render(res.data || {});
     } catch (err) {
         el.innerHTML = stateHTML(err.message, true);
@@ -444,7 +443,6 @@ function renderNotices(date, list) {
     if (date && activeDate !== date) return;
     var el = document.getElementById('noticeList');
     // 主页展示提醒当前账户（含「全班」）的通知，当天全部（不限条数）
-    list = list.filter(function (n) { return remindMe(n.remind_people); });
     if (!list.length) { el.innerHTML = stateHTML('暂无提醒你的通知'); return; }
     list.sort(function (a, b) { return String(b.publish_time || '').localeCompare(String(a.publish_time || '')); });
     el.innerHTML = list.map(function (n) {
@@ -472,9 +470,16 @@ async function loadForms() {
     var el = document.getElementById('formList');
     el.innerHTML = skeletonHTML(2);
     try {
-        var res = await api('/api/forms/mine');
-        var pending = (res.data && res.data.pending) || [];
-        var editable = (res.data && res.data.editable) || [];
+        var pending = [], editable = [], offset = 0;
+        do {
+            var res = await api('/api/forms/mine?limit=100&offset=' + offset);
+            pending = pending.concat((res.data && res.data.pending) || []);
+            editable = editable.concat((res.data && res.data.editable) || []);
+            var next = res.data && res.data.nextOffset;
+            if (next == null) break;
+            if (next <= offset || next > 10000) throw new Error('表单数据过多，请联系管理员归档');
+            offset = next;
+        } while (true);
         if (!pending.length && !editable.length) { el.innerHTML = stateHTML('暂无表单'); return; }
         el.innerHTML = pending.map(function (f) { return formRowHTML(f, false); }).join('')
             + editable.map(function (f) { return formRowHTML(f, true); }).join('');
@@ -517,12 +522,14 @@ function formRowHTML(f, submitted) {
 async function loadActivities(date) {
     var el = document.getElementById('activityList');
     el.innerHTML = skeletonHTML(3);
-    var key = '/api/activities' + (date ? '?date=' + encodeURIComponent(date) + '&limit=50' : '?limit=50');
+    var key = '/api/activities?audience=mine&' + (date ? 'date=' + encodeURIComponent(date) + '&limit=100' : 'limit=100');
     var render = function (data) { renderActivities(date, (data && data.list) || []); };
     // App 壳：原生层先给缓存、后台刷新完把新数据推回这个键上（网页版注册了也不会被调用）
-    onApiData(key, render);
+    onApiData(key + '&offset=0', async function () {
+        try { render((await personalList(key)).data); } catch (e) {}
+    });
     try {
-        var res = await api(key);
+        var res = await personalList(key);
         render(res.data || {});
     } catch (err) {
         el.innerHTML = stateHTML(err.message, true);
@@ -534,7 +541,6 @@ function renderActivities(date, list) {
     if (date && activeDate !== date) return;
     var el = document.getElementById('activityList');
     // 主页展示提醒当前账户（含「全班」）的活动，当天全部（不限条数）
-    list = list.filter(function (a) { return remindMe(a.remind_people); });
     if (!list.length) { el.innerHTML = stateHTML('暂无提醒你的活动'); return; }
     list.sort(function (a, b) { return String(b.start_time || '').localeCompare(String(a.start_time || '')); });
     el.innerHTML = list.map(function (a) {

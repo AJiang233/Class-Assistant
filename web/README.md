@@ -9,6 +9,8 @@
 
 ## 本地回归验证
 
+本轮架构改造的完整验证步骤见[数据一致性与部署](docs/数据一致性与部署.md)。
+
 在 `web/` 运行 `npm test`。测试使用 Node 原生测试框架；需要 **Node 22.13+，推荐 Node 24 LTS**。`backend/test/dataConsistency.test.js` 使用内置 `node:sqlite` 与项目 `schema.sql`，验证实际 SQL 的分页、日历窗口及表单并发写入，不需要连接 Cloudflare 或安装额外测试依赖。
 
 班务时间统一按北京时间（UTC+8）解释，与开发机和 Worker 的宿主时区无关。表单在写入时重新检查字段定义、提交名单、关闭状态、截止时间和编辑策略；期间状态变化返回 `409 FORM_CHANGED`，刷新后再提交。通知和活动的无效时间、结束早于开始返回 `400 INVALID_TIME`，可选结束时间仍可清空。表单联动通知使用相同校验。
@@ -75,7 +77,7 @@ web/                            # Cloudflare Pages 项目根目录（直接部�
 │       ├── models/             # D1 数据访问（users / notices / activities / roles / forms / push 订阅 / 邮箱验证码与订阅）
 │       ├── middleware/         # CORS / JWT 认证（含改密后的令牌失效） / 权限 / 日志
 │       └── utils/              # 统一响应 / PBKDF2 / JWT / 权限映射 / 提醒对象可见性 / 时间处理 / iCalendar 生成 / 邮件发送与订阅推送
-├── migrations/                 # 增量迁移（已有库按需执行；新库直接跑 schema.sql）
+├── migrations-v2/              # D1 官方迁移账本入口（新库与已有基线库统一）
 ├── schema.sql                  # D1 表结构
 ├── wrangler.toml               # 本地开发绑定（DB + ACADEMIC_API，生产绑定在 Pages 面板配置）
 ├── package.json                # wrangler devDependency + 脚本（dev / deploy / db）
@@ -98,7 +100,7 @@ web/                            # Cloudflare Pages 项目根目录（直接部�
 - **自定义职位（增删需 `user:manage`）**：「添加职位」卡片可新建职位并勾选权限（可发布内容 / 可管理成员 / 不计入班级管理），存入 `roles` 表持久化；「管理职位」卡片列出默认职位（不可修改 / 删除）与自定义职位（可删除）。**职位列表对所有登录用户可读**，因此这两张卡片对任何可进入管理页的成员都正常显示；而**新增 / 删除职位需 `user:manage`（管理成员）权限**，无权限者点击提交会收到 403「没有操作权限」。无权限要求的自定义职位（如「团员」）直接写进 `positions` 即可，无需建 `roles`。注册 / 编辑成员时，可选项会自动包含**预设职位 + `roles` 表已定义的自定义职位 + 成员表中已在用的自定义职位**。
 - **没有职务的人一律存 `学生`，只有这一种写法**：注册与编辑成员两条写入路径都过 `positionsToStore`，空数组 / 空串 / `[]` 在入库前就归一成它（存量由 `migrations/2026-09-17-student-role.sql` 刷平）。它不在上面的预设权限表里，所以**不代表任何权限**——作用只是职务徽章的兜底文案与「按职位选择」的分组名。`roles` 表里的预置职位同名行**一律不生效**（读表时 `buildRoleMap` 直接忽略预置名，不管库里有没有这行），写入口也不允许新增。
 - **不计入班级管理（`class:exclude`，只能挂在自定义职位上）**：带该权限的人**不算「默认全班」的一员**——通知 / 活动 / 表单的提醒对象为空（默认全班）时，列表里看不到、安卓 / 鸿蒙也不推送，只有把他**明确勾选**进提醒对象才通知；表单的「未交名单」同样不把他算作应交人员（但通过链接打开仍可提交）。判断都在服务端做（`utils/audience.js`），网页列表与两端 App 推送读的是同一接口，因此客户端不需要各自再算一遍。**例外：持 `user:manage` 的管理员看得到全部**——被排除的人若同时持 `user:manage`（管理成员权限，如班长 / 团支书，权限取并集），「全部通知 / 活动」页（`listByAudience`）不再过滤「默认全班」的内容，单条读取（`canViewItem`）也随之放行，否则他管不了本该自己管理的通知 / 活动；只有 `content:write` 的班委（如学习委员）不在此列。日历订阅与推送仍按原规则，不因管理员身份放宽。
-- **按职位一键选择提醒对象**：发布 / 编辑 通知·活动时，提醒对象选择区顶部会按成员职位生成快捷标签，点击即全选该职位的成员（最终保存为成员姓名快照）。点「不计入班级管理」职位的标签属于**明确勾选**，这些人会照常收到。
+- **按职位一键选择提醒对象**：发布 / 编辑 通知·活动时，提醒对象选择区顶部会按成员职位生成快捷标签，点击即全选该职位的成员（最终保存为稳定用户 ID 数组）。点「不计入班级管理」职位的标签属于**明确勾选**，这些人会照常收到。
 - 登录 / `me` 接口会返回当前用户的 `permissions` 数组，前端据此显隐发布/编辑/删除/成员管理入口。
 - **内容归属（谁能改 / 删某一篇）**：上面那张表说的是「能不能发内容」，具体到某一篇还要看归属 —— **通知、活动、表单三者同一口径**：创建者本人，或持 `user:manage` 的班委（`utils/audience.js` 的 `canManageItem`，逐条附 `canManage`）。只有 `content:write` 的学习委员因此碰不到别人发的内容（包括别人的表单与全班学号名单）。管理面板的「管理表单」**照常列出全部表单**（好看清班里发过什么、收了多少份），但每行带 `can_manage`，管得了的那几行才显示那四个按钮；管不了的行也不下发 `remind_people`（谁该填的名单）。归属字段名不同（通知/活动是 `created_by`、表单是 `creator_id`），由 `canManageItem` 内部统一。
 - 读取（通知/活动列表、详情）对任意已登录用户开放。
@@ -146,7 +148,7 @@ web/                            # Cloudflare Pages 项目根目录（直接部�
 | POST | `/api/auth/forgot/send` | 公开 | 发找回密码的重置码（body `{email}`）。**只对已绑定且已验证的邮箱真发信**，其余情况回同一句成功文案（防账号枚举） |
 | POST | `/api/auth/forgot/reset` | 公开 | 验码重置并直接登录（body `{email, code, new_password}`），返回新 `token` + `user`；失败一律回「验证码错误或已过期」 |
 
-- **订阅推送（调用点）**：发布通知 / 活动 / 表单时，除 WebPush 外还会按订阅发邮件 —— 收件人与列表 / 推送**同一口径**（`remind_people` 名单，空 = 全班；发布者本人不发），再按「`email_verified=1` 且对应订阅位开着」筛一遍。**筛人与发信都是批量的**：一次 `IN (...)` 问出这批人里谁订阅了（`EmailSubscriptionModel.subscribedIds`，按 50 分批），再用 Resend `/emails/batch` 一次发最多 100 封（某一批被拒会退回逐封重发，不让一个写错的邮箱把整批带走）。之所以不逐封：D1 查询与 fetch 都计入 Worker 的 subrequest 配额（免费版一次调用只有 50 个），按人头来会撞上限，而**撞上限之后那部分会静默漏发**（发布照样成功）。发送在 `waitUntil` 里，失败只记日志、不影响发布。未配 `EMAIL_API_KEY` 时整块静默关闭。表单勾选「同时下发通知」时，表单与那条联动通知**各按各的订阅发**（同订两者会收两封）。入口：`utils/emailPush.js` → `utils/email.js` 的 `sendEmailBatch`。
+- **订阅投递**：业务创建同事务登记发件箱，独立 Cron Worker 按收件人及渠道投递、重试、确认；验证码仍同步发送。联动表单的设备提醒只发一条，通知与表单邮件分别按订阅发送。部署顺序、套餐要求、幂等边界及重放方式见[数据一致性与部署](docs/数据一致性与部署.md)。
 
 ```jsonc
 // 注册 POST /api/auth/register（body，需 user:manage）
@@ -192,7 +194,7 @@ web/                            # Cloudflare Pages 项目根目录（直接部�
 { "title":"班会通知", "content":"周六晚上 7 点开会",
   "publish_time":"2026-09-10 19:00:00",
   "expire_time":"2026-09-12 19:00:00",   // 选填，到期自动从列表隐藏
-  "remind_people":["张三","李四"],         // 选填，提醒对象（存为 JSON 字符串）
+  "remind_people":[2,3],         // 选填，提醒对象（存为 JSON 字符串）
   "link":"/forms.html?id=1" }              // 选填，站内相对路径；列表会多一个「表单」徽章、详情多一个「去填写」按钮
 // 发布人 publisher 取当前登录用户名；source 默认 "manual"
 ```
@@ -211,7 +213,7 @@ web/                            # Cloudflare Pages 项目根目录（直接部�
 // 发布活动 POST /api/activities
 { "title":"班级秋游", "content":"一起去公园野餐", "location":"西湖",
   "start_time":"2026-09-12 09:00:00", "end_time":"2026-09-12 16:00:00",
-  "remind_people":["张三"] }
+  "remind_people":[2] }
 ```
 
 ### 列表筛选参数（通知与活动一致）
@@ -255,7 +257,7 @@ web/                            # Cloudflare Pages 项目根目录（直接部�
   "edit_policy":"before_deadline",   // none（不可改）/ before_deadline（截止前可改）/ always（随时可改）
   "anonymous":false,
   "deadline":"2026-09-30 18:00:00",  // 选填，留空 = 长期开放
-  "remind_people":["张三","李四"],     // 选填，提交对象（空 = 全班，用于算未交名单）
+  "remind_people":[2,3],     // 选填，提交对象（空 = 全班，用于算未交名单）
   "notice":true,                     // 选填，同时下发一条通知，「去填写」指向 forms.html?id=…
   "notice_title":"请填写聚餐报名",     // 选填，通知标题（默认同表单标题）
   "notice_content":"请尽快填写" }      // 选填，通知正文
@@ -354,132 +356,13 @@ web/                            # Cloudflare Pages 项目根目录（直接部�
 
 ---
 
-## 数据库表结构
+## 数据库与同步
 
-`schema.sql`（Cloudflare D1 / SQLite）：
+唯一表结构来源为 [migrations-v2](migrations-v2)，[schema.sql](schema.sql) 是经测试核对的完整新库快照，包含推送订阅、生命周期约束、发件箱和变更日志。
 
-```sql
-CREATE TABLE users (
-  id             INTEGER PRIMARY KEY AUTOINCREMENT,
-  student_id     TEXT UNIQUE NOT NULL,
-  name           TEXT NOT NULL,
-  password_hash  TEXT NOT NULL,             -- "盐值:PBKDF2哈希"
-  auth_key       TEXT,                      -- 预留（Agent/Webhook 认证）
-  positions      TEXT DEFAULT '学生',        -- 职位：单个字符串或 JSON 数组字符串；没有职务一律存 '学生'（唯一写法）
-  contact        TEXT,
-  email          TEXT,                       -- 邮箱；未绑定为 NULL（不要写空串，见下面的唯一索引）
-  email_verified INTEGER DEFAULT 0,          -- 0 已填未验证 / 1 已验证；邮箱真的变了就重置为 0
-  password_changed_at INTEGER,               -- 改密时刻（Unix 秒）；NULL = 从未改过。用于让旧 JWT 立即失效
-  update_time    DATETIME DEFAULT CURRENT_TIMESTAMP
-);
+个人列表使用 `audience=mine` 并返回 `nextOffset`；Android 使用 `/api/sync` 的固定上界快照与增量协议。受众写入只接受用户 ID，姓名只用于展示。
 
--- 一个邮箱只能归一个账号；COLLATE NOCASE 与「写入侧统一转小写」互为双保险
-CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email COLLATE NOCASE) WHERE email IS NOT NULL;
-
-CREATE TABLE notices (
-  id             INTEGER PRIMARY KEY AUTOINCREMENT,
-  title          TEXT NOT NULL,
-  content        TEXT NOT NULL,
-  publish_time   DATETIME NOT NULL,
-  publisher      TEXT NOT NULL,
-  remind_people  TEXT,                      -- JSON 数组字符串（提醒对象）
-  source         TEXT DEFAULT 'manual',      -- manual / crawler / webhook
-  expire_time    DATETIME,                  -- 过期时间，到期自动隐藏
-  link           TEXT,                      -- 可选跳转（仅站内相对路径），如表单填写页
-  created_at     DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE roles (                        -- 自定义职位及其权限
-  id           INTEGER PRIMARY KEY AUTOINCREMENT,
-  name         TEXT UNIQUE NOT NULL,
-  permissions  TEXT NOT NULL,                -- JSON 数组字符串
-  created_at   DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE activities (
-  id             INTEGER PRIMARY KEY AUTOINCREMENT,
-  title          TEXT NOT NULL,
-  content        TEXT,
-  location       TEXT,
-  start_time     DATETIME NOT NULL,
-  end_time       DATETIME,
-  publisher      TEXT NOT NULL,
-  remind_people  TEXT,
-  created_at     DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE forms (                        -- 表单：班委下发，同学填写
-  id             INTEGER PRIMARY KEY AUTOINCREMENT,
-  title          TEXT NOT NULL,
-  description    TEXT,
-  fields         TEXT NOT NULL,                    -- 字段定义 JSON 数组
-  edit_policy    TEXT DEFAULT 'before_deadline',   -- none / before_deadline / always
-  anonymous      INTEGER DEFAULT 0,                -- 1 = 匿名（展示与导出隐去学号姓名）
-  status         TEXT DEFAULT 'open',              -- open / closed
-  deadline       DATETIME,                         -- 截止时间（本地时间字符串）
-  creator_id     INTEGER NOT NULL,
-  creator_name   TEXT NOT NULL,
-  remind_people  TEXT,                             -- 应交名单 JSON 数组，空 = 全班
-  notice_id      INTEGER,                          -- 联动生成的通知 id
-  created_at     DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE form_submissions (             -- 表单提交：每人每表一条（允许修改时原地覆盖）
-  id          INTEGER PRIMARY KEY AUTOINCREMENT,
-  form_id     INTEGER NOT NULL,
-  user_id     INTEGER NOT NULL,
-  student_id  TEXT,     -- 服务端从登录态注入，不接受前端传参
-  name        TEXT,     -- 同上
-  answers     TEXT NOT NULL,                       -- {字段key: 值}
-  created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
-  updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE (form_id, user_id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_form_submissions_form ON form_submissions(form_id);
-
--- 邮箱验证码：绑定验证与找回密码共用一张表，靠 purpose 区分。
--- 时间刻意走 UTC（CURRENT_TIMESTAMP / datetime('now')），与上面那些表的本地时间字符串不同 ——
--- 有效期与重发间隔全在 SQL 里算，不经后端时区转换
-CREATE TABLE email_codes (
-  id         INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id    INTEGER NOT NULL,
-  email      TEXT NOT NULL,
-  code       TEXT NOT NULL,                -- 6 位数字
-  purpose    TEXT NOT NULL,                -- 'verify' 绑定验证 | 'reset' 找回密码
-  attempts   INTEGER DEFAULT 0,            -- 试错计数，满 5 次作废（原子占坑）
-  expires_at TEXT NOT NULL,
-  used_at    TEXT,                         -- NULL = 未使用（用后即焚）
-  created_at TEXT DEFAULT CURRENT_TIMESTAMP
-);
-
--- 邮件订阅开关（活动 / 通知 / 表单）。只覆盖班务推送；
--- 验证码 / 找回密码这类事务邮件不读它 —— 开关全关也得收得到。
--- 推送收件人 = 提醒对象 ∩ 邮箱已验证 ∩ 这里开着；筛人一次批量查（subscribedIds），
--- 不逐个用户查 —— 每条 D1 查询都算一个 subrequest，按人头来会撞配额。解绑邮箱时这里清零。
--- 活动 / 通知 / 表单三封推送邮件的模板（renderActivityEmail / renderNoticeEmail /
--- renderFormEmail）在 utils/email.js，调用点把对应行字段原样传进去即可
-CREATE TABLE email_subscriptions (
-  user_id         INTEGER PRIMARY KEY,
-  sub_activities  INTEGER DEFAULT 0,       -- 活动订阅
-  sub_notices     INTEGER DEFAULT 0,       -- 通知订阅
-  sub_forms       INTEGER DEFAULT 0,       -- 表单订阅
-  updated_at      TEXT DEFAULT CURRENT_TIMESTAMP
-);
-```
-
-> 新库直接用 `schema.sql` 建表；已有库执行 `migrations/2026-09-17-student-role.sql`（把「没有职务」归一到存 `'学生'`、并清掉误写入的预置职位）、
-> `migrations/2026-09-12-forms.sql`（表单 `forms` / `form_submissions` 两张表 + 通知 `link` 列），
-> 以及历史迁移：`ALTER TABLE notices ADD COLUMN expire_time DATETIME;`、创建 `roles` 表。
-> 邮箱那一条是 `migrations/2026-09-19-email.sql`（`users` 三列 + `email_codes` / `email_subscriptions` 两张表，
-> `npm run db:migrate:email`）—— 其中的 `ALTER` 是一次性的，新库直接跑 `schema.sql` 即可，不必再执行它。
->
-> 教务那几张表（`academic_bindings` / `academic_timetable` / `academic_credits` / `academic_grades` /
-> `academic_mfa_sessions`）已归私有 Worker 的库 `class-assistant-private-api`，建表语句见该仓库的 `schema.sql`。
-> 本库里的这几张旧表已无任何代码读写，执行 `npm run db:migrate:drop-academic` 一条迁移删掉即可
-> （搬迁时就没迁数据：教务登录态大概一天就会被重置一次，绑定记录留着没用，用户重新绑一次即可）。
-> 删表之前建议先 `npx wrangler d1 export class-assistant-db --remote --output=academic-backup.sql` 备份 ——
-> 一旦删掉，回滚就不再是「切回拆分前的代码」，而是要把表建回来并让用户重新绑定。
+迁移接管、完整接口契约、Cron Worker 配置、故障恢复与回滚说明见[数据一致性与部署](docs/数据一致性与部署.md)。
 
 ---
 
@@ -520,7 +403,7 @@ CREATE TABLE email_subscriptions (
    - **D1 database bindings**：变量名 `DB` → 选择 `class-assistant` 数据库
    - **Environment variables（Secrets）**：`JWT_SECRET`（`openssl rand -hex 32`，不要写进仓库）、`EMAIL_API_KEY`（Resend 的发信密钥，验证码 / 找回密码 / 订阅推送都用它。**两类缺失的后果不同**：验证码类不配则相关接口统一回 503；订阅推送不配则整块静默关闭，发布通知照常，只是不发邮件）。发件域名需先在 Resend 后台完成 SPF/DKIM 验证，发件人可另配 `EMAIL_FROM` 覆盖（默认 `班级助理 <no-reply@class.qxwkstudio.top>`）
      （`COOKIE_SECRET` 不在 Pages 侧：教务会话的封存密钥只归私有 Worker `class-assistant-private-api` 用）
-3. **一键建表**：新库 `npm run db:remote`；已有库可执行 `npm run db:migrate`（清掉误写入的预置职位名），再按需补其它历史迁移（表单 / 推送 / 内容归属各有一条 `db:migrate:*` 脚本）
+3. **统一迁移**：先按[升级说明](docs/数据一致性与部署.md)核对旧库基线并备份；新库和已有基线库都执行 `npm run db:migrate`。迁移完成后发布 Pages，再单独配置并发布投递 Worker。
 4. **自定义域名**：Pages → Custom domains → 添加域名，在域名商把 CNAME 指向 `<项目名>.pages.dev`
 5. **部署**：`cd web; npm install; npm run deploy`（`wrangler pages deploy .`），或关联 git 仓库 push 自动构建
 6. **发版后更新 `version.json` 对应那段**：`version.json` 按端分成 `android` / `harmony` 两段，页面先问原生桥 `CAHost.platform()` 自己是什么端、只读自己那段（纯网页版没有桥，一段都不读）。

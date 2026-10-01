@@ -1,3 +1,4 @@
+import { recipientPredicate } from '../utils/recipients.js';
 /**
  * 表单数据模型
  * 表结构：
@@ -59,6 +60,26 @@ export class FormModel {
     return row ? row.id : null;
   }
 
+  /** 联动创建是一个事务；任意语句失败时，表单、通知、关联与投递事件全部回滚。 */
+  async createWithNotice(data, notice) {
+    const key = crypto.randomUUID();
+    const result = await this.db.batch([
+      this.db.prepare(`INSERT INTO forms(title, description, fields, edit_policy, anonymous,
+        deadline, creator_id, creator_name, remind_people) VALUES(?,?,?,?,?,?,?,?,?) RETURNING id`)
+        .bind(data.title, data.description, data.fields, data.edit_policy, data.anonymous,
+          data.deadline, data.creator_id, data.creator_name, data.remind_people),
+      this.db.prepare('INSERT INTO form_notice_links(operation_key,form_id) VALUES(?,last_insert_rowid())').bind(key),
+      this.db.prepare(`INSERT INTO notices(title,content,publish_time,publisher,created_by,remind_people,
+        source,expire_time,link) SELECT ?,?,?,?,?,?,'form',?,'/forms.html?id=' || form_id
+        FROM form_notice_links WHERE operation_key=?`)
+        .bind(notice.title, notice.content, notice.publish_time, data.creator_name,
+          data.creator_id, data.remind_people, notice.expire_time ?? null, key),
+      this.db.prepare(`UPDATE forms SET notice_id=last_insert_rowid()
+        WHERE id=(SELECT form_id FROM form_notice_links WHERE operation_key=?)`).bind(key)
+    ]);
+    return result[0].results[0].id;
+  }
+
   async findById(id) {
     const result = await this.db.prepare(
       `SELECT ${FORM_COLUMNS} FROM forms WHERE id = ?`
@@ -86,7 +107,7 @@ export class FormModel {
    * 我的表单（首页待办 / 填写页）：未关闭的表单 + 本人提交状态。
    * 哪些显示、进 pending 还是 editable，由 handler 结合 edit_policy 与截止时间判断。
    */
-  async listMine(userId, limit = 100) {
+  async listMine(userId, limit = 100, viewer = null, offset = 0) {
     const result = await this.db.prepare(
       `SELECT f.id, f.title, f.description, f.edit_policy, f.anonymous, f.deadline,
               f.creator_name, f.remind_people, f.created_at,
@@ -94,8 +115,9 @@ export class FormModel {
        FROM forms f
        LEFT JOIN form_submissions s ON s.form_id = f.id AND s.user_id = ?
        WHERE f.status = 'open'
-       ORDER BY f.created_at DESC LIMIT ?`
-    ).bind(userId, limit).all();
+         ${viewer ? `AND ${recipientPredicate('f.remind_people')} AND (f.edit_policy = 'always' OR f.deadline IS NULL OR f.deadline >= datetime('now', '+8 hours'))` : ''}
+       ORDER BY f.created_at DESC, f.id DESC LIMIT ? OFFSET ?`
+    ).bind(userId, ...(viewer ? [Number(viewer.excluded), String(userId)] : []), limit, offset).all();
     return result.results;
   }
 
@@ -116,7 +138,7 @@ export class FormModel {
    * 为什么要有这么一个入口：改字段前得先判断有没有人提交过（提交过就锁字段，否则旧答案的
    * key 会悬空），而「先 SELECT 再 UPDATE」是两步，中间那个窗口里有人提交，字段照样被改掉，
    * 闸门就形同虚设。把判定并进 UPDATE 的 WHERE，判定与写入落到同一条语句，窗口消失 ——
-   * D1 没有事务，这是能拿到的最强保证。
+   * 这条条件写入也可放入 D1 batch 事务。
    *
    * changes === 0 只说明「没写进去」，严格讲也可能是 id 不存在；调用方都先经 loadOwnedForm
    * 把表单读出来核对过归属，所以这里按「已被提交锁住」解释。
@@ -135,7 +157,6 @@ export class FormModel {
 
   /** 删除表单（连带删除其提交） */
   async remove(id) {
-    await this.db.prepare('DELETE FROM form_submissions WHERE form_id = ?').bind(id).run();
     return this.db.prepare('DELETE FROM forms WHERE id = ?').bind(id).run();
   }
 

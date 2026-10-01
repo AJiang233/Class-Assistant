@@ -27,11 +27,11 @@ class OfflineApiTest {
 
     @Test
     fun `当日列表的 URL 与网页拼的逐字一致`() {
-        // 顺序也要对上：网页里通知是 ?limit=50&date=…、活动是 ?date=…&limit=50
+        // 个人分页缓存键与网页请求的参数顺序保持一致。
         assertEquals(
             listOf(
-                "/api/notices?limit=50&date=2026-09-14",
-                "/api/activities?date=2026-09-14&limit=50"
+                "/api/notices?audience=mine&limit=100&date=2026-09-14&offset=0",
+                "/api/activities?audience=mine&date=2026-09-14&limit=100&offset=0"
             ),
             OfflineApi.todayListPaths(noon(2026, 9, 14, shanghai), shanghai)
         )
@@ -41,8 +41,8 @@ class OfflineApiTest {
     fun `日期按传入的时区算`() {
         // 同一时刻：北京时间已经是 9 月 15 日 07:00，UTC 那边还是 9 月 14 日 23:00
         val at = noon(2026, 9, 15, shanghai) - 5 * 60 * 60 * 1000L
-        assertTrue(OfflineApi.todayListPaths(at, shanghai)[0].endsWith("date=2026-09-15"))
-        assertTrue(OfflineApi.todayListPaths(at, TimeZone.getTimeZone("UTC"))[0].endsWith("date=2026-09-14"))
+        assertTrue(OfflineApi.todayListPaths(at, shanghai)[0].contains("date=2026-09-15&"))
+        assertTrue(OfflineApi.todayListPaths(at, TimeZone.getTimeZone("UTC"))[0].contains("date=2026-09-14&"))
     }
 
     @Test
@@ -51,8 +51,8 @@ class OfflineApiTest {
         assertTrue(paths.contains(OfflineApi.TIMETABLE_PATH))
         assertTrue(paths.contains("/api/notices?scope=all"))
         assertTrue(paths.contains("/api/auth/me"))
-        assertTrue(paths.contains("/api/notices?limit=50&date=2026-09-14"))
-        assertTrue(paths.contains("/api/activities?date=2026-09-14&limit=50"))
+        assertTrue(paths.contains("/api/notices?audience=mine&limit=100&date=2026-09-14&offset=0"))
+        assertTrue(paths.contains("/api/activities?audience=mine&date=2026-09-14&limit=100&offset=0"))
     }
 
     /**

@@ -1,3 +1,4 @@
+import { createSqliteDb } from './helpers/sqlite.js';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
@@ -17,27 +18,10 @@ const fields = JSON.stringify([{ key: 'note', label: '备注', type: 'text', req
 
 /** 只适配 D1 的接口形状，SQL 与表结构都由真实 SQLite 执行。 */
 function createDb(t) {
-  const sqlite = new DatabaseSync(':memory:');
-  t.after(() => sqlite.close());
-  sqlite.exec(readFileSync(new URL('../../schema.sql', import.meta.url), 'utf8'));
-  sqlite.prepare('INSERT INTO users (id, student_id, name, password_hash, positions, auth_key) VALUES (?, ?, ?, ?, ?, ?)')
+  const db = createSqliteDb(t);
+  db.sqlite.prepare('INSERT INTO users (id, student_id, name, password_hash, positions, auth_key) VALUES (?, ?, ?, ?, ?, ?)')
     .run(user.id, user.student_id, user.name, '测试摘要', user.positions, 'calendar-test');
-  return {
-    sqlite,
-    prepare(sql) {
-      const statement = sqlite.prepare(sql);
-      return {
-        bind(...args) {
-          return {
-            async first() { return statement.get(...args) ?? null; },
-            async all() { return { results: statement.all(...args) }; },
-            async run() { return { meta: { changes: statement.run(...args).changes } }; }
-          };
-        },
-        async all() { return { results: statement.all() }; }
-      };
-    }
-  };
+  return db;
 }
 
 function request(path, body, method = 'POST') {
