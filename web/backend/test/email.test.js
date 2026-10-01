@@ -17,7 +17,6 @@ import {
 import { withAuth } from '../src/middleware/auth.js';
 import { sign } from '../src/utils/jwt.js';
 import { emailEnabled, renderVerifyEmail, renderActivityEmail, renderNoticeEmail, renderFormEmail, genEmailCode } from '../src/utils/email.js';
-import { pushSubscribedEmails } from '../src/utils/emailPush.js';
 
 const SECRET = 'test-secret-for-email';
 
@@ -859,93 +858,4 @@ describe('邮箱订阅', () => {
   });
 });
 
-describe('订阅邮件推送（发布调用点）', () => {
-  // 全班：班长（发布者）、张三（已验证+订阅通知）、李四（没绑邮箱）、王五（已验证但没开订阅）
-  const users = [
-    { id: 1, student_id: '2024001', name: '班长', positions: '班长', email: 'ban@qq.com', email_verified: 1 },
-    { id: 2, student_id: '2024002', name: '张三', positions: '学生', email: 'a@qq.com', email_verified: 1 },
-    { id: 3, student_id: '2024003', name: '李四', positions: '学生', email: null, email_verified: 0 },
-    { id: 4, student_id: '2024004', name: '王五', positions: '学生', email: 'w@qq.com', email_verified: 1 }
-  ];
-  const mail = { subject: '【班级助理】新通知：周末大扫除', html: '<p>hi</p>' };
-
-  it('未配置 EMAIL_API_KEY 时整体关闭，不发任何请求', async () => {
-    stubbedFetch = stubFetch();
-    const db = fakeDb({ users, subs: [{ user_id: 2, sub_notices: 1 }] });
-    await pushSubscribedEmails({ DB: db }, null, 'notices', { remindPeople: null, excludeUserId: 1, ...mail });
-    assert.equal(stubbedFetch.calls.length, 0);
-  });
-
-  it('提醒对象为空 = 全班：只给「已验证 + 开了对应订阅」的人发，发布者本人不发', async () => {
-    stubbedFetch = stubFetch();
-    const db = fakeDb({ users, subs: [{ user_id: 2, sub_notices: 1 }] });
-    await pushSubscribedEmails(ENV(db), null, 'notices', { remindPeople: null, excludeUserId: 1, ...mail });
-    // 张三订阅了通知 → 发；班长是发布者、李四没绑邮箱、王五没开订阅 → 都不发
-    assert.equal(stubbedFetch.sent.length, 1);
-    assert.equal(stubbedFetch.sent[0].to, 'a@qq.com');
-    // 而且是一次请求发完：每人一个请求就是每人一个 subrequest，免费版一次调用只有 50 个
-    assert.deepEqual(stubbedFetch.calls, ['batch']);
-  });
-
-  it('定向名单只发给名单里的人，名单外的订阅者不收（与推送同一口径）', async () => {
-    stubbedFetch = stubFetch();
-    const db = fakeDb({ users, subs: [{ user_id: 2, sub_notices: 1 }] });
-    await pushSubscribedEmails(ENV(db), null, 'notices', { remindPeople: JSON.stringify(['李四']), excludeUserId: 1, ...mail });
-    // 李四在名单里但没绑邮箱 → 不发；张三不在名单 → 不发。一封都不该有。
-    assert.equal(stubbedFetch.sent.length, 0);
-  });
-
-  it('订阅位不匹配的分类不发（订阅表单的人收不到通知邮件）', async () => {
-    stubbedFetch = stubFetch();
-    const db = fakeDb({ users, subs: [{ user_id: 2, sub_notices: 1 }] });
-    await pushSubscribedEmails(ENV(db), null, 'forms', { remindPeople: null, excludeUserId: 1, ...mail });
-    assert.equal(stubbedFetch.sent.length, 0);
-  });
-
-  /**
-   * 关键回归：Resend 的批量端点一次最多 100 封，超过要自己分批。
-   * 一个班几十上百人时，这正是「每人一个 subrequest」与「每 100 人一个」的分界。
-   */
-  it('人多时走批量端点：120 人分两批，不按人头逐个请求', async () => {
-    stubbedFetch = stubFetch();
-    const many = Array.from({ length: 120 }, (_, i) => ({
-      id: i + 1, student_id: '2024' + (i + 1), name: 'u' + (i + 1), positions: '学生',
-      email: 'u' + (i + 1) + '@qq.com', email_verified: 1
-    }));
-    const db = fakeDb({ users: many, subs: many.map((u) => ({ user_id: u.id, sub_notices: 1 })) });
-
-    await pushSubscribedEmails(ENV(db), null, 'notices', { remindPeople: null, ...mail });
-
-    assert.equal(stubbedFetch.sent.length, 120, '每人都该收到');
-    assert.deepEqual(stubbedFetch.calls, ['batch', 'batch'], '120 封正好两批（每批不超过 100）');
-  });
-
-  it('整批被拒时退回逐封重发，不让一个写错的邮箱把整批带走', async () => {
-    stubbedFetch = stubFetch({ failBatch: true });
-    const db = fakeDb({
-      users,
-      subs: [{ user_id: 2, sub_notices: 1 }, { user_id: 4, sub_notices: 1 }]
-    });
-    await pushSubscribedEmails(ENV(db), null, 'notices', { remindPeople: null, excludeUserId: 1, ...mail });
-
-    assert.deepEqual(stubbedFetch.calls, ['batch', 'single', 'single'], '整批失败后退回逐封');
-    assert.equal(stubbedFetch.sent.length, 2, '逐封之后两人都该收到');
-  });
-
-  it('真的发不出去时只记日志，不抛错、也不影响发布接口', async () => {
-    stubbedFetch = stubFetch({ fail: true });
-    const db = fakeDb({
-      users,
-      subs: [{ user_id: 2, sub_notices: 1 }, { user_id: 4, sub_notices: 1 }]
-    });
-    const errors = [];
-    const orig = console.error;
-    console.error = (...a) => errors.push(a.join(' '));
-    try {
-      await pushSubscribedEmails(ENV(db), null, 'notices', { remindPeople: null, excludeUserId: 1, ...mail });
-    } finally { console.error = orig; }
-    assert.equal(stubbedFetch.sent.length, 0, '全失败也不能抛错中断发布');
-    assert.ok(errors.some((e) => e.includes('@qq.com')), '失败的收件人要留痕，否则线上只看到「没收到」');
-    assert.ok(errors.some((e) => e.includes('部分未发出')), '汇总行也要有，一眼看出漏了几封');
-  });
-});
+// 业务投递的真实数据库验收位于 architecture.test.js。

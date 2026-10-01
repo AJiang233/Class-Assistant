@@ -1,3 +1,4 @@
+import { recipientPredicate } from '../utils/recipients.js';
 /**
  * 通知数据模型
  * 表结构：notices (id, title, content, publish_time, publisher, remind_people, source, expire_time, link, created_by, created_at)
@@ -54,6 +55,28 @@ export class NoticeModel {
        ORDER BY publish_time DESC
        LIMIT ? OFFSET ?`
     ).bind(limit, offset).all();
+    return result.results;
+  }
+
+  /** 日历以发布日期为全天事件，包含窗口内已过期和未发布的通知。 */
+  async listForCalendar(from, to, limit = 200, offset = 0) {
+    const result = await this.db.prepare(
+      `SELECT id, title, content, publish_time, remind_people
+       FROM notices WHERE publish_time >= ? AND publish_time <= ?
+       ORDER BY publish_time ASC, id ASC LIMIT ? OFFSET ?`
+    ).bind(from, to, limit, offset).all();
+    return result.results;
+  }
+
+  /** 服务端先筛选受众和日期，再按稳定顺序分页。 */
+  async listPersonal(viewer, limit = 50, offset = 0, date = null, scope = 'active') {
+    const day = date || new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10);
+    const window = scope === 'all' ? '' : ` AND ((publish_time IS NULL OR substr(publish_time,1,10) <= ?) AND (expire_time IS NULL OR expire_time = '' OR substr(expire_time,1,10) >= ?))`;
+    const args = [Number(viewer.excluded), String(viewer.user.id)];
+    if (scope !== 'all') args.push(day, day);
+    const result = await this.db.prepare(`SELECT * FROM notices
+      WHERE ${recipientPredicate()}${window}
+      ORDER BY publish_time DESC, id DESC LIMIT ? OFFSET ?`).bind(...args, limit, offset).all();
     return result.results;
   }
 

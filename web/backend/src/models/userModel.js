@@ -107,8 +107,7 @@ export class UserModel {
    * 就不会有人在别处新增一张 user 附属表时忘了收尾。
    */
   async delete(id) {
-    await this.db.prepare('DELETE FROM email_codes WHERE user_id = ?').bind(id).run();
-    await this.db.prepare('DELETE FROM email_subscriptions WHERE user_id = ?').bind(id).run();
+    // 附属订阅和验证码由数据库触发器在同一语句中清理。
     const result = await this.db.prepare(
       'DELETE FROM users WHERE id = ?'
     ).bind(id).run();
