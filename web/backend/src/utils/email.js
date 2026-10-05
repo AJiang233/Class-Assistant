@@ -1,27 +1,6 @@
-/**
- * 邮件发送 —— 全仓唯一的出网口。
- *
- * 分层（与 utils/push.js 同一种形状）：
- *   1. 配置判定：emailConfig / emailEnabled（对应推送那边的 vapidConfig / pushEnabled）
- *   2. 传输：postResend（单封与批量共用）—— 只有这里出现 api.resend.com。换服务商
- *      （Postmark / 自建 SMTP 网关）、改超时、加脱敏日志，都只动这一处。
- *   3. 出口：sendEmail（事务邮件，同步等结果）/ sendEmailBatch（订阅推送，批量、只记日志）
- *   4. 模板：renderBrandEmail / renderCodeEmail —— table + 内联样式，兼容主流邮箱客户端。
- *
- * 两类调用方的等待语义**刻意不同**，所以不合并成一个「万能发信函数」：
- *   - 验证码 / 找回密码：用户就等这封信 → 同步 await，失败要如实回错（502）。
- *   - 活动 / 通知 / 表单的订阅推送（见 utils/emailPush.js）：失败不能影响发布本身 →
- *     走 ctx.waitUntil，只记日志。
- *   把 waitFor 塞进参数做成一个函数是坏味道，需要时另建一个出口。
- *
- * 邮件正文与验证码**不进日志**：出问题时日志里只留收件人与状态码。
- */
+/** 邮件配置、单封传输与模板。验证码同步等待；业务邮件由持久发件箱逐收件人重试。 */
 
 const RESEND_ENDPOINT = 'https://api.resend.com/emails';
-/** 批量发信端点：一次最多 100 封，把「每人一个 subrequest」压成「每 100 人一个」 */
-const RESEND_BATCH_ENDPOINT = 'https://api.resend.com/emails/batch';
-/** /emails/batch 的单次上限（官方文档：最多 100 封，超了整批被拒） */
-const EMAIL_BATCH_SIZE = 100;
 
 /** 单次发信的兜底超时：上游挂起时不能让发布接口一直等着 */
 const EMAIL_TIMEOUT_MS = 15000;
@@ -78,24 +57,25 @@ function requireEmailConfig(env) {
 }
 
 /**
- * 往 Resend 发一次请求 —— 单封与批量共用这一处，超时与错误处理只写一遍。
+ * 往 Resend 发一次请求，超时、幂等键与错误处理集中在这里。
  * 失败一律抛 EmailError，调用方不需要认识 Resend 的错误体。
  *
- * 不在这里做限流 / 幂等 —— 那是业务的事（见 models/emailCodeModel.js 的重发间隔）。
+ * 验证码由业务层限发；发件箱可传稳定幂等键，由 Resend 在保留窗口内去重。
  *
  * @param {Object} config emailConfig 的结果
- * @param {string} endpoint RESEND_ENDPOINT（单封）或 RESEND_BATCH_ENDPOINT（批量）
+ * @param {string} endpoint RESEND_ENDPOINT
  * @param {Object|Array} payload 直接序列化成请求体
  * @param {string} target 日志里代表收件人的字符串（绝不记正文）
  */
-async function postResend(config, endpoint, payload, target) {
+async function postResend(config, endpoint, payload, target, idempotencyKey) {
   let res;
   try {
     res = await fetch(endpoint, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${config.key}`,
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {})
       },
       body: JSON.stringify(payload),
       signal: timeoutSignal(EMAIL_TIMEOUT_MS)
@@ -110,7 +90,9 @@ async function postResend(config, endpoint, payload, target) {
     // 上游的错误体里可能带收件人等信息，只截前 200 字符，且不记正文
     const detail = await res.text().catch(() => '');
     console.error('邮件被拒:', res.status, String(detail).slice(0, 200));
-    throw new EmailError('邮件发送失败，请稍后重试', 'EMAIL_SEND_FAILED');
+    const failure = new EmailError('邮件发送失败，请稍后重试', 'EMAIL_SEND_FAILED');
+    failure.status = res.status;
+    throw failure;
   }
 
   return res.json().catch(() => ({}));
@@ -120,7 +102,7 @@ async function postResend(config, endpoint, payload, target) {
  * 发一封邮件。用于「用户正等着这封信」的事务邮件（验证码 / 找回密码），
  * 所以这里同步 await、失败如实抛错，由 handler 翻成 502 / 503。
  */
-export async function sendEmail(env, { to, subject, html, replyTo } = {}) {
+export async function sendEmail(env, { to, subject, html, replyTo, idempotencyKey } = {}) {
   const config = requireEmailConfig(env);
   if (!to || !subject || !html) {
     throw new EmailError('邮件缺少收件人、主题或正文', 'EMAIL_SEND_FAILED');
@@ -131,65 +113,9 @@ export async function sendEmail(env, { to, subject, html, replyTo } = {}) {
     subject,
     html,
     ...(replyTo ? { reply_to: replyTo } : {})
-  }, to);
+  }, to, idempotencyKey);
 }
-
-/**
- * 批量发订阅邮件（Resend /emails/batch）。与 sendEmail 的两点关键差别：
- *
- * 1. **为什么必须批量**：D1 的每条查询与每次 fetch 都算 Worker 的 subrequest，免费版一次
- *    调用只有 50 个。逐封发给全班发一次就是几十个 subrequest，撞上限之后剩下的会**静默
- *    失败** —— 发布接口照样回 201，只是有人永远收不到，日志里才看得到。批量把 N 封压成
- *    ceil(N/100) 个 subrequest，班级规模再怎么涨都撞不上。
- * 2. **整批一荣俱荣**：Resend 对一个非法收件人会让整批失败。所以某一批失败时退回逐封重发，
- *    宁可多花几个 subrequest，也不让一个写错的邮箱把那一批几十人一起带走。
- *
- * 收件人筛选（邮箱已验证 + 对应订阅开着）在调用方 utils/emailPush.js 里批量做完，
- * 到这里时名单已经是筛过的。失败只记日志，不抛错 —— 订阅推送不该影响发布本身。
- *
- * @param {{to:string, subject:string, html:string, replyTo?:string}[]} emails
- * @returns {Promise<{sent:number, failed:number}>} 只有服务未配置才抛错
- */
-export async function sendEmailBatch(env, emails) {
-  const config = requireEmailConfig(env);
-  const list = (emails || []).filter((m) => m && m.to && m.subject && m.html);
-  if (!list.length) return { sent: 0, failed: 0 };
-
-  const payloadOf = (m) => ({
-    from: config.from,
-    to: m.to,
-    subject: m.subject,
-    html: m.html,
-    ...(m.replyTo ? { reply_to: m.replyTo } : {})
-  });
-
-  let sent = 0;
-  let failed = 0;
-  for (let i = 0; i < list.length; i += EMAIL_BATCH_SIZE) {
-    const part = list.slice(i, i + EMAIL_BATCH_SIZE);
-    try {
-      await postResend(config, RESEND_BATCH_ENDPOINT, part.map(payloadOf), part.length + ' 封（整批）');
-      sent += part.length;
-    } catch (e) {
-      console.error('批量发信失败，退回逐封重发:', part.length, e && e.message);
-      for (const m of part) {
-        try {
-          await postResend(config, RESEND_ENDPOINT, payloadOf(m), m.to);
-          sent += 1;
-        } catch (one) {
-          failed += 1;
-          console.error('订阅邮件单封失败:', m.to, one && one.message);
-        }
-      }
-    }
-  }
-  return { sent, failed };
-}
-
-/**
- * 生成 6 位数字验证码。
- * 用 crypto.getRandomValues 而不是 Math.random：后者可预测，验证码被猜到等于账号被接管。
- */
+/** 生成六位邮箱验证码。 */
 export function genEmailCode() {
   const bytes = new Uint8Array(4);
   crypto.getRandomValues(bytes);

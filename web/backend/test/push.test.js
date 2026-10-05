@@ -10,7 +10,7 @@ import { createDecipheriv, createECDH, hkdfSync, randomBytes } from 'node:crypto
 import { describe, it } from 'node:test';
 
 import { parseRemindNames, resolveRemindUsers } from '../src/utils/audience.js';
-import { pushEnabled, pushToRemindAudience, vapidConfig } from '../src/utils/push.js';
+import { pushEnabled, vapidConfig } from '../src/utils/push.js';
 import { PushSubscriptionModel } from '../src/models/pushSubscriptionModel.js';
 import { handlePushSubscribe, handlePushUnsubscribe } from '../src/handlers/pushHandler.js';
 import { b64uToBytes, buildVapidHeader, encryptPayload, sendWebPush } from '../src/utils/webpush.js';
@@ -127,7 +127,7 @@ describe('推送收件人口径', () => {
 
   it('被排除组的人被点名时仍然收到（与列表可见性一致）', async () => {
     const env = { DB: fakeDb({ users, roles }) };
-    const list = await resolveRemindUsers(env, JSON.stringify(['旁听']));
+    const list = await resolveRemindUsers(env, JSON.stringify([4]));
     assert.deepEqual(list.map((u) => u.name), ['旁听']);
   });
 
@@ -144,132 +144,7 @@ describe('推送收件人口径', () => {
   });
 });
 
-describe('推送发送', () => {
-  it('未配置 VAPID 时整体关闭，且不发任何请求', async () => {
-    assert.equal(pushEnabled({}), false);
-    assert.equal(vapidConfig({}), null);
-
-    const db = fakeDb({ users: [{ id: 2, name: '张三', positions: '学生' }] });
-    let called = 0;
-    const orig = globalThis.fetch;
-    globalThis.fetch = async () => { called++; return new Response('', { status: 201 }); };
-    try {
-      await pushToRemindAudience({ DB: db }, null, null, { title: 't', body: 'b', url: '/' });
-      assert.equal(called, 0);
-    } finally { globalThis.fetch = orig; }
-  });
-
-  it('按 endpoint 投递；404/410 的订阅立即删行，成功的记 last_ok_at', async () => {
-    const db = fakeDb({
-      users: [{ id: 2, name: '张三', positions: '学生' }],
-      subs: [
-        { id: 1, user_id: 2, endpoint: 'https://fcm.googleapis.com/fcm/send/ok', p256dh: P256DH, auth: AUTH },
-        { id: 2, user_id: 2, endpoint: 'https://fcm.googleapis.com/fcm/send/dead', p256dh: P256DH, auth: AUTH }
-      ]
-    });
-
-    const orig = globalThis.fetch;
-    const seen = [];
-    globalThis.fetch = async (url, init) => {
-      seen.push({ url: String(url), auth: init.headers.Authorization, enc: init.headers['Content-Encoding'] });
-      return new Response('', { status: String(url).endsWith('/dead') ? 410 : 201 });
-    };
-    try {
-      await pushToRemindAudience({ DB: db, ...VAPID }, null, null, {
-        title: '班级通知',
-        body: '正文',
-        url: '/?view=notices&id=9'
-      });
-    } finally { globalThis.fetch = orig; }
-
-    assert.equal(seen.length, 2);
-    assert.ok(seen.every((s) => s.enc === 'aes128gcm'));
-    assert.ok(seen.every((s) => s.auth.startsWith('vapid t=')));
-
-    const left = db.state.subs.map((s) => s.endpoint);
-    assert.deepEqual(left, ['https://fcm.googleapis.com/fcm/send/ok']);
-    assert.equal(db.state.subs[0].last_ok_at, 'now');
-  });
-
-  /**
-   * 库里可能还留着「加白名单之前」存下的端点（issue #21）。投递是带着 VAPID 头出去的出口，
-   * 所以 sendWebPush 里还有一道白名单：不在名单里的那条不发，其余照发。
-   */
-  it('库里遗留的非白名单端点不投递，其余照发', async () => {
-    const db = fakeDb({
-      users: [{ id: 2, name: '张三', positions: '学生' }],
-      subs: [
-        { id: 1, user_id: 2, endpoint: 'https://fcm.googleapis.com/fcm/send/ok', p256dh: P256DH, auth: AUTH },
-        { id: 2, user_id: 2, endpoint: 'https://127.0.0.1:8500/steal', p256dh: P256DH, auth: AUTH }
-      ]
-    });
-
-    const seen = [];
-    const errors = [];
-    const origFetch = globalThis.fetch;
-    const origError = console.error;
-    globalThis.fetch = async (url) => { seen.push(String(url)); return new Response('', { status: 201 }); };
-    console.error = (...args) => errors.push(args.join(' '));
-    try {
-      await pushToRemindAudience({ DB: db, ...VAPID }, null, null, { title: 't', body: 'b', url: '/' });
-    } finally {
-      globalThis.fetch = origFetch;
-      console.error = origError;
-    }
-
-    assert.deepEqual(seen, ['https://fcm.googleapis.com/fcm/send/ok'], '只该发白名单内的那条');
-    // 行留着不删：404/410 才是「订阅失效」的证据，这里只是我们拒绝投递
-    assert.equal(db.state.subs.length, 2);
-    assert.ok(
-      errors.some((e) => e.includes('127.0.0.1')),
-      '被跳过的端点要留痕（含主机名），否则线上只看得到「没收到通知」'
-    );
-  });
-
-  it('没有订阅时不发请求', async () => {
-    const db = fakeDb({ users: [{ id: 2, name: '张三', positions: '学生' }] });
-    let called = 0;
-    const orig = globalThis.fetch;
-    globalThis.fetch = async () => { called++; return new Response('', { status: 201 }); };
-    try {
-      await pushToRemindAudience({ DB: db, ...VAPID }, null, null, { title: 't', body: 'b', url: '/' });
-      assert.equal(called, 0);
-    } finally { globalThis.fetch = orig; }
-  });
-
-  /**
-   * 一次班级通知可能几十上百台设备。全部并起来会撞 Worker 对同一主机的并发连接配额，
-   * 所以投递必须分批推进 —— 这里用「同时在飞的请求数」把它钉住。
-   */
-  it('设备多时按批投递，同时在飞的请求不超过 6 个', async () => {
-    const users = Array.from({ length: 20 }, (_, i) => ({ id: i + 1, name: 'u' + (i + 1), positions: '学生' }));
-    const subs = users.map((u) => ({
-      id: u.id, user_id: u.id, endpoint: 'https://fcm.googleapis.com/fcm/send/' + u.id, p256dh: P256DH, auth: AUTH
-    }));
-    const db = fakeDb({ users, subs });
-
-    let inFlight = 0;
-    let peak = 0;
-    let done = 0;
-    const orig = globalThis.fetch;
-    globalThis.fetch = async () => {
-      inFlight++;
-      peak = Math.max(peak, inFlight);
-      await new Promise((r) => setTimeout(r, 1));
-      inFlight--;
-      done++;
-      return new Response('', { status: 201 });
-    };
-    try {
-      await pushToRemindAudience({ DB: db, ...VAPID }, null, null, { title: 't', body: 'b', url: '/' });
-    } finally { globalThis.fetch = orig; }
-
-    assert.equal(done, 20, '每台设备都该收到');
-    assert.ok(peak <= 6, '同时在飞的请求不应超过 6，实际 ' + peak);
-    assert.ok(peak > 1, '不该退化成一个一个串行发');
-    assert.ok(db.state.subs.every((s) => s.last_ok_at === 'now'), '全部投递成功都该记上时间');
-  });
-});
+// 持久推送投递的真实数据库验收位于 architecture.test.js。
 
 describe('订阅接口', () => {
   const user = { id: 7, name: '张三', positions: '学生' };

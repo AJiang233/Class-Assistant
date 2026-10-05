@@ -3,7 +3,7 @@ import { NoticeModel } from '../models/noticeModel.js';
 import { UserModel } from '../models/userModel.js';
 import { success, error, jsonResponse } from '../utils/response.js';
 import { buildCalendar } from '../utils/ics.js';
-import { parseLocalDateTime, addMinutes } from '../utils/datetime.js';
+import { parseLocalDateTime, addMinutes, formatLocalDateTime } from '../utils/datetime.js';
 import { clampInt } from '../utils/query.js';
 import { canView, loadViewer } from '../utils/audience.js';
 
@@ -39,6 +39,20 @@ function startKey(value) {
   const text = String(value || '');
   const full = text.length === 10 ? `${text} 00:00:00` : text;
   return parseLocalDateTime(full) || 0;
+}
+
+/** 不可见条目不占日历名额；两种内容共用同一分页与受众判定。 */
+async function calendarRows(model, viewer, from, to) {
+  const out = [];
+  for (let offset = 0; out.length < MAX_EVENTS; offset += MAX_EVENTS) {
+    const rows = await model.listForCalendar(from, to, MAX_EVENTS, offset);
+    for (const row of rows) {
+      if (canView(row.remind_people, viewer)) out.push(row);
+      if (out.length === MAX_EVENTS) break;
+    }
+    if (rows.length < MAX_EVENTS) break;
+  }
+  return out;
 }
 
 /**
@@ -96,18 +110,18 @@ export async function handleCalendarFeed(request, env) {
     const options = parseOptions(url);
     // 边界按「天」对齐：past=0 表示从今天 0 点起（今天的内容仍然保留，全天事件也才不会被误判为过去）
     const DAY_MS = 24 * 60 * 60 * 1000;
-    const now = new Date();
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const todayStart = parseLocalDateTime(`${formatLocalDateTime().slice(0, 10)} 00:00:00`);
     const from = todayStart - options.past * DAY_MS;
     const to = todayStart + (options.future + 1) * DAY_MS - 1;
+    const fromText = formatLocalDateTime(from);
+    const toText = formatLocalDateTime(to);
 
     const events = [];
 
     // 活动
     const activityModel = new ActivityModel(env.DB);
-    const activities = await activityModel.listAll(MAX_EVENTS, 0);
+    const activities = await calendarRows(activityModel, viewer, fromText, toText);
     for (const item of activities) {
-      if (!canView(item.remind_people, viewer)) continue;
       const start = parseLocalDateTime(item.start_time);
       if (start == null || start < from || start > to) continue;
       events.push({
@@ -124,9 +138,8 @@ export async function handleCalendarFeed(request, env) {
     // 通知（可选，作为当天全天事件）
     if (options.notices) {
       const noticeModel = new NoticeModel(env.DB);
-      const notices = await noticeModel.list(MAX_EVENTS, 0);
+      const notices = await calendarRows(noticeModel, viewer, fromText, toText);
       for (const item of notices) {
-        if (!canView(item.remind_people, viewer)) continue;
         const day = String(item.publish_time || '').slice(0, 10);
         if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) continue;
         const at = parseLocalDateTime(`${day} 00:00:00`);

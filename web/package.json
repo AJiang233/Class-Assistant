@@ -8,14 +8,9 @@
     "dev": "wrangler pages dev .",
     "deploy": "wrangler pages deploy .",
     "test": "node --test backend/test/*.test.js",
-    "db:local": "wrangler d1 execute class-assistant-db --local --file=./schema.sql",
-    "db:remote": "wrangler d1 execute class-assistant-db --remote --file=./schema.sql",
-    "db:migrate": "wrangler d1 execute class-assistant-db --remote --file=./migrations/2026-09-17-student-role.sql",
-    "db:migrate:forms": "wrangler d1 execute class-assistant-db --remote --file=./migrations/2026-09-12-forms.sql",
-    "db:migrate:push": "wrangler d1 execute class-assistant-db --remote --file=./migrations/2026-09-13-push.sql",
-    "db:migrate:owner": "wrangler d1 execute class-assistant-db --remote --file=./migrations/2026-09-14-content-owner.sql",
-    "db:migrate:drop-academic": "wrangler d1 execute class-assistant-db --remote --file=./migrations/2026-09-19-drop-academic-tables.sql",
-    "db:migrate:email": "wrangler d1 execute class-assistant-db --remote --file=./migrations/2026-09-19-email.sql"
+    "db:local": "wrangler d1 migrations apply class-assistant-db --local",
+    "db:remote": "wrangler d1 migrations apply class-assistant-db --remote",
+    "db:migrate": "wrangler d1 migrations apply class-assistant-db --remote"
   },
   "devDependencies": {
     "wrangler": "^3.90.0"
