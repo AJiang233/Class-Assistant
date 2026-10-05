@@ -95,6 +95,9 @@ object OfflineApi {
      *
      * 主页与列表页请求的是同一张表但参数不同（`limit=200` vs 不带），而缓存键就是 URL，
      * 所以两条都得存 —— 少一条，那个页面第一次进去就还是加载态。
+     *
+     * 注意这里放的是**参数固定**的那几条。带用户状态的（`STATEFUL_PATHS`，比如课表的
+     * `?xnxq=`）写不进来，只能按实际请求记（见那份注释与 Store.warmKeys）。
      */
     private val FIXED_PATHS = listOf(
         "/api/notices?scope=all&audience=mine&limit=100&offset=0",      // 主页：当日通知/活动
@@ -110,14 +113,32 @@ object OfflineApi {
     )
 
     /**
-     * 预热清单 = 固定那几条 + **当天的两个「当日列表」键**。
+     * 请求里会带**用户自己的状态**的那几条路径：课表与成绩都会把「上次看的学期」
+     * 拼进查询串（`?xnxq=…`，见网页 academic.js 的 savedTerm）。
+     *
+     * 于是它们的缓存键不再等于 FIXED_PATHS 里那条固定 URL —— 预热刷的是不带参数的、
+     * 页面读的是带参数的，两边永远对不上。这几个路径的键由 [intercept] 按实际请求记下来
+     * （Store.rememberWarmKey），再交给预热刷新，见 prewarmPaths 的 extra。
+     */
+    private val STATEFUL_PATHS = setOf(TIMETABLE_PATH, "/api/academic/grades")
+
+    /**
+     * 预热清单 = 固定那几条 + **当天的两个「当日列表」键** + **网页实际请求过的带参数键**。
      *
      * 主页的当日列表按日期取（`date=YYYY-MM-DD`），键每天都不一样，写不进固定清单；
      * 少了它，每天第一次进主页还是得等一次网络。后台同步若在当天跑过（凌晨那次也算），
      * 就会把当天这两个键存下来 —— 用户白天打开正好命中。
+     *
+     * `extra` 就是第三类（见 Store.warmKeys）：课表、成绩这些把「上次选的学期」带进
+     * `?xnxq=` 的请求，键随用户状态变，固定清单里那条不带参数的 URL 反而没人读 ——
+     * 不把实际键一起刷，那份缓存就只有页面自己写、隔一阵就过期，首帧又落回网络。
+     * 去重是为了那些既在固定清单里、又被记过的键（比如不带参数的那条）。
      */
-    fun prewarmPaths(now: Long = System.currentTimeMillis(), zone: TimeZone = TimeZone.getDefault()): List<String> =
-        FIXED_PATHS + todayListPaths(now, zone)
+    fun prewarmPaths(
+        now: Long = System.currentTimeMillis(),
+        zone: TimeZone = TimeZone.getDefault(),
+        extra: List<String> = emptyList()
+    ): List<String> = (FIXED_PATHS + todayListPaths(now, zone) + extra).distinct()
 
     /**
      * 主页当日列表那两个 URL。参数顺序与 `web/assets/js/index.js` 里拼的**必须逐字一致**
@@ -138,6 +159,15 @@ object OfflineApi {
 
     /** 是否可以写入缓存 */
     fun isCacheablePath(path: String): Boolean = CACHE_PATHS.any { it.matches(path) }
+
+    /**
+     * 这条请求的键要不要记下来交给后台预热（见 STATEFUL_PATHS）。
+     *
+     * 拎成纯函数是为了能测：记错了不会报错，只会在预热清单里多一条没人读的 URL、
+     * 而真正该刷的那条继续不刷 —— 现场表现是「有时先出缓存、有时又等网络」。
+     */
+    internal fun isStatefulKey(path: String, cacheKey: String): Boolean =
+        STATEFUL_PATHS.contains(path) && cacheKey != path
 
     /**
      * 用户主动点「刷新」时，页面会在查询串里带 `refresh=1`（见 web 的 academic.js 课表与学分）。
@@ -187,6 +217,9 @@ object OfflineApi {
         if (!cacheable && detailSource == null) return null
 
         val key = cacheKey(path, url.query)
+        // 带学期参数的那几条（课表 / 成绩）：键不等于预热清单里那条固定 URL，后台预热刷的
+        // 那份页面永远不读。这里按实际请求记一笔，预热时一并刷新（见 STATEFUL_PATHS）。
+        if (isStatefulKey(path, key)) Store.rememberWarmKey(context, key)
         // 诊断用一行：真机报「离线数据不对」时，先看请求有没有到这一层、走了哪条分支
         Log.i(TAG, "→ $key 在线=${isOnline(context)}")
 
