@@ -513,6 +513,44 @@ test('收到推送必须立刻展示通知（Safari 不允许隐形推送，否�
   assert.equal(shown[0].options.data.url, '/?view=notices&id=3');
 });
 
+test('推送按内容类型选图标；认不出类型回退应用图标', async () => {
+  const cases = {
+    notice: ['/assets/icons/notify-notice.png', '/assets/icons/badge-notice.png'],
+    activity: ['/assets/icons/notify-activity.png', '/assets/icons/badge-activity.png'],
+    form: ['/assets/icons/notify-form.png', '/assets/icons/badge-form.png']
+  };
+
+  for (const [kind, [icon, badge]] of Object.entries(cases)) {
+    const sw = loadSW(async () => ok('x'));
+    const shown = captureNotifications(sw);
+    const waits = [];
+    sw.handlers.push({
+      data: { json: () => ({ title: 't', body: 'b', url: '/', kind }) },
+      waitUntil(p) { waits.push(p); }
+    });
+    await Promise.all(waits);
+
+    assert.equal(shown[0].options.icon, icon, kind + ' 的大图标');
+    assert.equal(shown[0].options.badge, badge, kind + ' 的徽标');
+    // 图标路径必须真的落在仓库里：写错了线上是 404，通知只是静默不显示，没人会报
+    for (const p of [icon, badge]) {
+      assert.ok(existsSync(join(HERE, '../..', p.replace(/^\//, ''))), p + ' 在仓库里不存在');
+    }
+  }
+
+  // 个人页的测试推送不带 kind，整对回退到应用图标
+  const sw = loadSW(async () => ok('x'));
+  const shown = captureNotifications(sw);
+  const waits = [];
+  sw.handlers.push({
+    data: { json: () => ({ title: 't', body: 'b', url: '/' }) },
+    waitUntil(p) { waits.push(p); }
+  });
+  await Promise.all(waits);
+  assert.equal(shown[0].options.icon, '/assets/icons/icon-192.png');
+  assert.equal(shown[0].options.badge, '/assets/icons/icon-192.png');
+});
+
 test('载荷解析失败也要弹兜底通知，不能静默丢弃', async () => {
   const sw = loadSW(async () => ok('x'));
   const shown = captureNotifications(sw);

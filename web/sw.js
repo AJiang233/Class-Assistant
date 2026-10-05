@@ -330,6 +330,18 @@ self.addEventListener('fetch', function (event) {
 });
 
 /**
+ * 通知图标按内容类型取图：通知 / 活动 / 表单各一对 —— 彩色大图（icon，通知里那枚方形图）
+ * 与单色徽标（badge，状态栏那条剪影；Chromium 只取它的 alpha 当遮罩）。
+ * kind 由后端推送载荷带下来（见 backend/src/utils/push.js 的 kind 字段）；
+ * 认不出类型（如个人页的测试推送）就整对回退到应用图标。
+ */
+const PUSH_ICONS = {
+  notice: ['/assets/icons/notify-notice.png', '/assets/icons/badge-notice.png'],
+  activity: ['/assets/icons/notify-activity.png', '/assets/icons/badge-activity.png'],
+  form: ['/assets/icons/notify-form.png', '/assets/icons/badge-form.png']
+};
+
+/**
  * 收到推送。
  *
  * Safari 不允许「隐形推送」：收到推送必须立刻 showNotification，否则系统会撤销通知权限。
@@ -343,10 +355,11 @@ self.addEventListener('push', function (event) {
     data = {};
   }
 
+  const [icon, badge] = PUSH_ICONS[data.kind] || ['/assets/icons/icon-192.png', '/assets/icons/icon-192.png'];
   const options = {
     body: data.body || '有一条新消息，打开应用查看',
-    icon: '/assets/icons/icon-192.png',
-    badge: '/assets/icons/icon-192.png',
+    icon,
+    badge,
     data: { url: data.url || '/' }
   };
   if (data.tag) options.tag = data.tag;

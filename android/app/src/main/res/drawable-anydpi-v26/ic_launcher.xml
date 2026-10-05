@@ -1,14 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  自适应图标（API 26+）。放在 drawable-anydpi-v26 而不是 mipmap：
-  清单里 android:icon 指的是 @drawable/ic_launcher，同名的 drawable/ic_launcher.xml
-  继续作为 API 24–25 的回退（那时系统还不认识 adaptive-icon）。
-  资源限定符 -v26 保证老系统根本不会加载到这份文件，不会触发解析失败。
+  自适应图标（API 26+）：底板是一层纯色（@color/ic_launcher_background），
+  前景是 Logo 的 PNG 位图（drawable-<density>/ic_launcher_foreground.png）。
 
-  图形整体缩到画布 80%（见 ic_launcher_foreground.xml），落在安全圆内；
-  底板是背景层的满幅渐变，形状交给启动器裁。
+  2026-09-27 起图标系统整体改为位图，原先那套矢量（drawable/ic_launcher.xml 的
+  满幅回退 + ic_launcher_foreground.xml / ic_launcher_background.xml 两层矢量）
+  已移出仓库。Logo 自带浅色圆角底板，本文件只负责把它交给启动器裁形状：
+  图案落在画布中央约 48% 宽，落在自适应图标 66dp 安全圆内，裁成任何形状都不切
+  笔画；透明圆角落在被遮罩裁掉的外圈，露出的也只是同色底板，不会出现色块边界。
+
+  仍需放在 drawable-anydpi-v26 而不是 mipmap：清单里 android:icon 指的是
+  @drawable/ic_launcher，同名的 drawable-<density>/ic_launcher.png 继续作为
+  API 24–25 的回退（那时系统还不认识 adaptive-icon）。资源限定符 -v26 保证老系统
+  根本不会加载到这份文件，不会触发解析失败。
 -->
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-    <background android:drawable="@drawable/ic_launcher_background" />
+    <background android:drawable="@color/ic_launcher_background" />
     <foreground android:drawable="@drawable/ic_launcher_foreground" />
 </adaptive-icon>

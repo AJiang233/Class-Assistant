@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.graphics.BitmapFactory
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -116,6 +117,22 @@ object Notifier {
         )
     }
 
+    /**
+     * 通知类型 → 图标。
+     *
+     * 小图标必须是**单色剪影**：系统拿它当遮罩，按状态栏配色整体染色 —— 塞彩色位图进去
+     * 只会渲染成一个白块。所以三类各出一版白描剪影（ic_notify_*，从设计稿的深色描边抽出），
+     * 彩色 Logo（ic_logo_*）只放在大图标位。课程提醒沿用原来的铃铛，不属于这三类。
+     */
+    enum class Kind(val smallIcon: Int, val largeIcon: Int?) {
+        NOTICE(R.drawable.ic_notify_notice, R.drawable.ic_logo_notice),
+        ACTIVITY(R.drawable.ic_notify_activity, R.drawable.ic_logo_activity),
+        FORM(R.drawable.ic_notify_form, R.drawable.ic_logo_form),
+
+        /** 上课提醒：沿用铃铛，不做大图标 */
+        COURSE(R.drawable.ic_notify, null)
+    }
+
     /** 活动到点提醒。notificationId 就是活动 id（Scheduler → AlarmReceiver 传的 event.id），
      *  所以能直接拼深链；也正因为通知 id 被活动占用，通知那边得另开一段号（见 SyncRunner.NOTICE_ID_BASE）。 */
     fun notifyActivity(
@@ -129,7 +146,7 @@ object Notifier {
             append(whenText)
             if (!location.isNullOrBlank()) append(" · ").append(location)
         }
-        send(context, CHANNEL_ACTIVITY, notificationId, title, body, "?view=activities&id=$notificationId")
+        send(context, CHANNEL_ACTIVITY, notificationId, title, body, "?view=activities&id=$notificationId", Kind.ACTIVITY)
     }
 
     /** 新通知提醒（每个 id 一条独立通知，重复发同一 id 会覆盖而不是叠加） */
@@ -140,7 +157,21 @@ object Notifier {
         body: String,
         deepLink: String? = null
     ) {
-        send(context, CHANNEL_NOTICE, notificationId, title, body, deepLink)
+        send(context, CHANNEL_NOTICE, notificationId, title, body, deepLink, Kind.NOTICE)
+    }
+
+    /**
+     * 待填表单提醒。与通知共用 CHANNEL_NOTICE —— 对用户来说「班级通知」和「表单待办」是一件事，
+     * 想静音时该一起静，没必要再拆一条渠道；但图标按表单那套走：点进去是填写页，和「看通知」不是一回事。
+     */
+    fun notifyForm(
+        context: Context,
+        notificationId: Int,
+        title: String,
+        body: String,
+        deepLink: String? = null
+    ) {
+        send(context, CHANNEL_NOTICE, notificationId, title, body, deepLink, Kind.FORM)
     }
 
     /**
@@ -148,7 +179,7 @@ object Notifier {
      * 深链只能到列表；用户点进来看到的就是整周课表，够用。
      */
     fun notifyCourse(context: Context, notificationId: Int, title: String, body: String) {
-        send(context, CHANNEL_COURSE, notificationId, title, body, "?view=academic")
+        send(context, CHANNEL_COURSE, notificationId, title, body, "?view=academic", Kind.COURSE)
     }
 
     /**
@@ -193,7 +224,8 @@ object Notifier {
         id: Int,
         title: String,
         body: String,
-        deepLink: String?
+        deepLink: String?,
+        kind: Kind
     ) {
         ensureChannels(context)
         val intent = Intent(context, MainActivity::class.java).apply {
@@ -206,8 +238,8 @@ object Notifier {
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        val notification = NotificationCompat.Builder(context, channel)
-            .setSmallIcon(R.drawable.ic_notify)
+        val builder = NotificationCompat.Builder(context, channel)
+            .setSmallIcon(kind.smallIcon)
             .setContentTitle(title)
             .setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
@@ -216,7 +248,10 @@ object Notifier {
             // （MAX 是 7.x 能给的最高档，与 8+ 渠道的 IMPORTANCE_MAX 对齐）
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setAutoCancel(true)
-            .build()
+            .setOnlyAlertOnce(true)
+        // 彩色 Logo 放大的大图标位；小图标仍是上面那版单色剪影
+        kind.largeIcon?.let { builder.setLargeIcon(BitmapFactory.decodeResource(context.resources, it)) }
+        val notification = builder.build()
         try {
             NotificationManagerCompat.from(context).notify(id, notification)
         } catch (e: SecurityException) {

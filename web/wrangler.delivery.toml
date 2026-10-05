@@ -1,0 +1,17 @@
+name = "class-assistant-delivery"
+main = "backend/src/deliveryWorker.js"
+compatibility_date = "2024-09-01"
+
+[triggers]
+crons = ["* * * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "class-assistant-db"
+database_id = "6444f4bb-5197-4a53-a12b-264410e99f81"
+migrations_dir = "migrations-v2"
+
+[vars]
+SITE_ORIGIN = "https://class.qxwkstudio.top"
+# EMAIL_API_KEY、EMAIL_FROM、VAPID_PUBLIC_KEY、VAPID_PRIVATE_KEY、VAPID_SUBJECT
+# 通过此 Worker 的 Secrets 配置；Pages 的环境变量不会自动继承。

@@ -1,3 +1,4 @@
+import { recipientPredicate } from '../utils/recipients.js';
 /**
  * 活动数据模型
  * 表结构：activities (id, title, content, location, start_time, end_time, publisher, remind_people, created_by, created_at)
@@ -54,6 +55,28 @@ export class ActivityModel {
        ORDER BY start_time DESC
        LIMIT ? OFFSET ?`
     ).bind(limit, offset).all();
+    return result.results;
+  }
+
+  /** 日历先限定日期窗口，再分页；窗口外的远期活动不能占满名额。 */
+  async listForCalendar(from, to, limit = 200, offset = 0) {
+    const result = await this.db.prepare(
+      `SELECT id, title, content, location, start_time, end_time, remind_people
+       FROM activities WHERE start_time >= ? AND start_time <= ?
+       ORDER BY start_time ASC, id ASC LIMIT ? OFFSET ?`
+    ).bind(from, to, limit, offset).all();
+    return result.results;
+  }
+
+  /** 服务端先筛选受众和日期，再按稳定顺序分页。 */
+  async listPersonal(viewer, limit = 50, offset = 0, date = null, scope = 'active') {
+    const day = date || new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10);
+    const window = scope === 'all' ? '' : ` AND (substr(start_time,1,10) <= ? AND max(substr(start_time,1,10),substr(coalesce(nullif(end_time,''),start_time),1,10)) >= ?)`;
+    const args = [Number(viewer.excluded), String(viewer.user.id)];
+    if (scope !== 'all') args.push(day, day);
+    const result = await this.db.prepare(`SELECT * FROM activities
+      WHERE ${recipientPredicate()}${window}
+      ORDER BY start_time DESC, id DESC LIMIT ? OFFSET ?`).bind(...args, limit, offset).all();
     return result.results;
   }
 

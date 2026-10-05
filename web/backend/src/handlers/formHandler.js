@@ -1,3 +1,4 @@
+import { normalizeRecipients } from '../utils/recipients.js';
 /**
  * 表单：班委下发、同学填写、导出、未交名单。
  *
@@ -9,14 +10,10 @@
  */
 import { FormModel, EDIT_POLICY } from '../models/formModel.js';
 import { UserModel } from '../models/userModel.js';
-import { NoticeModel } from '../models/noticeModel.js';
 import { success, error, jsonResponse } from '../utils/response.js';
-import { toLocalDateTime } from '../utils/datetime.js';
+import { toLocalDateTime, formatLocalDateTime, normalizeTimeRange } from '../utils/datetime.js';
 import { pageLimit, pageOffset } from '../utils/query.js';
 import { canView, canManageItem, isExcludedFromClass, loadRoleMap, loadViewer, pickAudience } from '../utils/audience.js';
-import { pushToRemindAudience } from '../utils/push.js';
-import { pushSubscribedEmails } from '../utils/emailPush.js';
-import { renderNoticeEmail, renderFormEmail } from '../utils/email.js';
 import {
   parseJson, parseFields, normalizeFields, validateAnswers, submitGate, isPastDeadline
 } from './formValidation.js';
@@ -27,20 +24,6 @@ const MAX_TITLE_LEN = 100;
 const MAX_DESC_LEN = 1000;
 
 // ===== 通用工具 =====
-
-/** 服务端补「当前本地时间」字符串，与 SQL 里的 datetime('now','+8 hours') 同一口径 */
-function nowLocalDateTime() {
-  const d = new Date(Date.now() + 8 * 3600 * 1000);
-  const p = (n) => String(n).padStart(2, '0');
-  return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())} ` +
-    `${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}`;
-}
-
-/** 锁屏只显示一两行，推送正文截一段即可 */
-function excerptText(text, max = 80) {
-  const s = String(text == null ? '' : text).replace(/\s+/g, ' ').trim();
-  return s.length > max ? s.slice(0, max) + '…' : s;
-}
 
 function publicForm(form) {
   return {
@@ -91,7 +74,7 @@ async function loadManageableForm(env, user, rawId) {
 
 /**
  * 创建表单；body.notice 为真时同时下发一条通知，link 指向填写页。
- * D1 没有事务：通知一环失败就按「写入的逆序」把这一次已经落库的行清掉，不留半成品。
+ * D1 batch 事务保证表单、联动通知与发件箱事件同时提交或回滚。
  */
 export async function handleCreateForm(request, env, user, ctx) {
   try {
@@ -115,11 +98,18 @@ export async function handleCreateForm(request, env, user, ctx) {
       if (!deadline) return jsonResponse(error('截止时间格式不正确', 'INVALID_DEADLINE'), 400);
     }
 
-    const remind = normalizeRemind(body.remind_people);
+    const remind = await normalizeRecipients(env.DB, body.remind_people);
     if (remind === false) return jsonResponse(error('提醒对象格式不正确', 'INVALID_REMIND'), 400);
 
+    const noticeTimes = body.notice ? normalizeTimeRange(
+      body.notice_publish_time || formatLocalDateTime(), body.notice_expire_time
+    ) : null;
+    if (body.notice && !noticeTimes) {
+      return jsonResponse(error('通知时间不正确，过期时间不能早于发布时间', 'INVALID_TIME'), 400);
+    }
+
     const model = new FormModel(env.DB);
-    const formId = await model.create({
+    const data = {
       title,
       description: body.description == null ? null : String(body.description).trim().slice(0, MAX_DESC_LEN),
       fields: JSON.stringify(nf.fields),
@@ -129,97 +119,13 @@ export async function handleCreateForm(request, env, user, ctx) {
       creator_id: user.id,
       creator_name: user.name,
       remind_people: remind
-    });
-    if (!formId) return jsonResponse(error('创建表单失败', 'CREATE_FORM_FAILED'), 500);
-
-    let linkedNotice = null;
-    if (body.notice) {
-      const noticeModel = new NoticeModel(env.DB);
-      // 通知 id 必须留在 try 外面：create() 成功而 update() 失败时通知已经落库，
-      // 只在 catch 里删表单会留下一条指向已删表单的孤儿通知（issue #72）。
-      let linkedNoticeId = null;
-      try {
-        const noticeTitle = String(body.notice_title || title).trim().slice(0, MAX_TITLE_LEN) || title;
-        const noticeContent = String(body.notice_content == null ? '' : body.notice_content).trim().slice(0, MAX_DESC_LEN)
-          || `请填写表单《${title}》`;
-        // 这里有个关不上的窗口：create() 若在 INSERT 之后才抛错，我们拿不到 id，
-        // 没有事务就清不掉那条通知。这是 D1 无事务的已知代价，不是「已完全解决」。
-        linkedNoticeId = await noticeModel.create({
-          title: noticeTitle,
-          content: noticeContent,
-          publish_time: toLocalDateTime(body.notice_publish_time) || nowLocalDateTime(),
-          publisher: user.name,
-          // 联动下发的通知同样记归属：否则创建者自己都改不了这条通知（见 issue #17）
-          created_by: user.id,
-          remind_people: remind,
-          expire_time: toLocalDateTime(body.notice_expire_time),
-          link: `/forms.html?id=${formId}`
-        });
-        if (linkedNoticeId) await model.update(formId, { notice_id: linkedNoticeId });
-        linkedNotice = { title: noticeTitle, content: noticeContent };
-      } catch (e) {
-        console.error('表单下发通知失败，回滚表单:', e);
-        // 逆序回滚：先删通知再删表单。两步各自包 try —— 删通知失败不能连表单也不删，
-        // 删表单失败也不能把上面那个原始错误盖成另一条，否则排查时看到的是假现场。
-        if (linkedNoticeId) {
-          try {
-            await noticeModel.delete(linkedNoticeId);
-          } catch (cleanupError) {
-            console.error('回滚通知失败，可能残留孤儿通知 notice_id=', linkedNoticeId, cleanupError);
-          }
-        }
-        try {
-          await model.remove(formId);
-        } catch (cleanupError) {
-          console.error('回滚表单失败，可能残留表单 form_id=', formId, cleanupError);
-        }
-        return jsonResponse(error('下发通知失败，表单未创建', 'NOTICE_LINK_FAILED'), 500);
-      }
-    }
-
-    // 推送：一次下发只推一条 —— 联动通知时用通知的措辞，否则直接推表单本身，
-    // 否则「建表单 + 发通知」会让同一个人收到两条。收件人口径与表单待办一致。
-    const pushed = linkedNotice
-      ? { title: linkedNotice.title, body: excerptText(linkedNotice.content) }
-      : { title: `新表单：${title}`, body: excerptText(body.description) || '请及时填写' };
-    await pushToRemindAudience(env, ctx, remind, {
-      title: pushed.title,
-      body: pushed.body,
-      url: `/forms.html?id=${formId}`,
-      tag: `form-${formId}`,
-      excludeUserId: user.id
-    });
-
-    // 订阅邮件（用户口径：通知 / 表单各按各的订阅发）：
-    //   - 表单本身 → 表单订阅（kind forms）
-    //   - 勾选「同时下发通知」→ 那条联动通知 → 通知订阅（kind notices）
-    // 同时订了通知和表单的同学会收两封，这是刻意为之：两类内容在站内本就是两个入口。
-    // 收件人口径与推送一致（utils/audience.js 的 resolveRemindUsers），链接必须给绝对地址。
-    const origin = new URL(request.url).origin;
-    const formLink = `${origin}/forms.html?id=${formId}`;
-    await pushSubscribedEmails(env, ctx, 'forms', {
-      remindPeople: remind,
-      excludeUserId: user.id,
-      subject: `【班级助理】新表单：${title}`,
-      html: renderFormEmail({
-        title,
-        description: body.description,
-        deadline,
-        link: formLink
-      })
-    });
-    if (linkedNotice) {
-      await pushSubscribedEmails(env, ctx, 'notices', {
-        remindPeople: remind,
-        excludeUserId: user.id,
-        subject: `【班级助理】新通知：${linkedNotice.title}`,
-        html: renderNoticeEmail({
-          title: linkedNotice.title,
-          content: linkedNotice.content,
-          link: formLink
-        })
-      });
-    }
+    };
+    const formId = body.notice ? await model.createWithNotice(data, {
+      title: String(body.notice_title || title).trim().slice(0, MAX_TITLE_LEN) || title,
+      content: String(body.notice_content || '').trim().slice(0, MAX_DESC_LEN) || `请填写表单《${title}》`,
+      publish_time: noticeTimes.start,
+      expire_time: noticeTimes.end
+    }) : await model.create(data);
 
     return jsonResponse(success({ message: '表单已添加', id: formId }), 201);
   } catch (e) {
@@ -276,14 +182,17 @@ export async function handleListForms(request, env, user) {
 export async function handleListMyForms(request, env, user) {
   try {
     const model = new FormModel(env.DB);
-    const rows = await model.listMine(user.id);
     const now = Date.now();
     // 空提醒对象 = 全班，但「不计入班级管理」的职位不算全班（与通知/活动同一判定）
     const viewer = await loadViewer(env, user);
 
+    const url = new URL(request.url);
+    const limit = pageLimit(url, 100);
+    const offset = pageOffset(url);
+    const rows = await model.listMine(user.id, limit + 1, viewer, offset);
     const pending = [];
     const editable = [];
-    for (const row of rows) {
+    for (const row of rows.slice(0, limit)) {
       if (!canView(row.remind_people, viewer)) continue;
       // 过了截止时间就不再算待办：填不了，列出来只会误导（仍可通过链接打开看到已截止）。
       // 「随时可修改」例外 —— 它不受截止时间约束，过多久都还能补交/改答案，照常列出；
@@ -311,7 +220,7 @@ export async function handleListMyForms(request, env, user) {
       else editable.push(item);
     }
 
-    return jsonResponse(success({ pending, editable }));
+    return jsonResponse(success({ pending, editable, nextOffset: rows.length > limit ? offset + limit : null }));
   } catch (e) {
     console.error('获取我的表单失败:', e);
     return jsonResponse(error('获取我的表单失败', 'LIST_MY_FORMS_FAILED'), 500);
@@ -405,7 +314,7 @@ export async function handleUpdateForm(request, env, user, params) {
       data.deadline = d;
     }
     if (body.remind_people !== undefined) {
-      const r = normalizeRemind(body.remind_people);
+      const r = await normalizeRecipients(env.DB, body.remind_people);
       if (r === false) return jsonResponse(error('提醒对象格式不正确', 'INVALID_REMIND'), 400);
       data.remind_people = r;
     }
@@ -583,36 +492,14 @@ export async function handleSubmitForm(request, env, user, params) {
     if (!va.ok) return jsonResponse(error(va.message, va.code), 400);
 
     // 学号姓名一律取服务端登录态，请求体里的同名字段一概忽略
-    await model.submit(id, user.id, user.student_id, user.name, JSON.stringify(va.answers));
+    const wrote = await model.submit(form, user.id, user.student_id, user.name, JSON.stringify(va.answers));
+    if (!wrote) {
+      return jsonResponse(error('表单或提交状态已变化，请刷新后重试', 'FORM_CHANGED'), 409);
+    }
 
     return jsonResponse(success({ message: mine ? '已更新提交' : '提交成功' }));
   } catch (e) {
     console.error('提交表单失败:', e);
     return jsonResponse(error('提交表单失败', 'SUBMIT_FORM_FAILED'), 500);
   }
-}
-
-/** 提交对象：数组 / JSON 数组字符串 / 逗号分隔；空 = 全班 */
-function normalizeRemind(raw) {
-  if (raw === undefined || raw === null || raw === '') return null;
-
-  let list;
-  if (Array.isArray(raw)) {
-    list = raw;
-  } else if (typeof raw === 'string') {
-    const s = raw.trim();
-    if (!s) return null;
-    if (s.charAt(0) === '[') {
-      const parsed = parseJson(s, null);
-      if (!Array.isArray(parsed)) return false;
-      list = parsed;
-    } else {
-      list = s.split(',');
-    }
-  } else {
-    return false;
-  }
-
-  const names = list.map((x) => String(x).trim()).filter(Boolean);
-  return names.length ? JSON.stringify(names) : null;
 }

@@ -97,14 +97,15 @@ object OfflineApi {
      * 所以两条都得存 —— 少一条，那个页面第一次进去就还是加载态。
      */
     private val FIXED_PATHS = listOf(
-        "/api/notices?scope=all&limit=200",      // 主页：当日通知/活动
+        "/api/notices?scope=all&audience=mine&limit=100&offset=0",      // 主页：当日通知/活动
         "/api/notices?scope=all",                // 通知列表页
-        "/api/activities?scope=all&limit=200",   // 主页：当日活动
+        "/api/activities?scope=all&audience=mine&limit=100&offset=0",   // 主页：当日活动
         "/api/activities?scope=all",             // 活动列表页
         "/api/academic/status",
         TIMETABLE_PATH,
         "/api/academic/credits",
         "/api/academic/grades",                  // 学业页：成绩（不带 xnxq 即「全部学期」）
+        "/api/forms/mine?limit=100&offset=0",
         "/api/auth/me"                           // 个人中心
     )
 
@@ -120,15 +121,15 @@ object OfflineApi {
 
     /**
      * 主页当日列表那两个 URL。参数顺序与 `web/assets/js/index.js` 里拼的**必须逐字一致**
-     * （通知是 `?limit=50&date=`、活动是 `?date=…&limit=50`，顺序反了就是另一个键）。
+     * （两者均带 audience=mine 与 offset，顺序反了就是另一个键）。
      *
      * 日期按设备本地时区算 —— 网页那边用的是 JS 的 `new Date()`，同一个时区。
      */
     internal fun todayListPaths(now: Long, zone: TimeZone = TimeZone.getDefault()): List<String> {
         val day = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply { timeZone = zone }.format(Date(now))
         return listOf(
-            "/api/notices?limit=50&date=$day",
-            "/api/activities?date=$day&limit=50"
+            "/api/notices?audience=mine&limit=100&date=$day&offset=0",
+            "/api/activities?audience=mine&date=$day&limit=100&offset=0"
         )
     }
 

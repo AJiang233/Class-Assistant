@@ -1,6 +1,7 @@
+import { normalizeRecipients } from '../utils/recipients.js';
 import { NoticeModel } from '../models/noticeModel.js';
 import { success, error, jsonResponse } from '../utils/response.js';
-import { toLocalDateTime } from '../utils/datetime.js';
+import { normalizeTimeRange } from '../utils/datetime.js';
 import { pageLimit, pageOffset } from '../utils/query.js';
 import { isSafeLink } from '../utils/link.js';
 import {
@@ -10,9 +11,6 @@ import {
   loadViewer,
   listByAudience
 } from '../utils/audience.js';
-import { pushToRemindAudience } from '../utils/push.js';
-import { pushSubscribedEmails } from '../utils/emailPush.js';
-import { renderNoticeEmail } from '../utils/email.js';
 
 /**
  * 发布通知（需登录）
@@ -28,56 +26,34 @@ export async function handleCreateNotice(request, env, user, ctx) {
     if (!isSafeLink(link)) {
       return jsonResponse(error('跳转地址只能是本站页面', 'INVALID_LINK'), 400);
     }
+    const times = normalizeTimeRange(publish_time, expire_time);
+    if (!times) {
+      return jsonResponse(error('通知时间不正确，过期时间不能早于发布时间', 'INVALID_TIME'), 400);
+    }
 
-    const remind = remind_people ? JSON.stringify(remind_people) : null;
+    const remind = await normalizeRecipients(env.DB, remind_people);
+    if (remind === false) return jsonResponse(error('提醒对象必须是有效的用户 ID 数组', 'INVALID_REMIND'), 400);
     const noticeModel = new NoticeModel(env.DB);
     const noticeId = await noticeModel.create({
       title,
       content,
-      publish_time: toLocalDateTime(publish_time),
+      publish_time: times.start,
       // 署名与归属都由服务端从登录态写，请求体里传什么都不作数
       publisher: user.name,
       created_by: user.id,
       remind_people: remind,
       source: 'manual',
-      expire_time: toLocalDateTime(expire_time),
+      expire_time: times.end,
       link: link ? String(link).trim() : null
     });
 
-    // 推送：收件人与通知列表同一判定（utils/audience.js），发送在 waitUntil 里不拖慢响应
-    await pushToRemindAudience(env, ctx, remind, {
-      title: String(title),
-      body: excerpt(content),
-      url: noticeId ? '/?view=notices&id=' + noticeId : '/?view=notices',
-      tag: noticeId ? 'notice-' + noticeId : undefined,
-      excludeUserId: user.id
-    });
-
-    // 订阅邮件：与推送同一收件人口径（utils/audience.js），waitUntil 里逐封发。
-    // 链接必须是绝对地址 —— 邮件客户端不会把 /?view=... 解析成本站页面。
-    const origin = new URL(request.url).origin;
-    await pushSubscribedEmails(env, ctx, 'notices', {
-      remindPeople: remind,
-      excludeUserId: user.id,
-      subject: `【班级助理】新通知：${title}`,
-      html: renderNoticeEmail({
-        title,
-        content,
-        link: noticeId ? `${origin}/?view=notices&id=${noticeId}` : `${origin}/?view=notices`
-      })
-    });
+    // 数据库触发器与业务写入一起登记持久投递事件，由定时消费者处理。
 
     return jsonResponse(success({ message: '通知发布成功' }), 201);
   } catch (e) {
     console.error('发布通知失败:', e);
     return jsonResponse(error('发布通知失败，请稍后重试', 'CREATE_NOTICE_FAILED'), 500);
   }
-}
-
-/** 通知正文在锁屏上只显示一两行，截一段就够，避免整段长文塞进推送 */
-function excerpt(text, max = 80) {
-  const s = String(text == null ? '' : text).replace(/\s+/g, ' ').trim();
-  return s.length > max ? s.slice(0, max) + '…' : s;
 }
 
 /**
@@ -96,11 +72,14 @@ export async function handleListNotices(request, env, user) {
     const noticeModel = new NoticeModel(env.DB);
     // 提醒对象为空的条目对「不计入班级管理」的人不可见（安卓推送读的也是这个接口）
     const viewer = await loadViewer(env, user);
-    const list = await listByAudience(viewer,
+    const mine = url.searchParams.get('audience') === 'mine';
+    const list = mine ? await noticeModel.listPersonal(viewer, limit + 1, offset, date, scope) : await listByAudience(viewer,
       (l, o) => (scope === 'all' ? noticeModel.listAll(l, o) : noticeModel.list(l, o, date)),
       limit, offset);
 
-    return jsonResponse(success({ list, total: list.length }));
+    const page = mine ? list.slice(0, limit) : list;
+    return jsonResponse(success({ list: page, total: page.length,
+      nextOffset: mine && list.length > limit ? offset + limit : null }));
   } catch (e) {
     console.error('获取通知列表失败:', e);
     return jsonResponse(error('获取通知列表失败', 'LIST_NOTICES_FAILED'), 500);
@@ -186,12 +165,20 @@ export async function handleUpdateNotice(request, env, user, params) {
     const payload = {};
     if (body.title !== undefined) payload.title = body.title;
     if (body.content !== undefined) payload.content = body.content;
-    if (body.publish_time !== undefined) payload.publish_time = toLocalDateTime(body.publish_time);
-    if (body.expire_time !== undefined) payload.expire_time = toLocalDateTime(body.expire_time);
+    if (body.publish_time !== undefined || body.expire_time !== undefined) {
+      const times = normalizeTimeRange(
+        body.publish_time !== undefined ? body.publish_time : existing.publish_time,
+        body.expire_time !== undefined ? body.expire_time : existing.expire_time
+      );
+      if (!times) {
+        return jsonResponse(error('通知时间不正确，过期时间不能早于发布时间', 'INVALID_TIME'), 400);
+      }
+      if (body.publish_time !== undefined) payload.publish_time = times.start;
+      if (body.expire_time !== undefined) payload.expire_time = times.end;
+    }
     if (body.remind_people !== undefined) {
-      payload.remind_people = Array.isArray(body.remind_people)
-        ? JSON.stringify(body.remind_people)
-        : body.remind_people;
+      payload.remind_people = await normalizeRecipients(env.DB, body.remind_people);
+      if (payload.remind_people === false) return jsonResponse(error('提醒对象必须是有效的用户 ID 数组', 'INVALID_REMIND'), 400);
     }
     if (body.link !== undefined) {
       if (!isSafeLink(body.link)) {

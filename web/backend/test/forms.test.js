@@ -380,77 +380,7 @@ describe('提交闸门', () => {
   });
 });
 
-describe('创建表单：联动通知失败时的回滚', () => {
-  /**
-   * 内存假 D1：INSERT 记行、DELETE 删行，`UPDATE forms` 一律抛错。
-   * 这样能停在 issue #72 那一刻 —— 通知已经落库，回写 forms.notice_id 失败 ——
-   * 只盯住「回滚后两张表还剩什么」。假表只存 id，够用来判残留。
-   */
-  function fakeDb() {
-    const forms = [];
-    const notices = [];
-    let nextId = 1;
-
-    return {
-      forms,
-      notices,
-      prepare(sql) {
-        const stmt = {
-          _args: [],
-          bind(...args) { stmt._args = args; return stmt; },
-          async all() { return { results: [] }; },
-          async first() {
-            if (/INSERT INTO forms/i.test(sql)) {
-              const id = nextId++;
-              forms.push({ id });
-              return { id };
-            }
-            if (/INSERT INTO notices/i.test(sql)) {
-              const id = nextId++;
-              notices.push({ id });
-              return { id };
-            }
-            return null;
-          },
-          async run() {
-            if (/UPDATE forms/i.test(sql)) throw new Error('D1_ERROR: 回写 notice_id 失败');
-            const [id] = stmt._args;
-            const table = /DELETE FROM notices/i.test(sql) ? notices
-              : /DELETE FROM forms/i.test(sql) ? forms : null;
-            if (table) {
-              const i = table.findIndex((row) => row.id === id);
-              if (i >= 0) table.splice(i, 1);
-            }
-            return {};
-          }
-        };
-        return stmt;
-      }
-    };
-  }
-
-  it('通知已写入但回写 notice_id 失败：通知与表单都不留残留', async () => {
-    const db = fakeDb();
-    const res = await handleCreateForm(
-      new Request('https://class.example/api/forms', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title: '聚餐报名',
-          fields: [{ key: 'note', label: '备注', type: 'text' }],
-          notice: true
-        })
-      }),
-      { DB: db },
-      { id: 2, name: '班长' }
-    );
-
-    assert.equal(res.status, 500);
-    assert.equal((await res.json()).code, 'NOTICE_LINK_FAILED');
-    assert.deepEqual(db.notices, [], '通知已落库却只删表单，就会留下指向已删表单的孤儿通知');
-    assert.deepEqual(db.forms, [], '表单也要回滚干净');
-  });
-});
+// 联动回滚由 architecture.test.js 使用真实 SQLite 逐个写入点注入失败验证。
 
 describe('编辑表单：字段锁与写入是同一条语句', () => {
   /**

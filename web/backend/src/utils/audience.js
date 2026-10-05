@@ -2,12 +2,16 @@
  * 「提醒对象」可见性与内容归属 —— 「谁看得到 / 谁能改」只在这里实现一次
  *
  * 可见性：提醒对象为空（null / '' / []）= 默认全班；但带「不计入班级管理」权限（class:exclude）
- * 的人不算全班的一员 —— 只有在提醒对象里被明确勾选（写了姓名或用户 id）才可见 / 才通知。
+ * 的人不算全班的一员 —— 只有在提醒对象里被明确勾选（写了用户 ID）才可见 / 才通知。
  *
  * 网页列表、安卓推送、日历订阅、表单读的都是这一条规则。判定必须只有一份：
  * 任何「按 id 取一条」「按名单挑人」「按页取列表」的地方都从这里取，
  * 别在各自的 handler 里重写 —— 之前单条读取、日历订阅、表单详情三处各写各的，
  * 结果就是「不计入班级管理」的规则只挡住了列表，其余三条路径全绕过去了。
+ *
+ * 例外：持 user:manage（管理成员）权限的管理员不受这条可见性限制 —— 见 canSeeAllContent。
+ * 否则一个既当班长 / 团支书、又被标为「不计入班级管理」的人（职位权限取并集），
+ * 会看不到自己该管理的通知 / 活动。
  *
  * 归属：通知 / 活动 / 表单统一 —— 改与删只认创建者本人，或持有 user:manage 的班委
  * （见 canManageItem）。三者的归属字段名不同（通知/活动是 created_by、表单是 creator_id），
@@ -40,8 +44,8 @@ export function isExcludedFromClass(positions, roleMap) {
 }
 
 /**
- * 解析提醒对象名单（姓名或用户 id）。空 = 全班。
- * 与前端 remindMe() 同一口径，所以放在这里只写一份。
+ * 解析迁移后的提醒对象 ID 名单。空 = 全班。
+ * 页面个人列表、日历、同步与投递共用此判定。
  */
 export function parseRemindNames(raw) {
   if (!raw) return [];
@@ -70,10 +74,29 @@ export async function loadViewer(env, user) {
   const roleMap = await loadRoleMap(env);
   return {
     user,
+    roleMap,
     excluded: isExcludedFromClass(user.positions, roleMap),
     canWrite: hasPermission(user.positions, PERM_CONTENT_WRITE, roleMap),
     canManageUsers: hasPermission(user.positions, PERM_USER_MANAGE, roleMap)
   };
+}
+
+/**
+ * 管理员是否不受「不计入班级管理」的可见性限制。
+ *
+ * 「管理员」只认 user:manage（管理成员）—— 与前端 canManageUsers() 同一口径。
+ * 刻意不含 content:write：学习委员等「能发文」的班委照常适用原规则，只有明确被
+ * 授予管理成员权限的班长 / 团支书才有这道放宽。
+ *
+ * 为什么需要：职位权限取并集，一个既当班长 / 团支书、又被标为「不计入班级管理」的人
+ * （如 positions = ["班长","旁听生"]）会同时拿到 excluded 与 user:manage。照普通成员的
+ * 规则把「默认全班」的内容滤掉，他连自己负责管理的通知 / 活动都在全部页上看不到了。
+ *
+ * 只给列表用（见 listByAudience）；单条读取是另一档放宽，见 canViewItem。
+ * 日历订阅不接这里 —— 班委的日历里不该凭管理员身份塞进没被提醒的全班内容。
+ */
+export function canSeeAllContent(viewer) {
+  return viewer.canManageUsers;
 }
 
 /**
@@ -83,18 +106,21 @@ export async function loadViewer(env, user) {
 export function canView(raw, viewer) {
   if (isEveryoneRemind(raw)) return !viewer.excluded;
   const names = parseRemindNames(raw);
-  return names.includes(String(viewer.user.name)) || names.includes(String(viewer.user.id));
+  return names.includes(String(viewer.user.id));
 }
 
 /**
- * 「按 id 取一条」用的判定：在 canView 之上给能发文的人放行 ——
- * 班委要能打开一条自己没被定向到的通知/活动去修改或删除，否则编辑入口就断了。
+ * 「按 id 取一条」用的判定：在 canView 之上放行两类人 ——
+ *   1) 能发文的人（content:write）：班委要能打开一条自己没被定向到的通知/活动去修改或删除，
+ *      否则编辑入口就断了；
+ *   2) 持 user:manage 的管理员（见 canSeeAllContent）：列表已为他不做排除过滤，
+ *      详情不跟着放行就会出现「列表里看得到、点进去 404」。
  * 真能不能改由 canManageItem 决定。
  *
  * 日历订阅不要用这个：班委的日历里不该出现全班的定向内容。
  */
 export function canViewItem(raw, viewer) {
-  return viewer.canWrite || canView(raw, viewer);
+  return viewer.canWrite || canSeeAllContent(viewer) || canView(raw, viewer);
 }
 
 /**
@@ -125,7 +151,7 @@ export function canManageItem(row, viewer) {
 
 /**
  * 条目的定向名单只给能发文的人看（编辑表单要拿它预填），普通读者不需要。
- * 名单里是姓名与用户 id，不必让每个登录用户都能拉到。
+ * 名单里是用户 ID，不必让每个登录用户都能拉到。
  */
 export function withoutRemindPeople(row, viewer) {
   if (viewer.canWrite) return row;
@@ -152,13 +178,13 @@ export function itemForViewer(row, viewer) {
 export function pickAudience(users, raw, isExcluded = () => false) {
   const names = parseRemindNames(raw);
   if (!names.length) return users.filter((u) => !isExcluded(u));
-  return users.filter((u) => names.includes(String(u.name)) || names.includes(String(u.id)));
+  return users.filter((u) => names.includes(String(u.id)));
 }
 
 /**
  * 「谁该收到推送」：
  *  - 提醒对象为空 = 全班减去「不计入班级管理」的人
- *  - 提醒对象非空 = 名单里被明确写到的姓名或 id（含被排除组的人，只要被点名）
+ *  - 提醒对象非空 = 名单里被明确写到的用户 ID（含被排除组的人，只要被点名）
  *
  * 推送和列表读的必须是同一份判定，否则会出现「列表里看不到却收到推送」。
  *
@@ -185,8 +211,11 @@ export async function resolveRemindUsers(env, remindPeople, options = {}) {
 
 /**
  * 按可见性取一页列表：排除组的人看不到「提醒对象为空」的条目。
- * 定向条目不在这一层按姓名过滤（那是前端与 App 各自的 remindMe 判断），
- * 这里只处理「不计入班级管理」这一条服务端规则。
+ * 此入口用于全部台账，只处理「不计入班级管理」；
+ * 个人列表由模型 listPersonal 在 SQL 分页之前过滤，Android 使用增量同步。
+ *
+ * 管理员整段跳过（见 canSeeAllContent）：持 user:manage 的管理员要在「全部通知 / 活动」页
+ * 看到全班的台账，哪怕他自己被标成了「不计入班级管理」。
  *
  * 过滤发生在取数之后，被滤掉的行会占掉这一页的名额，所以凑不满 limit 时继续取下一页——
  * 否则排在后面的「明确勾选」条目会永远取不到（客户端通常一次只拉一页）。
@@ -197,16 +226,20 @@ export async function resolveRemindUsers(env, remindPeople, options = {}) {
  * @param {(limit:number, offset:number) => Promise<Array>} fetchPage 取原始一页
  */
 export async function listByAudience(viewer, fetchPage, limit, offset = 0) {
-  if (!viewer.excluded) return fetchPage(limit, offset);
+  if (!viewer.excluded || canSeeAllContent(viewer)) return fetchPage(limit, offset);
 
   const out = [];
-  let rawOffset = offset;
+  // offset 指过滤后的行数；直接作为数据库偏移会重复返回上一页末尾的定向条目。
+  let rawOffset = 0;
+  let skipped = 0;
   while (out.length < limit) {
     const rows = await fetchPage(limit, rawOffset);
     if (!rows.length) break;
     for (const row of rows) {
       if (out.length >= limit) break;
-      if (!isEveryoneRemind(row.remind_people)) out.push(row);
+      if (isEveryoneRemind(row.remind_people)) continue;
+      if (skipped < offset) skipped++;
+      else out.push(row);
     }
     rawOffset += rows.length;
     if (rows.length < limit) break;

@@ -5,6 +5,8 @@ import { calendarRoutes } from './routes/calendar.js';
 import { academicRoutes } from './routes/academic.js';
 import { formRoutes } from './routes/forms.js';
 import { pushRoutes } from './routes/push.js';
+import { withAuth } from './middleware/auth.js';
+import { handleSync } from './handlers/syncHandler.js';
 import { handleCors, corsResponse } from './middleware/cors.js';
 import { logger } from './middleware/logger.js';
 import { error, jsonResponse } from './utils/response.js';
@@ -39,6 +41,9 @@ export default {
  * 抽成函数，是为了让 fetch 里的错误边界包住整个分发过程。
  */
 async function dispatch(request, env, ctx) {
+  if (new URL(request.url).pathname === '/api/sync' && request.method === 'GET') {
+    return withAuth(handleSync)(request, env, ctx);
+  }
   // 认证路由
   let response = await authRoutes(request, env, ctx);
   if (response) return response;

@@ -527,8 +527,11 @@ refreshNotify();
 function pushHint(text) {
     document.getElementById('pushHint').textContent = text || '';
 }
+// kind（由按钮的 data-arg 传来）→ 对应的按钮 id：通知 / 活动 / 表单各一个
+var TEST_PUSH_BTN = { notice: 'testNoticeBtn', activity: 'testActivityBtn', form: 'testFormBtn' };
 function testPush(kind) {
-    var btn = document.getElementById(kind === 'activity' ? 'testActivityBtn' : 'testNoticeBtn');
+    var btn = document.getElementById(TEST_PUSH_BTN[kind]);
+    if (!btn) return;
     pushHint('');
     if (!window.CAHost || typeof CAHost.testNotification !== 'function') {
         pushHint('网页版没有系统通知通道，请安装安卓 App 后在本页测试。');
