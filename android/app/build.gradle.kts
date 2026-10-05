@@ -5,11 +5,15 @@ plugins {
 
 android {
     namespace = "com.classassistant.app"
-    compileSdk = 34
+    // compileSdk 提到 35（Android 15）：这一步只影响**编译期** —— 能用到 API 35 的符号，
+    // 也让「要求 compileSdk ≥ 35」的 androidx 库能编过。运行期行为一根手指都不动。
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.classassistant.app"
         minSdk = 24
+        // targetSdk **刻意留在 34**：升它会触发 edge-to-edge 强制（系统栏配色失效、键盘不再缩窗口），
+        // 那是一整摊要连真机回归一起做的改动，评估见 issue #27。两者分开升，风险才分得开。
         targetSdk = 34
         versionCode = 1
         versionName = "0.0.1"
