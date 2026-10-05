@@ -136,7 +136,7 @@ function normalizeValue(field, value) {
     return { ok: true, value: s };
   }
   if (field.type === 'date') {
-    if (s && !/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    if (s && (!/^\d{4}-\d{2}-\d{2}$/.test(s) || parseLocalDateTime(`${s} 00:00:00`) == null)) {
       return { ok: false, message: `字段「${field.label}」的日期请按 2026-09-14 这样的格式填写`, code: 'INVALID_ANSWERS' };
     }
     return { ok: true, value: s };

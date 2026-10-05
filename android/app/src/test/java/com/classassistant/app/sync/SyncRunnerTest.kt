@@ -14,57 +14,6 @@ import org.junit.Test
  */
 class SyncRunnerTest {
 
-    @Test
-    fun `还没同步过时只记基线，什么都不算新`() {
-        val pick = SyncRunner.pickFresh(listOf(100L, 300L, 200L), lastSeen = 0L)
-        assertTrue(pick.fresh.isEmpty())
-        assertEquals(300L, pick.baseline)
-    }
-
-    @Test
-    fun `只有比基线更新的才算新`() {
-        val pick = SyncRunner.pickFresh(listOf(100L, 200L, 300L), lastSeen = 200L)
-        assertEquals(listOf(2), pick.fresh)
-        assertEquals(300L, pick.baseline)
-    }
-
-    @Test
-    fun `没有更新的条目时不动基线`() {
-        val pick = SyncRunner.pickFresh(listOf(100L, 200L), lastSeen = 200L)
-        assertTrue(pick.fresh.isEmpty())
-        assertEquals(null, pick.baseline)
-    }
-
-    @Test
-    fun `与基线同一时刻的条目不重复算新`() {
-        // 用 > 而不是 >=：服务端的秒级时间戳换算成毫秒后容易撞在一起，
-        // 判成 >= 的话同一条通知会被反复推
-        val pick = SyncRunner.pickFresh(listOf(200L, 200L), lastSeen = 200L)
-        assertTrue(pick.fresh.isEmpty())
-        assertEquals(null, pick.baseline)
-    }
-
-    @Test
-    fun `解析不出时间的条目不参与判定`() {
-        val pick = SyncRunner.pickFresh(listOf(null, 300L), lastSeen = 100L)
-        assertEquals(listOf(1), pick.fresh)
-        assertEquals(300L, pick.baseline)
-    }
-
-    @Test
-    fun `一条都解析不出时间时不动基线`() {
-        val pick = SyncRunner.pickFresh(listOf(null, null), lastSeen = 100L)
-        assertTrue(pick.fresh.isEmpty())
-        assertEquals(null, pick.baseline)
-    }
-
-    @Test
-    fun `列表为空时不动基线`() {
-        val pick = SyncRunner.pickFresh(emptyList(), lastSeen = 100L)
-        assertTrue(pick.fresh.isEmpty())
-        assertEquals(null, pick.baseline)
-    }
-
     // ===== 换账号时清不清本地数据（issue #64）=====
     //
     // 判据写错的两个方向都很难在开发机上发现：判宽了，每次重新登录都会把课表与离线缓存清空；

@@ -91,14 +91,14 @@ describe('可见性判定', () => {
     }
   });
 
-  it('定向名单里写了姓名或用户 id 才对 ta 可见', async () => {
+  it('定向名单只按稳定用户 ID 判定', async () => {
     const excluded = await viewerFor(小李, [旁听生]);
     const normal = await viewerFor(小张);
 
-    assert.equal(canView(JSON.stringify(['小李']), excluded), true);
-    assert.equal(canView(JSON.stringify(['小李']), normal), false);
+    assert.equal(canView(JSON.stringify([3]), excluded), true);
+    assert.equal(canView(JSON.stringify([3]), normal), false);
     assert.equal(canView(JSON.stringify(['刘科江']), normal), false);
-    // 名单里也可以写用户 id（提醒对象选择器两种都写）
+    // 迁移后的名单只保留用户 ID，展示名不参与判断。
     assert.equal(canView('3', excluded), true);
   });
 
@@ -112,7 +112,7 @@ describe('可见性判定', () => {
     const isExcluded = (u) => u.positions === '旁听生';
 
     assert.deepEqual(pickAudience(all, null, isExcluded).map((u) => u.name), ['班长', '小张']);
-    assert.deepEqual(pickAudience(all, JSON.stringify(['小李']), isExcluded).map((u) => u.name), ['小李']);
+    assert.deepEqual(pickAudience(all, JSON.stringify([3]), isExcluded).map((u) => u.name), ['小李']);
   });
 
   it('定向名单只交给能发文的人（编辑表单要用它预填）', async () => {
@@ -126,7 +126,7 @@ describe('可见性判定', () => {
 
   it('列表排除组的人：跳过不可见的行并继续取下一页，别把名额浪费掉', async () => {
     // 每页两行、其中一行对排除组不可见：两页之后才凑够 2 条
-    const page = () => [{ remind_people: null }, { remind_people: JSON.stringify(['小李']) }];
+    const page = () => [{ remind_people: null }, { remind_people: JSON.stringify([3]) }];
     const excludedViewer = await loadViewer({ DB: fakeDb({ roles: [旁听生] }) }, 小李);
 
     const out = await listByAudience(excludedViewer, async (l, o) => (o < 4 ? page() : []), 2, 0);
@@ -185,7 +185,7 @@ describe('单条读取', () => {
   });
 
   it('只有 content:write 的班委仍能打开自己没被定向到的单条（编辑入口要用）', async () => {
-    const env = { DB: fakeDb({ notice: { id: 5, title: '定向通知', remind_people: JSON.stringify(['小李']) } }) };
+    const env = { DB: fakeDb({ notice: { id: 5, title: '定向通知', remind_people: JSON.stringify([3]) } }) };
     const 学习委员 = { id: 4, name: '学习委员', positions: '学习委员' };
 
     const res = await handleGetNotice(req('/api/notices/5'), env, 学习委员, { id: '5' });
@@ -244,7 +244,7 @@ describe('表单详情与提交', () => {
     anonymous: 0,
     creator_id: 2,          // 小张建的
     creator_name: '小张',
-    remind_people: JSON.stringify(['小张']),
+    remind_people: JSON.stringify([2]),
     deadline: null
   };
 
@@ -285,7 +285,7 @@ describe('表单详情与提交', () => {
   });
 
   it('创建者不在自己的名单里也能打开（否则看不了进度、导不了表）', async () => {
-    const env = { DB: fakeDb({ roles: [旁听生], form: { ...baseForm, creator_id: 3, remind_people: JSON.stringify(['小张']) } }) };
+    const env = { DB: fakeDb({ roles: [旁听生], form: { ...baseForm, creator_id: 3, remind_people: JSON.stringify([2]) } }) };
 
     const res = await handleGetForm(req('/api/forms/9'), env, 小李, { id: '9' });
 
@@ -319,7 +319,7 @@ describe('表单详情与提交', () => {
 describe('日历订阅源', () => {
   const activities = [
     { id: 1, title: '全班活动', start_time: '2026-09-15 10:00:00', end_time: '2026-09-15 11:00:00', remind_people: null },
-    { id: 2, title: '定向活动', start_time: '2026-09-16 10:00:00', end_time: '', remind_people: JSON.stringify(['小李']) }
+    { id: 2, title: '定向活动', start_time: '2026-09-16 10:00:00', end_time: '', remind_people: JSON.stringify([3]) }
   ];
   // 把时间窗口放到最宽，免得用例随日期推移失效
   const feed = (user) => handleCalendarFeed(

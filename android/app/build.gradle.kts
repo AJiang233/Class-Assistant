@@ -79,4 +79,5 @@ dependencies {
     // 这类代码算错了不会崩，只会悄悄显示错的那一天。
     // 命令：./gradlew testDebugUnitTest
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")
 }

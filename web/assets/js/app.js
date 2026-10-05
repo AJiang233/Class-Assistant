@@ -273,7 +273,8 @@ function renderRemindBox(boxId, members, checkedNames, failed) {
   }
   // 上一次打开可能失败禁掉了保存按钮：这次名单可用就要恢复，否则永远点不动
   if (save) save.disabled = false;
-  if (!members || !members.length) {
+  members = members || [];
+  if (!members.length && !(checkedNames || []).length) {
     box.innerHTML = '<span class="remind-hint">暂无成员可提醒</span>';
     return;
   }
@@ -288,15 +289,22 @@ function renderRemindBox(boxId, members, checkedNames, failed) {
   const quick = positions.map(function (p) {
     return '<button type="button" class="pos-chip" data-pos="' + escAttr(p) + '">' + esc(p) + '</button>';
   }).join('');
+  const memberIds = new Set(members.map(function (m) { return String(m.id); }));
+  const unresolved = (checkedNames || []).filter(function (id) { return !memberIds.has(String(id)); });
+  const pendingRows = unresolved.map(function (id) {
+    return '<label class="chip"><input type="checkbox" class="remind-cb" checked value="'
+      + escAttr(id) + '">未匹配的原名单：' + esc(id) + '（请取消并重新选择）</label>';
+  }).join('');
   const rows = members.map(function (m) {
     const ps = parsePositionsList(m.positions).join(',');
-    const chk = checked[m.name] ? ' checked' : '';
+    const chk = checked[m.id] ? ' checked' : '';
     return '<label class="chip" data-positions="' + escAttr(ps) + '">'
-      + '<input type="checkbox" class="remind-cb" value="' + escAttr(m.name) + '"' + chk + '>' + esc(m.name) + '</label>';
+      + '<input type="checkbox" class="remind-cb" value="' + escAttr(m.id) + '"' + chk + '>'
+      + esc(m.name) + ' · ' + esc(m.student_id || ('成员 #' + m.id)) + '</label>';
   }).join('');
   box.innerHTML = (positions.length ? '<div class="remind-quick"><span class="remind-quick-label">按职位选择</span>' + quick + '</div>' : '')
     + '<div class="mb-12"><input class="form-input" type="search" placeholder="搜索姓名 / 职位" autocomplete="off"></div>'
-    + '<div class="remind-members">' + rows + '</div>'
+    + '<div class="remind-members">' + pendingRows + rows + '</div>'
     + '<div class="remind-empty" hidden>没有匹配的成员</div>';
   bindRemindBox(box, boxId);
   syncRemindQuick(boxId);

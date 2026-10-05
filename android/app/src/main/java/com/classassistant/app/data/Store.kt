@@ -51,6 +51,7 @@ object Store {
     fun token(context: Context): String? =
         sp(context).getString(KEY_TOKEN, null)?.takeIf { it.isNotBlank() }
 
+    @Synchronized
     fun saveToken(context: Context, token: String) {
         sp(context).edit().putString(KEY_TOKEN, token).apply()
     }
@@ -74,9 +75,10 @@ object Store {
      * last_sync_at 不清的话，退出后 60 秒内重新登录会被回前台同步的节流挡掉，新账号要等一分钟才拉数据。
      * 注意：取消提醒闹钟与重绘小组件不在这里做，退出登录请统一走 SyncRunner.logOutSession()。
      */
+    @Synchronized
     fun clearSession(context: Context) {
         sp(context).edit()
-            .remove(KEY_TOKEN).remove(KEY_USER_ID).remove(KEY_USER_NAME)
+            .remove(KEY_TOKEN).remove(KEY_USER_ID).remove(KEY_USER_NAME).remove("sync_snapshot")
             .remove(KEY_EVENTS).remove(KEY_LAST_NOTICE_TIME).remove(KEY_LAST_TODO_TIME)
             .remove(KEY_LAST_SYNC_AT).remove(KEY_SCHEDULED)
             // 课表缓存与课程提醒闹钟也一起清：留着的话换账号后小组件会显示别人的课，
@@ -116,6 +118,17 @@ object Store {
     }
 
     // ===== 同步状态 =====
+
+    fun syncSnapshot(context: Context): String? = sp(context).getString("sync_snapshot", null)
+
+    /** 与登录切换共用锁；单个提交原子保存数据、待提醒项、游标和小组件投影。 */
+    @Synchronized
+    fun commitSync(context: Context, expectedToken: String, snapshot: String, events: JSONArray? = null): Boolean {
+        if (token(context) != expectedToken) return false
+        val edit = sp(context).edit().putString("sync_snapshot", snapshot)
+        if (events != null) edit.putString(KEY_EVENTS, events.toString())
+        return edit.commit()
+    }
 
     /** 上次同步时看到的最新通知时间，用于判断同步后哪些是新通知 */
     fun lastNoticeTime(context: Context): Long = sp(context).getLong(KEY_LAST_NOTICE_TIME, 0L)
