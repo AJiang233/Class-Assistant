@@ -16,7 +16,13 @@
         </shape>
     </item>
     <item android:id="@android:id/progress">
-        <clip>
+        <!-- android:gravity="right"：这条读的是**倒计时**，所以「已上过」的部分从右往左盖。
+             ClipDrawable 默认的重力在左边（也就是「从上课那刻起往右淌」），把它挪到右边之后，
+             剩下的时间留在左侧、随时间越来越窄，读到的是「还剩多久」而不是「已经过了多久」。
+
+             注意 level 本身**没有变**：仍是 courseProgress 给的「已上过百分比」，
+             变的只是画的方向 —— 所以课表小组件那串每分钟一次的闹钟、以及它的单测都不用动。 -->
+        <clip android:gravity="right">
             <shape android:shape="rectangle">
                 <solid android:color="@color/widget_chip_fill" />
                 <corners android:radius="8dp" />
