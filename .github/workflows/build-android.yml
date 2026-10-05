@@ -33,9 +33,12 @@ jobs:
         # 并直接 exit 1，SDK 根本没装上，后面的 gradlew 全都连不上。只留 platform-tools 就绕开了，
         # 我们本来也不需要那个已废弃的旧 tools —— cmdline-tools 由这个 action 自己按
         # cmdline-tools-version 装，不受影响。
+        # 另外显式点名 platforms;android-35：compileSdk 已提到 35，AGP 虽然会按需自动下载
+        # 缺失的平台，但这个 workflow 刚在上一条上踩过「sdkmanager 缺包就 exit 1」的坑 ——
+        # 与其等构建阶段才失败，不如在这里就把它装好。
         uses: android-actions/setup-android@v3
         with:
-          packages: 'platform-tools'
+          packages: 'platform-tools platforms;android-35'
 
       - name: Grant execute permission for gradlew
         run: chmod +x android/gradlew
