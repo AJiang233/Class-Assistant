@@ -158,7 +158,9 @@ object SyncRunner {
      * 顺序上放在主流程之后、记 lastSyncAt 之前，所以这里慢了也只会推迟「上次同步」的显示。
      */
     private fun prewarmOfflineCache(ctx: Context, token: String) {
-        for (path in OfflineApi.prewarmPaths()) {
+        // extra = 网页真实请求过的带参数键（课表的 ?xnxq=…），见 Store.warmKeys。
+        // 不带上它们，课表那份缓存就只有页面自己写 —— 隔一阵子没进学业页，首帧又落回网络。
+        for (path in OfflineApi.prewarmPaths(extra = Store.warmKeys(ctx))) {
             val res = Api.get(path, token)
             if (res is Api.Res.Unauthorized) return
             cacheResponse(ctx, path, res)

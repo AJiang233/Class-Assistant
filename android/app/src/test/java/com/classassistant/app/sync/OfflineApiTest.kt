@@ -68,6 +68,53 @@ class OfflineApiTest {
     }
 
     /**
+     * 课表与成绩会带「上次看的学期」（`?xnxq=…`，见网页 academic.js 的 savedTerm），
+     * 于是缓存键不再等于预热清单里那条固定 URL：清单刷的是不带参数的、页面读的是带参数的。
+     * 这几条键要按实际请求记下来交给预热（见 OfflineApi.isStatefulKey / Store.warmKeys），
+     * 否则那份缓存只有页面自己写，隔一阵子没进学业页就过期，首帧又落回网络。
+     */
+    @Test
+    fun `带学期参数的课表与成绩请求要记下来交给预热`() {
+        assertTrue(
+            OfflineApi.isStatefulKey(
+                "/api/academic/timetable",
+                OfflineApi.cacheKey("/api/academic/timetable", "xnxq=2026-2027-1")
+            )
+        )
+        assertTrue(
+            OfflineApi.isStatefulKey(
+                "/api/academic/grades",
+                OfflineApi.cacheKey("/api/academic/grades", "xnxq=2025-2026-2")
+            )
+        )
+        // 不带参数的那条就是清单里已有的，不用再记
+        assertTrue(!OfflineApi.isStatefulKey("/api/academic/timetable", OfflineApi.TIMETABLE_PATH))
+        // 只带 refresh=1 的请求键里也会把这一位去掉，等于不带参数，同样不记
+        assertTrue(
+            !OfflineApi.isStatefulKey(
+                "/api/academic/timetable",
+                OfflineApi.cacheKey("/api/academic/timetable", "refresh=1")
+            )
+        )
+        // 别的接口带了参数也不记：那是数据本身的一部分（scope / limit / date），预热清单里本就各有一条
+        assertTrue(!OfflineApi.isStatefulKey("/api/notices", "/api/notices?scope=all"))
+        assertTrue(!OfflineApi.isStatefulKey("/api/academic/credits", "/api/academic/credits"))
+    }
+
+    @Test
+    fun `预热清单带上记下的键，已有的不重复`() {
+        val paths = OfflineApi.prewarmPaths(
+            noon(2026, 9, 14, shanghai),
+            shanghai,
+            // 第二条与固定清单里的重复（页面第一次进来时就是它），只应留一份
+            listOf("/api/academic/timetable?xnxq=2026-2027-1", OfflineApi.TIMETABLE_PATH)
+        )
+        assertTrue(paths.contains("/api/academic/timetable?xnxq=2026-2027-1"))
+        assertEquals(1, paths.count { it == OfflineApi.TIMETABLE_PATH })
+        assertEquals(paths.size, paths.distinct().size)
+    }
+
+    /**
      * 「刷新」这一类请求（页面在查询串里带 `refresh=1`）。
      *
      * 缓存键里要去掉它：同一份数据挂在两个键上，既白占名额，又让「先刷新、后断网」

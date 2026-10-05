@@ -26,9 +26,16 @@ object Store {
     private const val KEY_COURSE_ALARMS = "scheduled_course_alarm_ids"
     private const val KEY_BACKGROUND_ALWAYS_ON = "background_always_on"
     private const val KEY_THEME_DARK = "theme_dark"
+    private const val KEY_WARM_KEYS = "warm_cache_keys"
 
     /** 课程提醒默认提前多少分钟；0 = 不提前提醒 */
     const val DEFAULT_COURSE_LEAD = 15
+
+    /** 记多少条「网页真实请求过的带参数键」；换学期后旧键会被新的挤出去 */
+    private const val WARM_KEYS_MAX = 4
+
+    /** 多行文本的首尾与空行都不算数（分隔符见 warmKeys） */
+    private const val WARM_KEYS_SEP = "\n"
 
     private var cached: SharedPreferences? = null
 
@@ -76,7 +83,36 @@ object Store {
             // 旧闹钟还会继续按上一个账号的课表响。
             // 但两个**设置值**（提前量 / 开课时提醒）不清 —— 那是这台设备的偏好，与账号无关。
             .remove(KEY_TIMETABLE).remove(KEY_COURSE_ALARMS)
+            // 预热键跟着离线缓存一起清：两者是配套的（缓存没了，预热清单里留着旧键只会
+            // 白拉一份没人读的数据）。换账号后重新打开页面自然会再记一遍。
+            .remove(KEY_WARM_KEYS)
             .apply()
+    }
+
+    // ===== 网页真实请求过的「带参数」缓存键（后台预热据此刷新，见 sync/OfflineApi） =====
+
+    /**
+     * 缓存键就是 URL，而网页有些请求会带上自己的状态：课表与成绩会把「上次看的学期」
+     * 放进 `?xnxq=…`。这些键**不等于**预热清单里那条固定 URL，于是后台预热刷的那份
+     * 永远没人读 —— 表现成「隔一阵子再打开课表，首帧又落回网络、看着像没缓存」，
+     * 而那份缓存其实一直是上一页会话留下的、早过了首帧窗口（见 OfflineCache.RENDER_MAX_AGE_MS）。
+     *
+     * 由原生层在收到请求时记下来（OfflineApi.intercept），预热时一并刷新。
+     * 最近请求的排在最前，超过上限的丢最旧的 —— 用户换了学期，旧键会被自然挤出去。
+     */
+    fun warmKeys(context: Context): List<String> =
+        sp(context).getString(KEY_WARM_KEYS, null)
+            ?.split(WARM_KEYS_SEP)
+            ?.filter { it.isNotBlank() }
+            ?: emptyList()
+
+    fun rememberWarmKey(context: Context, key: String) {
+        // 已经在最前面就直接返回：这条路每个学期参数请求都会走一遍，
+        // 不做这个判断的话每次都要写一次 SharedPreferences
+        val current = warmKeys(context)
+        if (current.firstOrNull() == key) return
+        val next = (listOf(key) + current.filter { it != key }).take(WARM_KEYS_MAX)
+        sp(context).edit().putString(KEY_WARM_KEYS, next.joinToString(WARM_KEYS_SEP)).apply()
     }
 
     // ===== 同步状态 =====
