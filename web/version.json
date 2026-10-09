@@ -3,8 +3,8 @@
   "note_2": "注意：GitHub Release 页面上 release-assets.githubusercontent.com/... 那种带签名的临时地址几十分钟就过期，不能写进来，要用 github.com/<owner>/<repo>/releases/download/<tag>/<文件名> 这种稳定地址。",
 
   "android": {
-    "version": "1.1.0",
-    "url": "https://github.com/AJiang233/Class-Assistant/releases/download/v1.1.0/ClassAssistant-1.1.0.apk"
+    "version": "1.2.0",
+    "url": "https://github.com/AJiang233/Class-Assistant/releases/download/v1.2.0/ClassAssistant-1.2.0.apk"
   },
   "harmony": {
     "version": "0.1.0",

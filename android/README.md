@@ -2,7 +2,7 @@
 
 Kotlin + WebView 套壳，加载线上门户（`web/`）。原生层只做网页做不到的事：本地提醒、桌面小组件、离线缓存、后台常驻。
 
-`compileSdk 34` / `minSdk 24` / `targetSdk 34`，Java 17，包名 `com.classassistant.app`。
+`compileSdk 35` / `minSdk 24` / `targetSdk 34`，Java 17，包名 `com.classassistant.app`。两个 SDK 版本**故意不同档**：升 `compileSdk` 只影响编译期（要用 API 35 的符号、或某个库要求 compileSdk ≥ 35），升 `targetSdk` 才会触发行为变更（edge-to-edge、系统栏配色失效、键盘不再缩窗口），那摊事连同真机回归一起挂在 issue #27。
 
 ## 目录结构
 
