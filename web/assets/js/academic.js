@@ -557,11 +557,22 @@ function renderTimetable(data) {
         cells[w] = [];
         for (var r = 0; r < periods.length; r++) cells[w][r] = null;
     }
+    // 同一时间槽可能被轮换课（单双周）先后占用，比如周五下午单周生化实验、双周遗传学实验。
+    // 若只认「先占到格子的那门」，双周时格子会一直显示单周的课、还因为我本周不上它而变灰
+    // （旁边那门本周该上的却因为格子被占而整个消失）。所以当前周该上谁，就让谁占住格子：
+    // 遍历到一门「本周确实要上」的后到课，顶替掉占着格子但本周不上/没标的那门。
     courses.forEach(function (c) {
         if (c.weekday < 1 || c.weekday > 7) return;
         var range = periodRange(periods, c);
+        var active = week > 0 && c.weeks.indexOf(week) >= 0;   // 当前周是否上这门课
         for (var r = range.start; r <= range.end; r++) {
-            if (cells[c.weekday][r] === null) cells[c.weekday][r] = { course: c, range: range, anchor: r === range.start };
+            var cell = cells[c.weekday][r];
+            if (cell === null) {
+                cells[c.weekday][r] = { course: c, range: range, anchor: r === range.start, active: active };
+            } else if (active && !cell.active) {
+                // 轮换场景：后到、且本周才上的课顶替掉占着格子但本周不上的课
+                cells[c.weekday][r] = { course: c, range: range, anchor: r === range.start, active: active };
+            }
         }
     });
 
