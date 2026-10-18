@@ -81,9 +81,9 @@ class BackgroundSyncService : Service() {
      */
     private fun syncOnce() {
         val outcome = try {
-            // deep = false：这一趟只做「赶紧发现新东西并弹通知」（3 个接口）。
-            // 离线缓存预热那 5 个接口留给 15 分钟的周期任务 —— 3 分钟一轮还带预热的话，
-            // 一个班几十号人一天就能把后端的免费额度啃穿。
+            // deep = false：这一趟只消费增量同步接口（`/api/sync`，通常 1 个请求）。
+            // 离线缓存预热留给 15 分钟的周期任务（内部还有 1 小时 / 6 小时两档节流）——
+            // 3 分钟一轮还带预热的话，一个班几十号人一天就能把后端的免费额度啃穿。
             SyncRunner.run(applicationContext, deep = false)
         } catch (e: Exception) {
             Log.w(TAG, "同步抛了异常，这一轮跳过：${e.javaClass.simpleName} ${e.message}")

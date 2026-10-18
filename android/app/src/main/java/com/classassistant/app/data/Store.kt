@@ -27,6 +27,8 @@ object Store {
     private const val KEY_BACKGROUND_ALWAYS_ON = "background_always_on"
     private const val KEY_THEME_DARK = "theme_dark"
     private const val KEY_WARM_KEYS = "warm_cache_keys"
+    private const val KEY_LAST_CONTENT_PREWARM_AT = "last_content_prewarm_at"
+    private const val KEY_LAST_ACADEMIC_PREWARM_AT = "last_academic_prewarm_at"
 
     /** 课程提醒默认提前多少分钟；0 = 不提前提醒 */
     const val DEFAULT_COURSE_LEAD = 15
@@ -88,6 +90,9 @@ object Store {
             // 预热键跟着离线缓存一起清：两者是配套的（缓存没了，预热清单里留着旧键只会
             // 白拉一份没人读的数据）。换账号后重新打开页面自然会再记一遍。
             .remove(KEY_WARM_KEYS)
+            // 预热时间戳跟着账号走：换账号后是新的一份缓存，首次同步应当立刻预热，
+            // 而不是等上一个账号留下的间隔走完。
+            .remove(KEY_LAST_CONTENT_PREWARM_AT).remove(KEY_LAST_ACADEMIC_PREWARM_AT)
             .apply()
     }
 
@@ -159,6 +164,27 @@ object Store {
 
     fun setLastSyncAt(context: Context, value: Long) {
         sp(context).edit().putLong(KEY_LAST_SYNC_AT, value).apply()
+    }
+
+    /**
+     * 上次跑「离线预热」的时间（毫秒，0 = 从没跑过），按内容类 / 教务类分组记。
+     *
+     * 为什么要分组：预热清单一轮十几条 URL，而内容类要跟上网页 1 小时的首帧窗口、
+     * 教务类（课表/学分/成绩）变化很慢。两组共用一个时间戳的话，只能取最勤的那档，
+     * 教务那几条就会跟着每 15 分钟白拉一遍 —— 那是后台请求量最大的一块。
+     */
+    fun lastContentPrewarmAt(context: Context): Long =
+        sp(context).getLong(KEY_LAST_CONTENT_PREWARM_AT, 0L)
+
+    fun setLastContentPrewarmAt(context: Context, value: Long) {
+        sp(context).edit().putLong(KEY_LAST_CONTENT_PREWARM_AT, value).apply()
+    }
+
+    fun lastAcademicPrewarmAt(context: Context): Long =
+        sp(context).getLong(KEY_LAST_ACADEMIC_PREWARM_AT, 0L)
+
+    fun setLastAcademicPrewarmAt(context: Context, value: Long) {
+        sp(context).edit().putLong(KEY_LAST_ACADEMIC_PREWARM_AT, value).apply()
     }
 
     // ===== 日程缓存（未来若干天的活动，按开始时间升序） =====

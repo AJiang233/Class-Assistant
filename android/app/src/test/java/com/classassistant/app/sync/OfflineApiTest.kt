@@ -145,4 +145,36 @@ class OfflineApiTest {
         assertTrue(!OfflineApi.isForceRefresh(null))
         assertTrue(!OfflineApi.isForceRefresh(""))
     }
+
+    /**
+     * 预热的额度预算靠「教务类 / 内容类」两档间隔把请求量压下来（见 SyncRunner）。
+     * 分类判错不会报错 —— 只会让某一类要么白刷、要么该刷不刷，所以把边界钉住。
+     */
+    @Test
+    fun `教务路径与内容路径能分开`() {
+        assertTrue(OfflineApi.isAcademicPath("/api/academic/timetable"))
+        assertTrue(OfflineApi.isAcademicPath("/api/academic/grades?xnxq=2026-2027-1"))
+        assertTrue(!OfflineApi.isAcademicPath("/api/notices?scope=all"))
+        assertTrue(!OfflineApi.isAcademicPath("/api/forms/mine?limit=100&offset=0"))
+        assertTrue(!OfflineApi.isAcademicPath("/api/auth/me"))
+        // 前缀必须带结尾斜杠，别把将来的 /api/academicXxx 也算进来
+        assertTrue(!OfflineApi.isAcademicPath("/api/academic"))
+    }
+
+    @Test
+    fun `预热清单里每条都恰好落在某一档`() {
+        val paths = OfflineApi.prewarmPaths(
+            noon(2026, 9, 14, shanghai),
+            shanghai,
+            listOf("/api/academic/timetable?xnxq=2026-2027-1")
+        )
+        val academic = paths.filter { OfflineApi.isAcademicPath(it) }
+        val content = paths.filterNot { OfflineApi.isAcademicPath(it) }
+        assertTrue(academic.contains("/api/academic/status"))
+        assertTrue(academic.contains("/api/academic/credits"))
+        assertTrue(academic.contains("/api/academic/timetable?xnxq=2026-2027-1"))
+        assertTrue(content.contains("/api/auth/me"))
+        assertTrue(content.contains("/api/notices?scope=all"))
+        assertEquals(paths.size, academic.size + content.size)
+    }
 }
