@@ -68,8 +68,8 @@ class SyncRunnerTest {
     @Test
     fun `教务类按六小时`() {
         val sixHours = 6L * 60 * 60 * 1000
-        assertTrue(SyncRunner.isPrewarmDue(sixHours, 1, sixHours))
-        assertTrue(!SyncRunner.isPrewarmDue(sixHours, 2, sixHours))
+        assertTrue(SyncRunner.isPrewarmDue(2 * sixHours, sixHours, sixHours))
+        assertTrue(!SyncRunner.isPrewarmDue(2 * sixHours - 1, sixHours, sixHours))
     }
 
     /**
