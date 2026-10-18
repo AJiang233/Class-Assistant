@@ -6,6 +6,10 @@ import com.classassistant.app.data.Store
 import com.classassistant.app.notify.Notifier
 import org.json.JSONArray
 import org.json.JSONObject
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -33,9 +37,9 @@ object SyncRunner {
     /**
      * 跑一轮。
      *
-     * @param deep 是否连**离线缓存预热**一起做（那 5 个接口）。前台服务每 3 分钟来一发，
-     *   那一趟只消费增量同步接口；预热这种重活留给
-     *   15 分钟的周期任务 —— 否则一个班几十号人一天能把 Cloudflare 的免费额度啃穿。
+     * @param deep 是否连**离线缓存预热**一起做。前台服务每 3 分钟来一发，那一趟只消费
+     *   增量同步接口；预热这种重活留给 15 分钟的周期任务，并且内部还按内容类 1 小时、
+     *   教务类 6 小时两档节流 —— 否则一个班几十号人一天能把 Cloudflare 的免费额度啃穿。
      */
     fun run(context: Context, deep: Boolean = true): Outcome {
         if (!running.compareAndSet(false, true)) return Outcome.Done
@@ -166,9 +170,28 @@ object SyncRunner {
      * 顺序上放在主流程之后、记 lastSyncAt 之前，所以这里慢了也只会推迟「上次同步」的显示。
      */
     private fun prewarmOfflineCache(ctx: Context, token: String) {
+        val now = System.currentTimeMillis()
+        val lastContentAt = Store.lastContentPrewarmAt(ctx)
+        // 跨天也要强制刷：当日列表的键换了日期，见 crossedLocalDay。
+        val contentDue = isPrewarmDue(now, lastContentAt, CONTENT_PREWARM_INTERVAL_MS) ||
+            crossedLocalDay(now, lastContentAt)
+        val academicDue = isPrewarmDue(now, Store.lastAcademicPrewarmAt(ctx), ACADEMIC_PREWARM_INTERVAL_MS)
+        // 两组都没到期就一条也不发。周期任务照跑，只是这一轮不做预热。
+        if (!contentDue && !academicDue) return
+
+        var touchedContent = false
+        var touchedAcademic = false
         // extra = 网页真实请求过的带参数键（课表的 ?xnxq=…），见 Store.warmKeys。
         // 不带上它们，课表那份缓存就只有页面自己写 —— 隔一阵子没进学业页，首帧又落回网络。
         for (path in OfflineApi.prewarmPaths(extra = Store.warmKeys(ctx))) {
+            val academic = OfflineApi.isAcademicPath(path)
+            if (academic && !academicDue) continue
+            if (!academic && !contentDue) continue
+            // 本轮确实动过这一组就先记下来，**不按单条成败决定**：教务没绑定时那几条
+            // 本来就会回 400，若因此判成「没刷成功」，它就会每 15 分钟重试一遍，额度省不下来；
+            // 反过来偶发失败也不过是等下一个周期（1 小时 / 6 小时）再补，首帧还有旧缓存兜着。
+            if (academic) touchedAcademic = true else touchedContent = true
+
             val res = Api.get(path, token)
             synchronized(Store) {
                 if (Store.token(ctx) != token || res is Api.Res.Unauthorized) return
@@ -178,6 +201,9 @@ object SyncRunner {
                 }
             }
         }
+        // 用本轮开始时刻：十几条拉下来可能要几秒，用结束时刻会让下一轮的间隔被悄悄缩短。
+        if (touchedContent) Store.setLastContentPrewarmAt(ctx, now)
+        if (touchedAcademic) Store.setLastAcademicPrewarmAt(ctx, now)
     }
 
     /**
@@ -229,6 +255,38 @@ object SyncRunner {
 
     /** 未来多久内的活动要缓存并排闹钟 */
     const val HORIZON_MILLIS = 7L * 24 * 60 * 60 * 1000
+
+    /**
+     * 离线预热的两档间隔（毫秒）。
+     *
+     * 预热一轮要拉 10 多条 URL（固定清单 + 当天的两条 + 记下的带参数键），如果跟着 15 分钟的
+     * 周期任务每轮都刷，光预热就是 1,500+ 次/人/天 —— 一个班几十号人足以吃掉免费额度的半壁。
+     * 而它服务的目的只是「页面首帧有缓存」：
+     *   · 内容类（通知/活动/表单/个人资料）：网页自己的首帧缓存窗口是 1 小时，
+     *     每小时刷一次刚好够，再勤也不会让首帧更新鲜；
+     *   · 教务类（课表/学分/成绩）：数据本身变化很慢，且私有服务端还有 3 天 TTL，
+     *     6 小时一次（一天 4 次）足够。
+     */
+    const val CONTENT_PREWARM_INTERVAL_MS = 60L * 60 * 1000
+    const val ACADEMIC_PREWARM_INTERVAL_MS = 6L * 60 * 60 * 1000
+
+    /** 距上次预热是否已超过间隔。[lastAt] = 0（从没跑过）时必定到期。 */
+    internal fun isPrewarmDue(now: Long, lastAt: Long, intervalMs: Long): Boolean =
+        lastAt <= 0 || now - lastAt >= intervalMs
+
+    /**
+     * 是否已经跨过本地自然日。
+     *
+     * 「当日列表」的缓存键里带着 `date=YYYY-MM-DD`，换一天就是一个全新的 URL。
+     * 只按 1 小时节流的话，零点那次刷新可能因「距上次不满一小时」被跳过，
+     * 新一天的两个键要等到下一个整点才预热 —— 这段时间里第一次进主页会落回网络。
+     * 所以跨天要强制刷一次内容类。
+     */
+    internal fun crossedLocalDay(now: Long, lastAt: Long, zone: TimeZone = TimeZone.getDefault()): Boolean {
+        if (lastAt <= 0) return false
+        val fmt = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply { timeZone = zone }
+        return fmt.format(Date(now)) != fmt.format(Date(lastAt))
+    }
 
     /**
      * 通知 id 基数：每条通知用 NOTICE_ID_BASE + 通知 id，天然去重（同一条重复同步不会叠加）。

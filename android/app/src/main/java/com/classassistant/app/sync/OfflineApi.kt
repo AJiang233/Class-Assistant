@@ -161,6 +161,15 @@ object OfflineApi {
     fun isCacheablePath(path: String): Boolean = CACHE_PATHS.any { it.matches(path) }
 
     /**
+     * 教务类预热路径。
+     *
+     * 它们背后的数据变化很慢（课表一学期基本不动，学分/成绩在私有服务端还有 3 天 TTL），
+     * 没必要跟着 15 分钟的周期任务每轮都刷。其余路径（通知/活动/表单/个人资料）仍按小时级刷新。
+     * 分档间隔见 [SyncRunner.CONTENT_PREWARM_INTERVAL_MS] 与 [SyncRunner.ACADEMIC_PREWARM_INTERVAL_MS]。
+     */
+    internal fun isAcademicPath(path: String): Boolean = path.startsWith("/api/academic/")
+
+    /**
      * 这条请求的键要不要记下来交给后台预热（见 STATEFUL_PATHS）。
      *
      * 拎成纯函数是为了能测：记错了不会报错，只会在预热清单里多一条没人读的 URL、
