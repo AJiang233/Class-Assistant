@@ -1434,6 +1434,23 @@ body.app-mode { overflow: hidden; }
   .profile-name { font-size: 1.07rem; }
   .profile-sub { font-size: 0.84rem; }
   .info-row { padding: 9px 2px; font-size: 0.89rem; }
+  /* 「关于软件 → 用户协议」行：摘要最长是「未同意（请退出后重新登录并同意）」，
+     已同意时也有一串授权状态，与「查看与修改」挤在同一行会把按钮挤出卡片
+     （360px 宽的手机上按钮右边缘比卡片多出约 68px）。手机布局里把摘要折到第二行：
+     第一行「用户协议 + 查看与修改」，第二行摘要右对齐、允许换行。
+     两个 .v 用 display:contents 让摘要与按钮直接参与 .info-row 的 flex 排布，
+     display 规则要压过 style.css 后面 .info-row .v-actions 的 inline-flex，故带上级选择器。 */
+  .info-row-consent { flex-wrap: wrap; row-gap: 4px; }
+  .info-row.info-row-consent .v,
+  .info-row.info-row-consent .v-actions { display: contents; }
+  .info-row-consent #openConsentBtn { order: 1; }
+  /* 摘要的 white-space / overflow 在文件后面有 .info-row .v-actions > span:first-child
+     的 nowrap + 省略号，这里必须用 id 提高优先级才能改成允许换行 */
+  .info-row.info-row-consent #consentSummary {
+    order: 2; flex: 1 1 100%;
+    text-align: right; white-space: normal; overflow: visible;
+    text-overflow: clip; line-height: 1.5;
+  }
   /* .card-title 与 .collapse-body 一起跟着缩，两处始终同值 */
   :root { --card-title-gap: 12px; }
 
