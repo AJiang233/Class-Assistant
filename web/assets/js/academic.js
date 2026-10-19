@@ -293,11 +293,28 @@ function showFormSuccess(id, msg) {
     el.textContent = msg;
     el.classList.add('show');
 }
-/** 顶部提示条。默认是红底横幅（真出错了才用）；quiet=true 走一行小字，只是提醒 */
-function showNotice(msg, quiet) {
+/**
+ * 顶部提示条。默认是红底横幅（真出错了才用）；quiet=true 走一行小字，只是提醒。
+ *
+ * action 是可选的可点入口 { label, onClick }。缓存提示必须带一个：App 壳的 WebView
+ * 没实现 onJsConfirm，那里的确认框根本不显示，光靠「点刷新时弹窗问一句」这条路，
+ * 点了刷新的人只会看到数据没变、也不知道还能去哪儿。
+ */
+function showNotice(msg, quiet, action) {
     var el = document.getElementById('noticeBox');
     el.classList.toggle('ac-hint', !!quiet);
-    el.textContent = msg;
+    el.textContent = '';
+    var text = document.createElement('span');
+    text.textContent = msg;
+    el.appendChild(text);
+    if (action && action.label && typeof action.onClick === 'function') {
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'ac-hint-act';
+        btn.textContent = action.label;
+        btn.addEventListener('click', action.onClick);
+        el.appendChild(btn);
+    }
     el.hidden = false;
 }
 function hideNotice() {
@@ -321,16 +338,69 @@ function cacheHintText(reason, tab) {
     return why + ' · ' + hint;
 }
 
+// ===== 重新登录确认框 =====
+// 不用 window.confirm：App 壳的 WebView 没有实现 onJsConfirm，confirm 在那边既不弹出、
+// 又恒返回 false —— 用户点了「刷新」只看到数据没变，还以为刷新按钮坏了。页内弹窗两端一致。
+var reloginResolve = null;   // 已经打开的那一问；连着点刷新时先把它按「先看缓存」收掉
+
+function closeReLogin(go) {
+    var overlay = document.getElementById('reloginModal');
+    if (overlay) overlay.classList.remove('show');
+    document.body.style.overflow = '';
+    var done = reloginResolve;
+    reloginResolve = null;
+    if (done) done(!!go);
+}
+
 /**
- * 手动刷新没拿到新数据时问一句要不要重新登录教务。
+ * 手动刷新没拿到新数据时问一句要不要重新登录教务。返回 Promise<boolean>，true = 去重新登录。
  *
  * 只在这一种场景问：用户主动点了「刷新」就是想拿最新的，拉不到只能重新登录。
- * 自动加载时不问 —— 登录态一天左右就过期一次，每次打开都弹窗没人受得了，
- * 那种情况下面的小字已经说清了。
+ * 自动加载不问 —— 登录态一天左右就过期一次，每次打开都弹窗没人受得了，
+ * 那种情况下面的小字和它后面的入口已经说清了。
+ *
+ * @param hasCache 页面上是否还摆着上次同步的数据。连缓存都没有的那条路（请求直接报
+ *                 ACADEMIC_EXPIRED）要传 false —— 那时候说「当前显示的是上次同步的内容」
+ *                 是假话，用户往下一看只有一行报错。
  */
-function askReLogin() {
-    return window.confirm('教务登录态已过期，需要重新登录教务系统才能拉取最新数据。\n\n现在去重新登录？');
+function askReLogin(hasCache) {
+    if (reloginResolve) closeReLogin(false);   // 上一问还没答就又问：还是同一个框，先收掉
+    var overlay = document.getElementById('reloginModal');
+    if (!overlay) return Promise.resolve(false);
+    document.getElementById('reloginText').textContent = hasCache === false
+        ? '教务那边把登录态清掉了，需要重新登录一次才能继续拉取数据。现在去重新登录？'
+        : '教务那边把登录态清掉了，需要重新登录一次才能拉到最新数据。当前显示的是上次同步的内容。现在去重新登录？';
+    overlay.classList.add('show');
+    document.body.style.overflow = 'hidden';
+    return new Promise(function (resolve) { reloginResolve = resolve; });
 }
+
+/** 去绑定面板重新登录。页内确认框被关掉之后，提示条上的入口也走这里 */
+function goRelogin() {
+    showOnly('bindView');
+    try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch (e) { window.scrollTo(0, 0); }
+}
+
+/** 提示条上的「重试」：按当前标签重新拉一次（等价于再点一次刷新） */
+function retryCurrentTab() {
+    if (activeTab === 'grades') { loadGrades(gradesTerm, true); return; }
+    loadTimetable(activeTerm, true);
+    loadCredits(true);
+}
+
+// 遮罩点一下、ESC 都算「先看缓存」；按钮各走各的
+(function bindReLoginModal() {
+    var overlay = document.getElementById('reloginModal');
+    if (!overlay) return;
+    overlay.addEventListener('click', function (e) { if (e.target === overlay) closeReLogin(false); });
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && overlay.classList.contains('show')) closeReLogin(false);
+    });
+    Array.prototype.forEach.call(overlay.querySelectorAll('[data-act="close-relogin"]'), function (btn) {
+        btn.addEventListener('click', function () { closeReLogin(false); });
+    });
+    document.getElementById('reloginGoBtn').addEventListener('click', function () { closeReLogin(true); });
+})();
 
 // ===== 子标签：课表 / 学业达成 =====
 // 两块内容原来纵向堆叠，手机上要滚很久才看得到学分；拆成子标签后一次只看一块。
@@ -399,8 +469,12 @@ function refreshSyncMeta() {
 /** 顶部的缓存提示也跟着当前标签走：它说的是「你正看的这一块」的数据来源 */
 function refreshAcNotice() {
     var data = activeTab === 'grades' ? grades : (activeTab === 'credits' ? credits : timetable);
-    if (data && data.stale) { showNotice(cacheHintText(data.cacheReason, activeTab), true); return; }
-    hideNotice();
+    if (!data || !data.stale) { hideNotice(); return; }
+    // 提示条上必须留一个能点的入口：登录态过期 → 重新登录；教务暂时连不上 → 重试
+    var expired = data.cacheReason === 'expired';
+    showNotice(cacheHintText(data.cacheReason, activeTab), true, expired
+        ? { label: '重新登录教务', onClick: goRelogin }
+        : { label: '重试', onClick: retryCurrentTab });
 }
 
 /** 滑块：与个人页主题分段、移动端底栏同一套弹簧动画，位置与尺寸按激活项实测写入 */
@@ -451,7 +525,7 @@ async function loadTimetable(term, refresh) {
             // 走到这儿说明连缓存都没有（有的话上面那一支已经把课表给出来了）。
             // 自动加载时直接引导去重新登录 —— 页面上什么都没有，留着也是白留；
             // 手动刷新时先问一句，用户可能只是顺手点了一下、并不想现在重新登录
-            if (refresh && !askReLogin()) {
+            if (refresh && !(await askReLogin(false))) {
                 view.innerHTML = stateHTML(err.message, true);
                 return;
             }
@@ -486,10 +560,12 @@ function applyTimetable(data, askRelogin) {
     renderTimetable(timetable);
     renderUnscheduled(timetable.unscheduled);
     refreshAcNotice();
-    // 手动刷新仍然只拿到缓存：说明教务那边已经拉不动了，问一句要不要重新登录。
-    // 自动加载走到这一支是常态（登录态一天左右就会被重置），小字说明就够了
-    if (askRelogin && timetable.stale && timetable.cacheReason === 'expired' && askReLogin()) {
-        showOnly('bindView');
+    // 手动刷新仍然只拿到过期缓存：说明教务那边已经拉不动了，问一句要不要重新登录。
+    // 自动加载走到这一支是常态（登录态一天左右就会被重置），小字说明与提示条上的入口就够了。
+    // 别写成同步的 if：确认框是页内的（App 的 WebView 里 window.confirm 恒为 false），
+    // 答案要等用户点按钮，只能走回调
+    if (askRelogin && timetable.stale && timetable.cacheReason === 'expired') {
+        askReLogin().then(function (go) { if (go) goRelogin(); });
     }
 }
 
@@ -768,7 +844,7 @@ async function loadGrades(term, refresh) {
     onApiData(path, function (data) { applyGrades(data); });
     try {
         var res = await api(path);
-        applyGrades(res.data);
+        applyGrades(res.data, refresh);
     } catch (err) {
         // 与课表同一套错误分支（错误码精确判断，不靠文案匹配）
         if (err.code === 'NOT_BOUND') {
@@ -778,7 +854,7 @@ async function loadGrades(term, refresh) {
         }
         if (err.code === 'ACADEMIC_EXPIRED' || err.code === 'ACADEMIC_DECRYPT_FAILED') {
             // 走到这儿说明连缓存都没有（有的话后端会把缓存给出来，而不是报错）
-            if (refresh && !askReLogin()) {
+            if (refresh && !(await askReLogin(false))) {
                 view.innerHTML = stateHTML(err.message, true);
                 return;
             }
@@ -794,8 +870,14 @@ async function loadGrades(term, refresh) {
     }
 }
 
-/** 成绩渲染。首次加载与「原生后台刷新推回」共用这一个入口 */
-function applyGrades(data) {
+/**
+ * 成绩渲染。首次加载与「原生后台刷新推回」共用这一个入口。
+ *
+ * @param askRelogin 手动刷新仍然只拿到过期缓存时才为 true（与课表同一套判断）。
+ *                   成绩是最容易「看着像坏了」的一块：一学期不更新还能说是没出分，
+ *                   跨了两个月还是上周的分数，就得让用户知道该重新登录了。
+ */
+function applyGrades(data, askRelogin) {
     grades = data || {};
     // 下拉与「更新于」是课表/成绩共用的控件，只有成绩在前台时才由成绩来写
     if (activeTab === 'grades') {
@@ -805,6 +887,9 @@ function applyGrades(data) {
     renderGradeSummary(grades.summary);
     renderGrades(grades);
     refreshAcNotice();
+    if (askRelogin && grades.stale && grades.cacheReason === 'expired') {
+        askReLogin().then(function (go) { if (go) goRelogin(); });
+    }
 }
 
 /**

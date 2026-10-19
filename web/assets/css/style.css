@@ -1628,6 +1628,18 @@ body.app-mode { overflow: hidden; }
   color: var(--text-tertiary); font-size: 0.79rem; font-weight: 400;
 }
 
+/* 缓存提示后面跟的那个可点入口（重新登录教务 / 重试）。它只是这行小字的补充，
+   别做成按钮：那会把「提醒」抬成「出事了」，用户会以为课表坏了。
+   下划线是这里唯一的「可点」信号，颜色只用主色，不加底色与圆角。 */
+.ac-hint-act {
+  display: inline-block; margin-left: 6px; padding: 2px 0;
+  border: 0; background: none; font: inherit; font-weight: 600;
+  color: var(--accent); cursor: pointer;
+  text-decoration: underline; text-underline-offset: 2px;
+  -webkit-tap-highlight-color: transparent;
+}
+.ac-hint-act:active { opacity: 0.6; }
+
 /* 子标签（课表 / 学业达成）：沿用 .tabs 分段控件，仅把与下方工具栏的间距对齐 */
 .ac-seg { margin-bottom: 18px; }
 

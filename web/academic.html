@@ -173,6 +173,27 @@
         </div>
     </div>
 
+    <!-- 重新登录教务的确认框。为什么不是 window.confirm：App 壳的 WebView 没实现 onJsConfirm，
+         那边的 confirm 既不弹出、又恒返回 false —— 用户点了「刷新」只看到数据没变，
+         还以为刷新按钮坏了。页内弹窗在浏览器与 App 里行为一致。 -->
+    <div class="modal-overlay" id="reloginModal">
+        <div class="modal">
+            <div class="modal-head">
+                <span class="modal-title" id="reloginTitle">教务登录态已过期</span>
+                <button type="button" class="modal-close" data-act="close-relogin" aria-label="关闭">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <p class="ac-note" id="reloginText"></p>
+            </div>
+            <div class="modal-foot">
+                <button type="button" class="btn btn-outline" data-act="close-relogin">先看缓存</button>
+                <button type="button" class="btn btn-primary" id="reloginGoBtn">去重新登录</button>
+            </div>
+        </div>
+    </div>
+
     <script src="assets/js/app.js"></script>
     <script src="assets/js/academic.js"></script>
 </body>
