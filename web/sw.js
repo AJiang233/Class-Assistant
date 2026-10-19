@@ -71,7 +71,12 @@ const PRECACHE = [
   // 用户协议正文（登录同意弹窗用 fetch 读取并注入）：写的是带扩展名的地址，
   // 因为页面里 fetch 的就是 legal/terms.html，作为子资源请求不受导航跳转那条限制；
   // 断了网也要能读到协议，否则登录同意流程直接卡死。
-  '/legal/terms.html'
+  '/legal/terms.html',
+  // 站内法务页（个人中心「隐私政策」入口 + 三份法务文档互链）：写规范地址，
+  // 在线访问 legal/privacy.html 会被站点 308 到 legal/privacy，缓存按规范地址存；
+  // 断网时按 canonical() 回退查找命中同一份。
+  '/legal/privacy',
+  '/legal/disclaimer'
 ];
 
 /**

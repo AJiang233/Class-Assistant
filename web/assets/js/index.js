@@ -30,6 +30,9 @@ var FRAME_KEYS = { academic: 'frameAcademic', activities: 'frameActivities', not
             // 日历自己出错不该变成未处理的 rejection：当日列表各有各的错误态，这里只留痕
             console.warn('日历加载失败：', e);
         });
+        // 老用户（本功能上线前登录的）本地 token 还有效，但服务端没有同意记录：
+        // 启动时补一次门禁检查，未同意就弹窗强制补同意（同意前只能退出登录）
+        ensureConsentCurrent();
     } else {
         // 未登录：主页只显示框架，不加载活动
         var now = new Date();
@@ -672,6 +675,8 @@ if (loginForm) {
 // 这里不需要任何「已弹过窗」的本地缓存。
 var pendingLogin = null;
 var consentScrolled = false;
+// 'login' = 登录前同意（412 后弹窗，提交时连同学号密码重新登录）；'gate' = 已登录会话补同意
+var consentMode = 'login';
 
 /** 三个勾选框恢复未选中、错误条清空、按钮重新锁死（每次打开弹窗都要回到初始态） */
 function resetConsentModal() {
@@ -719,6 +724,13 @@ function loadConsentDoc() {
             var parsed = new DOMParser().parseFromString(html, 'text/html');
             var content = parsed.querySelector('.legal-content') || parsed.querySelector('main') || parsed.body;
             box.innerHTML = content.innerHTML;
+            // 正文里的链（隐私政策、问题反馈）在弹窗里点开不能把整个应用导航走：
+            // 统一改成新标签页打开，同意流程不中断
+            var links = box.querySelectorAll('a[href]');
+            for (var li = 0; li < links.length; li++) {
+                links[li].setAttribute('target', '_blank');
+                links[li].setAttribute('rel', 'noopener');
+            }
             // 短内容没有滚动事件：不足一屏（含同样的 8px 容差）直接视为已读完
             if (box.scrollHeight <= box.clientHeight + 8) markConsentRead();
             else box.scrollTop = 0;
@@ -731,24 +743,56 @@ function loadConsentDoc() {
         });
 }
 
-function openConsentModal() {
+/** 按场景配置标题/引导语/按钮：登录场景可取消；补同意场景没有取消，只能同意或退出登录 */
+function configureConsentModal(mode) {
+    var gate = mode === 'gate';
+    var title = document.querySelector('#consentModal .modal-title');
+    if (title) title.textContent = gate ? '用户协议已更新' : '用户协议与授权';
+    var lead = document.getElementById('consentLead');
+    if (lead) {
+        lead.textContent = gate
+            ? '《用户协议》已更新，请阅读至正文底部并确认授权后继续使用；如不同意，可退出登录。'
+            : '使用本服务前，请先阅读《用户协议》并确认下方授权；下滑到正文底部后即可点击「同意并登录」。';
+    }
+    // 补同意是强制门禁：不给右上角关闭，下方按钮改成「退出登录」
+    var closeBtn = document.getElementById('consentCloseBtn');
+    if (closeBtn) closeBtn.hidden = gate;
+    var cancelBtn = document.getElementById('consentCancelBtn');
+    if (cancelBtn) cancelBtn.textContent = gate ? '退出登录' : '取消';
+    var agreeBtn = document.getElementById('consentAgreeBtn');
+    if (agreeBtn) agreeBtn.textContent = gate ? '同意并继续' : '同意并登录';
+}
+
+/** 打开弹窗：mode 省略时按登录场景处理；gate 模式可传入服务端已有的授权记录用于预勾选 */
+function openConsentModal(mode, existing) {
     var ov = document.getElementById('consentModal');
     if (!ov) return;
+    consentMode = mode === 'gate' ? 'gate' : 'login';
     consentScrolled = false;
     resetConsentModal();
+    configureConsentModal(consentMode);
+    if (consentMode === 'gate' && existing) {
+        // 协议版本过期但可选授权仍在有效期内：把已开启的两项照旧勾上，用户可自行改
+        var ch = document.getElementById('consentChaoxing');
+        var ac = document.getElementById('consentAcademic');
+        if (ch) ch.checked = !!existing.chaoxing;
+        if (ac) ac.checked = !!existing.academic;
+    }
     loadConsentDoc();
     ov.classList.add('show');
     document.body.style.overflow = 'hidden';
 }
 function closeConsentModal() {
+    // gate 模式不允许关掉：要么「同意并继续」，要么「退出登录」，否则 ESC/遮罩能绕过门禁
+    if (consentMode === 'gate') return;
     var ov = document.getElementById('consentModal');
     if (ov) ov.classList.remove('show');
     document.body.style.overflow = '';
     // 待提交凭据保留在内存里：用户再点一次「登录」会重新走接口，无需在这里清掉
 }
 
-/** 「同意并登录」：第 1 项必选；提交三项同意结果，成功即进会话 */
-async function agreeAndLogin() {
+/** 提交同意：登录场景连同学号密码重新登录；补同意场景只更新服务端授权记录 */
+async function submitConsent() {
     var btn = document.getElementById('consentAgreeBtn');
     var err = document.getElementById('consentError');
     if (!btn || btn.disabled) return;
@@ -758,12 +802,26 @@ async function agreeAndLogin() {
         if (err) { err.textContent = '请勾选同意本软件用户协议'; err.classList.add('show'); }
         return;
     }
+    var ch = document.getElementById('consentChaoxing');
+    var ac = document.getElementById('consentAcademic');
+    var consent = { terms: true, chaoxing: !!(ch && ch.checked), academic: !!(ac && ac.checked) };
+    if (consentMode === 'gate') {
+        btn.disabled = true; btn.textContent = '保存中…';
+        try {
+            await api('/api/auth/consent', { method: 'POST', body: JSON.stringify(consent) });
+            consentMode = 'login';
+            // 重跑启动检查确认门禁解除，同时刷新壳里各视图的授权状态
+            window.location.reload();
+        } catch (e) {
+            if (err) { err.textContent = e.message; err.classList.add('show'); }
+            btn.disabled = false; btn.textContent = '同意并继续';
+        }
+        return;
+    }
     if (!pendingLogin) {
         if (err) { err.textContent = '登录信息已失效，请关闭弹窗后重新登录'; err.classList.add('show'); }
         return;
     }
-    var ch = document.getElementById('consentChaoxing');
-    var ac = document.getElementById('consentAcademic');
     btn.disabled = true; btn.textContent = '登录中…';
     try {
         var res = await api('/api/auth/login', {
@@ -771,11 +829,7 @@ async function agreeAndLogin() {
             body: JSON.stringify({
                 student_id: pendingLogin.student_id,
                 password: pendingLogin.password,
-                consent: {
-                    terms: true,
-                    chaoxing: !!(ch && ch.checked),
-                    academic: !!(ac && ac.checked)
-                }
+                consent: consent
             })
         });
         saveSession(res.data);
@@ -793,18 +847,39 @@ async function agreeAndLogin() {
     // 滚动判定只挂在协议正文上：滑动正文到 8px 内触底即解锁
     var doc = document.getElementById('consentDoc');
     if (doc) doc.addEventListener('scroll', function () { if (consentAtBottom(doc)) markConsentRead(); });
-    // 点遮罩空白处 / ESC 关闭（与详情弹窗同一套交互）
+    // 点遮罩空白处 / ESC 关闭（gate 模式下 closeConsentModal 自己会忽略）
     ov.addEventListener('click', function (e) { if (e.target === ov) closeConsentModal(); });
     document.addEventListener('keydown', function (e) {
         if (e.key === 'Escape' && ov.classList.contains('show')) closeConsentModal();
     });
     var cancelBtn = document.getElementById('consentCancelBtn');
-    if (cancelBtn) cancelBtn.addEventListener('click', closeConsentModal);
+    if (cancelBtn) cancelBtn.addEventListener('click', function () {
+        // gate 模式下这个按钮是「退出登录」：不同意协议就清会话回登录页
+        if (consentMode === 'gate') { logout(); return; }
+        closeConsentModal();
+    });
     var closeBtn = document.getElementById('consentCloseBtn');
     if (closeBtn) closeBtn.addEventListener('click', closeConsentModal);
     var agreeBtn = document.getElementById('consentAgreeBtn');
-    if (agreeBtn) agreeBtn.addEventListener('click', agreeAndLogin);
+    if (agreeBtn) agreeBtn.addEventListener('click', submitConsent);
 })();
+
+// ===== 已登录会话的协议门禁 =====
+// 老用户（本功能上线前就登录的）本地 token 仍然有效，但服务端没有 user_consents 记录。
+// 每次应用启动问一次 GET /api/auth/consent：未同意或协议版本过期就弹「补同意」弹窗。
+// 接口异常时放行（console.warn），避免后端抖动把所有人挡在壳外；401 由 api() 统一退登录。
+async function ensureConsentCurrent() {
+    var res;
+    try {
+        res = await api('/api/auth/consent');
+    } catch (e) {
+        console.warn('检查用户协议状态失败，本次不拦截：', e);
+        return;
+    }
+    var data = (res && res.data) || {};
+    if (data.agreed) return;
+    openConsentModal('gate', data.consent || null);
+}
 
 // ===== 事件绑定 =====
 // CSP 的 script-src 只放行 'self'，页面里不能再写内联 onclick：
