@@ -279,3 +279,20 @@ END;
 CREATE TRIGGER IF NOT EXISTS submission_change_delete AFTER DELETE ON form_submissions BEGIN
   UPDATE forms SET status=status WHERE id=OLD.form_id;
 END;
+
+-- 用户协议同意记录（对应 migrations-v2/0003_consent.sql，DDL 必须逐字一致：
+-- architecture.test.js 用 sqlite_master 的新库快照与「基线 + 迁移顺序执行」对比结构）。
+-- 一人一行，user_id 作主键；version 记同意时的协议版本，落后于后端常量就要重新弹窗；
+-- 撤回授权只清 flag、保留时间戳。删成员时靠外键级联连带清掉。
+CREATE TABLE IF NOT EXISTS user_consents (
+  user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  version TEXT NOT NULL,
+  terms INTEGER NOT NULL DEFAULT 0,
+  chaoxing INTEGER NOT NULL DEFAULT 0,
+  academic INTEGER NOT NULL DEFAULT 0,
+  terms_agreed_at DATETIME,
+  chaoxing_agreed_at DATETIME,
+  academic_agreed_at DATETIME,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);

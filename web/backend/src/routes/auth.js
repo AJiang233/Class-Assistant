@@ -2,6 +2,8 @@ import {
   handleRegister,
   handleLogin,
   handleMe,
+  handleGetConsent,
+  handleUpdateConsent,
   handleUpdateProfile,
   handleChangePassword,
   handleSendEmailCode,
@@ -52,6 +54,15 @@ export async function authRoutes(request, env, ctx) {
   // 修改当前用户密码（需要认证）
   if (path === '/api/auth/change-password' && method === 'POST') {
     return withAuth(handleChangePassword)(request, env, ctx);
+  }
+
+  // 用户协议同意（需要认证）：读当前状态 / 修改学习通、教务两项授权。
+  // 登录弹窗只在 handleLogin 里拦一次，这里供「个人中心 → 关于软件 → 用户协议」读写。
+  if (path === '/api/auth/consent' && method === 'GET') {
+    return withAuth(handleGetConsent)(request, env, ctx);
+  }
+  if (path === '/api/auth/consent' && method === 'POST') {
+    return withAuth(handleUpdateConsent)(request, env, ctx);
   }
 
   // 邮箱验证（需要认证）：发绑定验证码 → 验码绑定 → 解绑

@@ -651,13 +651,160 @@ if (loginForm) {
             saveSession(res.data);
             window.location.reload(); // 重载后进入已登录状态
         } catch (err) {
-            errBox.textContent = err.message;
-            errBox.classList.add('show');
+            if (err.code === 'CONSENT_REQUIRED') {
+                // 密码已通过校验，只差协议同意：暂存凭据（仅内存）后弹窗，不显示红色登录错误
+                pendingLogin = { student_id: student_id, password: password };
+                openConsentModal();
+            } else {
+                errBox.textContent = err.message;
+                errBox.classList.add('show');
+            }
         } finally {
             btn.disabled = false; btn.textContent = '登录';
         }
     });
 }
+
+// ===== 用户协议同意（登录前弹窗）=====
+// 后端契约：密码正确但尚未同意协议（或协议版本过期）时，登录返回 412 CONSENT_REQUIRED 且不发 token；
+// 所以登录按钮先走一次普通登录，收到这个码才弹窗。待提交的学号密码只放内存变量、绝不写
+// localStorage —— 刷新页面就没了，比把半个凭据落盘安全。同意过之后由服务端保证不再返回 412，
+// 这里不需要任何「已弹过窗」的本地缓存。
+var pendingLogin = null;
+var consentScrolled = false;
+
+/** 三个勾选框恢复未选中、错误条清空、按钮重新锁死（每次打开弹窗都要回到初始态） */
+function resetConsentModal() {
+    var ids = ['consentTerms', 'consentChaoxing', 'consentAcademic'];
+    for (var i = 0; i < ids.length; i++) {
+        var el = document.getElementById(ids[i]);
+        if (el) el.checked = false;
+    }
+    var err = document.getElementById('consentError');
+    if (err) { err.textContent = ''; err.classList.remove('show'); }
+    var btn = document.getElementById('consentAgreeBtn');
+    if (btn) { btn.disabled = true; btn.textContent = '同意并登录'; }
+    var hint = document.getElementById('consentScrollHint');
+    if (hint) { hint.textContent = '请向下滑动阅读至底部'; hint.classList.remove('done'); }
+}
+
+/** 正文滑到底部（留 8px 容差，避免半像素/滚动惯性差一点）才算读完 */
+function consentAtBottom(el) {
+    return el.scrollTop + el.clientHeight >= el.scrollHeight - 8;
+}
+function markConsentRead() {
+    if (consentScrolled) return;
+    consentScrolled = true;
+    var hint = document.getElementById('consentScrollHint');
+    if (hint) { hint.textContent = '已阅读到底，请勾选下方授权'; hint.classList.add('done'); }
+    var btn = document.getElementById('consentAgreeBtn');
+    if (btn) btn.disabled = false;
+}
+
+/** 取同源静态条款页的正文注入弹窗（只解析 HTML，不执行任何脚本） */
+var consentDocReq = 0;
+function loadConsentDoc() {
+    var box = document.getElementById('consentDoc');
+    if (!box) return;
+    // 连续开关弹窗会有多次请求：只让最后一次的结果落地，避免慢的那次把新内容/滚动位置顶掉
+    var req = ++consentDocReq;
+    box.textContent = '正在加载协议正文…';
+    fetch('legal/terms.html', { cache: 'no-store' })
+        .then(function (res) {
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            return res.text();
+        })
+        .then(function (html) {
+            if (req !== consentDocReq) return;
+            var parsed = new DOMParser().parseFromString(html, 'text/html');
+            var content = parsed.querySelector('.legal-content') || parsed.querySelector('main') || parsed.body;
+            box.innerHTML = content.innerHTML;
+            // 短内容没有滚动事件：不足一屏（含同样的 8px 容差）直接视为已读完
+            if (box.scrollHeight <= box.clientHeight + 8) markConsentRead();
+            else box.scrollTop = 0;
+        })
+        .catch(function () {
+            if (req !== consentDocReq) return;
+            box.textContent = '协议加载失败，请检查网络后重试';
+            var btn = document.getElementById('consentAgreeBtn');
+            if (btn) btn.disabled = true;
+        });
+}
+
+function openConsentModal() {
+    var ov = document.getElementById('consentModal');
+    if (!ov) return;
+    consentScrolled = false;
+    resetConsentModal();
+    loadConsentDoc();
+    ov.classList.add('show');
+    document.body.style.overflow = 'hidden';
+}
+function closeConsentModal() {
+    var ov = document.getElementById('consentModal');
+    if (ov) ov.classList.remove('show');
+    document.body.style.overflow = '';
+    // 待提交凭据保留在内存里：用户再点一次「登录」会重新走接口，无需在这里清掉
+}
+
+/** 「同意并登录」：第 1 项必选；提交三项同意结果，成功即进会话 */
+async function agreeAndLogin() {
+    var btn = document.getElementById('consentAgreeBtn');
+    var err = document.getElementById('consentError');
+    if (!btn || btn.disabled) return;
+    if (err) { err.textContent = ''; err.classList.remove('show'); }
+    var terms = document.getElementById('consentTerms');
+    if (!terms || !terms.checked) {
+        if (err) { err.textContent = '请勾选同意本软件用户协议'; err.classList.add('show'); }
+        return;
+    }
+    if (!pendingLogin) {
+        if (err) { err.textContent = '登录信息已失效，请关闭弹窗后重新登录'; err.classList.add('show'); }
+        return;
+    }
+    var ch = document.getElementById('consentChaoxing');
+    var ac = document.getElementById('consentAcademic');
+    btn.disabled = true; btn.textContent = '登录中…';
+    try {
+        var res = await api('/api/auth/login', {
+            method: 'POST',
+            body: JSON.stringify({
+                student_id: pendingLogin.student_id,
+                password: pendingLogin.password,
+                consent: {
+                    terms: true,
+                    chaoxing: !!(ch && ch.checked),
+                    academic: !!(ac && ac.checked)
+                }
+            })
+        });
+        saveSession(res.data);
+        window.location.reload();
+    } catch (e) {
+        // 401/400 等情况保留弹窗，用户可改勾选重试或点「取消」回登录页改密码
+        if (err) { err.textContent = e.message; err.classList.add('show'); }
+        btn.disabled = false; btn.textContent = '同意并登录';
+    }
+}
+
+(function bindConsentModal() {
+    var ov = document.getElementById('consentModal');
+    if (!ov) return;
+    // 滚动判定只挂在协议正文上：滑动正文到 8px 内触底即解锁
+    var doc = document.getElementById('consentDoc');
+    if (doc) doc.addEventListener('scroll', function () { if (consentAtBottom(doc)) markConsentRead(); });
+    // 点遮罩空白处 / ESC 关闭（与详情弹窗同一套交互）
+    ov.addEventListener('click', function (e) { if (e.target === ov) closeConsentModal(); });
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && ov.classList.contains('show')) closeConsentModal();
+    });
+    var cancelBtn = document.getElementById('consentCancelBtn');
+    if (cancelBtn) cancelBtn.addEventListener('click', closeConsentModal);
+    var closeBtn = document.getElementById('consentCloseBtn');
+    if (closeBtn) closeBtn.addEventListener('click', closeConsentModal);
+    var agreeBtn = document.getElementById('consentAgreeBtn');
+    if (agreeBtn) agreeBtn.addEventListener('click', agreeAndLogin);
+})();
 
 // ===== 事件绑定 =====
 // CSP 的 script-src 只放行 'self'，页面里不能再写内联 onclick：

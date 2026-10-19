@@ -177,6 +177,44 @@
                         <p class="auth-note">忘记密码？请联系班长或团支书重置。</p>
                     </div>
                 </div>
+
+                <!-- 登录前用户协议弹窗：密码校验通过但尚未同意协议（或协议版本过期）时由 index.js 打开。
+                     正文从 legal/terms.html 注入，「同意并登录」要等正文滑到底部才可点；
+                     勾选项默认全不勾，其中第 1 项《用户协议》是必选。 -->
+                <div class="modal-overlay" id="consentModal">
+                    <div class="modal modal-consent">
+                        <div class="modal-head">
+                            <span class="modal-title">用户协议与授权</span>
+                            <button type="button" class="modal-close" id="consentCloseBtn" aria-label="关闭">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                            </button>
+                        </div>
+                        <div class="modal-body">
+                            <p class="consent-lead">使用本服务前，请先阅读《用户协议》并确认下方授权；下滑到正文底部后即可点击「同意并登录」。</p>
+                            <div class="consent-doc" id="consentDoc" tabindex="0">正在加载协议正文…</div>
+                            <p class="consent-scroll-hint" id="consentScrollHint">请向下滑动阅读至底部</p>
+                            <div class="consent-checks">
+                                <label class="consent-check">
+                                    <input type="checkbox" id="consentTerms">
+                                    <span class="consent-check-text">同意本软件用户协议<small>如不同意将无法使用我们的服务</small></span>
+                                </label>
+                                <label class="consent-check">
+                                    <input type="checkbox" id="consentChaoxing">
+                                    <span class="consent-check-text">同意本软件使用你的身份登录学习通<small>如不同意将无法同步学习通作业，考试等消息</small></span>
+                                </label>
+                                <label class="consent-check">
+                                    <input type="checkbox" id="consentAcademic">
+                                    <span class="consent-check-text">同意本软件使用你的身份登录教务系统<small>如不同意将无法同步教务系统学业情况及课表</small></span>
+                                </label>
+                            </div>
+                            <div class="form-error" id="consentError"></div>
+                        </div>
+                        <div class="modal-foot">
+                            <button type="button" class="btn btn-outline" id="consentCancelBtn">取消</button>
+                            <button type="button" class="btn btn-primary" id="consentAgreeBtn" disabled>同意并登录</button>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <!-- 各视图独立 iframe -->

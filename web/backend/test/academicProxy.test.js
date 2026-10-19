@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 
 import worker from '../src/index.js';
 import { academicRoutes } from '../src/routes/academic.js';
+import { AGREEMENT_VERSION } from '../src/utils/consent.js';
 import { sign } from '../src/utils/jwt.js';
 
 /**
@@ -19,14 +20,34 @@ const SECRET = 'test-secret';
 const TOKEN = 'test-internal-token';
 const USER_ROW = { id: 1, student_id: '2022103071', name: '张三', positions: '学生', contact: '' };
 
-/** 假 D1：withAuth 只查一次 users */
-function fakeDb() {
+/**
+ * 默认的同意记录：已同意当前版本、且开了教务授权。
+ * 原有转发用例都跑在这个前提上，免得全被授权拦截挡在门外。
+ */
+const CONSENT_ROW = {
+  user_id: USER_ROW.id,
+  version: AGREEMENT_VERSION,
+  terms: 1,
+  chaoxing: 0,
+  academic: 1,
+  terms_agreed_at: '2026-10-19 10:00:00',
+  chaoxing_agreed_at: null,
+  academic_agreed_at: '2026-10-19 10:00:00',
+  created_at: '2026-10-19 10:00:00',
+  updated_at: '2026-10-19 10:00:00'
+};
+
+/** 假 D1：withAuth 只查一次 users，教务准入再查一次 user_consents（可传入覆盖行） */
+function fakeDb(consentRow = CONSENT_ROW) {
   return {
     prepare(sql) {
-      if (!/FROM users/i.test(sql)) throw new Error('假 D1 不认识的 SQL: ' + sql);
+      let row;
+      if (/FROM user_consents/i.test(sql)) row = consentRow;
+      else if (/FROM users/i.test(sql)) row = USER_ROW;
+      else throw new Error('假 D1 不认识的 SQL: ' + sql);
       const stmt = {
         bind() { return stmt; },
-        async first() { return USER_ROW; }
+        async first() { return row; }
       };
       return stmt;
     }
@@ -209,6 +230,46 @@ describe('转发层的准入与故障', () => {
 
     assert.equal(res.status, 503);
     assert.equal((await res.json()).code, 'ACADEMIC_UNAVAILABLE');
+  });
+});
+
+describe('教务授权准入', () => {
+  it('没同意教务授权时 403，且不产生任何一次上游调用', async () => {
+    const binding = fakeBinding();
+    const res = await worker.fetch(
+      await authedRequest('/api/academic/bind', {
+        method: 'POST',
+        body: JSON.stringify({ cookies: 'X-Qz-JSession=abc' }),
+        headers: { 'Content-Type': 'application/json' }
+      }),
+      upstreamEnv(binding, { DB: fakeDb({ ...CONSENT_ROW, academic: 0 }) }),
+      {}
+    );
+
+    assert.equal(res.status, 403);
+    assert.equal((await res.json()).code, 'ACADEMIC_CONSENT_REQUIRED');
+    assert.equal(binding.calls.length, 0, '没授权就不该去敲教务');
+  });
+
+  it('撤权后缓存读取、状态查询与解绑仍放行，只有强制重抓被拦下', async () => {
+    const binding = fakeBinding();
+    const env = upstreamEnv(binding, { DB: fakeDb({ ...CONSENT_ROW, academic: 0 }) });
+
+    // 不出网的读：读的是私有 Worker 里的缓存，撤权后依然可看
+    for (const path of ['/api/academic/status', '/api/academic/timetable', '/api/academic/grades?xnxq=2026-2027-1']) {
+      const res = await worker.fetch(await authedRequest(path), env, {});
+      assert.equal(res.status, 200, path);
+    }
+    // 撤权之后还得让人能解绑
+    const unbind = await worker.fetch(await authedRequest('/api/academic/bind', { method: 'DELETE' }), env, {});
+    assert.equal(unbind.status, 200);
+    assert.equal(binding.calls.length, 4);
+
+    // refresh=1 会真的去教务重新抓，必须拦
+    const refetch = await worker.fetch(await authedRequest('/api/academic/timetable?refresh=1'), env, {});
+    assert.equal(refetch.status, 403);
+    assert.equal((await refetch.json()).code, 'ACADEMIC_CONSENT_REQUIRED');
+    assert.equal(binding.calls.length, 4, '被拦下的请求不能透到上游');
   });
 });
 

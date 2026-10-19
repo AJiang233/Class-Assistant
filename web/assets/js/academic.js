@@ -418,6 +418,14 @@ function moveAcSegPill() {
 }
 
 // ===== 课表 =====
+/**
+ * 未同意「使用身份登录教务系统」时的统一提示（后端错误码 ACADEMIC_CONSENT_REQUIRED）。
+ * 这一支既不是绑定问题也不是登录态过期，别把用户赶去重新绑定：告诉他去哪儿开授权即可。
+ */
+function academicConsentHint() {
+    return '尚未同意「本软件使用你的身份登录教务系统」，请到「个人中心 → 关于软件 → 用户协议」开启授权后重试。';
+}
+
 async function loadTimetable(term, refresh) {
     var view = document.getElementById('timetableView');
     view.innerHTML = skeletonHTML(4);
@@ -449,6 +457,10 @@ async function loadTimetable(term, refresh) {
             }
             showOnly('bindView');
             showFormError('bindError', err.message);
+            return;
+        }
+        if (err.code === 'ACADEMIC_CONSENT_REQUIRED') {
+            view.innerHTML = stateHTML(academicConsentHint(), true);
             return;
         }
         view.innerHTML = stateHTML(err.message, true);
@@ -772,6 +784,10 @@ async function loadGrades(term, refresh) {
             }
             showOnly('bindView');
             showFormError('bindError', err.message);
+            return;
+        }
+        if (err.code === 'ACADEMIC_CONSENT_REQUIRED') {
+            view.innerHTML = stateHTML(academicConsentHint(), true);
             return;
         }
         view.innerHTML = stateHTML(err.message, true);

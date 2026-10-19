@@ -842,6 +842,136 @@ async function checkUpdate() {
     btn.textContent = label;
 }
 
+// ===== 用户协议与授权（关于软件 → 用户协议）=====
+// 后端契约：GET /api/auth/consent 给 { version, agreed, consent:{version,terms,chaoxing,academic,*_agreed_at} }；
+// POST 同形状。terms 必须为 true —— 撤回《用户协议》就连登录都过不去，后端直接 400 CANNOT_REVOKE_TERMS，
+// 所以这里只有学习通 / 教务两个开关可改，协议那行固定显示「已同意」。
+var consentData = null;
+
+/** 关于软件那一行的摘要：已同意 · 学习通已授权 · 教务未授权 */
+function consentSummaryText(data) {
+    if (!data || !data.agreed || !data.consent) return '未同意（请退出后重新登录并同意）';
+    return '已同意 · ' + (data.consent.chaoxing ? '学习通已授权' : '学习通未授权')
+        + ' · ' + (data.consent.academic ? '教务已授权' : '教务未授权');
+}
+
+function renderConsentSummary(data) {
+    var el = document.getElementById('consentSummary');
+    if (el) el.textContent = consentSummaryText(data);
+    var hint = document.getElementById('consentHint');
+    if (hint) { hint.textContent = ''; hint.hidden = true; }
+}
+
+async function loadConsentSummary() {
+    try {
+        var res = await api('/api/auth/consent');
+        consentData = (res && res.data) || null;
+        renderConsentSummary(consentData);
+    } catch (e) {
+        // 取不到状态不影响这一页其它功能；打开弹窗时会再取一次，那里才把错误显示出来
+        var el = document.getElementById('consentSummary');
+        if (el) el.textContent = '获取失败，点「查看与修改」重试';
+    }
+}
+
+/** 用最新数据填充弹窗：协议版本 / 最近同意时间 / 两个开关 */
+function fillConsentModal(data) {
+    var version = data && data.version ? data.version : '';
+    var c = data && data.consent ? data.consent : null;
+    var agreed = !!(data && data.agreed);
+    var versionLine = document.getElementById('consentVersionLine');
+    if (versionLine) {
+        versionLine.textContent = '协议版本 ' + (version || '—')
+            + ' · 最近同意 ' + (c && c.updated_at ? c.updated_at : '—');
+    }
+    var termsLine = document.getElementById('consentTermsStatus');
+    if (termsLine) {
+        termsLine.textContent = agreed
+            ? '已同意（' + (version || '—') + '）'
+            : '尚未同意：请退出登录后重新登录并勾选同意';
+    }
+    var ch = document.getElementById('consentChaoxingSwitch');
+    var ac = document.getElementById('consentAcademicSwitch');
+    if (ch) { ch.checked = !!(c && c.chaoxing); ch.disabled = !agreed; }
+    if (ac) { ac.checked = !!(c && c.academic); ac.disabled = !agreed; }
+    var saveBtn = document.getElementById('consentSaveBtn');
+    if (saveBtn) { saveBtn.disabled = !agreed; saveBtn.textContent = '保存'; }
+}
+
+async function openConsentManage() {
+    var ov = document.getElementById('consentModal');
+    if (!ov) return;
+    var err = document.getElementById('consentManageError');
+    if (err) { err.textContent = ''; err.classList.remove('show'); }
+    // 先用手上那份渲染，打开后再取一次最新值：别的设备 / 标签页可能刚改过
+    fillConsentModal(consentData);
+    ov.classList.add('show');
+    document.body.style.overflow = 'hidden';
+    try {
+        var res = await api('/api/auth/consent');
+        consentData = (res && res.data) || null;
+        renderConsentSummary(consentData);
+        fillConsentModal(consentData);
+    } catch (e) {
+        if (err) { err.textContent = e.message; err.classList.add('show'); }
+    }
+}
+
+function closeConsentManage() {
+    var ov = document.getElementById('consentModal');
+    if (ov) ov.classList.remove('show');
+    document.body.style.overflow = '';
+}
+
+async function saveConsent() {
+    var err = document.getElementById('consentManageError');
+    if (err) { err.textContent = ''; err.classList.remove('show'); }
+    var ch = document.getElementById('consentChaoxingSwitch');
+    var ac = document.getElementById('consentAcademicSwitch');
+    var btn = document.getElementById('consentSaveBtn');
+    var label = btn ? btn.textContent : '保存';
+    if (btn) { btn.disabled = true; btn.textContent = '保存中…'; }
+    try {
+        var res = await api('/api/auth/consent', {
+            method: 'POST',
+            body: JSON.stringify({
+                terms: true,
+                chaoxing: !!(ch && ch.checked),
+                academic: !!(ac && ac.checked)
+            })
+        });
+        consentData = (res && res.data) || null;
+        renderConsentSummary(consentData);
+        // 弹窗关掉后按钮要回到可再次打开的状态：成功时没有 finally，这里手动复位
+        if (btn) { btn.disabled = false; btn.textContent = '保存'; }
+        closeConsentManage();
+        var hint = document.getElementById('consentHint');
+        if (hint) { hint.textContent = '授权设置已保存。'; hint.hidden = false; }
+    } catch (e) {
+        if (err) { err.textContent = e.message; err.classList.add('show'); }
+        if (btn) { btn.disabled = false; btn.textContent = label; }
+    }
+}
+
+// 空值守卫：节点漂移时别让这段把后面的委托绑定打死（同 bindContactModal 的写法）
+(function bindConsentModal() {
+    var ov = document.getElementById('consentModal');
+    if (!ov) return;
+    ov.addEventListener('click', function (e) { if (e.target === ov) closeConsentManage(); });
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && ov.classList.contains('show')) closeConsentManage();
+    });
+    var openBtn = document.getElementById('openConsentBtn');
+    if (openBtn) openBtn.addEventListener('click', openConsentManage);
+    var closeBtn = document.getElementById('consentManageCloseBtn');
+    if (closeBtn) closeBtn.addEventListener('click', closeConsentManage);
+    var cancelBtn = document.getElementById('consentManageCancelBtn');
+    if (cancelBtn) cancelBtn.addEventListener('click', closeConsentManage);
+    var saveBtn = document.getElementById('consentSaveBtn');
+    if (saveBtn) saveBtn.addEventListener('click', saveConsent);
+})();
+loadConsentSummary();
+
 // ===== 加载我的资料 =====
 var currentContact = '';
 /**

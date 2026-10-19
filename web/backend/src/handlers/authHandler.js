@@ -2,10 +2,17 @@ import { UserModel } from '../models/userModel.js';
 import { RoleModel } from '../models/roleModel.js';
 import { EmailCodeModel } from '../models/emailCodeModel.js';
 import { EmailSubscriptionModel } from '../models/emailSubscriptionModel.js';
+import { ConsentModel } from '../models/consentModel.js';
 import { hashPassword, verifyPassword } from '../utils/crypto.js';
 import { sign } from '../utils/jwt.js';
 import { success, error, jsonResponse } from '../utils/response.js';
 import { sendEmail, EmailError, renderVerifyEmail, renderResetEmail } from '../utils/email.js';
+import {
+  AGREEMENT_VERSION,
+  isCurrentConsent,
+  summarizeConsent,
+  parseConsentPayload
+} from '../utils/consent.js';
 import {
   parsePositions,
   getPermissions,
@@ -250,6 +257,32 @@ export async function handleLogin(request, env) {
       return jsonResponse(error('学号或密码不正确', 'INVALID_CREDENTIALS'), 401);
     }
 
+    // ---- 用户协议同意检查（只能放在密码校验通过之后）----
+    // 顺序反过来就成了学号探测器：密码错的请求也拿到 CONSENT_REQUIRED 的话，
+    // 试探者只要看见 412 就知道「这个学号存在、只是还没同意协议」（学号可被在线撞库）。
+    const consentModel = new ConsentModel(env.DB);
+    let consentRecord = await consentModel.get(user.id);
+
+    if (!isCurrentConsent(consentRecord)) {
+      if (body.consent == null) {
+        // 没带同意信息：回 412 告诉前端「要弹窗」，版本号随响应下发，
+        // 客户端不需要本地缓存（换设备、清缓存都是同一个结论）。
+        return jsonResponse({
+          success: false,
+          error: '请先阅读并同意用户协议',
+          code: 'CONSENT_REQUIRED',
+          data: { version: AGREEMENT_VERSION }
+        }, 412);
+      }
+
+      const agreed = parseConsentPayload(body.consent);
+      if (!agreed) {
+        return jsonResponse(error('请先阅读并同意用户协议', 'CONSENT_TERMS_REQUIRED'), 400);
+      }
+
+      consentRecord = await consentModel.upsert(user.id, agreed);
+    }
+
     const token = await sign(
       {
         id: user.id,
@@ -264,7 +297,9 @@ export async function handleLogin(request, env) {
 
     return jsonResponse(success({
       token,
-      user: publicUser(user, permissions)
+      user: publicUser(user, permissions),
+      // 新增字段（向后兼容）：前端拿到非空的 consent 就直接跳过弹窗，不依赖本地缓存
+      consent: summarizeConsent(consentRecord)
     }));
   } catch (e) {
     console.error('登录失败:', e);
@@ -290,6 +325,73 @@ export async function handleMe(request, env, userPayload) {
   } catch (e) {
     console.error('获取用户信息失败:', e);
     return jsonResponse(error('获取用户信息失败', 'FETCH_USER_FAILED'), 500);
+  }
+}
+
+/**
+ * 读取当前用户自己的协议同意状态（需登录）。
+ *
+ * 「个人中心 → 关于软件 → 用户协议」打开时用它填三个勾选框的初值；
+ * agreed 为 false（从没同意过，或协议版本已过期）时前端应回到登录弹窗。
+ */
+export async function handleGetConsent(request, env, userPayload) {
+  try {
+    const record = await new ConsentModel(env.DB).get(userPayload.id);
+    return jsonResponse(success({
+      version: AGREEMENT_VERSION,
+      agreed: isCurrentConsent(record),
+      consent: summarizeConsent(record)
+    }));
+  } catch (e) {
+    console.error('读取用户协议同意状态失败:', e);
+    return jsonResponse(error('读取用户协议同意状态失败，请稍后重试', 'GET_CONSENT_FAILED'), 500);
+  }
+}
+
+/**
+ * 修改当前用户自己的协议授权（需登录）。
+ *
+ * 两种调用来源：
+ *   · 登录弹窗一次性提交三项 —— 此时还没同意过，必须带 terms: true；
+ *   · 个人中心的用户协议页单独开关学习通 / 教务 —— 只改传上来的字段，
+ *     没传的保持原值，避免「只开教务」把学习通悄悄关掉。
+ * terms 不可撤回：不同意《用户协议》就没有继续使用本服务的基础，
+ * 弹窗里的「不同意」只会关掉弹窗，不会把 false 发上来。
+ */
+export async function handleUpdateConsent(request, env, userPayload) {
+  try {
+    const raw = await request.json().catch(() => null);
+    const body = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+
+    if (body.terms === false || body.terms === 0) {
+      return jsonResponse(error('不同意《用户协议》将无法继续使用本服务', 'CANNOT_REVOKE_TERMS'), 400);
+    }
+
+    const consentModel = new ConsentModel(env.DB);
+    const current = await consentModel.get(userPayload.id);
+    const agreedNow = isCurrentConsent(current);
+
+    // 还没同意过（或协议已改版）：必须显式勾选必选项，才允许落库
+    if (!agreedNow && !(body.terms === true || body.terms === 1)) {
+      return jsonResponse(error('请先阅读并同意用户协议', 'CONSENT_TERMS_REQUIRED'), 400);
+    }
+
+    const toBool = (v) => v === true || v === 1;
+    const keep = (field) => (current ? Number(current[field]) === 1 : false);
+    const updated = await consentModel.upsert(userPayload.id, {
+      terms: true,
+      chaoxing: body.chaoxing === undefined ? keep('chaoxing') : toBool(body.chaoxing),
+      academic: body.academic === undefined ? keep('academic') : toBool(body.academic)
+    });
+
+    return jsonResponse(success({
+      version: AGREEMENT_VERSION,
+      agreed: isCurrentConsent(updated),
+      consent: summarizeConsent(updated)
+    }));
+  } catch (e) {
+    console.error('更新用户协议同意状态失败:', e);
+    return jsonResponse(error('更新用户协议同意状态失败，请稍后重试', 'CONSENT_UPDATE_FAILED'), 500);
   }
 }
 

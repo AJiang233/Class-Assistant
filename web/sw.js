@@ -67,7 +67,11 @@ const PRECACHE = [
   '/assets/js/forms.js',
   '/assets/js/account.js',
   '/assets/js/admin.js',
-  '/manifest.json'
+  '/manifest.json',
+  // 用户协议正文（登录同意弹窗用 fetch 读取并注入）：写的是带扩展名的地址，
+  // 因为页面里 fetch 的就是 legal/terms.html，作为子资源请求不受导航跳转那条限制；
+  // 断了网也要能读到协议，否则登录同意流程直接卡死。
+  '/legal/terms.html'
 ];
 
 /**

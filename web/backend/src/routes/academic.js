@@ -1,4 +1,5 @@
 import { withAuth } from '../middleware/auth.js';
+import { ConsentModel } from '../models/consentModel.js';
 import { error, jsonResponse } from '../utils/response.js';
 
 const PREFIX = '/api/academic/';
@@ -59,6 +60,24 @@ async function forwardToAcademicService(request, env, user) {
     return jsonResponse(error('服务端暂时不可用，请联系管理员', 'SERVER_MISCONFIGURED'), 500);
   }
 
+  // ---- 教务授权检查（放在配置检查之后：环境没配好时先报配置，不要误报成「没授权」）----
+  // 用户没勾「使用本软件使用你的身份登录教务系统」就不碰教务。这是服务端的最终把关：
+  // 前端把入口藏起来只是体验，绕过前端直接打接口同样会被这里挡住。
+  //
+  // 只拦「会真的出网访问教务」的请求。撤权之后已缓存的课表 / 成绩照旧能读
+  // （不带 refresh 的 GET 走私有 Worker 的缓存，不出网），解绑与状态查询也放行 ——
+  // 否则撤了权反而连解绑都做不了。
+  const url = new URL(request.url);
+  if (touchesAcademicSystem(request.method, url)) {
+    const consent = await new ConsentModel(env.DB).get(user.id);
+    if (!consent || Number(consent.academic) !== 1) {
+      return jsonResponse(
+        error('尚未同意「使用身份登录教务系统」，请到「个人中心 → 用户协议」开启授权', 'ACADEMIC_CONSENT_REQUIRED'),
+        403
+      );
+    }
+  }
+
   const headers = new Headers();
   headers.set('X-Internal-Token', token);
   headers.set('X-User-Id', String(user.id));
@@ -87,4 +106,40 @@ async function forwardToAcademicService(request, env, user) {
     status: res.status,
     headers: { 'Content-Type': 'application/json' }
   });
+}
+
+/**
+ * 这个请求会不会真的跟教务系统打交道（决定要不要检查教务授权）。
+ *
+ * 拦截清单只放「必须拿着用户身份去教务」的那些：
+ *   · POST bind / login / mfa/send / mfa/verify —— 绑定与代登录；
+ *   · GET timetable / credits / grades 且 refresh 为真 —— 强制重抓才会出网。
+ *
+ * 其余全部放行，尤其是：
+ *   · DELETE bind（解绑）—— 撤权之后还得让人能解绑；
+ *   · GET status —— 只读绑定状态与已缓存学期；
+ *   · 不带 refresh 的 GET —— 读私有 Worker 的缓存，撤权后缓存仍可看，
+ *     只是不再访问教务（这正是「撤回授权」该有的效果）。
+ * 用路径与方法精确匹配，避免把 status 之类误伤；refresh 同时认 1 与 true。
+ */
+function touchesAcademicSystem(method, url) {
+  const path = url.pathname;
+
+  if (method === 'POST') {
+    return path === PREFIX + 'bind'
+      || path === PREFIX + 'login'
+      || path === PREFIX + 'mfa/send'
+      || path === PREFIX + 'mfa/verify';
+  }
+
+  if (method === 'GET') {
+    const cacheable = path === PREFIX + 'timetable'
+      || path === PREFIX + 'credits'
+      || path === PREFIX + 'grades';
+    if (!cacheable) return false;
+    const refresh = url.searchParams.get('refresh');
+    return refresh === '1' || refresh === 'true';
+  }
+
+  return false;
 }
