@@ -20,6 +20,12 @@
         </header>
 
         <main class="legal-main">
+            <!-- Cloudflare Scrape Shield 会开启 Email Address Obfuscation，把正文里的邮箱
+                 换成占位符 + /cdn-cgi/l/email-protection 链接，再由它注入的 email-decode.min.js
+                 还原。法务页必须静态可读：浏览器禁用 JS、解码脚本被扩展或网络拦截，或这段正文
+                 被 fetch 注入（登录同意弹窗就是这种用法）时，占位符都还原不回来，点开还会跳到
+                 Cloudflare 的 Email Protection 页。所以联系方式里的邮箱统一用 Cloudflare 官方的
+                 email_off 标记包住；backend/test/legalPages.test.js 会挡住漏标记的改动。 -->
             <article class="legal-content">
                 <h1>Class Assistant 隐私政策</h1>
 
@@ -36,7 +42,7 @@
                         <tr><td>最近更新</td><td>2026 年 10 月 19 日</td></tr>
                         <tr><td>适用范围</td><td>班级助理网页版（https://class.qxwkstudio.top）、Android 客户端，以及上述客户端提供的班级协作、教务与学习通联动、邮件与浏览器推送、日历订阅等功能</td></tr>
                         <tr><td>个人信息处理者</td><td>QxwkStudio（Class Assistant 项目团队，个人开发者项目；GitHub 账号：<a href="https://github.com/AJiang233" target="_blank" rel="noopener">@AJiang233</a>）</td></tr>
-                        <tr><td>联系方式</td><td>QxwkStudio@outlook.com</td></tr>
+                        <tr><td>联系方式</td><td><!--email_off-->QxwkStudio@outlook.com<!--/email_off--></td></tr>
                     </tbody>
                 </table>
 
@@ -141,7 +147,7 @@
                 <p>6.1 <strong>存储地点。</strong> 本服务的生产数据存储于 Cloudflare D1 数据库、Cloudflare Pages 与 Functions 等云服务中。Cloudflare 采用全球分布式网络，实际存储与处理位置由其根据服务配置和网络调度决定，<strong>可能位于中华人民共和国境外</strong>（例如亚太、北美等地区的数据中心）。电子邮件通过位于美国的 Resend 发送。校方系统与学习通平台的数据由对应平台存储，不受我们控制。</p>
                 <p>6.2 由于本服务整体依赖境外云基础设施，<strong>我们无法承诺仅在中国境内存储或处理你的个人信息，也无法提供仅限境内存储的服务选项</strong>。如你不接受个人信息出境，请停止使用本服务；你已产生的信息可按第 9 条申请删除。</p>
                 <p>6.3 依据《个人信息保护法》第三十九条，我们向你告知以下事项：</p>
-                <p>（1）<strong>境外接收方</strong>：Cloudflare, Inc.（美国；隐私政策：<a href="https://www.cloudflare.com/privacypolicy/" target="_blank" rel="noopener">https://www.cloudflare.com/privacypolicy/</a> ；联系邮箱：privacy@cloudflare.com ）；Resend, Inc.（美国；隐私政策：<a href="https://resend.com/legal/privacy-policy" target="_blank" rel="noopener">https://resend.com/legal/privacy-policy</a> ）。</p>
+                <p>（1）<strong>境外接收方</strong>：Cloudflare, Inc.（美国；隐私政策：<a href="https://www.cloudflare.com/privacypolicy/" target="_blank" rel="noopener">https://www.cloudflare.com/privacypolicy/</a> ；联系邮箱：<!--email_off-->privacy@cloudflare.com<!--/email_off--> ）；Resend, Inc.（美国；隐私政策：<a href="https://resend.com/legal/privacy-policy" target="_blank" rel="noopener">https://resend.com/legal/privacy-policy</a> ）。</p>
                 <p>（2）<strong>处理目的</strong>：网站托管与内容分发、后端计算、数据库存储、邮件发送。</p>
                 <p>（3）<strong>处理方式</strong>：加密传输、访问控制、按需调用；Cloudflare 以受托方身份处理，Resend 仅接收发送邮件所必需的信息。</p>
                 <p>（4）<strong>个人信息种类</strong>：本政策第 2 条所述相应类别的信息。</p>
@@ -226,7 +232,7 @@
 
                 <h2>第 13 条 联系我们</h2>
                 <p>13.1 如你对本政策有任何疑问、意见、建议，或需要行使第 9 条项下的权利、投诉个人信息处理问题，可以通过以下方式联系我们：</p>
-                <p>（1）<strong>电子邮箱</strong>：QxwkStudio@outlook.com（首选方式）；</p>
+                <p>（1）<strong>电子邮箱</strong>：<!--email_off-->QxwkStudio@outlook.com<!--/email_off-->（首选方式）；</p>
                 <p>（2）<strong>GitHub Issues</strong>：<a href="https://github.com/AJiang233/Class-Assistant/issues" target="_blank" rel="noopener">https://github.com/AJiang233/Class-Assistant/issues</a> （仅用于一般性问题；<strong>请勿在公开 Issue 中提交学号、姓名、成绩、Cookie、验证码等敏感信息</strong>）。</p>
                 <p>13.2 个人信息保护负责人：Class Assistant 项目维护者，联系方式同上。我们暂无固定办公场所，电子邮箱是最有效的联系方式。</p>
                 <p>13.3 我们通常在收到请求并完成身份核验后 15 个工作日内答复。对于复杂请求，我们可能延长处理期限并告知你原因。</p>

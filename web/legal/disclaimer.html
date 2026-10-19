@@ -20,6 +20,12 @@
         </header>
 
         <main class="legal-main">
+            <!-- Cloudflare Scrape Shield 会开启 Email Address Obfuscation，把正文里的邮箱
+                 换成占位符 + /cdn-cgi/l/email-protection 链接，再由它注入的 email-decode.min.js
+                 还原。法务页必须静态可读：浏览器禁用 JS、解码脚本被扩展或网络拦截，或这段正文
+                 被 fetch 注入（登录同意弹窗就是这种用法）时，占位符都还原不回来，点开还会跳到
+                 Cloudflare 的 Email Protection 页。所以联系方式里的邮箱统一用 Cloudflare 官方的
+                 email_off 标记包住；backend/test/legalPages.test.js 会挡住漏标记的改动。 -->
             <article class="legal-content">
                 <h1>Class Assistant 免责声明</h1>
 
@@ -38,7 +44,7 @@
                         <tr><td>最近更新</td><td>2026 年 10 月 19 日</td></tr>
                         <tr><td>适用对象</td><td>访问或使用班级助理网页版（<a href="https://class.qxwkstudio.top" target="_blank" rel="noopener">https://class.qxwkstudio.top</a>）、Android 客户端及相关服务的用户</td></tr>
                         <tr><td>运营者</td><td>QxwkStudio（Class Assistant 项目团队，个人开发者项目）</td></tr>
-                        <tr><td>联系方式</td><td><a href="mailto:QxwkStudio@outlook.com">QxwkStudio@outlook.com</a></td></tr>
+                        <tr><td>联系方式</td><td><!--email_off--><a href="mailto:QxwkStudio@outlook.com">QxwkStudio@outlook.com</a><!--/email_off--></td></tr>
                     </tbody>
                 </table>
 
@@ -139,7 +145,7 @@
 
                 <h2>第 13 条 联系我们</h2>
                 <p>13.1 如你对本声明有任何疑问、意见或建议，或需要举报违规内容、报告安全问题、处理账号纠纷，可以通过以下方式联系我们：</p>
-                <p>（1）<strong>电子邮箱</strong>：QxwkStudio@outlook.com（首选方式）；</p>
+                <p>（1）<strong>电子邮箱</strong>：<!--email_off-->QxwkStudio@outlook.com<!--/email_off-->（首选方式）；</p>
                 <p>（2）<strong>GitHub Issues</strong>：<a href="https://github.com/AJiang233/Class-Assistant/issues" target="_blank" rel="noopener">https://github.com/AJiang233/Class-Assistant/issues</a> （仅用于一般性问题；请勿在公开 Issue 中提交学号、姓名、成绩、Cookie、验证码等敏感信息）。</p>
                 <p>13.2 我们通常在收到请求后 15 个工作日内答复；情况复杂需要延长的，我们会告知你原因。</p>
                 <p>13.3 如你对我们的答复不满意，可以依法向有关部门投诉，或向有管辖权的人民法院提起诉讼。</p>

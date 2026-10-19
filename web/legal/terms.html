@@ -20,6 +20,12 @@
         </header>
 
         <main class="legal-main">
+            <!-- Cloudflare Scrape Shield 会开启 Email Address Obfuscation，把正文里的邮箱
+                 换成占位符 + /cdn-cgi/l/email-protection 链接，再由它注入的 email-decode.min.js
+                 还原。法务页必须静态可读：浏览器禁用 JS、解码脚本被扩展或网络拦截，或这段正文
+                 被 fetch 注入（登录同意弹窗就是这种用法）时，占位符都还原不回来，点开还会跳到
+                 Cloudflare 的 Email Protection 页。所以联系方式里的邮箱统一用 Cloudflare 官方的
+                 email_off 标记包住；backend/test/legalPages.test.js 会挡住漏标记的改动。 -->
             <article class="legal-content">
                 <h1>Class Assistant 用户协议</h1>
 
@@ -119,7 +125,7 @@
                 <h2>第 10 条 联系方式</h2>
                 <p>10.1 如你对本协议有任何疑问、意见或建议，或需要举报违规内容、报告安全问题、处理账号纠纷，可以通过以下方式联系我们：</p>
                 <ul>
-                    <li><strong>电子邮箱</strong>：QxwkStudio@outlook.com（首选方式）；</li>
+                    <li><strong>电子邮箱</strong>：<!--email_off-->QxwkStudio@outlook.com<!--/email_off-->（首选方式）；</li>
                     <li><strong>GitHub Issues</strong>：<a href="https://github.com/AJiang233/Class-Assistant/issues" target="_blank" rel="noopener">https://github.com/AJiang233/Class-Assistant/issues</a>（仅用于一般性问题；请勿在公开 Issue 中提交学号、姓名、成绩、Cookie、验证码等敏感信息）。</li>
                 </ul>
                 <p>10.2 我们通常在收到请求后 15 个工作日内答复；情况复杂需要延长的，我们会告知你原因。</p>
@@ -131,7 +137,7 @@
                     <li>教务系统授权：关闭「使用身份登录教务系统」开关后点击「保存」，即停止以你的身份访问教务系统；</li>
                     <li>《用户协议》为使用本服务所必需，不能单独撤回；如不再同意，请退出登录并停止使用本服务。</li>
                 </ul>
-                <p>你也可以发送邮件至 QxwkStudio@outlook.com 申请撤回授权或删除账号数据，我们会在核实身份后依法处理。撤回授权不影响撤回前基于你的同意已进行的数据处理的效力。</p>
+                <p>你也可以发送邮件至 <!--email_off-->QxwkStudio@outlook.com<!--/email_off--> 申请撤回授权或删除账号数据，我们会在核实身份后依法处理。撤回授权不影响撤回前基于你的同意已进行的数据处理的效力。</p>
 
                 <h2>版本记录</h2>
                 <ul>
