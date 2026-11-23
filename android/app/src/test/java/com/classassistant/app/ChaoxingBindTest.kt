@@ -22,6 +22,9 @@ class ChaoxingBindTest {
     private val main: String =
         moduleFile("src/main/java/com/classassistant/app/MainActivity.kt").readText()
 
+    private val cookieJar: String =
+        moduleFile("src/main/java/com/classassistant/app/ChaoxingCookieJar.kt").readText()
+
     /** 学习通小窗那一段（从分隔注释到 onKeyDown 之前） */
     private val chaoxing: String =
         main.substringAfter("===== 学习通登录小窗 =====")
@@ -93,9 +96,19 @@ class ChaoxingBindTest {
             "小窗不允许双指缩放：页面被裁时用户没有兜底手段",
             chaoxing.contains("setSupportZoom(true)") && chaoxing.contains("builtInZoomControls = true")
         )
-        // 判据三件套：学习通域、i.chaoxing.com 的 Cookie、_uid
-        assertTrue("没从 i.chaoxing.com 读 Cookie", main.contains("CHAOXING_COOKIE_ORIGIN"))
-        assertTrue("没检查 _uid，任何 Cookie 都会当成登录成功", main.contains("_uid="))
+        // 判据三件套：学习通域、多子域 Cookie 汇总、_uid
+        assertTrue(
+            "没从 ChaoxingCookieJar 汇总 Cookie：只读 i.chaoxing.com 会丢 i.mooc 的 jrose / spaceFidEnc，姓名读不到",
+            chaoxing.contains("ChaoxingCookieJar.merge(ChaoxingCookieJar.ORIGINS.map")
+        )
+        assertTrue(
+            "Cookie 汇总没包含 i.mooc.chaoxing.com：jrose / spaceFidEnc 拿不到",
+            cookieJar.contains("\"https://i.mooc.chaoxing.com\"")
+        )
+        assertTrue(
+            "没检查 _uid，任何 Cookie 都会当成登录成功",
+            cookieJar.contains("_uid=") && chaoxing.contains("ChaoxingCookieJar.hasLogin")
+        )
         assertTrue(
             "域名判定没按子域匹配（passport2 / i.chaoxing.com 都要算学习通）",
             main.contains("endsWith(\".\$CHAOXING_HOST\")")

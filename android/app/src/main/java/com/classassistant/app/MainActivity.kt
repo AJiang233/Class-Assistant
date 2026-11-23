@@ -1152,12 +1152,16 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * 读 i.chaoxing.com 的 Cookie；只有出现 `_uid` 才算已登录，否则返回 null。
-     * 这里只看「有没有」不看有效期 —— 失效的 Cookie 交给后端校验，原生不猜。
+     * 汇总学习通登录 Cookie；只有出现 `_uid` 才算已登录，否则返回 null。
+     *
+     * 不能只读 i.chaoxing.com：jrose / spaceFidEnc 是 i.mooc.chaoxing.com 的 host-only Cookie，
+     * 少了它们课程列表仍能用，但个人空间 /base 会 302 回登录页，姓名读不到。
+     * 合并规则见 [ChaoxingCookieJar]。
      */
     private fun chaoxingCookie(): String? {
-        val cookie = CookieManager.getInstance().getCookie(CHAOXING_COOKIE_ORIGIN) ?: return null
-        return if (cookie.contains("_uid=")) cookie else null
+        val manager = CookieManager.getInstance()
+        val cookie = ChaoxingCookieJar.merge(ChaoxingCookieJar.ORIGINS.map { manager.getCookie(it) })
+        return if (ChaoxingCookieJar.hasLogin(cookie)) cookie else null
     }
 
     /** 当前页是不是学习通自己的页面（含所有子域：passport2 / i.chaoxing.com / www ...） */
@@ -1286,9 +1290,6 @@ class MainActivity : AppCompatActivity() {
          */
         const val CHAOXING_LOGIN_URL =
             "https://passport2.chaoxing.com/login?fid=1433&refer=http%3A%2F%2Fi.chaoxing.com"
-
-        /** 学习通 Cookie 的归属域：登录成功的判据（`_uid`）从这里读 */
-        const val CHAOXING_COOKIE_ORIGIN = "https://i.chaoxing.com"
 
         /** 学习通顶级域：判定「当前页在学习通域内」时含所有子域 */
         const val CHAOXING_HOST = "chaoxing.com"
