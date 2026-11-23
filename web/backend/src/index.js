@@ -3,6 +3,7 @@ import { noticeRoutes } from './routes/notices.js';
 import { activityRoutes } from './routes/activities.js';
 import { calendarRoutes } from './routes/calendar.js';
 import { academicRoutes } from './routes/academic.js';
+import { settingRoutes } from './routes/settings.js';
 import { formRoutes } from './routes/forms.js';
 import { pushRoutes } from './routes/push.js';
 import { withAuth } from './middleware/auth.js';
@@ -62,6 +63,10 @@ async function dispatch(request, env, ctx) {
 
   // 教务系统路由
   response = await academicRoutes(request, env, ctx);
+  if (response) return response;
+
+  // 全局功能开关（系统级配置，独立于教务转发）
+  response = await settingRoutes(request, env, ctx);
   if (response) return response;
 
   // 表单路由

@@ -19,6 +19,43 @@ function rememberTerm(id) {
     try { if (id) localStorage.setItem(TERM_KEY, id); } catch (e) {}
 }
 
+// ===== 校方系统自动化访问的风险确认（issue #105）=====
+// 三条绑定路径（一键绑定 / 学号密码代登录 / 粘贴 Cookie）都会让服务端代替用户访问校方系统，
+// 所以先要用户明确勾选风险告知。勾过就记住，免得每次进来都拦一遍；页面上随时可以取消，
+// 取消后三颗绑定按钮立即回到禁用。
+var RISK_ACK_KEY = 'ca_academic_risk_ack';
+var RISK_ACK_MSG = '请先勾选确认「校方系统自动化访问的风险」';
+function savedRiskAck() {
+    try { return localStorage.getItem(RISK_ACK_KEY) === '1'; } catch (e) { return false; }
+}
+function rememberRiskAck(on) {
+    try {
+        if (on) localStorage.setItem(RISK_ACK_KEY, '1');
+        else localStorage.removeItem(RISK_ACK_KEY);
+    } catch (e) {}
+}
+function riskAckChecked() {
+    var box = document.getElementById('academicRiskAck');
+    return !!(box && box.checked);
+}
+/** 三颗绑定按钮跟着勾选状态启用 / 禁用（#appBindBtn 只有 App 壳里才露出来，禁用无害） */
+function applyRiskAck() {
+    var ok = riskAckChecked();
+    ['appBindBtn', 'pwdLoginBtn', 'bindBtn'].forEach(function (id) {
+        var btn = document.getElementById(id);
+        if (btn) btn.disabled = !ok;
+    });
+}
+/**
+ * 绑定入口的统一拦截。按钮 disabled 只是 UI：原生桥、控制台或脚本仍可能直接调
+ * doPasswordLogin / doBind 这些函数，所以每个入口自己都要再问一次，未勾选就绝不发请求。
+ */
+function requireRiskAck() {
+    if (riskAckChecked()) return true;
+    showFormError('bindError', RISK_ACK_MSG);
+    return false;
+}
+
 var WEEKDAY_NAMES = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
 
 (function init() {
@@ -46,11 +83,27 @@ var WEEKDAY_NAMES = ['周一', '周二', '周三', '周四', '周五', '周六',
         if (window.CAHost && typeof CAHost.startAcademicLogin === 'function') {
             document.getElementById('appBindBox').hidden = false;
             document.getElementById('appBindBtn').addEventListener('click', function () {
+                if (!requireRiskAck()) return;
                 try { CAHost.startAcademicLogin(); } catch (e) {}
             });
         }
         document.getElementById('bindBtn').addEventListener('click', doBind);
         document.getElementById('pwdLoginBtn').addEventListener('click', doPasswordLogin);
+        // 风险告知：恢复上次的勾选状态，并让绑定按钮从初始就跟着它启用 / 禁用
+        var riskAck = document.getElementById('academicRiskAck');
+        if (riskAck) {
+            riskAck.checked = savedRiskAck();
+            riskAck.addEventListener('change', function () {
+                rememberRiskAck(riskAck.checked);
+                applyRiskAck();
+                // 勾上就把刚才那句「请先勾选」擦掉，否则文案留在原地像还在报错
+                if (riskAck.checked) {
+                    var err = document.getElementById('bindError');
+                    if (err) err.classList.remove('show');
+                }
+            });
+            applyRiskAck();
+        }
         document.getElementById('mfaSendBtn').addEventListener('click', doMfaSend);
         document.getElementById('mfaVerifyBtn').addEventListener('click', doMfaVerify);
         // 复用 resetMfaStep：它除了切回密码步骤，还会停掉倒计时并把「获取验证码」恢复可点。
@@ -116,7 +169,12 @@ async function loadStatus() {
  */
 function applyStatus(info) {
     bindStatus = info || {};
-    if (!bindStatus.bound) { showOnly('bindView'); return; }
+    if (!bindStatus.bound) {
+        showOnly('bindView');
+        // 回到绑定面板时按当前勾选状态恢复按钮，避免状态切换后按钮和勾选框对不上
+        applyRiskAck();
+        return;
+    }
     showOnly('dataView');
     // 分段控件在隐藏状态下量不到尺寸（滑块宽高为 0），显示出来后补量一次
     moveAcSegPill();
@@ -149,6 +207,8 @@ var mfaTimer = null;
 
 /** 路径一 · 第一步：学号 + 密码，后端代登录统一身份认证 */
 async function doPasswordLogin() {
+    // 风险告知未勾选时绝不把密码发出去（按钮禁用只是 UI，函数也可能被脚本直接调用）
+    if (!requireRiskAck()) return;
     var studentId = document.getElementById('acStudentId').value.trim();
     var password = document.getElementById('acPassword').value;
     if (!studentId || !password) { showFormError('bindError', '请填写学号和密码'); return; }
@@ -171,6 +231,8 @@ async function doPasswordLogin() {
         showFormError('bindError', err.message);
     } finally {
         btn.disabled = false; btn.textContent = '登录并绑定';
+        // 请求期间用户可能取消了勾选，恢复按钮时以勾选状态为准
+        applyRiskAck();
     }
 }
 
@@ -201,6 +263,8 @@ function resetMfaStep() {
 /** 第二步：下发验证码（带 60 秒倒计时，避免连点） */
 async function doMfaSend() {
     if (!mfaToken) { showFormError('bindError', '二次验证已超时，请返回上一步重新输入'); return; }
+    // 发码同样是让校方系统给用户发短信，未勾选风险告知时一并拦下
+    if (!requireRiskAck()) return;
     var btn = document.getElementById('mfaSendBtn');
     btn.disabled = true; btn.textContent = '发送中…';
     try {
@@ -233,6 +297,7 @@ function startMfaCountdown(seconds) {
 
 /** 第二步：提交验证码完成绑定 */
 async function doMfaVerify() {
+    if (!requireRiskAck()) return;
     var code = document.getElementById('mfaCode').value.trim();
     if (!code) { showFormError('bindError', '请填写验证码'); return; }
     if (!mfaToken) { showFormError('bindError', '二次验证已超时，请返回上一步重新输入'); return; }
@@ -253,6 +318,8 @@ async function doMfaVerify() {
 }
 
 async function doBind() {
+    // 路径二：粘贴 Cookie 同样是替用户登录校方系统，未勾选风险告知就绝不发送
+    if (!requireRiskAck()) return;
     var input = document.getElementById('cookieInput');
     var cookies = extractCookie(input.value);
     if (!cookies) { showFormError('bindError', '请先粘贴教务系统的 Cookie'); return; }
@@ -268,6 +335,7 @@ async function doBind() {
         showFormError('bindError', err.message);
     } finally {
         btn.disabled = false; btn.textContent = '绑定';
+        applyRiskAck();
     }
 }
 

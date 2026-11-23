@@ -2170,3 +2170,11 @@ body.app-mode { overflow: hidden; }
   .legal-content { padding: 22px 18px; border-radius: var(--radius-md); }
   .legal-content h1 { font-size: 1.28rem; }
 }
+/* 操作日志分页条（issue #108）：按钮与「第 x / y 页」同一行，窄屏自动换行 */
+.audit-pager {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 12px;
+    flex-wrap: wrap;
+}

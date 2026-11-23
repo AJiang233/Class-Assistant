@@ -524,6 +524,136 @@ function initDateHints() {
     refreshDateHints();
 }
 
+// ===== 操作日志（issue #108） =====
+// 日志只记管理动作，detail 是后端白名单之后的 JSON。这里再按动作/字段做一层中文映射，
+// 让管理页读起来是「谁把谁的密码重置了」，而不是一串 action 码。
+var AUDIT_ACTION_LABELS = {
+    password_reset: '重置密码',
+    email_changed: '修改邮箱',
+    member_updated: '修改成员资料',
+    member_deleted: '删除成员',
+    role_created: '新增职位',
+    role_updated: '修改职位权限',
+    role_deleted: '删除职位',
+    settings_updated: '修改功能开关'
+};
+var AUDIT_FIELD_LABELS = { name: '姓名', positions: '职务', contact: '联系方式', email: '邮箱', password: '密码' };
+var AUDIT_TARGET_LABELS = { member: '成员', role: '职位', settings: '系统设置' };
+var auditState = { page: 1, pageSize: 20, total: 0 };
+
+function auditDetailText(detail) {
+    if (!detail) return '';
+    if (typeof detail === 'string') return detail;
+    var parts = [];
+    if (detail.name) {
+        parts.push('对象：' + detail.name + (detail.student_id ? '（' + detail.student_id + '）' : ''));
+    }
+    if (detail.permissions) parts.push('权限：' + permLabels(detail.permissions));
+    if (detail.fields && detail.fields.length) {
+        parts.push('改动字段：' + detail.fields.map(function (f) { return AUDIT_FIELD_LABELS[f] || f; }).join('、'));
+    }
+    return parts.join(' · ');
+}
+
+function renderAuditRow(row) {
+    var action = AUDIT_ACTION_LABELS[row.action] || row.action;
+    var target = AUDIT_TARGET_LABELS[row.target_type] || row.target_type || '';
+    var targetText = target ? (target + ' #' + row.target_id) : (row.target_id || '');
+    var detail = auditDetailText(row.detail);
+    return '<div class="info-row member-row">'
+        + '<div class="member-main">'
+        + '<div class="member-line">'
+        + '<span class="member-name">' + esc(row.actor_name || ('成员 #' + row.actor_id)) + '</span>'
+        + '<span class="member-pos">' + esc(action) + '</span>'
+        + '</div>'
+        + '<div class="member-sub">' + esc(fmtDate(row.created_at)) + ' · ' + esc(targetText) + '</div>'
+        + (detail ? '<div class="member-sub">' + esc(detail) + '</div>' : '')
+        + (row.ip ? '<div class="member-sub">IP：' + esc(row.ip) + '</div>' : '')
+        + '</div></div>';
+}
+
+function renderAuditPager(total) {
+    var pages = Math.max(1, Math.ceil(total / auditState.pageSize));
+    var info = document.getElementById('auditPageInfo');
+    var prev = document.getElementById('auditPrev');
+    var next = document.getElementById('auditNext');
+    if (info) info.textContent = '第 ' + auditState.page + ' / ' + pages + ' 页 · 共 ' + total + ' 条';
+    // 只有一页时也显示分页条，但按钮禁用 —— 至少让人知道「总共有几条」，而不是以为列表拉全了
+    if (prev) prev.disabled = auditState.page <= 1;
+    if (next) next.disabled = auditState.page >= pages;
+}
+
+async function loadAuditLogs(reset) {
+    if (reset) auditState.page = 1;
+    var host = document.getElementById('auditLogList');
+    if (!host) return;
+
+    var action = document.getElementById('auditAction').value;
+    var actor = document.getElementById('auditActor').value.trim();
+    var from = document.getElementById('auditFrom').value;
+    var to = document.getElementById('auditTo').value;
+    var qs = 'page=' + auditState.page + '&page_size=' + auditState.pageSize;
+    if (action) qs += '&action=' + encodeURIComponent(action);
+    if (actor) qs += '&actor=' + encodeURIComponent(actor);
+    if (from) qs += '&from=' + encodeURIComponent(from);
+    if (to) qs += '&to=' + encodeURIComponent(to);
+
+    host.innerHTML = stateHTML('正在加载…', false, 'clock');
+    try {
+        var res = await api('/api/auth/audit-logs?' + qs);
+        var data = res.data || {};
+        var list = data.list || [];
+        auditState.total = Number(data.total || 0);
+        host.innerHTML = list.length ? list.map(renderAuditRow).join('') : stateHTML('没有符合条件的记录');
+        renderAuditPager(auditState.total);
+    } catch (e) {
+        // 失败保留上一页内容更危险（会让人以为看到的是最新筛选结果），这里直接换成错误态
+        host.innerHTML = stateHTML('操作日志加载失败：' + e.message, true);
+    }
+}
+
+// ===== 功能开关（issue #106） =====
+// 开关状态存在后端 app_settings；门户目前还没有 /api/chaoxing/* 路由，所以学习通那个
+// 开关显示成「待接入」，但值照样保存 —— 等路由接上，服务端按路径前缀读同一个键，
+// 前端不用再改。读取失败只提示、不清空两个勾选框：清空会让人误以为开关被关掉了。
+async function loadFeatureSettings() {
+    var hint = document.getElementById('featureHint');
+    try {
+        var res = await api('/api/admin/settings');
+        var data = res.data || {};
+        document.getElementById('featureAcademic').checked = data.academic !== false;
+        var chaoxing = document.getElementById('featureChaoxing');
+        chaoxing.checked = data.chaoxing !== false;
+        chaoxing.disabled = data.chaoxing_available === false;
+        if (hint) hint.textContent = '';
+    } catch (e) {
+        if (hint) hint.textContent = '读取开关失败：' + e.message;
+    }
+}
+
+async function saveFeatureSettings(el) {
+    var hint = document.getElementById('featureHint');
+    if (el) el.disabled = true;
+    try {
+        var res = await api('/api/admin/settings', {
+            method: 'PUT',
+            body: JSON.stringify({
+                academic: document.getElementById('featureAcademic').checked,
+                chaoxing: document.getElementById('featureChaoxing').checked
+            })
+        });
+        var saved = (res.data && res.data.settings) || {};
+        if (hint) {
+            hint.textContent = '已保存：教务' + (saved.academic !== false ? '开启' : '停用')
+                + '，学习通' + (saved.chaoxing !== false ? '开启' : '停用');
+        }
+    } catch (e) {
+        if (hint) hint.textContent = '保存失败：' + e.message;
+    } finally {
+        if (el) el.disabled = false;
+    }
+}
+
 // ===== 初始化：按权限显示对应区块 =====
 // 卡片在 HTML 里默认 hidden（CSP 下不再用内联 display:none），有权限才摘掉这个属性
 if (canWrite) {
@@ -546,11 +676,15 @@ loadRoles();
 
 if (canManage) {
     document.getElementById('addRoleCard').hidden = false;
+    document.getElementById('auditLogCard').hidden = false;
+    document.getElementById('featureCard').hidden = false;
     ['membersCard', 'addMemberCard'].forEach(function (id) {
         document.getElementById(id).hidden = false;
     });
     initMemberManagement();
     loadMembers();
+    loadAuditLogs(true);
+    loadFeatureSettings();
 }
 
 // 默认值已填好后再接管日期输入的空值提示
@@ -981,5 +1115,27 @@ delegate(document, 'click', '[data-act="export-form"]', function () { exportForm
 delegate(document, 'click', '[data-act="del-form"]', function (el) { delForm(el.getAttribute('data-id')); });
 delegate(document, 'click', '[data-act="toggle-form-status"]', function (el) {
     toggleFormStatus(el.getAttribute('data-id'), el.getAttribute('data-status'), el);
+});
+
+// 操作日志：文本筛选防抖 350ms，避免每敲一个字都打一次接口；
+// 下拉与日期用 change 立即触发。翻页只改页码、不清空筛选条件。
+var auditFilterTimer = null;
+delegate(document, 'input', '[data-act="filter-audit"]', function () {
+    clearTimeout(auditFilterTimer);
+    auditFilterTimer = setTimeout(function () { loadAuditLogs(true); }, 350);
+});
+delegate(document, 'change', '[data-act="filter-audit"]', function () { loadAuditLogs(true); });
+delegate(document, 'click', '[data-act="audit-page"]', function (el) {
+    var pages = Math.max(1, Math.ceil(auditState.total / auditState.pageSize));
+    var dir = el.getAttribute('data-arg');
+    if (dir === 'prev' && auditState.page > 1) auditState.page -= 1;
+    else if (dir === 'next' && auditState.page < pages) auditState.page += 1;
+    else return;
+    loadAuditLogs(false);
+});
+
+// 功能开关：保存后后端立即清缓存，本次请求就能看到新状态。
+delegate(document, 'click', '[data-act="save-features"]', function (el) {
+    saveFeatureSettings(el);
 });
 })();

@@ -21,6 +21,7 @@ import {
   handleCreateRole,
   handleDeleteRole
 } from '../handlers/authHandler.js';
+import { handleListAuditLogs } from '../handlers/auditHandler.js';
 import { withAuth, withPermission } from '../middleware/auth.js';
 
 /**
@@ -92,6 +93,12 @@ export async function authRoutes(request, env, ctx) {
   }
   if (path === '/api/auth/forgot/reset' && method === 'POST') {
     return handleForgotReset(request, env);
+  }
+
+  // 管理操作日志（需 user:manage 权限）：只读，供管理页追溯敏感操作。
+  // 与成员列表同一道权限门 —— 能改别人账号的人，才需要看别人改过什么。
+  if (path === '/api/auth/audit-logs' && method === 'GET') {
+    return withPermission('user:manage')(handleListAuditLogs)(request, env, ctx);
   }
 
   // 获取班级成员列表（需 user:manage 权限）

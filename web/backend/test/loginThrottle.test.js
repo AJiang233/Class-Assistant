@@ -88,10 +88,11 @@ describe('按学号的失败计数与退避', () => {
     assert.equal(res.status, 429);
     const body = await res.json();
     assert.equal(body.code, 'LOGIN_BACKOFF');
-    assert.equal(body.data.retry_after, 30);
-    assert.equal(res.headers.get('Retry-After'), '30');
+    // 剩余秒数按真实时钟算，恰好跨毫秒边界时会是 29；只断言落在首档范围内，避免定时抖动
+    assert.ok(body.data.retry_after >= 29 && body.data.retry_after <= 30, `retry_after=${body.data.retry_after}`);
+    assert.match(res.headers.get('Retry-After'), /^(29|30)$/);
     // 文案里也要有秒数：前端只显示 error 文本，不读响应头
-    assert.match(body.error, /30 秒/);
+    assert.match(body.error, /(29|30) 秒/);
   });
 
   it('退避期间即使密码是对的也拦下，且拦在查库之前', async (t) => {

@@ -1,5 +1,6 @@
 import { withAuth } from '../middleware/auth.js';
 import { ConsentModel } from '../models/consentModel.js';
+import { SettingModel } from '../models/settingModel.js';
 import { error, jsonResponse } from '../utils/response.js';
 
 const PREFIX = '/api/academic/';
@@ -60,6 +61,29 @@ async function forwardToAcademicService(request, env, user) {
     return jsonResponse(error('服务端暂时不可用，请联系管理员', 'SERVER_MISCONFIGURED'), 500);
   }
 
+  const url = new URL(request.url);
+
+  // ---- 全局紧急停用开关（issue #106）----
+  // 放在配置检查之后、consent 之前：环境没配好时先报配置；停用时连 consent 都不用查，
+  // 更不去调用私有 Worker —— 「管理员主动止血」和「私有 Worker 自己挂了」对用户是两回事，
+  // 前者得给出明确的维护文案与 FEATURE_DISABLED 码，而不是一坨 503 ACADEMIC_UNAVAILABLE。
+  // 按路径前缀选 provider：目前只有 /api/academic/* 会走到这里，等学习通路由接入
+  // （/api/chaoxing/*）时这处不用再改。
+  const feature = url.pathname.startsWith('/api/chaoxing/') ? 'chaoxing' : 'academic';
+  if (!(await new SettingModel(env.DB).isEnabled(feature))) {
+    return jsonResponse(
+      {
+        success: false,
+        error: '该功能正在维护中，请稍后再试',
+        code: 'FEATURE_DISABLED',
+        // retry_after 取开关缓存 TTL：最迟到那时本 isolate 会重新读库，管理员若已恢复就能进来
+        data: { feature, retry_after: 30 }
+      },
+      503,
+      { 'Retry-After': '30' }
+    );
+  }
+
   // ---- 教务授权检查（放在配置检查之后：环境没配好时先报配置，不要误报成「没授权」）----
   // 用户没勾「使用本软件使用你的身份登录教务系统」就不碰教务。这是服务端的最终把关：
   // 前端把入口藏起来只是体验，绕过前端直接打接口同样会被这里挡住。
@@ -67,7 +91,6 @@ async function forwardToAcademicService(request, env, user) {
   // 只拦「会真的出网访问教务」的请求。撤权之后已缓存的课表 / 成绩照旧能读
   // （不带 refresh 的 GET 走私有 Worker 的缓存，不出网），解绑与状态查询也放行 ——
   // 否则撤了权反而连解绑都做不了。
-  const url = new URL(request.url);
   if (touchesAcademicSystem(request.method, url)) {
     const consent = await new ConsentModel(env.DB).get(user.id);
     if (!consent || Number(consent.academic) !== 1) {

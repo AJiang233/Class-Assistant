@@ -44,6 +44,17 @@
                     <h2 class="section-title">绑定教务系统</h2>
                     <p class="ac-tip">课表与学分都在教务系统里，需要先绑定一次登录态。绑定后由服务器代为拉取。</p>
 
+                    <!-- 校方系统自动化访问风险告知（issue #105）：勾选后才允许用下面三条路径绑定。
+                         默认不勾选；勾过会记住（localStorage: ca_academic_risk_ack），页面上随时可以取消，
+                         取消后三颗绑定按钮立即回到禁用。样式复用登录同意弹窗那套 .consent-check。 -->
+                    <div class="consent-checks mt-14">
+                        <label class="consent-check">
+                            <input type="checkbox" id="academicRiskAck">
+                            <span class="consent-check-text">我已了解校方系统自动化访问的风险<small>自动代替我登录教务系统可能违反学校规定，账号也可能被风控或临时封禁，因此产生的后果由我自行承担。勾选后才能使用下面的绑定方式。</small></span>
+                        </label>
+                    </div>
+                    <p class="ac-note">风险边界见<a class="legal-back" href="legal/disclaimer.html" target="_blank" rel="noopener">免责声明</a>，凭据与数据处理见<a class="legal-back" href="legal/privacy.html" target="_blank" rel="noopener">隐私政策</a>。</p>
+
                     <div class="form-error" id="bindError"></div>
                     <div class="ac-success" id="bindSuccess"></div>
 

@@ -4,6 +4,7 @@ import { EmailCodeModel } from '../models/emailCodeModel.js';
 import { EmailSubscriptionModel } from '../models/emailSubscriptionModel.js';
 import { ConsentModel } from '../models/consentModel.js';
 import { LoginAttemptModel, hashClientIp } from '../models/loginAttemptModel.js';
+import { recordAudit } from '../utils/audit.js';
 import { hashPassword, verifyPassword } from '../utils/crypto.js';
 import { sign } from '../utils/jwt.js';
 import { success, error, jsonResponse } from '../utils/response.js';
@@ -571,6 +572,14 @@ export async function handleDeleteUser(request, env, user, params) {
     }
 
     await userModel.delete(id);
+
+    // 先删人、后写日志：日志表刻意不设外键，删完仍能留下记录（谁在什么时候删了谁）。
+    // 反过来先写日志，一旦删除失败就会留下一条「说要删但其实没删」的假记录，事后更误导。
+    await recordAudit(env, request, user, 'member_deleted', 'member', id, {
+      name: existing.name,
+      student_id: existing.student_id
+    });
+
     return jsonResponse(success({ message: '成员已删除' }));
   } catch (e) {
     console.error('删除成员失败:', e);
@@ -668,6 +677,32 @@ export async function handleUpdateUser(request, env, user, params) {
     }
 
     await userModel.update(id, data);
+
+    // 审计：一次请求可能同时改好几项，按「安全影响」拆开记 ——
+    // 重置密码与换邮箱各自单独一条（这两件事是事后追责时最先要看的东西），
+    // 姓名/职务/联系方式合并成一条。
+    // detail 里只放字段名和对象快照：密码、邮箱明文一律不进日志（那是日志泄露时最先被利用的东西）。
+    const auditTarget = { name: existing.name, student_id: existing.student_id };
+    if (data.password_hash) {
+      await recordAudit(env, request, user, 'password_reset', 'member', id, {
+        ...auditTarget,
+        fields: ['password']
+      });
+    }
+    if (data.email !== undefined) {
+      await recordAudit(env, request, user, 'email_changed', 'member', id, {
+        ...auditTarget,
+        fields: ['email']
+      });
+    }
+    const changedFields = ['name', 'positions', 'contact'].filter((key) => data[key] !== undefined);
+    if (changedFields.length) {
+      await recordAudit(env, request, user, 'member_updated', 'member', id, {
+        ...auditTarget,
+        fields: changedFields
+      });
+    }
+
     return jsonResponse(success({ message: '已保存' }));
   } catch (e) {
     console.error('更新成员失败:', e);
@@ -727,7 +762,20 @@ export async function handleCreateRole(request, env, user) {
     const permissions = Array.isArray(body.permissions) ? body.permissions.filter(Boolean) : [];
 
     const roleModel = new RoleModel(env.DB);
+    // 先查一次旧值，才能区分「新建职位」和「同名改权限」—— 两者在审计里的语义完全不同：
+    // 前者是扩权动作，后者是把某个职位已有的权限悄悄换掉，事后查起来必须能分开。
+    const previous = await roleModel.findByName(named.name);
     await roleModel.upsert(named.name, JSON.stringify(sanitizePermissions(permissions)));
+
+    await recordAudit(
+      env,
+      request,
+      user,
+      previous ? 'role_updated' : 'role_created',
+      'role',
+      named.name,
+      { permissions: sanitizePermissions(permissions) }
+    );
 
     return jsonResponse(success({ message: '职位已添加' }), 201);
   } catch (e) {
@@ -747,9 +795,17 @@ export async function handleDeleteRole(request, env, user, params) {
     }
 
     const roleModel = new RoleModel(env.DB);
+    // 删之前先把名字留在日志里：roles 表只有 id + 名字，删完再查就查不到了，
+    // 而事后审计要回答的是「删掉的是哪个职位」，光有一个 id 没有意义。
+    const roles = await roleModel.list();
+    const removed = roles.find((row) => Number(row.id) === id);
     await roleModel.deleteById(id);
 
-    return jsonResponse(success({ message: '成员已删除' }));
+    await recordAudit(env, request, user, 'role_deleted', 'role', removed ? removed.name : id, {
+      name: removed ? removed.name : null
+    });
+
+    return jsonResponse(success({ message: '职位已删除' }));
   } catch (e) {
     console.error('删除自定义职位失败:', e);
     return jsonResponse(error('删除自定义职位失败，请稍后重试', 'DELETE_ROLE_FAILED'), 500);

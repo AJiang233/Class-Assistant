@@ -280,6 +280,71 @@
                             <button type="button" class="btn btn-primary btn-block" id="roleAddBtn" data-act="add-role">添加职位</button>
                         </div>
                     </div>
+
+                    <!-- 操作日志：管理员对成员 / 职位 / 功能开关做过的敏感操作。
+                         只读接口，仅 user:manage 可见；日志保留 180 天，超期由后端写日志时顺手清掉。 -->
+                    <div class="profile-card collapse" id="auditLogCard" hidden>
+                        <button type="button" class="collapse-head" data-act="toggle-collapse" data-arg="auditLogCard" aria-expanded="false">
+                            <h2>操作日志</h2>
+                            <svg class="collapse-arrow" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                        </button>
+                        <div class="collapse-body">
+                            <p class="member-sub mb-0">谁在什么时候重置了密码、改了邮箱、删了成员或调整了职位。只记录管理操作，不记录日常读写。</p>
+                            <div class="form-field">
+                                <label class="form-label" for="auditAction">动作</label>
+                                <select id="auditAction" class="form-input" data-act="filter-audit">
+                                    <option value="">全部动作</option>
+                                    <option value="password_reset">重置密码</option>
+                                    <option value="email_changed">修改邮箱</option>
+                                    <option value="member_updated">修改成员资料</option>
+                                    <option value="member_deleted">删除成员</option>
+                                    <option value="role_created">新增职位</option>
+                                    <option value="role_updated">修改职位权限</option>
+                                    <option value="role_deleted">删除职位</option>
+                                </select>
+                            </div>
+                            <div class="form-field">
+                                <label class="form-label" for="auditActor">操作人</label>
+                                <input id="auditActor" class="form-input" type="search" placeholder="留空看全部；可填姓名或成员 id" autocomplete="off" data-act="filter-audit">
+                            </div>
+                            <div class="form-field">
+                                <label class="form-label" for="auditFrom">起始日期</label>
+                                <input id="auditFrom" class="form-input" type="date" data-act="filter-audit">
+                            </div>
+                            <div class="form-field mb-0">
+                                <label class="form-label" for="auditTo">截止日期</label>
+                                <input id="auditTo" class="form-input" type="date" data-act="filter-audit">
+                            </div>
+                            <div class="info-list" id="auditLogList"></div>
+                            <div class="audit-pager">
+                                <button type="button" class="btn btn-outline" id="auditPrev" data-act="audit-page" data-arg="prev">上一页</button>
+                                <span class="member-sub" id="auditPageInfo"></span>
+                                <button type="button" class="btn btn-outline" id="auditNext" data-act="audit-page" data-arg="next">下一页</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 功能开关（issue #106）：教务 / 学习通访问的紧急停用。
+                         停用后在门户转发前就拦下，不调用私有 Worker；恢复同样即时生效。 -->
+                    <div class="profile-card collapse" id="featureCard" hidden>
+                        <button type="button" class="collapse-head" data-act="toggle-collapse" data-arg="featureCard" aria-expanded="false">
+                            <h2>功能开关</h2>
+                            <svg class="collapse-arrow" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                        </button>
+                        <div class="collapse-body">
+                            <p class="member-sub mb-0">校方接口改版、风控或故障时，先在这里停掉对应功能，避免继续失败与消耗。停用期间前端收到「维护中」提示，恢复后 30 秒内全班生效，不需要重新部署。</p>
+                            <label class="check-row">
+                                <input type="checkbox" id="featureAcademic">
+                                <span>教务系统访问（课表 / 学分 / 成绩）</span>
+                            </label>
+                            <label class="check-row">
+                                <input type="checkbox" id="featureChaoxing" disabled>
+                                <span>学习通访问（门户尚未接入，开关先保存）</span>
+                            </label>
+                            <button type="button" class="btn btn-primary btn-block" data-act="save-features">保存开关</button>
+                            <div class="member-sub" id="featureHint"></div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>

@@ -132,6 +132,17 @@
                             </div>
                         </div>
                     </div>
+
+                    <!-- 页脚 · 隐私与校方系统访问说明（issue #105）。首页原本没有页脚，这里沿用
+                         现有的 .section-block 分组与 .page-desc 小字写法，不新增样式；
+                         链接走 .legal-back（站内唯一的通用强调色链接样式），指向站内法务页。 -->
+                    <footer class="section-block" id="privacyFoot">
+                        <div class="section-head">
+                            <h2 class="section-title">隐私与校方系统访问</h2>
+                        </div>
+                        <p class="page-desc">使用教务系统、学习通联动功能时，班级助理会在你授权后代替你登录校方系统，仅用于同步课表、成绩、作业与考试通知。</p>
+                        <p class="page-desc">这类自动化访问存在账号被风控的风险，请先阅读<a class="legal-back" href="legal/privacy.html" target="_blank" rel="noopener">隐私政策</a>、<a class="legal-back" href="legal/terms.html" target="_blank" rel="noopener">用户协议</a>与<a class="legal-back" href="legal/disclaimer.html" target="_blank" rel="noopener">免责声明</a>。</p>
+                    </footer>
                     </div>
                 </div>
 
@@ -175,6 +186,9 @@
                              所以这里如实写成「找班委重置」而不是给一个点不动的入口。
                              哪天把找回页面做出来，把这句话换成入口即可。 -->
                         <p class="auth-note">忘记密码？请联系班长或团支书重置。</p>
+                        <!-- 登录前就把「会代替你访问校方系统」说清楚（issue #105）：拿到密码之前
+                             应当知道这份授权意味着什么，入口指向站内法务页。 -->
+                        <p class="auth-note">使用教务 / 学习通联动时，班级助理会在你授权后代替你访问校方系统，详情见<a class="legal-back" href="legal/privacy.html" target="_blank" rel="noopener">隐私政策</a>与<a class="legal-back" href="legal/disclaimer.html" target="_blank" rel="noopener">免责声明</a>。</p>
                     </div>
                 </div>
 
