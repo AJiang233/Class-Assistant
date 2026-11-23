@@ -146,6 +146,30 @@ if (window.top === window) {
   };
 }
 
+/**
+ * 学习通登录小窗的 Cookie 回传：原生 evaluateJavascript 只执行顶层，而个人页在 frameAccount
+ * 这个 iframe 里。Android 的 startChaoxingLogin() 完成后调 window.__caChaoxingCookies(cookie)，
+ * 这里转发给 iframe 内的同名回调；取消走 __caChaoxingCancel。与 __caTestNotifyResult 同一套做法。
+ */
+if (window.top === window) {
+  window.__caChaoxingCookies = function (cookies) {
+    try {
+      var f = document.getElementById('frameAccount');
+      if (f && f.contentWindow && f.contentWindow.__caChaoxingCookies) {
+        f.contentWindow.__caChaoxingCookies(cookies);
+      }
+    } catch (e) { /* frame 还没加载：忽略 */ }
+  };
+  window.__caChaoxingCancel = function () {
+    try {
+      var f = document.getElementById('frameAccount');
+      if (f && f.contentWindow && f.contentWindow.__caChaoxingCancel) {
+        f.contentWindow.__caChaoxingCancel();
+      }
+    } catch (e) { /* frame 还没加载：忽略 */ }
+  };
+}
+
 /** 保存登录会话 */
 function saveSession(data) {
   // Safari 无痕模式或配额耗尽时 setItem 会抛 QuotaExceededError。

@@ -74,7 +74,7 @@ cd android
 
 - WebView 套壳加载线上门户：登录态持久化、下拉刷新（仅在页面置顶时触发）、返回键回退；站内与教务域留在 WebView，其它外链（含 APK 下载）交给系统浏览器
 - **系统栏配色**：状态栏 / 导航栏跟随网页底色（浅色 / 深色各自适配，图标明暗自动切换）
-- **JS 桥 `CAHost`**：`setToken` / `setPullRefreshReady` / `setTheme` / `startAcademicLogin` / `platform` / `appVersion` / `appStatus` / `testNotification` —— 与鸿蒙端同一套契约（网页按字面量调用，所以 R8 的 keep 规则不能少，见下面「体积与混淆」）。**桥只挂在本站文档上**：离开门户 host（教务 / CAS 域）时 `removeJavascriptInterface`，回到本站再挂回来，判定与桥方法开头的 `fromAppPage()` 共用 `isAppOrigin`（主机精确相等，不放宽子域）—— 外部页面上拿到的不是「调了被拒」而是根本没有这个对象，不再依赖「`currentUrl` 与正在执行的文档一致」这个前提（issue #28）
+- **JS 桥 `CAHost`**：`setToken` / `setPullRefreshReady` / `setTheme` / `startAcademicLogin` / `startAcademicLoginFor` / `startChaoxingLogin` / `platform` / `appVersion` / `appStatus` / `testNotification` —— 与鸿蒙端同一套契约（网页按字面量调用，所以 R8 的 keep 规则不能少，见下面「体积与混淆」）。**桥只挂在本站文档上**：离开门户 host（教务 / CAS 域）时 `removeJavascriptInterface`，回到本站再挂回来，判定与桥方法开头的 `fromAppPage()` 共用 `isAppOrigin`（主机精确相等，不放宽子域）—— 外部页面上拿到的不是「调了被拒」而是根本没有这个对象，不再依赖「`currentUrl` 与正在执行的文档一致」这个前提（issue #28）
 - **通知深链**：点提醒直达对应活动 / 通知详情，App 未打开（冷启动读启动 Intent）与已在运行（`onNewIntent`）都生效；表单在 App 里没有列表页，通知直接开网页填写页（`forms.html?id=`，与 Web Push 同一个落地页）
 
 ### 本地提醒与通知
@@ -130,6 +130,14 @@ cd android
 
 - **教务绑定**：门户内一键打开教务登录页（固定桌面 UA，规避教务系统的手机端兼容问题），登录后由原生读出会话 Cookie 上报后端。教务系统的登录页至今是 **http**（安卓端打开 `https://szjw.njau.edu.cn`，门户自己会跳到 `http://szjw.njau.edu.cn/login/login.html`），所以 `res/xml/network_security_config.xml` 里给教务链路上的三个主机单独开了明文，其余仍全禁（`base-config` = false）—— 不开就是 `net::ERR_CLEARTEXT_NOT_PERMITTED`。**逐个点名、别改成 `njau.edu.cn` 通配**（见 `MainActivity.inAppHosts` 同款取舍），每个 `<domain>` 还必须显式写 `includeSubdomains="false"`（与不写等价，只匹配主机本身；缺了它 lint 的 `NetworkSecurityConfig` 规则判 **Fatal**，`lintVitalRelease` 会让整个 release 构建失败），别改成 `true` —— 那等于把明文放行扩到这几个主机的全部子域；代价是这几个主机上的流量可能以明文传输，这是校方服务器只提供 http 造成的，客户端没法单方面改成 https
 - **「登录完成」怎么判（issue #29）**：不能只看「当前 URL 落在教务域」—— 流程第一步加载的就是教务门户本身，而 Cookie 罐里往往还留着上一次的会话，于是刚点「一键绑定」就拿一份未认证的 Cookie 去上报，后端拉不到课表、失败又被当成流程结束，用户直接被踢回门户（现象就是「点一下、什么都没做、直接弹绑定失败」）。现在分三处收口：`onPageStarted` 记下「离开过教务主机」（登录链路是 `authserver`（CAS 登录页）→ `workflow`（中转）→ `szjw`（教务门户），前后两个主机不同，所以这是能观测到的事实）；`onPageFinished` 只在**离开过又回到教务主机**时上报一次，上报后立刻清标记，用户接着在教务站里翻页不会反复拉课表；上报失败**不结束流程**，留在教务页继续等（重新登录会再绕一遍 CAS），想放弃按返回键。另外开流程时会先拿现有 Cookie 顺手试一次，会话没过期（之前绑过、只是重装或换设备）就直接绑好，这一次失败不提示。后端本就是「校验通过才落库」（`bindWithCookies`，实现已随教务代码挪到私有仓 `class-assistant-private-api`），所以失败的那几次不会覆盖掉原有绑定。`AcademicBindFlowTest` 读源码钉住这四条 —— 它们被拆掉**没有任何运行期症状**，要等校方门户的跳转行为变一次才会再炸一遍
+- **登录完回哪个视图**：门户可以按需指定（`CAHost.startAcademicLoginFor('account')` 回个人中心、传 `'academic'` 或不传回课表页），该值只在白名单 `academic` / `account` 里取 —— 它会被拼进门户 URL，不能让页面随便传一个串进来；每次开始新登录都会重置，上一次中途放弃留下的值不会漏进下一次
+
+### 学习通绑定
+
+- **学习通绑定**：`CAHost.startChaoxingLogin()` 弹一个独立 Dialog（`res/layout/dialog_chaoxing_login.xml`），里面是**另开的一个 WebView**（桌面 UA、开第三方 Cookie），打开 `passport2.chaoxing.com/login?fid=1433&refer=i.chaoxing.com`，让用户自己完成登录（滑块 / 验证码都交给学习通自己的页面，原生不代填）。**不导航主 WebView**：用户是在个人中心点的按钮，关掉小窗后还停在那儿。窗口宽满、高约九成屏 —— 页面按桌面 UA 渲染，窄窗里验证码会挤成一团；点遮罩不关（输账号时误触外面不该前功尽弃），返回键算取消
+- **「登录好了」怎么判**：当前页在学习通域内（`chaoxing.com` 及所有子域）**且** `CookieManager.getCookie("https://i.chaoxing.com")` 里出现 `_uid`，两者缺一不可。只看 URL 不行（passport2 是第一页，谁打开都在那个域上），只看 Cookie 也不行（用户可能刚在别处退出了学习通）。检测到后启用「完成绑定」并等 1.5 s 自动完成 —— 用户多半以为登录完自己会回去。Cookie 可能正被学习通自己改写，所以点「完成绑定」时**再读一次**，读不到就把按钮退回禁用、留在小窗里重新登录
+- **只回调一次**：成功 `window.__caChaoxingCookies('<JSON 字符串形式的 Cookie>')`、取消 `window.__caChaoxingCancel()`，都由原生 `evaluateJavascript` 调用。个人中心跑在 `#frameAccount` iframe 里，顶层拿不到它的函数，所以两个位置都试、谁先接住算谁的（先顶层、再 iframe）。两个布尔（`signedIn` / `delivered`）挡住「自动完成撞上用户点取消」这类重复回调；小窗 dismiss 时先 `removeView` 再 `destroy()` 内嵌 WebView，Activity 退出时也先关小窗 —— 不留窗口引用，也不会往要死的页面上 evaluate
+- **Cookie 不落日志**：原生侧只把它经 `evaluateJavascript` 交给网页，不写日志、不落盘（绑定是否有效由后端校验），也没有额外权限 —— 读的就是 WebView 自己的 Cookie 罐
 
 ### 体积与混淆
 

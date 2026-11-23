@@ -2,6 +2,7 @@ package com.classassistant.app
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.app.Dialog
 import android.content.ActivityNotFoundException
 import android.content.ComponentName
 import android.content.Context
@@ -17,6 +18,8 @@ import android.util.Log
 import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.Window
+import android.view.WindowManager
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.RenderProcessGoneDetail
@@ -27,6 +30,8 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.Button
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -105,6 +110,42 @@ class MainActivity : AppCompatActivity() {
      * 这样「挂 / 摘」只有一处实现，两边不会各记一份状态。
      */
     private var bridgeAttached = false
+
+    /**
+     * 教务登录成功后回到门户的视图（`?view=` 的值），由 `startAcademicLoginFor` 指定。
+     *
+     * 只接受白名单里的 "academic" / "account"：这个值会被拼进 loadUrl 的 URL，页面能传什么
+     * 不该原样带进去。每次开始新登录都会重置（见 beginAcademicLogin）。
+     */
+    private var pendingReturnView = "academic"
+
+    /**
+     * 学习通登录小窗的运行时状态；null 表示当前没开（也从侧面防重复弹窗）。
+     * 只在 UI 线程读写 —— 桥方法虽跑在别的线程，但都先 runOnUiThread 才进来。
+     */
+    private var chaoxingLogin: ChaoxingLoginState? = null
+
+    /**
+     * 学习通登录小窗的状态。
+     *
+     * 两个布尔是「只回调一次」的全部依赖：成功与取消共用 delivered，延时自动完成与用户点
+     * 「取消」共用同一份状态。内嵌 WebView 由 dialog 的 dismiss 监听统一销毁。
+     */
+    private class ChaoxingLoginState(
+        val dialog: Dialog,
+        val webView: WebView,
+        val doneButton: Button,
+        val hint: TextView
+    ) {
+        /** 是否已检测到学习通登录（i.chaoxing.com 的 Cookie 里出现了 _uid） */
+        var signedIn = false
+
+        /** 是否已经给页面回调过（成功 / 取消都算），防止重复回调 */
+        var delivered = false
+
+        /** 检测到登录后 1.5s 自动完成的延时任务；弹窗关掉后即便醒来也会被身份校验挡掉 */
+        var autoFinish: Runnable? = null
+    }
 
     /**
      * 桥只服务本应用页面。
@@ -221,11 +262,40 @@ class MainActivity : AppCompatActivity() {
             runOnUiThread { applySystemBars(dark) }
         }
 
-        /** 门户点「一键绑定教务系统」：打开教务登录页，登录完成后自动抓取 Cookie 上报 */
+        /**
+         * 门户点「一键绑定教务系统」：打开教务登录页，登录完成后自动抓取 Cookie 上报。
+         * 等价于 `startAcademicLoginFor("academic")`（成功后回课表页）。
+         */
         @JavascriptInterface
         fun startAcademicLogin() {
+            startAcademicLoginFor("academic")
+        }
+
+        /**
+         * 同上，但指定登录成功后回到门户的视图。
+         *
+         * @param returnView "academic"（默认，课表页）或 "account"（回个人中心）；
+         *   不在白名单里一律按 "academic" 处理 —— 这个值会被拼进 loadUrl 的 URL，
+         *   不能让页面随便传一个串进来。
+         */
+        @JavascriptInterface
+        fun startAcademicLoginFor(returnView: String?) {
             if (!fromAppPage()) return
-            runOnUiThread { beginAcademicLogin() }
+            val view = returnView?.takeIf { it in ACADEMIC_RETURN_VIEWS } ?: "academic"
+            runOnUiThread { beginAcademicLogin(view) }
+        }
+
+        /**
+         * 门户点「一键绑定学习通」：弹一个独立登录小窗（内嵌 WebView），用户自己完成登录。
+         *
+         * 为什么不在主 WebView 里导航：学习通与门户是两个站点，导航过去会丢掉门户这一侧的
+         * 页面状态（用户是在个人中心点的按钮，登录完应当回到个人中心）；而且教务登录期间
+         * 主 WebView 会切到桌面 UA，两套流程共用一个 UA 会互相打架。
+         */
+        @JavascriptInterface
+        fun startChaoxingLogin() {
+            if (!fromAppPage()) return
+            runOnUiThread { showChaoxingLogin() }
         }
 
         /**
@@ -510,6 +580,9 @@ class MainActivity : AppCompatActivity() {
      * 它拉起的渲染进程、以及挂在上面的 JS 桥会一直跟着进程留着 —— 反复进出就是一份份泄漏。
      */
     override fun onDestroy() {
+        // 学习通小窗是独立 Dialog 窗口，Activity 退出时先关掉：dismiss 监听里会销毁内嵌
+        // WebView，不留窗口引用、也不会再往已经要死的页面上 evaluate。
+        chaoxingLogin?.dialog?.dismiss()
         releaseWebView()
         super.onDestroy()
     }
@@ -829,12 +902,14 @@ class MainActivity : AppCompatActivity() {
      *   - 用户按返回键放弃：`onKeyDown` 里回门户
      * 另外开流程时先拿现有 Cookie 试一次，会话还有效就直接绑好，不必再登一遍（见下）。
      */
-    private fun beginAcademicLogin() {
+    private fun beginAcademicLogin(returnView: String = "academic") {
         if (academicLogin) return
         if (Store.token(this) == null) {
             Toast.makeText(this, "请先登录班级助理", Toast.LENGTH_SHORT).show()
             return
         }
+        // 每次开始新登录都重置回跳视图：上一次中途放弃时留下的值不能漏进这一次
+        pendingReturnView = returnView.takeIf { it in ACADEMIC_RETURN_VIEWS } ?: "academic"
         academicLogin = true
         bindingInProgress = false
         leftSchoolHost = false
@@ -891,7 +966,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * 结束教务登录流程：还原 UA 并回到门户（成功则直接落到课表页）。
+     * 结束教务登录流程：还原 UA 并回到门户（成功则落到 [pendingReturnView] 指定的视图）。
      *
      * 只有两处调用：上报成功后（`success = true`）与用户按返回键放弃（`false`）。
      * **上报失败不进这里** —— 失败就留在教务页继续等（issue #29），这条是那个 bug 的底线：
@@ -901,7 +976,233 @@ class MainActivity : AppCompatActivity() {
         academicLogin = false
         bindingInProgress = false
         defaultUserAgent?.let { binding.webView.settings.userAgentString = it }
-        binding.webView.loadUrl(if (success) "$startUrl/?view=academic" else startUrl)
+        binding.webView.loadUrl(if (success) "$startUrl/?view=$pendingReturnView" else startUrl)
+    }
+
+    // ===== 学习通登录小窗 =====
+
+    /**
+     * 弹学习通登录小窗：独立 WebView + 桌面 UA，用户在窗口里自己完成登录（滑块 / 验证码都交给
+     * 学习通自己的页面，原生不代填），成功后把 i.chaoxing.com 的 Cookie 交回网页。
+     *
+     * 窗口宽 match_parent、高约九成屏：登录页是按桌面 UA 渲染的，窄窗里验证码 / 滑块会挤成一团。
+     * 点遮罩不关（输账号时误触外面不该前功尽弃），返回键仍然算取消（见 setOnCancelListener）。
+     *
+     * 小窗关闭时先 removeView 再 destroy 内嵌 WebView，且**不碰主 WebView 的 UA / 内容**：
+     * 用户关掉小窗还停在个人中心。
+     */
+    @SuppressLint("SetJavaScriptEnabled")
+    private fun showChaoxingLogin() {
+        if (chaoxingLogin != null) return
+        if (isFinishing || isDestroyed) return
+
+        val view = layoutInflater.inflate(R.layout.dialog_chaoxing_login, null)
+        val webView = view.findViewById<WebView>(R.id.chaoxingWebView)
+        val doneButton = view.findViewById<Button>(R.id.chaoxingDoneBtn)
+        val hint = view.findViewById<TextView>(R.id.chaoxingHint)
+
+        val dialog = Dialog(this)
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
+        // 窗口背景置透明：圆角 / 底色由布局里的 MaterialCardView 画，暗色主题自动跟随
+        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+        dialog.setContentView(view)
+        // 点遮罩不关：输账号 / 拉滑块时误触外面就前功尽弃；返回键仍然取消（见 setOnCancelListener）
+        dialog.setCanceledOnTouchOutside(false)
+
+        val state = ChaoxingLoginState(dialog, webView, doneButton, hint)
+        chaoxingLogin = state
+
+        webView.settings.apply {
+            javaScriptEnabled = true
+            domStorageEnabled = true
+            databaseEnabled = true
+            userAgentString = DESKTOP_UA
+            loadsImagesAutomatically = true
+            // 学习通页面里有 target=_blank 的营销 / 帮助链接；我们没为小窗实现 onCreateWindow，
+            // 关掉多窗口让它们都在小窗里原地打开，免得出「点了没反应」
+            setSupportMultipleWindows(false)
+        }
+        CookieManager.getInstance().apply {
+            setAcceptCookie(true)
+            // 登录链路跨 passport2 / i.chaoxing.com 等多个子域，第三方 Cookie 不接会「登录完还是游客」
+            setAcceptThirdPartyCookies(webView, true)
+        }
+
+        webView.webViewClient = object : WebViewClient() {
+            override fun onPageFinished(v: WebView, url: String?) {
+                // 登录成功的判据只有一条：当前页在学习通域内，且 Cookie 罐里已经出现 _uid。
+                // 只看 URL 不行（passport2 是第一页，谁打开都在那个域上），只看 Cookie 也不行
+                // （用户可能刚在别的站点退出了学习通）。
+                if (isChaoxingUrl(url)) refreshChaoxingLoginState(state)
+            }
+
+            override fun shouldOverrideUrlLoading(v: WebView, request: WebResourceRequest): Boolean {
+                // 小窗里只留 http(s) 与页面内部资源；其它协议（支付宝 / 微信 / intent:）
+                // 交给系统应用，否则点了完全没反应
+                if (!isHandledByWebView(request.url)) {
+                    openExternal(request.url)
+                    return true
+                }
+                return false
+            }
+
+            override fun onRenderProcessGone(v: WebView, detail: RenderProcessGoneDetail?): Boolean {
+                // 不处理的话 targetSdk ≥ 26 会直接杀掉整个应用进程；小窗没有重建的意义
+                // （登录本来就要重来），关掉即可
+                if (chaoxingLogin === state) cancelChaoxingLogin(state)
+                return true
+            }
+        }
+
+        view.findViewById<Button>(R.id.chaoxingCancelBtn).setOnClickListener {
+            cancelChaoxingLogin(state)
+        }
+        doneButton.setOnClickListener {
+            completeChaoxingLogin(state)
+        }
+
+        dialog.setOnCancelListener {
+            // 返回键（以及任何 dialog.cancel()）都算用户放弃：只回调取消，不导航主 WebView
+            cancelChaoxingLogin(state)
+        }
+        dialog.setOnDismissListener {
+            if (chaoxingLogin === state) chaoxingLogin = null
+            state.autoFinish = null
+            // 先移出视图树再 destroy，否则 WebView 会留下窗口引用（Android 的明确要求）
+            (state.webView.parent as? ViewGroup)?.removeView(state.webView)
+            state.webView.apply {
+                stopLoading()
+                webChromeClient = null
+                destroy()
+            }
+        }
+
+        dialog.show()
+        dialog.window?.setLayout(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            (resources.displayMetrics.heightPixels * CHAOXING_DIALOG_HEIGHT_RATIO).toInt()
+        )
+        dialog.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+        webView.loadUrl(CHAOXING_LOGIN_URL)
+    }
+
+    /**
+     * 检测学习通是否已经登录：i.chaoxing.com 的 Cookie 里出现 `_uid`。
+     *
+     * 一旦检测到就启用「完成绑定」，并等 [CHAOXING_AUTO_FINISH_MS] 自动完成 —— 用户多半以为
+     * 登录完自己会回去（和教务绑定那边一致），不必再回头找按钮。
+     *
+     * 防重复只靠 state 身份 + [ChaoxingLoginState.delivered]：延时任务可能在弹窗关掉之后才醒。
+     */
+    private fun refreshChaoxingLoginState(state: ChaoxingLoginState) {
+        if (chaoxingLogin !== state || state.delivered || state.signedIn) return
+        if (chaoxingCookie() == null) return
+        state.signedIn = true
+        state.doneButton.isEnabled = true
+        state.hint.text = "已检测到学习通登录，正在返回…"
+        val auto = Runnable { completeChaoxingLogin(state) }
+        state.autoFinish = auto
+        state.dialog.window?.decorView?.postDelayed(auto, CHAOXING_AUTO_FINISH_MS)
+    }
+
+    /**
+     * 用户点「完成绑定」（或检测到登录后自动触发）：把 Cookie 交给网页，然后关窗。
+     *
+     * 还要再读一次 Cookie：从检测成功到点按钮之间用户可能已经在学习通里点了退出。
+     */
+    private fun completeChaoxingLogin(state: ChaoxingLoginState) {
+        if (chaoxingLogin !== state || state.delivered) return
+        val cookie = chaoxingCookie()
+        if (cookie == null) {
+            // 登录态又没了（比如在别处被挤下线）：恢复按钮，等用户重新登录
+            state.signedIn = false
+            state.doneButton.isEnabled = false
+            state.hint.text = "还没检测到学习通登录，请先完成登录"
+            return
+        }
+        state.delivered = true
+        evaluateChaoxingCookies(cookie)
+        state.dialog.dismiss()
+    }
+
+    /**
+     * 用户取消（「取消」按钮 / 返回键 / 渲染进程崩溃）：只回调取消并关窗，不导航主 WebView。
+     * 已经回调过就不再回调（例如点了取消之后 dismiss 又触发一次）。
+     */
+    private fun cancelChaoxingLogin(state: ChaoxingLoginState) {
+        if (chaoxingLogin === state && !state.delivered) {
+            state.delivered = true
+            evaluateChaoxingCancel()
+        }
+        state.dialog.dismiss()
+    }
+
+    /**
+     * 读 i.chaoxing.com 的 Cookie；只有出现 `_uid` 才算已登录，否则返回 null。
+     * 这里只看「有没有」不看有效期 —— 失效的 Cookie 交给后端校验，原生不猜。
+     */
+    private fun chaoxingCookie(): String? {
+        val cookie = CookieManager.getInstance().getCookie(CHAOXING_COOKIE_ORIGIN) ?: return null
+        return if (cookie.contains("_uid=")) cookie else null
+    }
+
+    /** 当前页是不是学习通自己的页面（含所有子域：passport2 / i.chaoxing.com / www ...） */
+    private fun isChaoxingUrl(url: String?): Boolean {
+        val host = url?.let { Uri.parse(it).host?.lowercase() } ?: return false
+        return host == CHAOXING_HOST || host.endsWith(".$CHAOXING_HOST")
+    }
+
+    /**
+     * 把学习通 Cookie 交回网页。
+     *
+     * 回调可能挂在顶层窗口，也可能挂在个人中心那个 iframe（`#frameAccount`）里 ——
+     * 个人中心在 iframe 中打开时顶层拿不到它的函数，所以两处都试，谁先接住算谁的。
+     * Cookie 只经 evaluateJavascript 传递，不写日志、不落盘。
+     */
+    private fun evaluateChaoxingCookies(cookie: String) {
+        val script = """
+            (function(){
+              var c = ${JSONObject.quote(cookie)};
+              function call(w){
+                try {
+                  if (w && typeof w.__caChaoxingCookies === 'function') { w.__caChaoxingCookies(c); return true; }
+                } catch (e) {}
+                return false;
+              }
+              if (call(window)) return;
+              try {
+                var f = document.getElementById('frameAccount');
+                if (f && f.contentWindow) call(f.contentWindow);
+              } catch (e) {}
+            })();
+        """.trimIndent()
+        evaluateOnPortal(script)
+    }
+
+    /** 通知网页「用户取消了学习通绑定」；页面没有这个函数就静默（下次打开自己读状态） */
+    private fun evaluateChaoxingCancel() {
+        val script = """
+            (function(){
+              function call(w){
+                try {
+                  if (w && typeof w.__caChaoxingCancel === 'function') { w.__caChaoxingCancel(); return true; }
+                } catch (e) {}
+                return false;
+              }
+              if (call(window)) return;
+              try {
+                var f = document.getElementById('frameAccount');
+                if (f && f.contentWindow) call(f.contentWindow);
+              } catch (e) {}
+            })();
+        """.trimIndent()
+        evaluateOnPortal(script)
+    }
+
+    /** 主 WebView 已经被销毁（进程被杀 / 页面重建）时不要再 evaluate，否则会抛异常 */
+    private fun evaluateOnPortal(script: String) {
+        if (webViewReleased || isFinishing || isDestroyed) return
+        binding.webView.evaluateJavascript(script, null)
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
@@ -946,6 +1247,31 @@ class MainActivity : AppCompatActivity() {
         const val DESKTOP_UA =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) " +
                 "Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0"
+
+        /**
+         * 教务登录成功后允许回到的门户视图，`startAcademicLoginFor` 的白名单。
+         * 这个值会被拼进 loadUrl 的 URL，所以不能放任意串进来。
+         */
+        val ACADEMIC_RETURN_VIEWS = setOf("academic", "account")
+
+        /**
+         * 学习通登录小窗的入口。`fid=1433` 是学校账号域的 fid（和鸿蒙端一致），
+         * `refer` 指回 i.chaoxing.com —— 缺了它登录成功后会落到学习通首页而不是个人信息页。
+         */
+        const val CHAOXING_LOGIN_URL =
+            "https://passport2.chaoxing.com/login?fid=1433&refer=http%3A%2F%2Fi.chaoxing.com"
+
+        /** 学习通 Cookie 的归属域：登录成功的判据（`_uid`）从这里读 */
+        const val CHAOXING_COOKIE_ORIGIN = "https://i.chaoxing.com"
+
+        /** 学习通顶级域：判定「当前页在学习通域内」时含所有子域 */
+        const val CHAOXING_HOST = "chaoxing.com"
+
+        /** 检测到登录后等这么久自动完成，给页面的跳转 / 埋点留一点时间 */
+        const val CHAOXING_AUTO_FINISH_MS = 1500L
+
+        /** 登录小窗高度占屏幕的比例（桌面 UA 渲染的页面需要够宽够高） */
+        const val CHAOXING_DIALOG_HEIGHT_RATIO = 0.9f
 
         /**
          * 页面探针：每 250ms 探一次，通过 CAHost 桥把三件事回传给原生层 ——

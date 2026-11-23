@@ -2316,3 +2316,80 @@ body.app-mode { overflow: hidden; }
     .todo-actions { width: 100%; justify-content: flex-end; padding-left: 25px; }
     .todo-summary { padding: 16px 16px; }
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   个人中心 · 账号绑定页签（第 2 页）
+   末尾追加，不改动上面任何既有规则：tab 复用 .tabs/.tab-pill，卡片复用
+   .profile-card/.info-list/.btn/switch，这里只补绑定卡自己的布局与身份块。
+   ═══════════════════════════════════════════════════════════════════ */
+.account-tabs { max-width: 480px; margin-bottom: 20px; }
+.account-pane[hidden] { display: none; }
+
+.bind-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+.bind-card { max-width: none; }
+.bind-card-head { display: flex; align-items: flex-start; gap: 12px; }
+.bind-logo {
+    flex: 0 0 auto; width: 44px; height: 44px; border-radius: 14px;
+    display: grid; place-items: center;
+    font-size: 1.05rem; font-weight: 700;
+    background: var(--accent-soft); color: var(--accent);
+    border: 1px solid var(--border);
+}
+.bind-logo-chaoxing { background: rgba(0, 168, 132, 0.14); color: #00876b; }
+:root[data-theme="dark"] .bind-logo-chaoxing { background: rgba(48, 209, 176, 0.18); color: #4cd7b6; }
+.bind-card-title { flex: 1; min-width: 0; }
+.bind-card-title .card-title { margin-bottom: 4px; }
+.bind-sub { margin: 0; font-size: 0.82rem; line-height: 1.5; color: var(--text-tertiary); }
+.bind-body { margin-top: 18px; }
+.bind-text { margin: 0; font-size: 0.9rem; line-height: 1.7; color: var(--text-secondary); }
+.bind-hint { margin: 12px 0 0; font-size: 0.82rem; line-height: 1.6; color: var(--text-tertiary); }
+.bind-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
+.bind-actions .btn { flex: 1 1 120px; }
+.bind-actions .btn-block { flex-basis: 100%; }
+.bind-identity {
+    display: flex; align-items: center; gap: 12px;
+    padding: 14px; border-radius: var(--radius-md);
+    background: var(--material-muted); border: 1px solid var(--border);
+}
+.bind-avatar {
+    flex: 0 0 auto; width: 46px; height: 46px; border-radius: 50%;
+    display: grid; place-items: center;
+    font-size: 1.1rem; font-weight: 700;
+    background: var(--accent-soft); color: var(--accent);
+}
+.bind-identity-main { min-width: 0; }
+.bind-name { margin: 0; font-size: 1rem; font-weight: 700; color: var(--text); }
+.bind-id { margin: 3px 0 0; font-size: 0.82rem; color: var(--text-tertiary); word-break: break-all; }
+.bind-meta { margin-top: 12px; }
+.bind-meta .info-row { padding: 9px 0; }
+.bind-warn {
+    margin: 12px 0 0; padding: 10px 12px;
+    font-size: 0.82rem; line-height: 1.6;
+    color: var(--danger); background: var(--danger-soft);
+    border-radius: var(--radius-md);
+}
+.bind-flash {
+    max-width: 480px; margin: 0 0 14px; padding: 10px 14px;
+    font-size: 0.86rem; line-height: 1.5;
+    color: var(--accent); background: var(--accent-soft);
+    border-radius: var(--radius-md);
+}
+.bind-footnote {
+    margin: 18px 2px 0; max-width: 720px;
+    font-size: 0.8rem; line-height: 1.7; color: var(--text-tertiary);
+}
+.bind-risk { margin: 4px 0 14px; }
+.bind-identity-preview { margin-top: 12px; }
+#accountBindModal .modal { max-width: 560px; }
+#accountBindModal .form-error { margin-bottom: 12px; }
+#accountBindModal .bind-actions { margin-top: 18px; }
+
+@media (max-width: 720px) {
+    .bind-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 640px) {
+    .account-tabs { margin-bottom: 16px; }
+    .bind-card { padding: 22px 20px; }
+    .bind-actions .btn { flex-basis: 100%; }
+    .bind-footnote { margin-top: 14px; font-size: 0.78rem; }
+}

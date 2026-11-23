@@ -140,7 +140,7 @@ describe('全局功能开关（issue #106-A）', () => {
     const readBody = await read.res.json();
     assert.equal(readBody.data.academic, true);
     assert.equal(readBody.data.chaoxing, true);
-    assert.equal(readBody.data.chaoxing_available, false, '门户还没接学习通路由，要如实告诉前端');
+    assert.equal(readBody.data.chaoxing_available, true, '门户已接学习通转发层，管理页应启用开关');
 
     const write = await settingsOf(db, 'PUT', { academic: false });
     assert.equal(write.res.status, 200);

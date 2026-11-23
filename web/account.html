@@ -29,6 +29,15 @@
                 <p class="page-desc">查看自己的班级资料、调整外观偏好与修改密码。</p>
             </div>
 
+            <!-- 页内分区：默认「个人资料」（原有两列卡片），第二页「账号绑定」管理教务与学习通。
+                 分段控件复用主题外观那套 .tabs / .tab-pill，滑块位置由 account.js 实测写入。 -->
+            <div class="tabs account-tabs" id="accountTabs" role="tablist" aria-label="个人中心分区">
+                <span class="tab-pill" id="accountTabPill" aria-hidden="true"></span>
+                <button type="button" class="tab active" role="tab" id="accountTabProfile" aria-selected="true" aria-controls="paneProfile" data-act="switch-account-pane" data-arg="profile">个人资料</button>
+                <button type="button" class="tab" role="tab" id="accountTabBinding" aria-selected="false" aria-controls="paneBinding" data-act="switch-account-pane" data-arg="binding">账号绑定</button>
+            </div>
+
+            <div id="paneProfile" class="account-pane" role="tabpanel" aria-labelledby="accountTabProfile">
             <!-- 两列：左列是「我的」—— 资料 / 偏好设置 / 日历订阅；右列是「账号与关于」——
                  管理员入口 / 安装到桌面 / 修改密码 / 退出登录 / 关于软件。
                  桌面端这两列高度是量过的：网页版（没有原生桥，偏好设置里少三节）下左 727 / 右 715，
@@ -294,6 +303,44 @@
                     </div>
                 </div>
             </div>
+            </div><!-- /#paneProfile -->
+
+            <!-- 账号绑定：教务系统与学习通各自一张卡。登录/换绑统一走 #accountBindModal，
+                 状态由 account.js 调 /api/academic/status 与 /api/chaoxing/status 填充。
+                 App 内「登录」由原生小窗打开学校/学习通真实登录页，登录后原生把 Cookie 回传本页。 -->
+            <div id="paneBinding" class="account-pane" role="tabpanel" aria-labelledby="accountTabBinding" hidden>
+                <p class="bind-flash" id="bindFlash" hidden></p>
+                <div class="bind-grid">
+                    <section class="profile-card bind-card" aria-labelledby="academicBindTitle">
+                        <div class="bind-card-head">
+                            <span class="bind-logo bind-logo-academic" aria-hidden="true">教</span>
+                            <div class="bind-card-title">
+                                <h2 class="card-title" id="academicBindTitle">教务系统</h2>
+                                <p class="bind-sub">正方教务 · 课表 / 学业达成 / 成绩</p>
+                            </div>
+                            <span class="badge badge-muted" id="academicBindBadge">检查中</span>
+                        </div>
+                        <div class="bind-body" id="academicBindBody">
+                            <p class="bind-hint">正在读取绑定状态…</p>
+                        </div>
+                    </section>
+
+                    <section class="profile-card bind-card" aria-labelledby="chaoxingBindTitle">
+                        <div class="bind-card-head">
+                            <span class="bind-logo bind-logo-chaoxing" aria-hidden="true">通</span>
+                            <div class="bind-card-title">
+                                <h2 class="card-title" id="chaoxingBindTitle">学习通</h2>
+                                <p class="bind-sub">超星学习通 · 课程 / 作业 / 考试</p>
+                            </div>
+                            <span class="badge badge-muted" id="chaoxingBindBadge">检查中</span>
+                        </div>
+                        <div class="bind-body" id="chaoxingBindBody">
+                            <p class="bind-hint">正在读取绑定状态…</p>
+                        </div>
+                    </section>
+                </div>
+                <p class="bind-footnote">账号绑定仅用于以你的身份读取课表、成绩、课程等只读数据，不会替你选课或提交作业。教务系统在 App 内由学校真实登录页完成登录；学习通在 App 内打开登录小窗，登录成功后只把 Cookie 交给服务端，网页版无法跨域读取学习通 Cookie，因此提供密码登录与粘贴 Cookie 两种兜底。姓名比对是弱校验（学习通可能不返回姓名），绑定后随时可在本页解绑。</p>
+            </div>
         </div>
 
         <!-- 修改联系方式弹窗 -->
@@ -444,6 +491,20 @@
                     <button type="button" class="btn btn-outline" id="consentManageCancelBtn">取消</button>
                     <button type="button" class="btn btn-primary" id="consentSaveBtn">保存</button>
                 </div>
+            </div>
+        </div>
+
+        <!-- 账号绑定弹窗：教务登录（密码 / 二次验证 / Cookie）与学习通登录、身份确认共用。
+             内容由 account.js 按步骤渲染，静态页里只留一个空 body。 -->
+        <div class="modal-overlay" id="accountBindModal" role="dialog" aria-modal="true" aria-labelledby="accountBindTitle">
+            <div class="modal">
+                <div class="modal-head">
+                    <span class="modal-title" id="accountBindTitle">绑定账号</span>
+                    <button type="button" class="modal-close" data-act="close-account-bind" aria-label="关闭">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                    </button>
+                </div>
+                <div class="modal-body" id="accountBindBody"></div>
             </div>
         </div>
     </div>

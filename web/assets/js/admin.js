@@ -749,9 +749,9 @@ async function loadAuditLogs(reset) {
 }
 
 // ===== 功能开关（issue #106） =====
-// 开关状态存在后端 app_settings；门户目前还没有 /api/chaoxing/* 路由，所以学习通那个
-// 开关显示成「待接入」，但值照样保存 —— 等路由接上，服务端按路径前缀读同一个键，
-// 前端不用再改。读取失败只提示、不清空两个勾选框：清空会让人误以为开关被关掉了。
+// 开关状态存在后端 app_settings；门户已经接上 /api/chaoxing/* 转发层，所以学习通开关
+// 与教务开关一样可操作（chaoxing_available 只作为旧环境的兜底灰态）。读取失败只提示、
+// 不清空两个勾选框：清空会让人误以为开关被关掉了。
 async function loadFeatureSettings() {
     var hint = document.getElementById('featureHint');
     try {

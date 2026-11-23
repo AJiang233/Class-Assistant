@@ -5,9 +5,8 @@ import { success, error, jsonResponse } from '../utils/response.js';
 /**
  * 读取全局功能开关（需 user:manage 权限）。
  *
- * `chaoxing_available: false` 不是说学习通功能坏了，而是门户目前还没有 /api/chaoxing/*
- * 路由（那部分在私有 Worker，尚未接入）；开关先可配，等路由接上即生效。前端据此把学习通
- * 那个开关标成「待接入」，而不是给一个看起来能用、实际什么都不关的按钮。
+ * `chaoxing_available: true` 表示门户已经接上 /api/chaoxing/* 转发层（实现仍在私有
+ * Worker）。管理页据此启用学习通开关；把它改成 false 会让那个开关变成「待接入」灰态。
  */
 export async function handleGetSettings(request, env, user) {
   try {
@@ -15,7 +14,7 @@ export async function handleGetSettings(request, env, user) {
     return jsonResponse(success({
       academic: settings.academic,
       chaoxing: settings.chaoxing,
-      chaoxing_available: false
+      chaoxing_available: true
     }));
   } catch (e) {
     console.error('读取功能开关失败:', e);

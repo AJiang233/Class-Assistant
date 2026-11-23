@@ -143,7 +143,7 @@ web/                            # Cloudflare Pages 项目根目录（直接部�
 | POST | `/api/auth/roles` | `user:manage` | 新增/更新自定义职位（同名则覆盖权限） |
 | DELETE | `/api/auth/roles/:id` | `user:manage` | 删除自定义职位 |
 | GET | `/api/auth/audit-logs` | `user:manage` | 管理员操作日志（分页；支持 `action`/`actor`/`from`/`to` 筛选，`page_size` 上限 200）。保留 180 天 |
-| GET | `/api/admin/settings` | `user:manage` | 读全局功能开关：`{academic, chaoxing, chaoxing_available}`。`chaoxing_available=false` 表示门户还没接学习通路由（开关可先保存，接入后即生效） |
+| GET | `/api/admin/settings` | `user:manage` | 读全局功能开关：`{academic, chaoxing, chaoxing_available}`。`chaoxing_available` 表示门户的学习通转发层是否可用（现已接入，恒为 `true`） |
 | PUT | `/api/admin/settings` | `user:manage` | 改全局功能开关（body `{academic?, chaoxing?}`，至少一项）。只接受布尔值，字符串 `"false"` 返回 400；保存后立即写库、清当前 isolate 缓存，并写一条 `settings_updated` 审计 |
 | POST | `/api/auth/email/send-code` | 登录 | 发绑定邮箱的验证码（body `{email}`）。同时把邮箱记成「已填未验证」；1 分钟内重复发返回 429；邮箱被他人占用返回 409；未配邮件服务返回 503 |
 | POST | `/api/auth/email/verify` | 登录 | 验码并置为已验证（body `{email, code}`）。失败文案不区分「码不对」与「码过期」（防试探）；错满 5 次返回 429 需重新获取 |
@@ -155,7 +155,7 @@ web/                            # Cloudflare Pages 项目根目录（直接部�
 
 - **登录限流（issue #104）**：连续失败 5 次后按学号进入指数退避（30s → 2min → 10min → 1 小时封顶），成功登录清零；同一 IP 在 10 分钟窗口内失败 50 次同样拦下。命中时返回 `429` + `Retry-After`（秒），`code` 为 `LOGIN_BACKOFF`（按学号）或 `LOGIN_RATE_LIMITED`（按 IP），`data.retry_after` 与响应头一致。前端不需要改动：`api()` 会把 `error` 文案原样交给登录框，文案里已经带了还要等几秒。
 - **管理操作日志（issue #108）**：重置成员密码、改邮箱、改资料、删成员、增删改职位、改功能开关都会写一条 `audit_logs`（操作人、动作、对象、时间、IP、UA）。`detail` 只存白名单字段（如 `{ fields: ["password"] }`），**不落密码或邮箱明文**；日志写入失败只 `console.error`，不阻断主操作 —— 审计是旁路，不能反过来把管理员卡在「删不掉人」上。`GET /api/auth/audit-logs` 仅 `user:manage` 可读，支持 `action`/`actor`/`from`/`to`/`page` 筛选；保留 180 天，超期记录在每次写日志时顺手清掉（项目没有 Cron，清理挂在写入路径上，写入量小、代价可忽略）。
-- **全局功能开关（issue #106）**：`app_settings` 里放 `academic_enabled` / `chaoxing_enabled`（`'1'` 开、`'0'` 关，**没有记录按开启**）。门户在把请求转发给私有 Worker **之前**读取，关闭时直接回 `503` + `Retry-After: 30`，`code=FEATURE_DISABLED`、`data.feature` 指明是哪一项 —— 停用必须是门户侧止血，不能再让请求穿过 Service Binding 去打教务/学习通。开关在 isolate 内缓存 30 秒（避免每个请求都查一次 D1），管理页保存时主动清**当前 isolate** 的缓存；D1 是唯一真源，但没有跨 isolate 广播，**其它 isolate 最长 30 秒后收敛**（线上实测：关闭后 1 秒内即拦截，反向恢复时另一 isolate 仍缓存了关闭值，约 30 秒才放行）。紧急停用要把这 30 秒算进预期，别当成「点完立刻全网生效」；读取失败按开启处理（迁移没跑也不能把功能整体打死）。学习通那项目前只有入口没有路由（门户 `/api/chaoxing/*` 尚未接入），所以开关先存值，`chaoxing_available=false` 让管理页标成「待接入」。单账号连续失败自动暂停（连续 3 次凭据失效 / 风控 / 解析失败 → 30 分钟内暂停自动同步，返回 `409 ACADEMIC_PAUSED`/`CHAOXING_PAUSED`）在私有 Worker 实现，门户前端会把 `error` 文案原样展示；管理员恢复入口尚未做（运维可 `DELETE FROM binding_health WHERE user_id=? AND provider=?` 解除）。
+- **全局功能开关（issue #106）**：`app_settings` 里放 `academic_enabled` / `chaoxing_enabled`（`'1'` 开、`'0'` 关，**没有记录按开启**）。门户在把请求转发给私有 Worker **之前**读取，关闭时直接回 `503` + `Retry-After: 30`，`code=FEATURE_DISABLED`、`data.feature` 指明是哪一项 —— 停用必须是门户侧止血，不能再让请求穿过 Service Binding 去打教务/学习通。开关在 isolate 内缓存 30 秒（避免每个请求都查一次 D1），管理页保存时主动清**当前 isolate** 的缓存；D1 是唯一真源，但没有跨 isolate 广播，**其它 isolate 最长 30 秒后收敛**（线上实测：关闭后 1 秒内即拦截，反向恢复时另一 isolate 仍缓存了关闭值，约 30 秒才放行）。紧急停用要把这 30 秒算进预期，别当成「点完立刻全网生效」；读取失败按开启处理（迁移没跑也不能把功能整体打死）。学习通转发层已接入（门户 `/api/chaoxing/*`，见下文），`chaoxing_available` 恒为 `true`，管理页不再显示「待接入」。单账号连续失败自动暂停（连续 3 次凭据失效 / 风控 / 解析失败 → 30 分钟内暂停自动同步，返回 `409 ACADEMIC_PAUSED`/`CHAOXING_PAUSED`）在私有 Worker 实现，门户前端会把 `error` 文案原样展示；管理员恢复入口尚未做（运维可 `DELETE FROM binding_health WHERE user_id=? AND provider=?` 解除）。
 - **订阅投递**：业务创建同事务登记发件箱，独立 Cron Worker 按收件人及渠道投递、重试、确认；验证码仍同步发送。联动表单的设备提醒只发一条，通知与表单邮件分别按订阅发送。部署顺序、套餐要求、幂等边界及重放方式见[数据一致性与部署](docs/数据一致性与部署.md)。
 
 ```jsonc
@@ -398,6 +398,24 @@ web/                            # Cloudflare Pages 项目根目录（直接部�
 > 代登录链路、多因子认证的取舍、教务接口的坑、成绩汇总口径、以及各接口的请求体与响应示例，
 > 都随实现一起记在私有仓的 README 里。本站不再复制一份 —— 两边各写一份的结果是其中一份必然过时。
 
+### 学习通（超星）转发
+
+学习通的课程、作业、考试与章节进度同样由私有 Worker 读取，门户只做一层转发（`backend/src/routes/chaoxing.js`），绑定名 `CHAOXING_API`，与 `ACADEMIC_API` 指向同一个 Worker。与教务转发相比有两处额外约束：
+
+- **独立授权**：学习通有单独的同意项，`ConsentModel.chaoxing !== 1` 时，绑定 / 预览 / 密码登录与 `?refresh=1` 的抓取一律 403 `CHAOXING_CONSENT_REQUIRED`；只读的 `status`、缓存 GET 与 `DELETE /bind` 解绑放行 —— 撤回授权后用户仍能查看已有缓存、也能随时解绑退出。
+- **姓名头编码**：私有 Worker 用 `X-User-Name` 做弱校验，而 HTTP 头只能放 ByteString，故门户用 `encodeURIComponent(user.name)` 写入，私有 Worker 侧 `decodeURIComponent` 还原；不编码时中文姓名会被 undici 直接拒绝（`Cannot convert argument to a ByteString`）。
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/chaoxing/status` | 绑定状态 + 已缓存课程数 |
+| POST | `/api/chaoxing/bind/preview` | 只校验 Cookie 并返回 `{ realName, courseCount, account, matched }`，**不落库**（issue #107：先让用户确认是不是本人） |
+| POST | `/api/chaoxing/bind` | 用 Cookie 正式绑定；姓名不一致返回 403 `CHAOXING_IDENTITY_MISMATCH` |
+| POST | `/api/chaoxing/login` | 账号 + 密码代登录；撞人机验证返回 409 `CHAOXING_NEED_CAPTCHA` |
+| DELETE | `/api/chaoxing/bind` | 解绑并清空该用户的学习通缓存 |
+| GET | `/api/chaoxing/courses` / `works` / `exams` | 课程 / 作业 / 考试；`?refresh=1` 强制重抓 |
+
+转发层自身新增的错误码与教务一致：缺 `CHAOXING_API` 绑定 → 503 `CHAOXING_UNAVAILABLE`，缺 `INTERNAL_TOKEN` → 500 `SERVER_MISCONFIGURED`，功能开关关闭 → 503 `FEATURE_DISABLED` + `Retry-After: 30`。生产 Pages 面板需要手工补 `CHAOXING_API` Service Binding（与 `ACADEMIC_API` 同一个 service），本地联调仍起两个 `wrangler` 进程。
+
 ---
 
 ## 数据库与同步
@@ -427,6 +445,7 @@ web/                            # Cloudflare Pages 项目根目录（直接部�
 - **列表与详情**：列表行「标题 + 徽章」、元信息带图标（发布人 / 时间 / 地点），点击条目标题弹出详情弹窗
 - **个人中心**：资料（联系方式可自助修改；邮箱那行是「地址 + 一个「管理」」—— 绑定 / 更换 / 解绑全在弹窗里做，验证状态徽章（已验证 / 未验证）放在弹窗标题后，行上不摊按钮；弹窗内「解绑」仅已绑且已验证时出现，解绑会把订阅一并清零；填了 @qq.com 邮箱后，资料卡与侧栏的头像从首字母换成 WeAvatar 头像（URL 用邮箱的 SHA256 拼，哈希由浏览器原生 crypto.subtle 算，不引第三方库；不是 QQ 邮箱、取不到头像或图片加载失败都退回首字母）；已绑且已验证时弹窗里多出「订阅通知」区：一个「全部订阅」总开关 + 活动 / 通知 / 表单三项分订阅，开全部＝三项全开、关掉任一分项＝「全部订阅」跟着关掉，开关只改本地状态、结果由弹窗底部「保存」一并写后端（该按钮与邮箱验证共用一个：未验证时＝验码完成绑定，已验证时＝保存订阅）；「上次同步时间」按北京时间显示，且仅 App 壳内有、网页版整行不出现）、个性化 / 偏好设置（主题外观 跟随系统 / 浅色 / 深色 三选一，同卡片内下方为通知：网页推送仅网页端，iOS 需 16.4 且已加到主屏，其余情况如实说明原因，App 壳内不显示；再下方「App 端通知」块放通知 / 活动 / 表单三个推送测试与一行本机状态：通知开关，数据来自 `CAHost.appStatus()`，网页版没有这个桥就整块隐藏；通知被系统关掉时推送测试会直接说明原因而不是假装成功）、日历订阅（默认折叠；可自定义提醒提前量/时间范围/是否含通知，并可重置密钥）、安装到桌面（仅 iOS 与 PC 显示，安卓 / 鸿蒙已有原生 App 不引导）、修改密码、关于软件（版本号 + 检查更新 + 项目仓库 + 协作方；版本号取自原生桥，检查更新先问原生桥 `CAHost.platform()` 自己是什么端、再读站点根目录 `version.json` 里对应那一段）、退出登录（红色警示卡）
   - **课程提醒**（偏好设置卡片里的 `#courseCard`，紧接「App 端通知」）：整块默认 `hidden`，只有检测到 `CAHost.courseReminderSettings` 才显示 —— 上课提醒要到点弹出，靠的是原生 `AlarmManager` 排期，网页版没有这个能力，给个点了没反应的开关不如不给。设置存在原生侧，网页只读写；桥返回 `{"lead":15,"atStart":true,"courseCount":23}`，其中 `courseCount` 是为了区分「今天没课」与「本机根本没有课表数据」——用户把开关打开却什么都没发生，得能看出是哪一种。改完即存（无保存按钮），原生侧立刻重排闹钟
+  - **账号绑定**（个人中心页内第二个页签，`#accountTabs` / `#paneBinding`）：把原来散在学业页的绑定入口收拢成两张卡。**教务卡**已绑定时显示姓名 / 学号 / 状态 / 绑定与校验时间 / 已同步学期 + 重新登录（App 内优先 `CAHost.startAcademicLoginFor('account')`，回跳 `?view=account`）/ 账号密码 / 换 Cookie / 解绑；未绑定时给 App 内登录、学号密码、粘贴 Cookie 三条路。**学习通卡**同理，但按 issue #107 改成两步：粘贴 Cookie 或 App 原生小窗回传 Cookie 后先调 `/api/chaoxing/bind/preview`，弹出「识别到：张三 · 12 门课程」确认卡，用户确认才调 `bind` 落库；`matched:false` 直接禁用确认按钮，姓名为空则要求额外勾选「我确认是本人」，并如实写明姓名比对是弱校验。App 内登录才显示原生小窗入口（`CAHost.startChaoxingLogin()`，成功回调 `__caChaoxingCookies`），网页端没有桥就只给密码 / Cookie 兜底；409 `CHAOXING_NEED_CAPTCHA` 转为「需要人机验证」提示并指回 App 或 Cookie。两卡解绑都要二次确认；403 `*_CONSENT_REQUIRED` 给「去开启授权」直接打开现有同意弹窗。教务登录前的风险告知与学业页共用 `ca_academic_risk_ack`，未勾选不会调原生桥。
 - **学业**：`academic.html` —— 页内分「课表 / 学业达成 / 成绩」三个子标签（两端统一；切到「学业达成」时收起只对课表生效的学年学期筛选，成绩页仍然用它选学期）；「课表」页为按节次网格渲染的课表（当前周高亮、非本周淡出，窄屏横向滚动）+ 未安排课程（接在课表下方，无数据时整块隐藏）；「学业达成」页为学分看板（要求/已获/在修/还需 + 逐课程体系明细）；「成绩」页按学期分组列出课程成绩，顶部只放平均分与平均绩点（口径见上面教务一节，缓考 / 等级制成绩 / 教务标了「不参与统计」的课都不计入），每条可展开看课程号、学分、成绩性质与成绩标识，默认档是「全部学期」；未绑定时提供三条绑定路径（App 一键 / 学号密码代登录 / 手动粘贴 Cookie 并附分步指引）；账号开了多因子认证时，学号密码代登录会自动进入第二步（下发验证码 → 回填 → 完成绑定，带 60 秒重发倒计时）
 - **API 封装**：`assets/js/app.js` 提供 `api(path, options)`，自动附带 `Bearer` token、401 自动回登录页；`options.raw` 可让调用方直接拿到 `Response`（导出 CSV 这类二进制用，同样走 401 清会话）
 - **CSP 与内联写法**：`_headers` 对全站下发 `Content-Security-Policy`，`script-src` 与 `style-src` 都只放行 `'self'`（唯一例外是 Cloudflare 在边缘注入的 Web Analytics beacon 那个来源），`img-src` 另放行 `data:`（`style.css` 里下拉箭头的内嵌 SVG）与 `https://weavatar.com`（QQ 邮箱头像源）；因此**页面里不能再写内联 `<script>`、内联 `onclick` 或内联 `style="..."`** —— 写了会被浏览器整条丢掉，表现是「按钮点了没反应」「样式莫名其妙没了」（只有控制台有提示），而不是报错弹窗。

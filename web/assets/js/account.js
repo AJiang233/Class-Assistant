@@ -1213,6 +1213,745 @@ calCopyBtn.addEventListener('click', function () {
     }
 });
 
+// ===== 个人中心：账号绑定（教务 / 学习通） =====
+// 交互约定：
+//   - 页内 tab 切换，所有账号操作走 #accountBindModal 一个弹窗（CSP 无内联脚本，按钮用 data-act 委托）；
+//   - 教务与学习通都先读 /status，再按状态渲染「未绑定选项」或「身份 + 解绑」；
+//   - App 内的登录由原生小窗打开真实登录页，原生把 Cookie 回传给本页（__caChaoxingCookies）；
+//   - 学习通按 issue #107：先 /bind/preview 预览身份，用户确认后才 /bind 落库。
+var BIND_PENDING_KEY = 'ca_account_pending_bind';
+var BIND_RISK_ACK_KEY = 'ca_academic_risk_ack';
+var bindAcademic = null;
+var bindChaoxing = null;
+var bindMfaToken = '';
+var bindMfaTimer = null;
+var bindCxPreview = null;
+var bindFlashTimer = null;
+
+function bindById(id) { return document.getElementById(id); }
+
+function bindToggleError(msg) {
+    var el = bindById('bindModalError');
+    if (!el) return;
+    if (!msg) { el.textContent = ''; el.classList.remove('show'); return; }
+    el.textContent = msg;
+    el.classList.add('show');
+}
+
+/** 绑定时间可能是毫秒数、秒数或 ISO 字符串，统一按北京时间展示 */
+function fmtBindTime(value) {
+    if (value === null || value === undefined || value === '') return '—';
+    if (typeof value === 'number' || /^\d+$/.test(String(value))) {
+        var n = Number(value);
+        if (isFinite(n) && n > 0) return fmtBJTime(n < 100000000000 ? n * 1000 : n);
+    }
+    var d = new Date(value);
+    if (!isNaN(d.getTime())) return fmtBJTime(d.getTime());
+    return String(value);
+}
+
+function bindBadge(id, text, kind) {
+    var el = bindById(id);
+    if (!el) return;
+    el.textContent = text;
+    el.className = 'badge ' + (kind === 'ok' ? 'badge-ok' : 'badge-muted');
+}
+
+function bindFlash(msg) {
+    var el = bindById('bindFlash');
+    if (!el) return;
+    el.textContent = msg;
+    el.hidden = false;
+    if (bindFlashTimer) clearTimeout(bindFlashTimer);
+    bindFlashTimer = setTimeout(function () { el.hidden = true; }, 5000);
+}
+
+function bindNativeAcademic() {
+    try {
+        return !!(window.CAHost && (typeof window.CAHost.startAcademicLogin === 'function'
+            || typeof window.CAHost.startAcademicLoginFor === 'function'));
+    } catch (e) { return false; }
+}
+function bindNativeChaoxing() {
+    try { return !!(window.CAHost && typeof window.CAHost.startChaoxingLogin === 'function'); } catch (e) { return false; }
+}
+
+/** 教务登录前的风险告知；勾选状态与学业页共用同一个 localStorage 键 */
+function bindRiskAcked() {
+    try { return localStorage.getItem(BIND_RISK_ACK_KEY) === '1'; } catch (e) { return false; }
+}
+
+function bindRiskAckHTML() {
+    var checked = false;
+    try { checked = localStorage.getItem(BIND_RISK_ACK_KEY) === '1'; } catch (e) {}
+    return '<label class="consent-check bind-risk"><input type="checkbox" id="acBindRisk"' + (checked ? ' checked' : '')
+        + '><span>我已了解：登录由教务系统完成，本应用只代为读取课表、学分与成绩等只读信息。</span></label>';
+}
+
+function bindTermText(terms) {
+    return (terms && terms.length) ? '已同步 ' + terms.length + ' 个学期' : '—';
+}
+
+/** 教务卡：未绑定给三条登录入口；已绑定展示身份、时间与解绑 */
+function renderAcademicBinding(data) {
+    var body = bindById('academicBindBody');
+    if (!body) return;
+    bindAcademic = data || {};
+    if (data && data.bound === true) {
+        var paused = !!data.paused;
+        var name = data.realName || '教务账号';
+        var nativeAcademicBound = bindNativeAcademic();
+        bindBadge('academicBindBadge', paused ? '已暂停' : '已绑定', paused ? 'muted' : 'ok');
+        body.innerHTML = ''
+            + '<div class="bind-identity">'
+            + '<span class="bind-avatar" aria-hidden="true">' + esc(name.charAt(0)) + '</span>'
+            + '<div class="bind-identity-main"><p class="bind-name">' + esc(name) + '</p>'
+            + '<p class="bind-id">' + (data.studentNo ? '学号 ' + esc(data.studentNo) : '已绑定教务账号') + '</p></div>'
+            + '</div>'
+            + '<div class="info-list bind-meta">'
+            + '<div class="info-row"><span class="k">状态</span><span class="v">' + (paused ? '已暂停' : '正常') + '</span></div>'
+            + '<div class="info-row"><span class="k">绑定时间</span><span class="v">' + esc(fmtBindTime(data.boundAt)) + '</span></div>'
+            + '<div class="info-row"><span class="k">最近校验</span><span class="v">' + esc(fmtBindTime(data.checkedAt)) + '</span></div>'
+            + '<div class="info-row"><span class="k">可用学期</span><span class="v">' + esc(bindTermText(data.terms)) + '</span></div>'
+            + '</div>'
+            + (paused && data.paused_until ? '<p class="bind-warn">连续登录失败，已暂停到 ' + esc(fmtBindTime(data.paused_until)) + '，可重新登录恢复。</p>' : '')
+            + '<div class="bind-actions">'
+            + (nativeAcademicBound ? '<button class="btn btn-primary" type="button" data-act="begin-academic-bind" data-arg="app">App 重新登录</button>' : '')
+            + '<button class="btn btn-outline" type="button" data-act="begin-academic-bind" data-arg="password">' + (nativeAcademicBound ? '账号密码' : '重新登录') + '</button>'
+            + '<button class="btn btn-outline" type="button" data-act="begin-academic-bind" data-arg="cookie">换 Cookie</button>'
+            + '<button class="btn btn-danger" type="button" data-act="academic-unbind">解绑</button>'
+            + '</div>';
+        return;
+    }
+    bindBadge('academicBindBadge', '未绑定', 'muted');
+    var native = bindNativeAcademic();
+    body.innerHTML = ''
+        + '<p class="bind-text">绑定后，课表、学业达成与成绩会在「学业」页自动同步。登录由学校统一身份认证完成，本应用只读取数据。</p>'
+        + '<div class="bind-actions">'
+        + (native ? '<button class="btn btn-primary" type="button" data-act="begin-academic-bind" data-arg="app">App 内登录</button>' : '')
+        + '<button class="btn ' + (native ? 'btn-outline' : 'btn-primary') + '" type="button" data-act="begin-academic-bind" data-arg="password">学号密码</button>'
+        + '<button class="btn btn-outline" type="button" data-act="begin-academic-bind" data-arg="cookie">粘贴 Cookie</button>'
+        + '</div>'
+        + '<p class="bind-hint">' + (native
+            ? '「App 内登录」会打开学校真实登录页，登录完成自动读回 Cookie。'
+            : '网页版无法读取教务站点的 Cookie，请用学号密码登录，或粘贴浏览器里的 Cookie。') + '</p>';
+}
+
+/** 学习通卡：已绑定时展示姓名/账号/课程数；未绑定给 App 登录、密码、Cookie 三条路 */
+function renderChaoxingBinding(data) {
+    var body = bindById('chaoxingBindBody');
+    if (!body) return;
+    bindChaoxing = data || {};
+    if (data && data.bound === true) {
+        var paused = !!data.paused;
+        var name = data.realName || '学习通账号';
+        var count = Number(data.courseCount) || 0;
+        bindBadge('chaoxingBindBadge', paused ? '已暂停' : '已绑定', paused ? 'muted' : 'ok');
+        // App 内用户可以走原生小窗重登；网页端没有桥，主按钮直接给账号密码（否则点了只弹提示）。
+        var nativeBound = bindNativeChaoxing();
+        body.innerHTML = ''
+            + '<div class="bind-identity">'
+            + '<span class="bind-avatar" aria-hidden="true">' + esc(name.charAt(0)) + '</span>'
+            + '<div class="bind-identity-main"><p class="bind-name">' + esc(name) + '</p>'
+            + '<p class="bind-id">' + (data.account ? '账号 ' + esc(data.account) : '已绑定学习通') + '</p></div>'
+            + '</div>'
+            + '<div class="info-list bind-meta">'
+            + '<div class="info-row"><span class="k">状态</span><span class="v">' + (paused ? '已暂停' : '正常') + '</span></div>'
+            + '<div class="info-row"><span class="k">课程数</span><span class="v">' + count + ' 门</span></div>'
+            + '<div class="info-row"><span class="k">绑定时间</span><span class="v">' + esc(fmtBindTime(data.boundAt)) + '</span></div>'
+            + '<div class="info-row"><span class="k">最近校验</span><span class="v">' + esc(fmtBindTime(data.checkedAt)) + '</span></div>'
+            + '</div>'
+            + (paused ? '<p class="bind-warn">学习通登录态连续失效，已自动暂停同步'
+                + (data.paused_until ? '到 ' + esc(fmtBindTime(data.paused_until)) : '')
+                + '，重新登录后可恢复。</p>' : '')
+            + '<div class="bind-actions">'
+            + (nativeBound ? '<button class="btn btn-primary" type="button" data-act="begin-chaoxing-bind" data-arg="app">App 重新登录</button>' : '')
+            + '<button class="btn ' + (nativeBound ? 'btn-outline' : 'btn-primary') + '" type="button" data-act="begin-chaoxing-bind" data-arg="password">' + (nativeBound ? '账号密码' : '重新登录') + '</button>'
+            + '<button class="btn btn-outline" type="button" data-act="begin-chaoxing-bind" data-arg="cookie">换 Cookie</button>'
+            + '<button class="btn btn-danger" type="button" data-act="chaoxing-unbind">解绑</button>'
+            + '</div>';
+        return;
+    }
+    bindBadge('chaoxingBindBadge', '未绑定', 'muted');
+    var native = bindNativeChaoxing();
+    body.innerHTML = ''
+        + '<p class="bind-text">绑定后，学习通课程、作业与考试会在 App 内同步。登录交给你自己完成，服务端只接管 Cookie。</p>'
+        + '<div class="bind-actions">'
+        + (native ? '<button class="btn btn-primary" type="button" data-act="begin-chaoxing-bind" data-arg="app">App 内登录</button>' : '')
+        + '<button class="btn ' + (native ? 'btn-outline' : 'btn-primary') + '" type="button" data-act="begin-chaoxing-bind" data-arg="password">账号密码</button>'
+        + '<button class="btn btn-outline" type="button" data-act="begin-chaoxing-bind" data-arg="cookie">粘贴 Cookie</button>'
+        + '</div>'
+        + '<p class="bind-hint">学习通登录有时需要人机验证，网页端无法完成时请改用「App 内登录」，或从浏览器复制 Cookie。</p>';
+}
+
+function renderBindLoadError(kind, err) {
+    var academic = kind === 'academic';
+    var body = bindById(academic ? 'academicBindBody' : 'chaoxingBindBody');
+    bindBadge(academic ? 'academicBindBadge' : 'chaoxingBindBadge', '读取失败', 'muted');
+    var msg = (err && err.message) || '暂时无法读取绑定状态';
+    var extra = '';
+    if (err && (err.code === 'ACADEMIC_CONSENT_REQUIRED' || err.code === 'CHAOXING_CONSENT_REQUIRED')) {
+        extra = '<button class="btn btn-primary btn-block" type="button" data-act="open-consent">去开启授权</button>';
+    }
+    if (body) {
+        body.innerHTML = '<p class="bind-text">' + esc(msg) + '</p>' + extra
+            + '<div class="bind-actions"><button class="btn btn-outline" type="button" data-act="refresh-account-bindings">重试</button></div>';
+    }
+}
+
+async function loadAcademicBinding() {
+    var body = bindById('academicBindBody');
+    if (!body) return;
+    try {
+        var res = await api('/api/academic/status');
+        renderAcademicBinding(res.data || {});
+    } catch (err) {
+        renderBindLoadError('academic', err);
+    }
+}
+
+async function loadChaoxingBinding() {
+    var body = bindById('chaoxingBindBody');
+    if (!body) return;
+    try {
+        var res = await api('/api/chaoxing/status');
+        renderChaoxingBinding(res.data || {});
+    } catch (err) {
+        renderBindLoadError('chaoxing', err);
+    }
+}
+
+// ===== 页内 tab =====
+function moveAccountTabPill() {
+    var pill = bindById('accountTabPill');
+    if (!pill) return;
+    var active = pill.parentNode.querySelector('.tab.active');
+    if (!active) { pill.style.opacity = '0'; return; }
+    pill.style.left = active.offsetLeft + 'px';
+    pill.style.top = active.offsetTop + 'px';
+    pill.style.width = active.offsetWidth + 'px';
+    pill.style.height = active.offsetHeight + 'px';
+    pill.style.opacity = '1';
+}
+
+function switchAccountPane(pane) {
+    var binding = pane === 'binding';
+    var profilePane = bindById('paneProfile');
+    var bindingPane = bindById('paneBinding');
+    if (!profilePane || !bindingPane) return;
+    profilePane.hidden = binding;
+    bindingPane.hidden = !binding;
+    var tabs = bindById('accountTabs');
+    if (tabs) {
+        var btns = tabs.querySelectorAll('.tab');
+        for (var i = 0; i < btns.length; i++) {
+            var on = btns[i].getAttribute('data-arg') === pane;
+            btns[i].classList.toggle('active', on);
+            btns[i].setAttribute('aria-selected', on ? 'true' : 'false');
+        }
+    }
+    moveAccountTabPill();
+    if (binding) {
+        loadAcademicBinding();
+        loadChaoxingBinding();
+    }
+    try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch (e) { window.scrollTo(0, 0); }
+}
+
+// ===== 绑定弹窗 =====
+function openBindModal(title, html) {
+    bindById('accountBindTitle').textContent = title;
+    bindById('accountBindBody').innerHTML = html;
+    bindById('accountBindModal').classList.add('show');
+    document.body.style.overflow = 'hidden';
+}
+
+function closeBindModal() {
+    var modal = bindById('accountBindModal');
+    if (modal) modal.classList.remove('show');
+    document.body.style.overflow = '';
+    bindMfaToken = '';
+    if (bindMfaTimer) { clearInterval(bindMfaTimer); bindMfaTimer = null; }
+}
+
+// ===== 教务绑定 =====
+function beginAcademicBind(mode) {
+    if (mode === 'app') { startAcademicAppLogin(); return; }
+    if (mode === 'cookie') { openAcademicCookieStep(); return; }
+    openAcademicPasswordStep();
+}
+
+function startAcademicAppLogin() {
+    if (!bindNativeAcademic()) {
+        bindFlash('当前不在 App 内（或 App 版本过旧），请改用学号密码或粘贴 Cookie。');
+        return;
+    }
+    if (bindRiskAcked()) { launchAcademicAppLogin(); return; }
+    // 与学业页保持同一道风险告知：没勾过就先给用户看，避免从个人中心绕过。
+    openBindModal('教务登录前的风险告知', ''
+        + '<p class="bind-text">「App 内登录」会打开学校统一身份认证的真实登录页，登录完成后由 App 读取 Cookie 交给本应用。</p>'
+        + '<div class="form-error" id="bindModalError"></div>'
+        + bindRiskAckHTML()
+        + '<div class="bind-actions">'
+        + '<button class="btn btn-primary" type="button" data-act="academic-app-login-continue">继续登录</button>'
+        + '<button class="btn btn-outline" type="button" data-act="close-account-bind">取消</button>'
+        + '</div>');
+}
+
+function launchAcademicAppLogin() {
+    try { localStorage.setItem(BIND_PENDING_KEY, 'academic'); } catch (e) {}
+    try {
+        if (typeof window.CAHost.startAcademicLoginFor === 'function') {
+            window.CAHost.startAcademicLoginFor('account');
+        } else {
+            window.CAHost.startAcademicLogin();
+        }
+    } catch (err) {
+        bindFlash('无法打开 App 内登录，请改用学号密码。');
+    }
+}
+
+function openAcademicPasswordStep() {
+    var sid = '';
+    try {
+        var session = getSession();
+        sid = (session && session.student_id) || '';
+    } catch (e) {}
+    openBindModal('绑定教务系统', ''
+        + '<div class="form-error" id="bindModalError"></div>'
+        + '<div class="form-field"><label class="form-label" for="acBindStudentId">学号</label>'
+        + '<input class="form-input" id="acBindStudentId" type="text" inputmode="numeric" autocomplete="username" value="' + esc(sid) + '" placeholder="你的学号"></div>'
+        + '<div class="form-field"><label class="form-label" for="acBindPassword">密码</label>'
+        + '<input class="form-input" id="acBindPassword" type="password" autocomplete="current-password" placeholder="统一身份认证密码"></div>'
+        + bindRiskAckHTML()
+        + '<div class="bind-actions">'
+        + '<button class="btn btn-primary" type="button" data-act="academic-bind-password">登录并绑定</button>'
+        + '<button class="btn btn-outline" type="button" data-act="close-account-bind">取消</button>'
+        + '</div>'
+        + '<p class="bind-hint">密码只用于这一次登录，不会保存在本机；勾选告知后会直接提交给学校统一身份认证。</p>');
+}
+
+async function submitAcademicPassword() {
+    bindToggleError('');
+    var risk = bindById('acBindRisk');
+    if (!risk || !risk.checked) { bindToggleError('请先勾选风险告知'); return; }
+    var sidEl = bindById('acBindStudentId');
+    var pwdEl = bindById('acBindPassword');
+    var sid = (sidEl && sidEl.value || '').trim();
+    var pwd = pwdEl ? pwdEl.value : '';
+    if (!sid || !pwd) { bindToggleError('请填写学号和密码'); return; }
+    try { localStorage.setItem(BIND_RISK_ACK_KEY, '1'); } catch (e) {}
+    var btn = document.querySelector('#accountBindBody [data-act="academic-bind-password"]');
+    if (btn) { btn.disabled = true; btn.textContent = '登录中…'; }
+    try {
+        var res = await api('/api/academic/login', {
+            method: 'POST',
+            body: JSON.stringify({ student_id: sid, password: pwd })
+        });
+        var d = res.data || {};
+        if (pwdEl) pwdEl.value = '';
+        if (d.mfaRequired) { enterAcademicMfaStep(d); return; }
+        closeBindModal();
+        await loadAcademicBinding();
+        bindFlash('教务系统绑定成功');
+    } catch (err) {
+        if (err && err.code === 'ACADEMIC_CONSENT_REQUIRED') {
+            bindToggleError('尚未开启教务授权，请先在「用户协议与授权」中开启');
+        } else {
+            bindToggleError((err && err.message) || '登录失败');
+        }
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = '登录并绑定'; }
+    }
+}
+
+function enterAcademicMfaStep(d) {
+    bindMfaToken = d.token || '';
+    var tip = '统一身份认证要求二次验证（' + (d.method || '验证码') + '）';
+    if (d.contact) tip += '，验证码将发送到 ' + d.contact;
+    tip += '。点下面的「获取验证码」即可收到。';
+    openBindModal('二次验证', ''
+        + '<div class="form-error" id="bindModalError"></div>'
+        + '<p class="bind-text" id="acBindMfaStatus" hidden></p>'
+        + '<p class="bind-text">' + esc(tip) + '</p>'
+        + '<div class="form-field"><label class="form-label" for="acBindMfaCode">验证码</label>'
+        + '<input class="form-input" id="acBindMfaCode" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="短信验证码"></div>'
+        + '<div class="bind-actions">'
+        + '<button class="btn btn-outline" type="button" id="acBindMfaSendBtn" data-act="academic-mfa-send">获取验证码</button>'
+        + '<button class="btn btn-primary" type="button" data-act="academic-mfa-verify">完成绑定</button>'
+        + '</div>'
+        + '<button class="btn btn-outline btn-block" type="button" data-act="academic-bind-back">返回上一步</button>');
+    var code = bindById('acBindMfaCode');
+    if (code) code.focus();
+}
+
+async function sendAcademicMfa() {
+    if (!bindMfaToken) { bindToggleError('二次验证已超时，请返回上一步重新输入'); return; }
+    var btn = bindById('acBindMfaSendBtn');
+    if (btn) { btn.disabled = true; btn.textContent = '发送中…'; }
+    try {
+        var res = await api('/api/academic/mfa/send', { method: 'POST', body: JSON.stringify({ token: bindMfaToken }) });
+        var d = res.data || {};
+        // 提示要出现在弹窗里：bindFlash 在页面卡片上，弹窗打开时用户看不到。
+        var status = bindById('acBindMfaStatus');
+        if (status) {
+            status.hidden = false;
+            status.textContent = '验证码已发送' + (d.mobile ? '至 ' + d.mobile : '') + '，请查收';
+        }
+        startBindMfaCountdown(60);
+    } catch (err) {
+        bindToggleError((err && err.message) || '发送失败');
+        if (btn) { btn.disabled = false; btn.textContent = '获取验证码'; }
+    }
+}
+
+function startBindMfaCountdown(seconds) {
+    var btn = bindById('acBindMfaSendBtn');
+    var left = seconds;
+    if (bindMfaTimer) clearInterval(bindMfaTimer);
+    if (!btn) return;
+    btn.disabled = true;
+    btn.textContent = left + 's 后重发';
+    bindMfaTimer = setInterval(function () {
+        left -= 1;
+        if (left <= 0) {
+            clearInterval(bindMfaTimer);
+            bindMfaTimer = null;
+            if (btn) { btn.disabled = false; btn.textContent = '重新获取'; }
+            return;
+        }
+        if (btn) btn.textContent = left + 's 后重发';
+    }, 1000);
+}
+
+async function verifyAcademicMfa() {
+    bindToggleError('');
+    var codeEl = bindById('acBindMfaCode');
+    var code = (codeEl && codeEl.value || '').trim();
+    if (!code) { bindToggleError('请填写验证码'); return; }
+    if (!bindMfaToken) { bindToggleError('二次验证已超时，请返回上一步重新输入'); return; }
+    var btn = document.querySelector('#accountBindBody [data-act="academic-mfa-verify"]');
+    if (btn) { btn.disabled = true; btn.textContent = '验证中…'; }
+    try {
+        await api('/api/academic/mfa/verify', { method: 'POST', body: JSON.stringify({ token: bindMfaToken, code: code }) });
+        closeBindModal();
+        await loadAcademicBinding();
+        bindFlash('教务系统绑定成功');
+    } catch (err) {
+        bindToggleError((err && err.message) || '验证失败');
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = '完成绑定'; }
+    }
+}
+
+/** 从用户粘贴内容里提取 Cookie：裸串 / Cookie: 头 / curl -H·-b 三种都支持 */
+function extractBindCookie(text) {
+    var raw = String(text || '').replace(/\r/g, '').trim();
+    if (!raw) return '';
+    var m = raw.match(/(?:-H|--header)\s+['"]Cookie:\s*([^'"]+)['"]/i)
+        || raw.match(/(?:-b|--cookie)\s+['"]([^'"]+)['"]/i);
+    if (m) return m[1].trim();
+    m = raw.match(/^\s*cookie:\s*(.+)$/im);
+    if (m) return m[1].trim();
+    return raw;
+}
+
+function openAcademicCookieStep() {
+    openBindModal('粘贴教务 Cookie', ''
+        + '<div class="form-error" id="bindModalError"></div>'
+        + '<p class="bind-text">在已登录教务系统的浏览器里打开开发者工具 → Network，任选一个请求，复制请求头里的 Cookie 整行粘贴到这里。</p>'
+        + '<div class="form-field"><label class="form-label" for="acBindCookie">Cookie</label>'
+        + '<textarea class="form-input" id="acBindCookie" rows="5" placeholder="JSESSIONID=...; route=..."></textarea></div>'
+        + bindRiskAckHTML()
+        + '<div class="bind-actions">'
+        + '<button class="btn btn-primary" type="button" data-act="academic-bind-cookie">提交绑定</button>'
+        + '<button class="btn btn-outline" type="button" data-act="close-account-bind">取消</button>'
+        + '</div>'
+        + '<p class="bind-hint">Cookie 只用于读取数据；如果教务登录态过期，需要重新获取。</p>');
+}
+
+async function submitAcademicCookie() {
+    bindToggleError('');
+    var risk = bindById('acBindRisk');
+    if (!risk || !risk.checked) { bindToggleError('请先勾选风险告知'); return; }
+    var input = bindById('acBindCookie');
+    var cookies = extractBindCookie(input && input.value);
+    if (!cookies) { bindToggleError('请先粘贴教务系统的 Cookie'); return; }
+    var btn = document.querySelector('#accountBindBody [data-act="academic-bind-cookie"]');
+    if (btn) { btn.disabled = true; btn.textContent = '绑定中…'; }
+    try { localStorage.setItem(BIND_RISK_ACK_KEY, '1'); } catch (e) {}
+    try {
+        await api('/api/academic/bind', { method: 'POST', body: JSON.stringify({ cookies: cookies }) });
+        closeBindModal();
+        await loadAcademicBinding();
+        bindFlash('教务系统绑定成功');
+    } catch (err) {
+        bindToggleError((err && err.message) || '绑定失败');
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = '提交绑定'; }
+    }
+}
+
+// ===== 学习通绑定 =====
+function beginChaoxingBind(mode) {
+    if (mode === 'app') { startChaoxingAppLogin(); return; }
+    if (mode === 'cookie') { openChaoxingCookieStep(); return; }
+    openChaoxingPasswordStep();
+}
+
+function startChaoxingAppLogin() {
+    if (!bindNativeChaoxing()) {
+        bindFlash('当前不在 App 内（或 App 版本过旧），请改用账号密码或粘贴 Cookie。');
+        return;
+    }
+    try { window.CAHost.startChaoxingLogin(); } catch (err) { bindFlash('无法打开学习通登录小窗。'); }
+}
+
+function openChaoxingPasswordStep() {
+    openBindModal('学习通账号登录', ''
+        + '<div class="form-error" id="bindModalError"></div>'
+        + '<div class="form-field"><label class="form-label" for="cxAccount">学习通账号</label>'
+        + '<input class="form-input" id="cxAccount" type="text" autocomplete="username" placeholder="手机号或学习通账号"></div>'
+        + '<div class="form-field"><label class="form-label" for="cxPassword">密码</label>'
+        + '<input class="form-input" id="cxPassword" type="password" autocomplete="current-password" placeholder="学习通密码"></div>'
+        + '<div class="bind-actions">'
+        + '<button class="btn btn-primary" type="button" data-act="chaoxing-bind-password">登录并绑定</button>'
+        + '<button class="btn btn-outline" type="button" data-act="close-account-bind">取消</button>'
+        + '</div>'
+        + '<p class="bind-hint">学习通触发人机验证时，网页端无法完成，请改用「App 内登录」或粘贴 Cookie。</p>');
+}
+
+async function submitChaoxingPassword() {
+    bindToggleError('');
+    var accEl = bindById('cxAccount');
+    var pwdEl = bindById('cxPassword');
+    var account = (accEl && accEl.value || '').trim();
+    var password = pwdEl ? pwdEl.value : '';
+    if (!account || !password) { bindToggleError('请填写学习通账号和密码'); return; }
+    var btn = document.querySelector('#accountBindBody [data-act="chaoxing-bind-password"]');
+    if (btn) { btn.disabled = true; btn.textContent = '登录中…'; }
+    try {
+        await api('/api/chaoxing/login', { method: 'POST', body: JSON.stringify({ account: account, password: password }) });
+        closeBindModal();
+        await loadChaoxingBinding();
+        bindFlash('学习通绑定成功');
+    } catch (err) {
+        if (err && err.code === 'CHAOXING_NEED_CAPTCHA') {
+            openBindModal('学习通需要人机验证', ''
+                + '<div class="form-error show" id="bindModalError">学习通要求人机验证，网页端无法完成。</div>'
+                + '<p class="bind-text">请改用 App 内登录（真实登录页可完成验证码/滑块），或粘贴浏览器里的 Cookie。</p>'
+                + '<div class="bind-actions">'
+                + '<button class="btn btn-primary" type="button" data-act="begin-chaoxing-bind" data-arg="app">App 内登录</button>'
+                + '<button class="btn btn-outline" type="button" data-act="begin-chaoxing-bind" data-arg="cookie">粘贴 Cookie</button>'
+                + '<button class="btn btn-outline" type="button" data-act="close-account-bind">取消</button>'
+                + '</div>');
+            return;
+        }
+        bindToggleError((err && err.message) || '登录失败');
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = '登录并绑定'; }
+    }
+}
+
+function openChaoxingCookieStep() {
+    openBindModal('粘贴学习通 Cookie', ''
+        + '<div class="form-error" id="bindModalError"></div>'
+        + '<p class="bind-text">在已登录学习通的浏览器里复制 i.chaoxing.com 的 Cookie 整行。粘贴后先预览身份，确认无误才会保存。</p>'
+        + '<div class="form-field"><label class="form-label" for="cxCookie">Cookie</label>'
+        + '<textarea class="form-input" id="cxCookie" rows="5" placeholder="_uid=...; _d=...; fid=1433; ..."></textarea></div>'
+        + '<div class="bind-actions">'
+        + '<button class="btn btn-primary" type="button" data-act="chaoxing-bind-cookie">预览身份</button>'
+        + '<button class="btn btn-outline" type="button" data-act="close-account-bind">取消</button>'
+        + '</div>'
+        + '<p class="bind-hint">学习通 Cookie 会先经服务端校验并返回姓名与课程数，预览阶段不会写入绑定。</p>');
+}
+
+async function submitChaoxingCookie() {
+    bindToggleError('');
+    var input = bindById('cxCookie');
+    var cookies = extractBindCookie(input && input.value);
+    if (!cookies) { bindToggleError('请先粘贴学习通 Cookie'); return; }
+    await previewChaoxingBind(cookies, '');
+}
+
+async function previewChaoxingBind(cookies, account) {
+    bindCxPreview = { cookies: cookies, account: account || '', realName: '', courseCount: 0, matched: null };
+    openBindModal('确认学习通身份', ''
+        + '<div class="form-error" id="bindModalError"></div>'
+        + '<p class="bind-hint">正在读取学习通身份…</p>');
+    try {
+        var res = await api('/api/chaoxing/bind/preview', {
+            method: 'POST',
+            body: JSON.stringify({ cookies: cookies, account: account || '' })
+        });
+        var d = res.data || {};
+        bindCxPreview = {
+            cookies: cookies,
+            account: d.account || account || '',
+            realName: d.realName || '',
+            courseCount: d.courseCount || 0,
+            matched: (d.matched === undefined ? null : d.matched)
+        };
+        renderChaoxingPreview(bindCxPreview);
+    } catch (err) {
+        if (err && err.code === 'CHAOXING_CONSENT_REQUIRED') {
+            openBindModal('需要开启学习通授权', ''
+                + '<p class="bind-text">还没有开启「学习通」授权。开启后才能预览与保存学习通绑定。</p>'
+                + '<div class="form-error" id="bindModalError"></div>'
+                + '<div class="bind-actions">'
+                + '<button class="btn btn-primary" type="button" data-act="open-consent">去开启授权</button>'
+                + '<button class="btn btn-outline" type="button" data-act="close-account-bind">取消</button>'
+                + '</div>');
+            return;
+        }
+        openBindModal('无法读取学习通身份', ''
+            + '<div class="form-error show" id="bindModalError">' + esc((err && err.message) || '预览失败') + '</div>'
+            + '<div class="bind-actions">'
+            + '<button class="btn btn-primary" type="button" data-act="chaoxing-preview-retry">重试</button>'
+            + '<button class="btn btn-outline" type="button" data-act="close-account-bind">取消</button>'
+            + '</div>');
+    }
+}
+
+function renderChaoxingPreview(d) {
+    var matched = d.matched;
+    var canConfirm = matched !== false;
+    var identity = ''
+        + '<div class="bind-identity bind-identity-preview">'
+        + '<span class="bind-avatar" aria-hidden="true">' + esc(d.realName ? String(d.realName).charAt(0) : '通') + '</span>'
+        + '<div class="bind-identity-main"><p class="bind-name">' + (d.realName ? esc(d.realName) : '未读取到姓名') + '</p>'
+        + '<p class="bind-id">' + (d.account ? '账号 ' + esc(d.account) + ' · ' : '')
+        + '识别到 ' + (Number(d.courseCount) || 0) + ' 门课程</p></div>'
+        + '</div>';
+    var warn = '';
+    if (matched === false) {
+        warn = '<p class="bind-warn">识别到的姓名与你的班级账号姓名不一致，绑定会被拒绝。请确认登录的是自己的学习通账号。</p>';
+    } else if (!d.realName) {
+        warn = '<label class="consent-check bind-risk"><input type="checkbox" id="cxRiskWarn">'
+            + '<span>没有读取到姓名，无法自动核对身份。我确认这是我本人的学习通账号。</span></label>';
+    }
+    openBindModal('确认学习通身份', ''
+        + '<p class="bind-text">请确认这是你本人的学习通账号，确认后才会保存绑定。</p>'
+        + identity
+        + '<div class="info-list bind-meta"><div class="info-row"><span class="k">姓名比对</span><span class="v">'
+        + (matched === true ? '一致' : (matched === false ? '不一致' : '未取到姓名，需手动确认'))
+        + '</span></div></div>'
+        + warn
+        + '<div class="form-error" id="bindModalError"></div>'
+        + '<div class="bind-actions">'
+        + '<button class="btn btn-primary" type="button" data-act="chaoxing-bind-confirm"' + (canConfirm ? '' : ' disabled') + '>确认绑定</button>'
+        + '<button class="btn btn-outline" type="button" data-act="close-account-bind">取消</button>'
+        + '</div>'
+        + '<p class="bind-hint">姓名比对是弱校验：学习通可能不返回姓名，或返回的姓名与班级账号不完全一致。绑定后随时可解绑。</p>');
+}
+
+async function confirmChaoxingBind() {
+    bindToggleError('');
+    var warn = bindById('cxRiskWarn');
+    if (warn && !warn.checked) { bindToggleError('请先勾选确认'); return; }
+    if (!bindCxPreview || !bindCxPreview.cookies) { bindToggleError('登录信息已失效，请重新登录学习通'); return; }
+    var btn = document.querySelector('#accountBindBody [data-act="chaoxing-bind-confirm"]');
+    if (btn) { btn.disabled = true; btn.textContent = '绑定中…'; }
+    try {
+        await api('/api/chaoxing/bind', {
+            method: 'POST',
+            body: JSON.stringify({ cookies: bindCxPreview.cookies, account: bindCxPreview.account })
+        });
+        closeBindModal();
+        await loadChaoxingBinding();
+        bindFlash('学习通绑定成功');
+    } catch (err) {
+        bindToggleError((err && err.message) || '绑定失败');
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = '确认绑定'; }
+    }
+}
+
+// App 原生小窗登录完成后的回传入口（顶层壳里 app.js 会转发到本 iframe）
+function handleChaoxingCookies(cookies) {
+    if (!cookies || typeof cookies !== 'string') return;
+    switchAccountPane('binding');
+    previewChaoxingBind(cookies.trim(), '');
+}
+window.__caChaoxingCookies = handleChaoxingCookies;
+window.__caChaoxingCancel = function () {
+    closeBindModal();
+    bindFlash('已取消学习通登录');
+};
+
+// ===== 解绑 =====
+function askUnbind(kind) {
+    var academic = kind === 'academic';
+    openBindModal(academic ? '解绑教务系统' : '解绑学习通', ''
+        + '<p class="bind-text">' + (academic
+            ? '解绑后会清除本机缓存的课表、学分与成绩数据。'
+            : '解绑后会清除服务端保存的学习通登录凭据与课程缓存。') + '</p>'
+        + '<div class="form-error" id="bindModalError"></div>'
+        + '<div class="bind-actions">'
+        + (academic
+            ? '<button class="btn btn-danger" type="button" data-act="academic-unbind-confirm">确认解绑</button>'
+            : '<button class="btn btn-danger" type="button" data-act="chaoxing-unbind-confirm">确认解绑</button>')
+        + '<button class="btn btn-outline" type="button" data-act="close-account-bind">取消</button>'
+        + '</div>');
+}
+
+async function doUnbindAcademic() {
+    bindToggleError('');
+    var btn = document.querySelector('#accountBindBody [data-act="academic-unbind-confirm"]');
+    if (btn) { btn.disabled = true; btn.textContent = '解绑中…'; }
+    try {
+        await api('/api/academic/bind', { method: 'DELETE' });
+        closeBindModal();
+        await loadAcademicBinding();
+        bindFlash('教务系统已解绑');
+    } catch (err) {
+        bindToggleError((err && err.message) || '解绑失败');
+        if (btn) { btn.disabled = false; btn.textContent = '确认解绑'; }
+    }
+}
+
+async function doUnbindChaoxing() {
+    bindToggleError('');
+    var btn = document.querySelector('#accountBindBody [data-act="chaoxing-unbind-confirm"]');
+    if (btn) { btn.disabled = true; btn.textContent = '解绑中…'; }
+    try {
+        await api('/api/chaoxing/bind', { method: 'DELETE' });
+        closeBindModal();
+        await loadChaoxingBinding();
+        bindFlash('学习通已解绑');
+    } catch (err) {
+        bindToggleError((err && err.message) || '解绑失败');
+        if (btn) { btn.disabled = false; btn.textContent = '确认解绑'; }
+    }
+}
+
+// ===== 初始化：App 登录返回后自动落到「账号绑定」 =====
+(function initAccountBinding() {
+    if (!bindById('accountTabs')) return;
+    var pending = '';
+    try {
+        pending = localStorage.getItem(BIND_PENDING_KEY) || '';
+        if (pending) localStorage.removeItem(BIND_PENDING_KEY);
+    } catch (e) {}
+    var wantBinding = pending === 'academic' || location.hash === '#binding';
+    moveAccountTabPill();
+    setTimeout(moveAccountTabPill, 0);
+    window.addEventListener('resize', moveAccountTabPill);
+    if (wantBinding) {
+        switchAccountPane('binding');
+    } else {
+        loadAcademicBinding();
+        loadChaoxingBinding();
+    }
+    var modal = bindById('accountBindModal');
+    if (modal) {
+        modal.addEventListener('click', function (e) { if (e.target === modal) closeBindModal(); });
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape' && modal.classList.contains('show')) closeBindModal();
+        });
+    }
+})();
+
 // ===== 事件绑定 =====
 // CSP 的 script-src 只放行 'self'，页面里不能再写内联 onclick：
 // 静态按钮与动态生成的资料卡按钮统一用 data-act 标记 + 委托（重绘也不用重新绑）。
@@ -1242,5 +1981,41 @@ delegate(document, 'click', '[data-act="unbind-email"]', function () { unbindEma
 delegate(document, 'change', '[data-act="toggle-sub-all"]', function () { applySubAll(); });
 delegate(document, 'change', '[data-act="toggle-sub-one"]', function (el) {
     applySubOne(el.getAttribute('data-kind'));
+});
+
+// 账号绑定：页签切换、状态刷新、教务/学习通各步骤、解绑确认
+delegate(document, 'click', '[data-act="switch-account-pane"]', function (el) { switchAccountPane(el.getAttribute('data-arg')); });
+delegate(document, 'click', '[data-act="refresh-account-bindings"]', function () {
+    loadAcademicBinding();
+    loadChaoxingBinding();
+});
+delegate(document, 'click', '[data-act="begin-academic-bind"]', function (el) { beginAcademicBind(el.getAttribute('data-arg')); });
+delegate(document, 'click', '[data-act="academic-app-login-continue"]', function () {
+    var risk = bindById('acBindRisk');
+    if (!risk || !risk.checked) { bindToggleError('请先勾选风险告知'); return; }
+    try { localStorage.setItem(BIND_RISK_ACK_KEY, '1'); } catch (e) {}
+    closeBindModal();
+    launchAcademicAppLogin();
+});
+delegate(document, 'click', '[data-act="begin-chaoxing-bind"]', function (el) { beginChaoxingBind(el.getAttribute('data-arg')); });
+delegate(document, 'click', '[data-act="close-account-bind"]', function () { closeBindModal(); });
+delegate(document, 'click', '[data-act="academic-bind-password"]', function () { submitAcademicPassword(); });
+delegate(document, 'click', '[data-act="academic-mfa-send"]', function () { sendAcademicMfa(); });
+delegate(document, 'click', '[data-act="academic-mfa-verify"]', function () { verifyAcademicMfa(); });
+delegate(document, 'click', '[data-act="academic-bind-back"]', function () { openAcademicPasswordStep(); });
+delegate(document, 'click', '[data-act="academic-bind-cookie"]', function () { submitAcademicCookie(); });
+delegate(document, 'click', '[data-act="chaoxing-bind-password"]', function () { submitChaoxingPassword(); });
+delegate(document, 'click', '[data-act="chaoxing-bind-cookie"]', function () { submitChaoxingCookie(); });
+delegate(document, 'click', '[data-act="chaoxing-preview-retry"]', function () {
+    if (bindCxPreview && bindCxPreview.cookies) previewChaoxingBind(bindCxPreview.cookies, bindCxPreview.account);
+});
+delegate(document, 'click', '[data-act="chaoxing-bind-confirm"]', function () { confirmChaoxingBind(); });
+delegate(document, 'click', '[data-act="academic-unbind"]', function () { askUnbind('academic'); });
+delegate(document, 'click', '[data-act="chaoxing-unbind"]', function () { askUnbind('chaoxing'); });
+delegate(document, 'click', '[data-act="academic-unbind-confirm"]', function () { doUnbindAcademic(); });
+delegate(document, 'click', '[data-act="chaoxing-unbind-confirm"]', function () { doUnbindChaoxing(); });
+delegate(document, 'click', '[data-act="open-consent"]', function () {
+    closeBindModal();
+    openConsentManage();
 });
 })();
