@@ -4,6 +4,8 @@ import { success, error, jsonResponse } from '../utils/response.js';
 import { normalizeTimeRange } from '../utils/datetime.js';
 import { pageLimit, pageOffset } from '../utils/query.js';
 import { canManageItem, canViewItem, itemForViewer, loadViewer, listByAudience } from '../utils/audience.js';
+import { TodoModel } from '../models/todoModel.js';
+import { parseContentTodo, parseTagList } from './todoHandler.js';
 
 /**
  * 发布活动（需登录）
@@ -11,7 +13,7 @@ import { canManageItem, canViewItem, itemForViewer, loadViewer, listByAudience }
 export async function handleCreateActivity(request, env, user, ctx) {
   try {
     const body = await request.json();
-    const { title, content = '', location = '', start_time, end_time = '', remind_people = null } = body;
+    const { title, content = '', location = '', start_time, end_time = '', remind_people = null, todo = null } = body;
 
     if (!title || !start_time) {
       return jsonResponse(error('请填写标题和开始时间', 'MISSING_FIELDS'), 400);
@@ -19,6 +21,12 @@ export async function handleCreateActivity(request, env, user, ctx) {
     const times = normalizeTimeRange(start_time, end_time);
     if (!times) {
       return jsonResponse(error('活动时间不正确，结束时间不能早于开始时间', 'INVALID_TIME'), 400);
+    }
+
+    // 附带待办（#99）：先校验再写库，避免活动发出了、待办却没挂上
+    const todoInput = parseContentTodo(todo, String(title).trim());
+    if (todoInput.error) {
+      return jsonResponse(error(todoInput.error, todoInput.code || 'INVALID_TODO'), 400);
     }
 
     const remind = await normalizeRecipients(env.DB, remind_people);
@@ -37,8 +45,18 @@ export async function handleCreateActivity(request, env, user, ctx) {
     });
 
     // 数据库触发器与业务写入一起登记持久投递事件，由定时消费者处理。
+    // 附带待办是附属数据：写失败也保留活动本身，只记日志（重发活动会 upsert 回来）。
+    let todoSaved = false;
+    if (todoInput.value) {
+      try {
+        await new TodoModel(env.DB).setContentTodo('activity', activityId, todoInput.value);
+        todoSaved = true;
+      } catch (e) {
+        console.error('保存活动附带待办失败（活动已发布）:', e && e.message);
+      }
+    }
 
-    return jsonResponse(success({ message: '活动发布成功' }), 201);
+    return jsonResponse(success({ message: '活动发布成功', todo_saved: todoSaved }), 201);
   } catch (e) {
     console.error('发布活动失败:', e);
     return jsonResponse(error('发布活动失败，请稍后重试', 'CREATE_ACTIVITY_FAILED'), 500);
@@ -95,7 +113,21 @@ export async function handleGetActivity(request, env, user, params) {
     }
 
     // 定向名单只回给能发文的人（编辑表单要拿它预填）；canManage 供前端决定显不显示改/删按钮
-    return jsonResponse(success(itemForViewer(activity, viewer)));
+    const data = itemForViewer(activity, viewer);
+
+    // 活动附带的待办（#99）：joined 表示当前用户是否已把它加入自己的待办
+    const todoModel = new TodoModel(env.DB);
+    const attachedTodo = await todoModel.getContentTodo('activity', id);
+    if (attachedTodo) {
+      data.todo = {
+        title: attachedTodo.title,
+        due_at: attachedTodo.due_at,
+        tags: parseTagList(attachedTodo.tags),
+        joined: await todoModel.hasFromSource(user.id, 'activity', id)
+      };
+    }
+
+    return jsonResponse(success(data));
   } catch (e) {
     console.error('获取活动失败:', e);
     return jsonResponse(error('获取活动失败', 'GET_ACTIVITY_FAILED'), 500);

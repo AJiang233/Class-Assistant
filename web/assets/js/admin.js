@@ -66,6 +66,132 @@ document.addEventListener('keydown', function (e) {
     });
 });
 
+// ===== 发布时附带待办（#99） =====
+// 通知 / 活动共用一套：勾选「同时加入大家的待办」才展开字段，且只有勾选后才在请求体里
+// 带 todo 字段（未勾选绝不传空对象，否则后端会当成「要建待办但没给截止时间」而拒发）。
+var TODO_TAG_PRESETS = ['作业', '考试', '班会', '活动', '材料', '缴费'];
+var TODO_TAG_MAX = 4;
+var TODO_TAG_LEN = 12;
+var todoTags = { notice: [], activity: [] };
+
+function todoRefs(kind) {
+    return kind === 'notice'
+        ? {
+            check: 'ntcTodo', fields: 'ntcTodoFields', title: 'ntcTodoTitle', due: 'ntcTodoDue',
+            tagsBox: 'ntcTodoTagBox', tagInput: 'ntcTodoTagInput', err: 'ntcError'
+        }
+        : {
+            check: 'actTodo', fields: 'actTodoFields', title: 'actTodoTitle', due: 'actTodoDue',
+            tagsBox: 'actTodoTagBox', tagInput: 'actTodoTagInput', err: 'actError'
+        };
+}
+
+// 发布失败/标签超限等统一走各卡片已有的 .form-error 提示，保持和原有校验一致的观感
+function showTodoError(kind, msg) {
+    var errBox = document.getElementById(todoRefs(kind).err);
+    if (!errBox) return;
+    errBox.textContent = msg;
+    errBox.classList.add('show');
+}
+
+function renderTodoTags(kind) {
+    var r = todoRefs(kind);
+    var box = document.getElementById(r.tagsBox);
+    if (!box) return;
+    var tags = todoTags[kind];
+    // 动作名必须写成字面量：csp.test.js 会扫源码做「标记 ↔ 委托」双向核对，
+    // 用变量拼出来的动作名会被当成一个从未注册过的动作而报错。
+    var actAttr = kind === 'notice' ? 'data-act="toggle-notice-tag"' : 'data-act="toggle-activity-tag"';
+    // 预置标签常驻；自定义标签只在被选中时出现，取消勾选后就从列表里消失
+    var all = TODO_TAG_PRESETS.slice();
+    tags.forEach(function (t) { if (all.indexOf(t) < 0) all.push(t); });
+    box.innerHTML = all.map(function (t) {
+        var on = tags.indexOf(t) >= 0;
+        return '<button type="button" class="pos-chip' + (on ? ' on' : '') + '" ' + actAttr
+            + ' data-tag="' + escAttr(t) + '" aria-pressed="' + (on ? 'true' : 'false') + '">' + esc(t) + '</button>';
+    }).join('');
+}
+
+function toggleTodoTag(kind, tag) {
+    var tags = todoTags[kind];
+    var i = tags.indexOf(tag);
+    if (i >= 0) { tags.splice(i, 1); renderTodoTags(kind); return; }
+    if (!tag || tag.length > TODO_TAG_LEN) { showTodoError(kind, '标签需为 1–' + TODO_TAG_LEN + ' 个字'); return; }
+    if (tags.length >= TODO_TAG_MAX) { showTodoError(kind, '待办标签最多 ' + TODO_TAG_MAX + ' 个'); return; }
+    tags.push(tag);
+    renderTodoTags(kind);
+}
+
+function addTodoCustomTag(kind, input) {
+    var tag = String(input.value || '').trim();
+    if (!tag) return;
+    if (tag.length > TODO_TAG_LEN) { showTodoError(kind, '标签需为 1–' + TODO_TAG_LEN + ' 个字'); return; }
+    var tags = todoTags[kind];
+    if (tags.indexOf(tag) >= 0) { input.value = ''; return; }
+    if (tags.length >= TODO_TAG_MAX) { showTodoError(kind, '待办标签最多 ' + TODO_TAG_MAX + ' 个'); return; }
+    tags.push(tag);
+    input.value = '';
+    renderTodoTags(kind);
+}
+
+function bindTodoTagInput(id, kind) {
+    var input = document.getElementById(id);
+    if (!input) return;
+    input.addEventListener('keydown', function (e) {
+        if (e.key !== 'Enter') return;
+        e.preventDefault();   // 回车只加标签，不触发表单默认行为
+        addTodoCustomTag(kind, input);
+    });
+}
+
+function toggleTodoFields(kind, on) {
+    var fields = document.getElementById(todoRefs(kind).fields);
+    if (fields) fields.hidden = !on;
+}
+
+// datetime-local 的 "YYYY-MM-DDTHH:MM" → 后端要的 "YYYY-MM-DD HH:MM:SS"
+function todoDueValue(kind) {
+    var el = document.getElementById(todoRefs(kind).due);
+    var raw = el ? String(el.value || '').trim() : '';
+    if (!raw) return '';
+    raw = raw.replace('T', ' ');
+    if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(raw)) raw += ':00';
+    return raw;
+}
+
+// 返回 { value: todo|null } 或 { error }：只有勾选才产出 todo，未勾选返回 value:null
+function buildTodoPayload(kind) {
+    var r = todoRefs(kind);
+    var cb = document.getElementById(r.check);
+    if (!cb || !cb.checked) return { value: null };
+    var due = todoDueValue(kind);
+    if (!due) return { error: '请填写待办截止时间' };
+    var tags = todoTags[kind];
+    if (tags.length > TODO_TAG_MAX) return { error: '待办标签最多 ' + TODO_TAG_MAX + ' 个' };
+    var bad = tags.filter(function (t) { return !t || t.length > TODO_TAG_LEN; });
+    if (bad.length) return { error: '标签需为 1–' + TODO_TAG_LEN + ' 个字' };
+    var titleEl = document.getElementById(r.title);
+    var title = titleEl ? titleEl.value.trim() : '';
+    // 标题留空就不传，交给后端用内容标题兜底
+    return { value: { title: title || undefined, due_at: due, tags: tags.slice() } };
+}
+
+function resetTodoForm(kind) {
+    var r = todoRefs(kind);
+    todoTags[kind] = [];
+    var cb = document.getElementById(r.check);
+    if (cb) cb.checked = false;
+    var fields = document.getElementById(r.fields);
+    if (fields) fields.hidden = true;
+    var title = document.getElementById(r.title);
+    if (title) title.value = '';
+    var due = document.getElementById(r.due);
+    if (due) due.value = '';
+    var input = document.getElementById(r.tagInput);
+    if (input) input.value = '';
+    renderTodoTags(kind);
+}
+
 // ===== 添加通知 =====
 async function submitNotice() {
     var errBox = document.getElementById('ntcError');
@@ -84,10 +210,14 @@ async function submitNotice() {
         errBox.textContent = '提醒对象名单加载失败：为避免把定向内容误发成全班可见，发布已被禁止，请重试';
         errBox.classList.add('show'); return;
     }
+    // 附带待办：勾选后必须填截止时间；标签数量/长度前端先拦一道（后端同样会校验）
+    var todoRes = buildTodoPayload('notice');
+    if (todoRes.error) { errBox.textContent = todoRes.error; errBox.classList.add('show'); return; }
     var btn = document.getElementById('ntcSubmitBtn');
     btn.disabled = true; var t = btn.textContent; btn.textContent = '提交中…';
     try {
         var body = { title: title, content: content, publish_time: publish_time, expire_time: expire_time, remind_people: collectRemind('ntcRemind') };
+        if (todoRes.value) body.todo = todoRes.value;
         await api('/api/notices', { method: 'POST', body: JSON.stringify(body) });
         document.getElementById('ntcTitle').value = '';
         document.getElementById('ntcContent').value = '';
@@ -95,6 +225,7 @@ async function submitNotice() {
         document.getElementById('ntcExpire').value = todayEnd();
         refreshDateHints();
         renderRemindChoices('ntcRemind', []);
+        resetTodoForm('notice');
         errBox.textContent = '发布成功';
         errBox.classList.add('show');
     } catch (err) {
@@ -123,10 +254,14 @@ async function submitActivity() {
         errBox.textContent = '提醒对象名单加载失败：为避免把定向内容误发成全班可见，发布已被禁止，请重试';
         errBox.classList.add('show'); return;
     }
+    // 附带待办：与通知同一套校验（勾选才组装，未勾选不传 todo）
+    var todoRes = buildTodoPayload('activity');
+    if (todoRes.error) { errBox.textContent = todoRes.error; errBox.classList.add('show'); return; }
     var btn = document.getElementById('actSubmitBtn');
     btn.disabled = true; var t = btn.textContent; btn.textContent = '提交中…';
     try {
         var body = { title: title, content: content, location: location, start_time: start_time, end_time: end_time, remind_people: collectRemind('actRemind') };
+        if (todoRes.value) body.todo = todoRes.value;
         await api('/api/activities', { method: 'POST', body: JSON.stringify(body) });
         document.getElementById('actTitle').value = '';
         document.getElementById('actContent').value = '';
@@ -135,6 +270,7 @@ async function submitActivity() {
         document.getElementById('actEnd').value = todayEnd();
         refreshDateHints();
         renderRemindChoices('actRemind', []);
+        resetTodoForm('activity');
         errBox.textContent = '发布成功';
         errBox.classList.add('show');
     } catch (err) {
@@ -665,6 +801,11 @@ if (canWrite) {
     document.getElementById('ntcPublish').value = nowLocal();
     document.getElementById('ntcExpire').value = todayEnd();
     loadRemindChoices();
+    // 附带待办：先把标签 chips 画出来（预置项常驻），并给自定义标签输入框挂回车
+    renderTodoTags('notice');
+    renderTodoTags('activity');
+    bindTodoTagInput('ntcTodoTagInput', 'notice');
+    bindTodoTagInput('actTodoTagInput', 'activity');
     resetFormCreate();
     loadFormsAdmin();
 }
@@ -1096,6 +1237,11 @@ delegate(document, 'input', '[data-act="filter-members"]', function () { filterM
 delegate(document, 'change', '[data-act="field-type-change"]', function (el) { onFieldTypeChange(el); });
 delegate(document, 'click', '[data-act="submit-notice"]', function () { submitNotice(); });
 delegate(document, 'click', '[data-act="submit-activity"]', function () { submitActivity(); });
+// 附带待办：勾选框展开/收起字段，标签 chips 点选/取消（都用委托，卡片重绘也不用重绑）
+delegate(document, 'change', '[data-act="toggle-notice-todo"]', function (el) { toggleTodoFields('notice', el.checked); });
+delegate(document, 'change', '[data-act="toggle-activity-todo"]', function (el) { toggleTodoFields('activity', el.checked); });
+delegate(document, 'click', '[data-act="toggle-notice-tag"]', function (el) { toggleTodoTag('notice', el.getAttribute('data-tag')); });
+delegate(document, 'click', '[data-act="toggle-activity-tag"]', function (el) { toggleTodoTag('activity', el.getAttribute('data-tag')); });
 delegate(document, 'click', '[data-act="submit-form-create"]', function () { submitFormCreate(); });
 delegate(document, 'click', '[data-act="add-field-row"]', function () { addFieldRow(); });
 delegate(document, 'click', '[data-act="remove-field-row"]', function (el) { removeFieldRow(el.getAttribute('data-id')); });

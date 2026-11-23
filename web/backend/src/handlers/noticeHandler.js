@@ -4,6 +4,8 @@ import { success, error, jsonResponse } from '../utils/response.js';
 import { normalizeTimeRange } from '../utils/datetime.js';
 import { pageLimit, pageOffset } from '../utils/query.js';
 import { isSafeLink } from '../utils/link.js';
+import { TodoModel } from '../models/todoModel.js';
+import { parseContentTodo, parseTagList } from './todoHandler.js';
 import {
   canManageItem,
   canViewItem,
@@ -18,7 +20,7 @@ import {
 export async function handleCreateNotice(request, env, user, ctx) {
   try {
     const body = await request.json();
-    const { title, content, publish_time, remind_people = null, expire_time = null, link = null } = body;
+    const { title, content, publish_time, remind_people = null, expire_time = null, link = null, todo = null } = body;
 
     if (!title || !content || !publish_time) {
       return jsonResponse(error('请填写标题、内容和发布时间', 'MISSING_FIELDS'), 400);
@@ -29,6 +31,13 @@ export async function handleCreateNotice(request, env, user, ctx) {
     const times = normalizeTimeRange(publish_time, expire_time);
     if (!times) {
       return jsonResponse(error('通知时间不正确，过期时间不能早于发布时间', 'INVALID_TIME'), 400);
+    }
+
+    // 附带待办（#99）：标题缺省跟通知标题一致，截止时间必须晚于现在。
+    // 先校验再写库，避免通知发出去了、待办却没挂上。
+    const todoInput = parseContentTodo(todo, String(title).trim());
+    if (todoInput.error) {
+      return jsonResponse(error(todoInput.error, todoInput.code || 'INVALID_TODO'), 400);
     }
 
     const remind = await normalizeRecipients(env.DB, remind_people);
@@ -48,8 +57,18 @@ export async function handleCreateNotice(request, env, user, ctx) {
     });
 
     // 数据库触发器与业务写入一起登记持久投递事件，由定时消费者处理。
+    // 附带待办是附属数据：写失败也保留通知本身，只记日志（重发通知会 upsert 回来）。
+    let todoSaved = false;
+    if (todoInput.value) {
+      try {
+        await new TodoModel(env.DB).setContentTodo('notice', noticeId, todoInput.value);
+        todoSaved = true;
+      } catch (e) {
+        console.error('保存通知附带待办失败（通知已发布）:', e && e.message);
+      }
+    }
 
-    return jsonResponse(success({ message: '通知发布成功' }), 201);
+    return jsonResponse(success({ message: '通知发布成功', todo_saved: todoSaved }), 201);
   } catch (e) {
     console.error('发布通知失败:', e);
     return jsonResponse(error('发布通知失败，请稍后重试', 'CREATE_NOTICE_FAILED'), 500);
@@ -127,7 +146,21 @@ export async function handleGetNotice(request, env, user, params) {
     }
 
     // 定向名单只回给能发文的人（编辑表单要拿它预填）；canManage 供前端决定显不显示改/删按钮
-    return jsonResponse(success(itemForViewer(notice, viewer)));
+    const data = itemForViewer(notice, viewer);
+
+    // 通知附带的待办（#99）：joined 表示当前用户是否已把它加入自己的待办
+    const todoModel = new TodoModel(env.DB);
+    const attachedTodo = await todoModel.getContentTodo('notice', id);
+    if (attachedTodo) {
+      data.todo = {
+        title: attachedTodo.title,
+        due_at: attachedTodo.due_at,
+        tags: parseTagList(attachedTodo.tags),
+        joined: await todoModel.hasFromSource(user.id, 'notice', id)
+      };
+    }
+
+    return jsonResponse(success(data));
   } catch (e) {
     console.error('获取通知失败:', e);
     return jsonResponse(error('获取通知失败', 'GET_NOTICE_FAILED'), 500);

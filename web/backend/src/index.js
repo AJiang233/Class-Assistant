@@ -6,6 +6,7 @@ import { academicRoutes } from './routes/academic.js';
 import { settingRoutes } from './routes/settings.js';
 import { formRoutes } from './routes/forms.js';
 import { pushRoutes } from './routes/push.js';
+import { todoRoutes } from './routes/todos.js';
 import { withAuth } from './middleware/auth.js';
 import { handleSync } from './handlers/syncHandler.js';
 import { handleCors, corsResponse } from './middleware/cors.js';
@@ -71,6 +72,10 @@ async function dispatch(request, env, ctx) {
 
   // 表单路由
   response = await formRoutes(request, env, ctx);
+  if (response) return response;
+
+  // 待办路由（#99）
+  response = await todoRoutes(request, env, ctx);
   if (response) return response;
 
   // Web Push 路由

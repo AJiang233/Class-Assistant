@@ -44,6 +44,12 @@
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
                     <span class="side-text">班级活动</span>
                 </button>
+                <!-- 待办（决策 1.C）：列表在主页面之外的独立子页 todos.html，
+                     侧栏这一项只是切 iframe，与通知/活动同一套导航机制。 -->
+                <button type="button" class="side-link" id="navTodos" data-view="todos">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+                    <span class="side-text">我的待办</span>
+                </button>
                 <button type="button" class="side-link" id="navAcademic" data-view="academic">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/></svg>
                     <span class="side-text">学业</span>
@@ -92,6 +98,17 @@
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
                         <span>1.0版本公测中，仍在修复bug，敬请留意</span>
                     </div>
+                    <!-- 待办摘要（决策 1.C）：首页只放一条摘要，不把整个待办页搬进来。
+                         默认 hidden，由 index.js 的 loadTodoSummary() 拉到数据后再显示，
+                         这样登录前的空壳里不会先闪一条「暂无待办」。 -->
+                    <section class="todo-summary" id="todoSummary" hidden>
+                        <div class="todo-summary-head">
+                            <h2 class="todo-summary-title">待办</h2>
+                            <button type="button" class="btn btn-outline btn-sm" data-view="todos">查看全部 ›</button>
+                        </div>
+                        <p class="todo-summary-line" id="todoSummaryLine">暂无待办</p>
+                        <div class="todo-summary-list" id="todoSummaryList"></div>
+                    </section>
                     <div class="home-layout">
                         <div class="calendar">
                             <div class="cal-head">
@@ -198,6 +215,7 @@
             <iframe id="frameActivities" class="app-frame" data-loaded="0" hidden title="活动"></iframe>
             <iframe id="frameAcademic" class="app-frame" data-loaded="0" hidden title="学业"></iframe>
             <iframe id="frameNotices" class="app-frame" data-loaded="0" hidden title="通知"></iframe>
+            <iframe id="frameTodos" class="app-frame" data-loaded="0" hidden title="待办"></iframe>
             <iframe id="frameAccount" class="app-frame" data-loaded="0" hidden title="个人中心"></iframe>
             <iframe id="frameAdmin" class="app-frame" data-loaded="0" hidden title="管理员面板"></iframe>
         </div>

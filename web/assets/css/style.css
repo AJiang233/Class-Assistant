@@ -2178,3 +2178,141 @@ body.app-mode { overflow: hidden; }
     margin-top: 12px;
     flex-wrap: wrap;
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   待办（决策 1.C / 2.A / 3.A / 4.A）
+   末尾追加，不改动上面任何既有规则：这里只定义 todo-* 新类与两个新变量，
+   变量名是新的，不会盖掉前面媒体查询对既有变量的覆盖（见 :root 的那条注释）。
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* 黄色提醒的琥珀色。系统色板里没有 warning 语义色，这里按两种主题各给一档，
+   浅色下取深一点的琥珀以保证白底对比度，深色下用亮黄才压得住深底。 */
+:root {
+    --todo-warn: #a35a00;
+    --todo-warn-soft: rgba(255, 159, 10, 0.16);
+}
+:root[data-theme="dark"] {
+    --todo-warn: #ffd60a;
+    --todo-warn-soft: rgba(255, 214, 10, 0.18);
+}
+
+/* ── 首页摘要卡 ───────────────────────────────────────────────── */
+.todo-summary {
+    display: flex; flex-direction: column; gap: 10px;
+    margin: 0 0 24px; padding: 18px 20px;
+    background: var(--material);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--material-shadow), var(--specular);
+    animation: blockIn var(--dur-slow) var(--ease-standard) both;
+}
+.todo-summary-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+}
+.todo-summary-title {
+    margin: 0; font-size: 1.02rem; font-weight: 700;
+    letter-spacing: -0.01em; color: var(--text);
+}
+.todo-summary-line { margin: 0; font-size: 0.87rem; color: var(--text-secondary); }
+.todo-summary-list { display: flex; flex-direction: column; }
+/* 摘要里的一行：整行可点（data-view="todos"），所以用 button 而不是 div */
+.todo-summary-item {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 9px 0; border: none; background: none; font-family: inherit;
+    font-size: 0.92rem; text-align: left; color: var(--text); cursor: pointer;
+    transition: color var(--dur-fast) var(--ease-standard);
+}
+.todo-summary-item + .todo-summary-item { border-top: 1px solid var(--separator); }
+.todo-summary-item:hover { color: var(--accent); }
+/* 标题单行省略：待办标题可以很长，摘要卡不该被一条撑开 */
+.todo-summary-name {
+    flex: 1; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.todo-summary-when {
+    flex-shrink: 0; font-size: 0.83rem; color: var(--text-tertiary);
+    font-variant-numeric: tabular-nums;
+}
+.todo-summary-when.urgent { color: var(--danger); font-weight: 600; }
+
+/* ── 待办页：工具条 / 分段 / 提示条 / 标签筛选 ───────────────── */
+.todo-toolbar {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+    margin-bottom: 18px;
+}
+/* 分段控件默认 margin-bottom 24，这一页下面紧跟标签筛选，收一档更紧凑 */
+.todo-seg { margin-bottom: 16px; }
+
+.todo-flash {
+    margin-bottom: 16px; padding: 10px 14px;
+    font-size: 0.86rem; line-height: 1.5;
+    background: var(--accent-soft); color: var(--accent);
+    border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+    border-radius: var(--radius-md);
+}
+.todo-flash.error {
+    background: var(--danger-soft); color: var(--danger);
+    border-color: color-mix(in srgb, var(--danger) 30%, transparent);
+}
+
+.todo-filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+.todo-filter {
+    padding: 5px 13px; font-family: inherit; font-size: 0.84rem; cursor: pointer;
+    color: var(--text-secondary); background: var(--material-strong);
+    border: 1px solid var(--border); border-radius: var(--radius-pill);
+    transition: background-color var(--dur-fast) var(--ease-standard),
+                color var(--dur-fast) var(--ease-standard),
+                border-color var(--dur-fast) var(--ease-standard);
+}
+.todo-filter:hover { color: var(--text); border-color: var(--border-strong); }
+.todo-filter.on { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+
+.todo-history-note { margin: 0 0 14px; font-size: 0.86rem; color: var(--text-secondary); }
+.todo-more-wrap { margin-top: 16px; }
+
+/* ── 待办页：列表行 ────────────────────────────────────────────── */
+/* 复用 .list-row 的间距与分隔线，只把纵向对齐改成顶部：右侧操作区有多行按钮时，
+   标题应当跟第一行对齐，而不是被拉到整行中线。 */
+.todo-row { align-items: flex-start; }
+/* urgency 圆点：红 = 已超时/临期，琥珀 = 提醒档，灰 = 还早 */
+.todo-dot {
+    flex: 0 0 auto; width: 9px; height: 9px;
+    margin-top: 8px; border-radius: 50%;
+    background: var(--text-tertiary);
+}
+.todo-dot.todo-urgent { background: var(--danger); box-shadow: 0 0 0 3px var(--danger-soft); }
+.todo-dot.todo-warn { background: var(--todo-warn); box-shadow: 0 0 0 3px var(--todo-warn-soft); }
+.todo-row .list-row-title { flex-wrap: wrap; }
+/* 标签：比徽章更轻，读起来是「分类」而不是「状态」 */
+.todo-tag {
+    padding: 1px 8px; font-size: 0.76rem; line-height: 1.65;
+    color: var(--text-secondary); background: var(--bg-sunken);
+    border: 1px solid var(--border); border-radius: var(--radius-pill);
+}
+/* 相对剩余时间：颜色与圆点同义，文字本身说明还剩多久，不只靠颜色传达 */
+.todo-left { font-weight: 600; }
+.todo-left.todo-urgent { color: var(--danger); }
+.todo-left.todo-warn { color: var(--todo-warn); }
+.todo-left.todo-normal { color: var(--text-tertiary); }
+.todo-desc {
+    margin-top: 7px; font-size: 0.85rem; line-height: 1.6;
+    color: var(--text-tertiary); white-space: pre-wrap; word-break: break-word;
+}
+.todo-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; }
+
+/* ── 待办页：弹窗里的标签选择与成员多选 ─────────────────────── */
+.todo-tag-picker { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+.todo-tag-add { display: flex; align-items: center; gap: 8px; }
+.todo-tag-add .form-input { flex: 1; min-height: 38px; padding: 6px 12px; font-size: 0.9rem; }
+.todo-member-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    margin-bottom: 10px;
+}
+.todo-member-hint { font-size: 0.82rem; color: var(--text-secondary); }
+
+/* 窄屏：操作按钮换到标题下面一整行，避免把标题挤成一个字一行 */
+@media (max-width: 640px) {
+    .todo-row { flex-wrap: wrap; }
+    .todo-actions { width: 100%; justify-content: flex-end; padding-left: 25px; }
+    .todo-summary { padding: 16px 16px; }
+}

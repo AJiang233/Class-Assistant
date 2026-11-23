@@ -61,6 +61,28 @@
                                 <label class="form-label">提醒对象（未勾选则全班，不含「不计入班级管理」的职位）</label>
                                 <div id="ntcRemind" class="remind-box"></div>
                             </div>
+                            <!-- 附带待办（#99）：可选。勾选后才出现字段，未勾选时请求体里不带 todo -->
+                            <div class="form-field">
+                                <label class="consent-check">
+                                    <input type="checkbox" id="ntcTodo" data-act="toggle-notice-todo">
+                                    <span class="consent-check-text">同时加入大家的待办<small>勾选后，通知详情里会出现「加入我的待办」，同学可自行加入</small></span>
+                                </label>
+                            </div>
+                            <div id="ntcTodoFields" hidden>
+                                <div class="form-field">
+                                    <label class="form-label" for="ntcTodoTitle">待办标题（选填）</label>
+                                    <input id="ntcTodoTitle" class="form-input" type="text" placeholder="默认同通知标题" autocomplete="off">
+                                </div>
+                                <div class="form-field">
+                                    <label class="form-label" for="ntcTodoDue">待办截止时间</label>
+                                    <input id="ntcTodoDue" class="form-input" type="datetime-local" autocomplete="off">
+                                </div>
+                                <div class="form-field">
+                                    <label class="form-label" for="ntcTodoTagInput">待办标签（最多 4 个）</label>
+                                    <div id="ntcTodoTagBox" class="pos-picker mb-8"></div>
+                                    <input id="ntcTodoTagInput" class="form-input" type="text" placeholder="自定义标签，回车添加（1–12 字）" autocomplete="off">
+                                </div>
+                            </div>
                             <button type="button" class="btn btn-primary btn-block" id="ntcSubmitBtn" data-act="submit-notice">发布通知</button>
                         </div>
                     </div>
@@ -96,6 +118,28 @@
                             <div class="form-field">
                                 <label class="form-label">提醒对象（未勾选则全班，不含「不计入班级管理」的职位）</label>
                                 <div id="actRemind" class="remind-box"></div>
+                            </div>
+                            <!-- 附带待办（#99）：与通知同一套逻辑，勾选才出现字段 -->
+                            <div class="form-field">
+                                <label class="consent-check">
+                                    <input type="checkbox" id="actTodo" data-act="toggle-activity-todo">
+                                    <span class="consent-check-text">同时加入大家的待办<small>勾选后，活动详情里会出现「加入我的待办」，同学可自行加入</small></span>
+                                </label>
+                            </div>
+                            <div id="actTodoFields" hidden>
+                                <div class="form-field">
+                                    <label class="form-label" for="actTodoTitle">待办标题（选填）</label>
+                                    <input id="actTodoTitle" class="form-input" type="text" placeholder="默认同活动标题" autocomplete="off">
+                                </div>
+                                <div class="form-field">
+                                    <label class="form-label" for="actTodoDue">待办截止时间</label>
+                                    <input id="actTodoDue" class="form-input" type="datetime-local" autocomplete="off">
+                                </div>
+                                <div class="form-field">
+                                    <label class="form-label" for="actTodoTagInput">待办标签（最多 4 个）</label>
+                                    <div id="actTodoTagBox" class="pos-picker mb-8"></div>
+                                    <input id="actTodoTagInput" class="form-input" type="text" placeholder="自定义标签，回车添加（1–12 字）" autocomplete="off">
+                                </div>
                             </div>
                             <button type="button" class="btn btn-primary btn-block" id="actSubmitBtn" data-act="submit-activity">发布活动</button>
                         </div>

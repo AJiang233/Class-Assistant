@@ -1,0 +1,377 @@
+import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
+
+import worker from '../src/index.js';
+import { createSqliteDb } from './helpers/sqlite.js';
+import { hashPassword } from '../src/utils/crypto.js';
+import { sign } from '../src/utils/jwt.js';
+import { formatLocalDateTime } from '../src/utils/datetime.js';
+
+/**
+ * issue #99 待办功能的后端契约测试。
+ *
+ * 走完整 worker 路由（真实 JWT + 权限中间件），只把 D1 换成内存 SQLite；
+ * 时间统一用北京时间的本地字符串，和线上写库口径一致。
+ */
+
+const SECRET = 'test-secret';
+
+async function seedUser(db, { id = 1, studentId = '2022103071', positions = '学生', name = '张三' } = {}) {
+  const { hash, salt } = await hashPassword('pw123456');
+  db.sqlite
+    .prepare('INSERT INTO users(id,student_id,name,password_hash,positions) VALUES(?,?,?,?,?)')
+    .run(id, studentId, name, `${salt}:${hash}`, positions);
+  return { id, studentId };
+}
+
+async function tokenFor(id, studentId) {
+  return sign({ id, student_id: studentId }, SECRET, 60);
+}
+
+async function call(env, path, { method = 'GET', body, token } = {}) {
+  // token 既可以传字符串，也可以传 sign() 返回的 Promise（避免每处都写 await）
+  const authToken = await (token || tokenFor(1, '2022103071'));
+  const headers = { Authorization: `Bearer ${authToken}` };
+  const init = { method, headers };
+  if (body !== undefined) {
+    init.body = JSON.stringify(body);
+    headers['Content-Type'] = 'application/json';
+  }
+  const res = await worker.fetch(new Request('https://class.example' + path, init), env, {});
+  const json = await res.json().catch(() => null);
+  return { status: res.status, body: json, data: json && json.data };
+}
+
+function future(hours = 48) {
+  return formatLocalDateTime(Date.now() + hours * 3600 * 1000);
+}
+
+function past(hours = 1) {
+  return formatLocalDateTime(Date.now() - hours * 3600 * 1000);
+}
+
+describe('待办：新建 / 列表 / 完成 / 删除', () => {
+  it('新建后按截止时间升序；完成后进历史；标签去重', async (t) => {
+    const db = createSqliteDb(t);
+    await seedUser(db);
+    const env = { DB: db, JWT_SECRET: SECRET };
+
+    const later = await call(env, '/api/todos', {
+      method: 'POST',
+      body: { title: '晚一点', due_at: future(72), tags: ['作业', '考试', '作业'] }
+    });
+    assert.equal(later.status, 201);
+    assert.deepEqual(later.data.todo.tags, ['作业', '考试'], '重复标签只留一个');
+    assert.equal(later.data.todo.status, 'open');
+    assert.equal(later.data.todo.source, 'manual');
+
+    const sooner = await call(env, '/api/todos', {
+      method: 'POST',
+      body: { title: '先做的', due_at: future(24), description: '说明', start_at: future(1) }
+    });
+    assert.equal(sooner.status, 201);
+
+    let res = await call(env, '/api/todos');
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.data.list.map((x) => x.title), ['先做的', '晚一点'], '进行中按截止时间升序');
+    assert.equal(res.data.counts.open, 2);
+    assert.equal(res.data.counts.history, 0);
+    assert.equal(res.data.prefs.urgent_hours, 24);
+    assert.equal(res.data.prefs.warn_hours, 36);
+
+    // 完成靠前的这条：completed_at 要写、状态变 done
+    res = await call(env, `/api/todos/${sooner.data.todo.id}/status`, { method: 'POST', body: { status: 'done' } });
+    assert.equal(res.status, 200);
+    assert.equal(res.data.todo.status, 'done');
+    assert.ok(res.data.todo.completed_at);
+
+    res = await call(env, '/api/todos?status=history');
+    assert.deepEqual(res.data.list.map((x) => x.title), ['先做的']);
+    assert.equal(res.data.counts.open, 1);
+    assert.equal(res.data.counts.history, 1);
+
+    // 再打开：completed_at 清空
+    res = await call(env, `/api/todos/${sooner.data.todo.id}/status`, { method: 'POST', body: { status: 'open' } });
+    assert.equal(res.status, 200);
+    assert.equal(res.data.todo.status, 'open');
+    assert.equal(res.data.todo.completed_at, null);
+
+    // 删除
+    res = await call(env, `/api/todos/${later.data.todo.id}`, { method: 'DELETE' });
+    assert.equal(res.status, 200);
+    assert.equal(db.sqlite.prepare('SELECT count(*) AS n FROM todos').get().n, 1);
+  });
+
+  it('校验：标题必填、截止时间必须晚于现在、标签数量与长度上限', async (t) => {
+    const db = createSqliteDb(t);
+    await seedUser(db);
+    const env = { DB: db, JWT_SECRET: SECRET };
+
+    const noTitle = await call(env, '/api/todos', { method: 'POST', body: { due_at: future() } });
+    assert.equal(noTitle.status, 400);
+    assert.equal(noTitle.body.code, 'INVALID_TODO_TITLE');
+
+    const noDue = await call(env, '/api/todos', { method: 'POST', body: { title: '没有截止' } });
+    assert.equal(noDue.status, 400);
+    assert.equal(noDue.body.code, 'INVALID_TODO_TIME');
+
+    const pastDue = await call(env, '/api/todos', { method: 'POST', body: { title: '已经晚了', due_at: past() } });
+    assert.equal(pastDue.status, 400);
+    assert.equal(pastDue.body.code, 'TODO_DUE_PAST');
+
+    const badRange = await call(env, '/api/todos', {
+      method: 'POST',
+      body: { title: '倒着来', start_at: future(10), due_at: future(5) }
+    });
+    assert.equal(badRange.status, 400);
+    assert.equal(badRange.body.code, 'INVALID_TODO_TIME');
+
+    const tooManyTags = await call(env, '/api/todos', {
+      method: 'POST',
+      body: { title: '标签太多', due_at: future(), tags: ['a', 'b', 'c', 'd', 'e'] }
+    });
+    assert.equal(tooManyTags.status, 400);
+    assert.equal(tooManyTags.body.code, 'INVALID_TODO_TAGS');
+
+    const longTag = await call(env, '/api/todos', {
+      method: 'POST',
+      body: { title: '标签太长', due_at: future(), tags: ['一二三四五六七八九十十一十二'] }
+    });
+    assert.equal(longTag.status, 400);
+    assert.equal(longTag.body.code, 'INVALID_TODO_TAGS');
+
+    assert.equal(db.sqlite.prepare('SELECT count(*) AS n FROM todos').get().n, 0, '校验失败不能落库');
+  });
+
+  it('懒过期：过了截止时间的进行中待办在查询时变超时，之后不能再完成', async (t) => {
+    const db = createSqliteDb(t);
+    await seedUser(db);
+    const env = { DB: db, JWT_SECRET: SECRET };
+    db.sqlite.prepare(
+      "INSERT INTO todos(owner_id,title,due_at,status) VALUES(1,'拖过头了',?,'open')"
+    ).run(past(2));
+
+    const res = await call(env, '/api/todos');
+    assert.equal(res.status, 200);
+    assert.equal(res.data.counts.open, 0);
+    assert.equal(res.data.counts.overdue, 1, '超时要计入历史');
+    assert.equal(res.data.counts.history, 1);
+
+    const history = await call(env, '/api/todos?status=history');
+    assert.equal(history.data.list[0].status, 'expired');
+    assert.equal(history.data.list[0].urgency, 'overdue');
+
+    const done = await call(env, '/api/todos/1/status', { method: 'POST', body: { status: 'done' } });
+    assert.equal(done.status, 400);
+    assert.equal(done.body.code, 'TODO_EXPIRED');
+
+    const edit = await call(env, '/api/todos/1', { method: 'PUT', body: { title: '改个名' } });
+    assert.equal(edit.status, 400);
+    assert.equal(edit.body.code, 'TODO_LOCKED');
+  });
+
+  it('只能看和改自己的待办：别人的改、删、完成都是 403', async (t) => {
+    const db = createSqliteDb(t);
+    await seedUser(db, { id: 1, name: '张三' });
+    await seedUser(db, { id: 2, studentId: '2022103072', name: '李四' });
+    const env = { DB: db, JWT_SECRET: SECRET };
+
+    const created = await call(env, '/api/todos', { method: 'POST', body: { title: '张三的', due_at: future() } });
+    const id = created.data.todo.id;
+    const asLi = await tokenFor(2, '2022103072');
+
+    const list = await call(env, '/api/todos', { token: asLi });
+    assert.equal(list.data.list.length, 0);
+    assert.equal(list.data.counts.open, 0);
+
+    for (const [method, path, body] of [
+      ['PUT', `/api/todos/${id}`, { title: '偷改' }],
+      ['DELETE', `/api/todos/${id}`, undefined],
+      ['POST', `/api/todos/${id}/status`, { status: 'done' }]
+    ]) {
+      const res = await call(env, path, { method, body, token: asLi });
+      assert.equal(res.status, 403, `${method} ${path}`);
+    }
+    assert.equal(db.sqlite.prepare("SELECT status FROM todos WHERE id=?").get(id).status, 'open');
+  });
+});
+
+describe('待办：班委代加与撤回', () => {
+  it('一次给多人加；学生只看得到自己的；代加人只能撤回未完成的', async (t) => {
+    const db = createSqliteDb(t);
+    await seedUser(db, { id: 1, studentId: '2022103001', positions: '班长', name: '班长' });
+    await seedUser(db, { id: 2, studentId: '2022103002', name: '李四' });
+    await seedUser(db, { id: 3, studentId: '2022103003', name: '王五' });
+    const env = { DB: db, JWT_SECRET: SECRET };
+    const officer = await tokenFor(1, '2022103001');
+
+    const delegated = await call(env, '/api/todos/delegate', {
+      method: 'POST',
+      token: officer,
+      body: { user_ids: [2, 3, 2], title: '交班会材料', due_at: future(30), tags: ['材料'] }
+    });
+    assert.equal(delegated.status, 201);
+    assert.equal(delegated.data.created, 2, '重复 id 要去重');
+    assert.equal(db.sqlite.prepare('SELECT count(*) AS n FROM todos').get().n, 2);
+
+    const li = await call(env, '/api/todos', { token: tokenFor(2, '2022103002') });
+    assert.equal(li.data.list.length, 1);
+    assert.equal(li.data.list[0].created_by_name, '班长');
+
+    // 学生没权限代加
+    const forbidden = await call(env, '/api/todos/delegate', {
+      method: 'POST',
+      token: tokenFor(2, '2022103002'),
+      body: { user_ids: [3], title: '越权', due_at: future() }
+    });
+    assert.equal(forbidden.status, 403);
+
+    // 不存在的成员要整批拒绝，不能只加成功一半
+    const missing = await call(env, '/api/todos/delegate', {
+      method: 'POST',
+      token: officer,
+      body: { user_ids: [2, 999], title: '有幽灵', due_at: future() }
+    });
+    assert.equal(missing.status, 400);
+    assert.equal(missing.body.code, 'INVALID_MEMBERS');
+    assert.equal(db.sqlite.prepare("SELECT count(*) AS n FROM todos WHERE title='有幽灵'").get().n, 0);
+
+    // 李四把自己的完成掉，班长就不能撤回了
+    const liTodoId = li.data.list[0].id;
+    await call(env, `/api/todos/${liTodoId}/status`, {
+      method: 'POST', token: tokenFor(2, '2022103002'), body: { status: 'done' }
+    });
+    const cannotWithdraw = await call(env, `/api/todos/${liTodoId}`, { method: 'DELETE', token: officer });
+    assert.equal(cannotWithdraw.status, 403);
+
+    // 王五还没完成，班长可以撤回
+    const wang = await call(env, '/api/todos', { token: tokenFor(3, '2022103003') });
+    const withdraw = await call(env, `/api/todos/${wang.data.list[0].id}`, { method: 'DELETE', token: officer });
+    assert.equal(withdraw.status, 200);
+    assert.equal((await call(env, '/api/todos', { token: tokenFor(3, '2022103003') })).data.list.length, 0);
+  });
+});
+
+describe('待办：通知/活动附带的一键加入', () => {
+  it('发布时带 todo、详情回传、加入一次后再加是 duplicate、删通知清掉模板', async (t) => {
+    const db = createSqliteDb(t);
+    await seedUser(db, { id: 1, studentId: '2022103001', positions: '班长', name: '班长' });
+    await seedUser(db, { id: 2, studentId: '2022103002', name: '李四' });
+    const env = { DB: db, JWT_SECRET: SECRET };
+    const officer = await tokenFor(1, '2022103001');
+    const li = await tokenFor(2, '2022103002');
+
+    const created = await call(env, '/api/notices', {
+      method: 'POST',
+      token: officer,
+      body: {
+        title: '提交实验报告',
+        content: '本周五前交',
+        publish_time: '2026-11-23 08:00:00',
+        todo: { title: '交实验报告', due_at: future(48), tags: ['作业'] }
+      }
+    });
+    assert.equal(created.status, 201);
+    assert.equal(created.data.todo_saved, true);
+    const noticeId = db.sqlite.prepare('SELECT id FROM notices ORDER BY id DESC').get().id;
+    assert.equal(db.sqlite.prepare('SELECT count(*) AS n FROM content_todos').get().n, 1);
+
+    const detail = await call(env, `/api/notices/${noticeId}`, { token: li });
+    assert.equal(detail.status, 200);
+    assert.equal(detail.data.todo.title, '交实验报告');
+    assert.deepEqual(detail.data.todo.tags, ['作业']);
+    assert.equal(detail.data.todo.joined, false);
+
+    const joined = await call(env, '/api/todos/from-source', {
+      method: 'POST', token: li, body: { kind: 'notice', id: noticeId }
+    });
+    assert.equal(joined.status, 201);
+    assert.equal(joined.data.todo.source, 'notice');
+    assert.equal(joined.data.todo.source_id, noticeId);
+    assert.equal(joined.data.todo.status, 'open');
+
+    const dup = await call(env, '/api/todos/from-source', {
+      method: 'POST', token: li, body: { kind: 'notice', id: noticeId }
+    });
+    assert.equal(dup.status, 200);
+    assert.equal(dup.data.duplicate, true);
+    assert.equal((await call(env, '/api/todos', { token: li })).data.list.length, 1);
+
+    const detailAfter = await call(env, `/api/notices/${noticeId}`, { token: li });
+    assert.equal(detailAfter.data.todo.joined, true);
+
+    // 删通知：触发器要连带删掉待办模板，之后再加入是 404
+    const removed = await call(env, `/api/notices/${noticeId}`, { method: 'DELETE', token: officer });
+    assert.equal(removed.status, 200);
+    assert.equal(db.sqlite.prepare('SELECT count(*) AS n FROM content_todos').get().n, 0);
+    const gone = await call(env, '/api/todos/from-source', {
+      method: 'POST', token: li, body: { kind: 'notice', id: noticeId }
+    });
+    assert.equal(gone.status, 404);
+    assert.equal(gone.body.code, 'SOURCE_TODO_NOT_FOUND');
+  });
+
+  it('附带待办的截止时间不合法时整条通知都不发布', async (t) => {
+    const db = createSqliteDb(t);
+    await seedUser(db, { id: 1, studentId: '2022103001', positions: '班长', name: '班长' });
+    const env = { DB: db, JWT_SECRET: SECRET };
+
+    const res = await call(env, '/api/notices', {
+      method: 'POST',
+      token: tokenFor(1, '2022103001'),
+      body: {
+        title: '不该发出去',
+        content: '内容',
+        publish_time: '2026-11-23 08:00:00',
+        todo: { title: '已经过期', due_at: past(2) }
+      }
+    });
+    assert.equal(res.status, 400);
+    assert.equal(res.body.code, 'TODO_DUE_PAST');
+    assert.equal(db.sqlite.prepare('SELECT count(*) AS n FROM notices').get().n, 0);
+    assert.equal(db.sqlite.prepare('SELECT count(*) AS n FROM content_todos').get().n, 0);
+  });
+});
+
+describe('待办：每人自定义红黄阈值', () => {
+  it('默认 24/36；改阈值后同一个待办的紧急度跟着变', async (t) => {
+    const db = createSqliteDb(t);
+    await seedUser(db);
+    const env = { DB: db, JWT_SECRET: SECRET };
+
+    const defaults = await call(env, '/api/todos/prefs');
+    assert.equal(defaults.status, 200);
+    assert.deepEqual(defaults.data.prefs, { urgent_hours: 24, warn_hours: 36 });
+
+    const saved = await call(env, '/api/todos/prefs', {
+      method: 'PUT',
+      body: { urgent_hours: 2, warn_hours: 5 }
+    });
+    assert.equal(saved.status, 200);
+    assert.deepEqual(saved.data.prefs, { urgent_hours: 2, warn_hours: 5 });
+
+    // 4 小时后截止：阈值 2/5 → 黄
+    const created = await call(env, '/api/todos', { method: 'POST', body: { title: '快到了', due_at: future(4) } });
+    const id = created.data.todo.id;
+    assert.equal(created.data.todo.urgency, 'warn');
+
+    // 阈值改成 6/9 → 4 小时进入红色区间
+    await call(env, '/api/todos/prefs', { method: 'PUT', body: { urgent_hours: 6, warn_hours: 9 } });
+    const relisted = await call(env, '/api/todos');
+    const row = relisted.data.list.find((x) => x.id === id);
+    assert.equal(row.urgency, 'urgent');
+    assert.deepEqual(relisted.data.prefs, { urgent_hours: 6, warn_hours: 9 });
+
+    for (const bad of [
+      { urgent_hours: 0, warn_hours: 10 },
+      { urgent_hours: 10, warn_hours: 10 },
+      { urgent_hours: 3, warn_hours: 2 },
+      { urgent_hours: 1.5, warn_hours: 10 },
+      { urgent_hours: '2', warn_hours: 10 }
+    ]) {
+      const res = await call(env, '/api/todos/prefs', { method: 'PUT', body: bad });
+      assert.equal(res.status, 400, JSON.stringify(bad));
+      assert.equal(res.body.code, 'INVALID_PREFS');
+    }
+  });
+});

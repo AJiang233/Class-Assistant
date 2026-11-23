@@ -156,6 +156,55 @@ document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape' && editOverlay.classList.contains('show')) cancelEdit();
 });
 
+// 通知附带的待办（#99）：joined 由服务端按当前用户算，详情每次打开都重建 innerHTML，
+// 所以按钮状态天然按最新 joined 重置，不会残留上一次的「已加入」。
+function todoBlockHTML(todo, kind, id) {
+    if (!todo) return '';
+    var tagList = todo.tags;
+    if (typeof tagList === 'string') { try { tagList = JSON.parse(tagList); } catch (e) { tagList = []; } }
+    if (!Array.isArray(tagList)) tagList = [];
+    var tags = tagList.map(function (t) { return '<span class="pos-tag">' + esc(t) + '</span>'; }).join('');
+    // 已加入的人只能看到禁用态：重复加入由后端做幂等，这里不必给按钮
+    var btn = todo.joined
+        ? '<button type="button" class="btn btn-outline" disabled>已加入我的待办</button>'
+        : '<button type="button" class="btn btn-primary" data-act="add-todo-from-source" data-kind="' + escAttr(kind)
+          + '" data-id="' + escAttr(id) + '">加入我的待办</button>';
+    return '<div class="mt-12" data-todo-block>'
+        + '<div class="detail-remind"><span>' + icon('clock') + '待办：' + esc(todo.title) + '</span>'
+        + '<span>截止：' + esc(fmtDate(todo.due_at)) + '</span></div>'
+        + (tags ? '<div class="detail-remind">' + tags + '</div>' : '')
+        + '<div class="modal-foot">' + btn + '</div>'
+        + '</div>';
+}
+
+// 加入我的待办：201（新建）与 200（duplicate，已加入过）都算成功，按钮统一变禁用态。
+async function addTodoFromSource(btn) {
+    var block = btn.closest ? btn.closest('[data-todo-block]') : null;
+    var label = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '加入中…';
+    try {
+        await api('/api/todos/from-source', {
+            method: 'POST',
+            body: JSON.stringify({ kind: btn.getAttribute('data-kind'), id: btn.getAttribute('data-id') })
+        });
+        btn.className = 'btn btn-outline';
+        btn.textContent = '已加入我的待办';
+        btn.disabled = true;
+    } catch (err) {
+        if (err.code === 'SOURCE_TODO_EXPIRED') {
+            btn.disabled = false; btn.textContent = label;
+            alert('这条待办已过期，不能再加入');
+        } else if (err.code === 'SOURCE_TODO_NOT_FOUND') {
+            alert('这条待办已被删除');
+            if (block && block.parentNode) block.parentNode.removeChild(block);
+        } else {
+            btn.disabled = false; btn.textContent = label;
+            alert(err.message);
+        }
+    }
+}
+
 async function showDetail(id) {
     var card = document.getElementById('detailCard');
     card.innerHTML = stateHTML('正在加载…', false, 'clock');
@@ -182,12 +231,14 @@ async function showDetail(id) {
         var formBtn = n.link
             ? '<a class="btn btn-primary btn-block mt-12" href="' + escAttr(safeHref(n.link)) + '" target="_top">去填写</a>'
             : '';
+        var todoBlock = todoBlockHTML(n.todo, 'notice', n.id);
         card.innerHTML =
             '<div class="detail-head"><div class="detail-title">' + esc(n.title) + '</div>' + badge + '</div>'
             + '<div class="detail-meta">' + meta + '</div>'
             + '<div class="detail-body">' + esc(n.content || '暂无通知内容') + '</div>'
             + byline
             + remindLine
+            + todoBlock
             + formBtn
             + actBtns;
     } catch (err) {
@@ -272,6 +323,7 @@ delegate(document, 'click', '[data-act="cancel-edit"]', function () { cancelEdit
 delegate(document, 'click', '[data-act="edit-notice"]', function (el) { startEdit(el.getAttribute('data-id')); });
 delegate(document, 'click', '[data-act="del-notice"]', function (el) { deleteNotice(el.getAttribute('data-id')); });
 delegate(document, 'click', '[data-act="notice-detail"]', function (el) { showDetail(el.getAttribute('data-id')); });
+delegate(document, 'click', '[data-act="add-todo-from-source"]', function (el) { addTodoFromSource(el); });
 
 var deepNoticeId = new URLSearchParams(location.search).get('id');
 if (deepNoticeId) showDetail(deepNoticeId);

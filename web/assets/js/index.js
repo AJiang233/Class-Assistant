@@ -6,7 +6,7 @@ var activeDate = null;
 
 // 视图 → iframe 映射。switchView / slideShownView 在下面的初始化里就要读它，
 // 所以必须声明在初始化之前：靠 var 提升拿到的是 undefined，会导致 ?view=xxx 抛错、白屏。
-var FRAME_KEYS = { academic: 'frameAcademic', activities: 'frameActivities', notices: 'frameNotices', account: 'frameAccount', admin: 'frameAdmin' };
+var FRAME_KEYS = { academic: 'frameAcademic', activities: 'frameActivities', notices: 'frameNotices', todos: 'frameTodos', account: 'frameAccount', admin: 'frameAdmin' };
 
 // ===== 初始化 =====
 (function () {
@@ -49,7 +49,7 @@ var FRAME_KEYS = { academic: 'frameAcademic', activities: 'frameActivities', not
     try {
         var params = new URLSearchParams(window.location.search);
         var v = params.get('view');
-        if (v && ['academic', 'activities', 'notices', 'account', 'admin'].indexOf(v) >= 0) target = v;
+        if (v && ['academic', 'activities', 'notices', 'todos', 'account', 'admin'].indexOf(v) >= 0) target = v;
         deepId = params.get('id') || '';
     } catch (e) {}
     // ?view=notices&id=123 深链（App 点提醒会带过来）：先把 iframe 的 src 指到带 id 的地址，
@@ -119,7 +119,7 @@ function switchView(key, slideDir) {
     // 当前应高亮的导航项：未登录显示登录视图时，"个人中心"保持高亮
     var navKey = key === 'login' ? 'account' : key;
     // 侧边栏 active 状态
-    ['home', 'academic', 'activities', 'notices', 'account', 'admin'].forEach(function (k) {
+    ['home', 'academic', 'activities', 'notices', 'todos', 'account', 'admin'].forEach(function (k) {
         var el = document.getElementById('nav' + k.charAt(0).toUpperCase() + k.slice(1));
         if (el) el.classList.toggle('active', k === navKey);
     });
@@ -154,6 +154,9 @@ function switchView(key, slideDir) {
         // 问候语每次切回主页都重算：安卓壳里的 WebView 会常驻过夜，切回来时不该还挂着「早上好」
         // （不做定时器 —— 停在主页不动时文案不会自己变，这个代价比常驻一个 interval 划算）
         renderGreeting();
+        // 待办摘要也在这里重取：在待办页点了「完成」再切回主页，数字和列表都得是最新的
+        // （首屏也走这条路径，所以初始化里不必再单独调一次）
+        if (authed) loadTodoSummary();
     }
     slideShownView(isHome, isLogin, key, slideDir);
 }
@@ -173,7 +176,7 @@ function renderGreeting() {
 // 除登录视图外不再有「哪个页面不给滑动」的豁免：只要进了这串列表就能划入划出。
 // 教务页（课表）同样可划入划出：课表的横向滚动
 // 由 isHorizontallyScrollable 单独让位，不需要在页级再拦一道。
-var SWIPE_PAGES = ['home', 'notices', 'activities', 'academic', 'account', 'admin'];
+var SWIPE_PAGES = ['home', 'notices', 'activities', 'todos', 'academic', 'account', 'admin'];
 var SWIPE_THRESHOLD = 35;
 // 屏幕左缘约 20px 是 iOS 系统「返回上一层」手势的判定区。
 // 我们的监听是 passive 的、无法 preventDefault，若不在起点就放手，
@@ -520,6 +523,54 @@ function formRowHTML(f, submitted) {
         + '</div>'
         + '<svg class="list-row-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>'
         + '</a>';
+}
+
+// ===== 首页待办摘要（决策 1.C：首页只放一条摘要，整页在 todos.html） =====
+/** 列表里的截止时间：今年省掉年份，与待办页的写法保持一致 */
+function todoSummaryWhen(v) {
+    if (!v) return '';
+    var s = String(v).replace('T', ' ').slice(0, 16);
+    return s.slice(0, 4) === String(new Date().getFullYear()) ? s.slice(5) : s;
+}
+
+/**
+ * 取 3 条最近截止的进行中待办 + 服务端的 counts 画一条摘要。
+ * 失败时卡片仍然显示、换一行错误文案：首页其余内容不该被这个次要模块拖住，
+ * 但也不能继续摆「暂无待办」——那会让用户以为自己的待办丢了。
+ */
+async function loadTodoSummary() {
+    var box = document.getElementById('todoSummary');
+    var line = document.getElementById('todoSummaryLine');
+    var list = document.getElementById('todoSummaryList');
+    if (!box || !line || !list) return;
+    try {
+        var res = await api('/api/todos?status=open&limit=3');
+        var data = res.data || {};
+        var counts = data.counts || {};
+        var items = data.list || [];
+        var open = counts.open || 0;
+        var overdue = counts.overdue || 0;
+        // 超时数来自 counts 而不是 items：items 只有 3 条，数不出全量（已超时的件也不在 open 列表里）
+        if (!open && !overdue) {
+            line.textContent = '暂无待办';
+        } else if (overdue) {
+            line.textContent = open + ' 条进行中，' + overdue + ' 条已超时';
+        } else {
+            line.textContent = open + ' 条进行中';
+        }
+        list.innerHTML = items.map(function (t) {
+            var urgent = t.urgency === 'overdue' || t.urgency === 'urgent' ? ' urgent' : '';
+            return '<button type="button" class="todo-summary-item" data-view="todos">'
+                + '<span class="todo-summary-name">' + esc(t.title) + '</span>'
+                + '<span class="todo-summary-when' + urgent + '">' + esc(todoSummaryWhen(t.due_at)) + '</span>'
+                + '</button>';
+        }).join('');
+        box.hidden = false;
+    } catch (err) {
+        line.textContent = '待办摘要加载失败：' + err.message;
+        list.innerHTML = '';
+        box.hidden = false;
+    }
 }
 
 async function loadActivities(date) {
