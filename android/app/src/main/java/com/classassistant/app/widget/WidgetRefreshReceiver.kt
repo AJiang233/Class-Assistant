@@ -35,6 +35,8 @@ class WidgetRefreshReceiver : BroadcastReceiver() {
                 Scheduler.scheduleMidnightRefresh(context)
                 // 时间/时区变了，课程闹钟的绝对触发时刻要重算
                 Scheduler.rescheduleCourseAlarms(context)
+                // 待办的触发时刻也是绝对毫秒（截止 - 提前量），同一次重算
+                Scheduler.rescheduleTodoAlarms(context)
                 // 换天了，让数据也跟上：同步那一轮会把「今天」那两个列表键按当天日期重新算出来
                 // （OfflineApi.prewarmPaths），早上打开 App 才不用等网络。
                 //
@@ -51,6 +53,7 @@ class WidgetRefreshReceiver : BroadcastReceiver() {
                 Scheduler.refreshWidgets(context)
                 Scheduler.scheduleMidnightRefresh(context)
                 Scheduler.rescheduleCourseAlarms(context)
+                Scheduler.rescheduleTodoAlarms(context)
                 // 前台服务也随安装一起没了，这里重新挂上
                 BackgroundMode.apply(context)
             }

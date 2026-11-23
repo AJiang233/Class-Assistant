@@ -2,6 +2,7 @@ package com.classassistant.app.data
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.classassistant.app.sync.TODO_REMIND_DEFAULT
 import org.json.JSONArray
 
 /**
@@ -27,6 +28,10 @@ object Store {
     private const val KEY_BACKGROUND_ALWAYS_ON = "background_always_on"
     private const val KEY_THEME_DARK = "theme_dark"
     private const val KEY_WARM_KEYS = "warm_cache_keys"
+    private const val KEY_TODO_ITEMS = "todo_items"
+    private const val KEY_TODO_REMIND_LEAD = "todo_remind_lead"
+    private const val KEY_TODO_ALARMS = "scheduled_todo_alarm_ids"
+    private const val KEY_TODO_REMINDED = "todo_reminded_keys"
 
     /** 课程提醒默认提前多少分钟；0 = 不提前提醒 */
     const val DEFAULT_COURSE_LEAD = 15
@@ -85,6 +90,9 @@ object Store {
             // 旧闹钟还会继续按上一个账号的课表响。
             // 但两个**设置值**（提前量 / 开课时提醒）不清 —— 那是这台设备的偏好，与账号无关。
             .remove(KEY_TIMETABLE).remove(KEY_COURSE_ALARMS)
+            // 待办快照 / 闹钟名单 / 已提醒标记同理：换账号后不能继续按上一个账号的待办响。
+            // 提前量设置不清 —— 与课程提醒一样是这台设备的偏好。
+            .remove(KEY_TODO_ITEMS).remove(KEY_TODO_ALARMS).remove(KEY_TODO_REMINDED)
             // 预热键跟着离线缓存一起清：两者是配套的（缓存没了，预热清单里留着旧键只会
             // 白拉一份没人读的数据）。换账号后重新打开页面自然会再记一遍。
             .remove(KEY_WARM_KEYS)
@@ -230,6 +238,49 @@ object Store {
 
     fun saveScheduledCourseAlarms(context: Context, ids: Set<String>) {
         sp(context).edit().putStringSet(KEY_COURSE_ALARMS, ids).apply()
+    }
+
+    // ===== 待办快照 / 到期提醒（见 sync/TodoReminder） =====
+
+    /**
+     * 本地保存的「进行中待办」快照（[com.classassistant.app.sync.TodoReminderItem] 组成的
+     * JSON 数组）。待办页的离线缓存走 OfflineApi；这份是**给到期提醒排期用的**：
+     * 断网或 App 冷启动时不必再拉一次接口，也能按上次同步到的截止时间排好闹钟。
+     */
+    fun todoItemsJson(context: Context): String? = sp(context).getString(KEY_TODO_ITEMS, null)
+
+    fun saveTodoItemsJson(context: Context, json: String) {
+        sp(context).edit().putString(KEY_TODO_ITEMS, json).apply()
+    }
+
+    /** 截止前多少分钟提醒；0 = 不提醒。默认 1 小时（见 TODO_REMIND_DEFAULT） */
+    fun todoRemindLead(context: Context): Int =
+        sp(context).getInt(KEY_TODO_REMIND_LEAD, TODO_REMIND_DEFAULT)
+
+    fun setTodoRemindLead(context: Context, minutes: Int) {
+        sp(context).edit().putInt(KEY_TODO_REMIND_LEAD, minutes).apply()
+    }
+
+    fun scheduledTodoAlarms(context: Context): Set<String> =
+        sp(context).getStringSet(KEY_TODO_ALARMS, emptySet()) ?: emptySet()
+
+    fun saveScheduledTodoAlarms(context: Context, ids: Set<String>) {
+        sp(context).edit().putStringSet(KEY_TODO_ALARMS, ids).apply()
+    }
+
+    /**
+     * 已经排过（或已经响过）的 `id@截止毫秒`。
+     *
+     * 只用来解决一个具体问题：一条待办是**在提前量窗口内**才同步到的（比如 1 小时后截止、
+     * 提前量也是 1 小时），直接排「立即提醒」；若不加记录，下一轮同步又看见它、
+     * 又排一次，用户会被同一条待办反复提醒。正常提前排上的也记在这里，
+     * 这样窗口过去后再同步不会把它当成「刚发现的新待办」补响一次。
+     */
+    fun todoRemindedKeys(context: Context): Set<String> =
+        sp(context).getStringSet(KEY_TODO_REMINDED, emptySet()) ?: emptySet()
+
+    fun saveTodoRemindedKeys(context: Context, keys: Set<String>) {
+        sp(context).edit().putStringSet(KEY_TODO_REMINDED, keys).apply()
     }
 
     // ===== 后台常驻开关（网页个人页经 CAHost 桥读写，见 sync/BackgroundMode） =====

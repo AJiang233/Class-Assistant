@@ -127,6 +127,19 @@ window.__caApiUpdated = function (key, json) {
 };
 
 /**
+ * 待办一变，通知原生层立刻重取列表、重排到期闹钟（仅 App 壳，网页版静默跳过）。
+ *
+ * 新建 / 完成 / 删除 / 改提醒设置都会改变「接下来该在哪一刻提醒哪几条」。如果等下一次
+ * 定时同步再排，设成「提前 10 分钟」的待办可能到点都还没排上 —— 所以这里主动催一拍，
+ * 不等后台周期。原生层失败也不影响页面本身的操作，吞掉异常即可。
+ */
+function notifyTodoChanged() {
+  try {
+    if (window.CAHost && typeof CAHost.todoChanged === 'function') CAHost.todoChanged();
+  } catch (e) { /* 桥不可用：下个同步周期会自己补上 */ }
+}
+
+/**
  * 推送测试结果的跨 iframe 转发（issue #84 项 17 的配套）：原生的 evaluateJavascript
  * 只能执行在**顶层文档**，而个人页跑在 frameAccount 里 —— 不在顶层转发一层的话，
  * 顶层根本没有 __caTestNotifyResult，回调被 `&&` 静默丢弃，按钮永远停在「推送中…」。

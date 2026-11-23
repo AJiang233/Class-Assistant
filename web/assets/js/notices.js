@@ -188,6 +188,7 @@ async function addTodoFromSource(btn) {
             method: 'POST',
             body: JSON.stringify({ kind: btn.getAttribute('data-kind'), id: btn.getAttribute('data-id') })
         });
+        notifyTodoChanged();
         btn.className = 'btn btn-outline';
         btn.textContent = '已加入我的待办';
         btn.disabled = true;

@@ -654,6 +654,63 @@ function saveCourseReminder() {
 }
 refreshCourseCard();
 
+// ===== 待办到期提醒（仅 App 壳）=====
+// 与课程提醒同一套路：到点提醒靠原生 AlarmManager，网页版没有这个能力；提前量也存在
+// 原生侧（SharedPreferences），这边只读写。桥返回 JSON 字符串：
+//   {"lead":60,"todoCount":3}
+// todoCount 是本机快照里的「进行中待办」条数，用来分辨「确实没有待办」与
+// 「本机还没同步到待办」—— 否则用户设了提醒却什么都没发生，看不出是哪一种。
+var TODO_LEAD_LABEL = {
+    0: '不提醒', 10: '提前 10 分钟', 30: '提前 30 分钟', 60: '提前 1 小时',
+    120: '提前 2 小时', 180: '提前 3 小时', 360: '提前 6 小时',
+    720: '提前 12 小时', 1440: '提前 1 天'
+};
+
+function readTodoSettings() {
+    if (!window.CAHost || typeof CAHost.todoReminderSettings !== 'function') return null;
+    try { return JSON.parse(CAHost.todoReminderSettings() || '') || null; } catch (e) { return null; }
+}
+
+function renderTodoStatus(info, saved) {
+    var el = document.getElementById('todoStatus');
+    if (!el) return;
+    if (!info) { el.textContent = ''; return; }
+    if (!info.todoCount) {
+        el.textContent = '本机还没有进行中的待办：同步过一次后，新建的待办会自动排上提醒。';
+        return;
+    }
+    var lead = TODO_LEAD_LABEL[info.lead] || ('提前 ' + info.lead + ' 分钟');
+    el.textContent = (saved ? '已保存：' : '当前：') + lead
+        + ' · 已同步 ' + info.todoCount + ' 条进行中待办';
+}
+
+function refreshTodoCard() {
+    var card = document.getElementById('todoCard');
+    if (!card) return;
+    var info = readTodoSettings();
+    if (!info) return;   // 网页版没有这个桥：整块保持隐藏，不给一个点了没反应的设置项
+    var leadSel = document.getElementById('todoLead');
+    if (leadSel) leadSel.value = String(info.lead);
+    card.hidden = false;
+    renderTodoStatus(info, false);
+}
+
+/** 改完即存（没有「保存」按钮）：原生侧会立刻重排闹钟 */
+function saveTodoReminder() {
+    if (!window.CAHost || typeof CAHost.saveTodoReminderSettings !== 'function') return;
+    var leadSel = document.getElementById('todoLead');
+    var lead = parseInt(leadSel ? leadSel.value : '0', 10);
+    if (isNaN(lead)) lead = 0;
+    try {
+        var info = JSON.parse(CAHost.saveTodoReminderSettings(lead) || '') || null;
+        renderTodoStatus(info, true);
+    } catch (e) {
+        // 存失败就退回实际生效的值，别让页面显示一个没写进去的数字
+        refreshTodoCard();
+    }
+}
+refreshTodoCard();
+
 // ===== 后台通知（仅 App 壳） =====
 // 状态全部来自 CAHost.backgroundStatus()，它返回：
 //   {"enabled":true,"running":true,"ignoringBattery":false,"standbyBucket":"active"}
@@ -1960,6 +2017,7 @@ delegate(document, 'click', '[data-act="test-push-self"]', function () { testPus
 delegate(document, 'click', '[data-act="disable-push"]', function () { disablePush(); });
 delegate(document, 'click', '[data-act="test-push"]', function (el) { testPush(el.getAttribute('data-arg')); });
 delegate(document, 'change', '[data-act="save-course-reminder"]', function () { saveCourseReminder(); });
+delegate(document, 'change', '[data-act="save-todo-reminder"]', function () { saveTodoReminder(); });
 delegate(document, 'change', '[data-act="save-background-always-on"]', function () { saveBackgroundAlwaysOn(); });
 delegate(document, 'click', '[data-act="open-battery-action"]', function () { openBatteryAction(); });
 delegate(document, 'click', '[data-act="open-auto-start"]', function () { openAutoStart(); });

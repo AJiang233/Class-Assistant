@@ -101,6 +101,22 @@ class OfflineApiTest {
         assertTrue(!OfflineApi.isStatefulKey("/api/academic/credits", "/api/academic/credits"))
     }
 
+    /**
+     * 待办（#99 的缓存部分）。与课表同一套机制：后台同步按这三条 URL 预热，网页离线时
+     * 按自己的键取。三条的参数顺序必须与 `web/assets/js/index.js` / `todos.js` 逐字一致，
+     * 差一个参数就命中不到 —— 表现成「进待办页还是要等一次网络」，不会报错。
+     */
+    @Test
+    fun `待办的三条预热 URL 与网页请求逐字一致`() {
+        val paths = OfflineApi.prewarmPaths(noon(2026, 9, 14, shanghai), shanghai)
+        assertTrue(paths.contains("/api/todos?status=open&limit=3"))
+        assertTrue(paths.contains("/api/todos?status=open&limit=50&offset=0"))
+        assertTrue(paths.contains("/api/todos?status=history&limit=50&offset=0"))
+        assertTrue(OfflineApi.isCacheablePath("/api/todos"))
+        // 按列表形状存，和通知 / 活动一致（缓存文件前缀不同）
+        assertTrue(OfflineApi.isListPath("/api/todos"))
+    }
+
     @Test
     fun `预热清单带上记下的键，已有的不重复`() {
         val paths = OfflineApi.prewarmPaths(

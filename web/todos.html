@@ -136,6 +136,23 @@
                             <label class="form-label" for="pfWarn">黄色提醒（小时前，2–720）</label>
                             <input class="form-input" type="number" id="pfWarn" min="2" max="720" step="1">
                         </div>
+                        <!-- 到期前提醒：只有 App 壳能真的弹通知（原生 AlarmManager 排期）；
+                             网页版没有桥，这一块保持隐藏，不出现一个设了也没用的选项。 -->
+                        <div class="form-field" id="pfRemindField" hidden>
+                            <label class="form-label" for="pfRemind">到期前多久弹通知</label>
+                            <select class="form-input" id="pfRemind">
+                                <option value="0">不提醒</option>
+                                <option value="10">提前 10 分钟</option>
+                                <option value="30">提前 30 分钟</option>
+                                <option value="60">提前 1 小时</option>
+                                <option value="120">提前 2 小时</option>
+                                <option value="180">提前 3 小时</option>
+                                <option value="360">提前 6 小时</option>
+                                <option value="720">提前 12 小时</option>
+                                <option value="1440">提前 1 天</option>
+                            </select>
+                            <p class="page-desc" id="pfRemindStatus"></p>
+                        </div>
                     </div>
                     <div class="modal-foot">
                         <button type="button" class="btn btn-outline" data-act="cancel-prefs">取消</button>

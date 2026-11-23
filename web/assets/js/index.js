@@ -538,40 +538,54 @@ function todoSummaryWhen(v) {
  * 失败时卡片仍然显示、换一行错误文案：首页其余内容不该被这个次要模块拖住，
  * 但也不能继续摆「暂无待办」——那会让用户以为自己的待办丢了。
  */
-async function loadTodoSummary() {
+var TODO_SUMMARY_KEY = '/api/todos?status=open&limit=3';
+
+function renderTodoSummary(data) {
     var box = document.getElementById('todoSummary');
     var line = document.getElementById('todoSummaryLine');
     var list = document.getElementById('todoSummaryList');
     if (!box || !line || !list) return;
+    data = data || {};
+    var counts = data.counts || {};
+    var items = data.list || [];
+    var open = counts.open || 0;
+    var overdue = counts.overdue || 0;
+    // 超时数来自 counts 而不是 items：items 只有 3 条，数不出全量（已超时的件也不在 open 列表里）
+    if (!open && !overdue) {
+        line.textContent = '暂无待办';
+    } else if (overdue) {
+        line.textContent = open + ' 条进行中，' + overdue + ' 条已超时';
+    } else {
+        line.textContent = open + ' 条进行中';
+    }
+    list.innerHTML = items.map(function (t) {
+        var urgent = t.urgency === 'overdue' || t.urgency === 'urgent' ? ' urgent' : '';
+        return '<button type="button" class="todo-summary-item" data-view="todos">'
+            + '<span class="todo-summary-name">' + esc(t.title) + '</span>'
+            + '<span class="todo-summary-when' + urgent + '">' + esc(todoSummaryWhen(t.due_at)) + '</span>'
+            + '</button>';
+    }).join('');
+    box.hidden = false;
+}
+
+async function loadTodoSummary() {
+    var line = document.getElementById('todoSummaryLine');
     try {
-        var res = await api('/api/todos?status=open&limit=3');
-        var data = res.data || {};
-        var counts = data.counts || {};
-        var items = data.list || [];
-        var open = counts.open || 0;
-        var overdue = counts.overdue || 0;
-        // 超时数来自 counts 而不是 items：items 只有 3 条，数不出全量（已超时的件也不在 open 列表里）
-        if (!open && !overdue) {
-            line.textContent = '暂无待办';
-        } else if (overdue) {
-            line.textContent = open + ' 条进行中，' + overdue + ' 条已超时';
-        } else {
-            line.textContent = open + ' 条进行中';
-        }
-        list.innerHTML = items.map(function (t) {
-            var urgent = t.urgency === 'overdue' || t.urgency === 'urgent' ? ' urgent' : '';
-            return '<button type="button" class="todo-summary-item" data-view="todos">'
-                + '<span class="todo-summary-name">' + esc(t.title) + '</span>'
-                + '<span class="todo-summary-when' + urgent + '">' + esc(todoSummaryWhen(t.due_at)) + '</span>'
-                + '</button>';
-        }).join('');
-        box.hidden = false;
+        var res = await api(TODO_SUMMARY_KEY);
+        renderTodoSummary(res.data || {});
     } catch (err) {
+        if (!line) return;
         line.textContent = '待办摘要加载失败：' + err.message;
-        list.innerHTML = '';
-        box.hidden = false;
+        var list = document.getElementById('todoSummaryList');
+        if (list) list.innerHTML = '';
+        var box = document.getElementById('todoSummary');
+        if (box) box.hidden = false;
     }
 }
+
+// App 壳：原生层后台刷新完会把最新摘要推回这个键上（网页版注册了也不会被调用）。
+// 键必须与上面的请求一字不差，否则只会静默不生效。
+onApiData(TODO_SUMMARY_KEY, renderTodoSummary);
 
 async function loadActivities(date) {
     var el = document.getElementById('activityList');

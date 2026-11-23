@@ -10,6 +10,8 @@
     <string name="channel_notice_desc">班委发布新通知时提醒（会弹出横幅）</string>
     <string name="channel_course">课程提醒</string>
     <string name="channel_course_desc">按「个人中心」里的设置在上课前提醒（会弹出横幅）</string>
+    <string name="channel_todo">待办到期提醒</string>
+    <string name="channel_todo_desc">按「个人中心」里的设置在待办截止前提醒（会弹出横幅）</string>
 
     <!-- 前台服务那条常驻通知：最低重要级（不响、不弹、不进锁屏），只在通知栏占一行。
          前台服务必须有可见通知，所以没法更静；想彻底去掉只能去系统设置里关掉这条渠道，
@@ -44,6 +46,11 @@
     <!-- 课程提醒通知 -->
     <string name="course_notify_lead">还有 %1$d 分钟上课</string>
     <string name="course_notify_start">开始上课</string>
+
+    <!-- 待办到期提醒通知：%1$s 是提前量（如「1 小时」），%2$s 是截止时间 -->
+    <string name="todo_notify_lead">还有 %1$s 到期 · 截止 %2$s</string>
+    <string name="todo_notify_due">已到截止时间（%1$s）</string>
+    <string name="todo_notify_soon">记得处理这条待办</string>
 
     <!-- 周一 … 周日（下标与 CourseSchedule.weekdayOf 对齐，1=周一） -->
     <string-array name="weekday_short">

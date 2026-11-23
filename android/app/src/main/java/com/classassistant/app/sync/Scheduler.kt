@@ -53,6 +53,12 @@ object Scheduler {
      */
     private const val COURSE_ALARM_WINDOW_MILLIS = 60 * 1000L
 
+    /**
+     * 待办提醒的窗口。待办只精确到分钟，不用像课程那样争分夺秒，但也不该拖到「提前量都过了
+     * 半小时」才响；60 秒和课程一致，同样走 setWindow 免申请精确定时权限。
+     */
+    private const val TODO_ALARM_WINDOW_MILLIS = 60 * 1000L
+
     /** 零点刷新闹钟的窗口：不唤醒设备，醒来后 10 分钟内刷掉就行 */
     private const val MIDNIGHT_WINDOW_MILLIS = 10 * 60 * 1000L
 
@@ -62,7 +68,8 @@ object Scheduler {
      * 「上课期间每分钟重绘课表小组件」闹钟的 requestCode。
      *
      * 号段要挨着排、一处一个，别复用：活动闹钟直接用活动 id（小数值）、课程闹钟从 100 万起
-     * （见 CourseSchedule.courseAlarmId）、深 Doze 兜底闹钟 992（见 BackgroundMode）、
+     * （见 CourseSchedule.courseAlarmId）、待办闹钟从 200 万起（见 TodoReminder.todoAlarmId）、
+     * 深 Doze 兜底闹钟 992（见 BackgroundMode）、
      * 零点刷新 991 —— 这里取 993。接收方不同（这里发 WidgetAlarmReceiver、Doze 那条发
      * SyncAlarmReceiver）时就算同号也不会互相顶掉，PendingIntent 的相等判定是带组件的；
      * 但编号一一对应才好查「系统里到底排着哪些闹钟」，所以照旧错开。
@@ -299,6 +306,105 @@ object Scheduler {
         return PendingIntent.getBroadcast(
             context,
             id,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+    }
+
+    /**
+     * 按本地待办快照重排「快到截止时间」的提醒。
+     *
+     * 数据源是 Store 里的待办快照（SyncRunner 每次同步时落一份），**不联网**：断网、
+     * 冷启动、刚改完提前量都得能立刻排上。窗口取未来 30 天（TODO_HORIZON_MILLIS），
+     * 滚动靠每轮同步和用户改设置这两处调用往前推。
+     *
+     * 去重逻辑见 [Store.todoRemindedKeys]：已经在窗口内同步到的待办只补一次立即提醒；
+     * 正常提前排上的也记一笔，防止窗口过去后它又被当成「新发现的」补响一遍。
+     */
+    fun rescheduleTodoAlarms(context: Context) {
+        val manager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val now = System.currentTimeMillis()
+        val lead = Store.todoRemindLead(context)
+        val items = parseTodoItemsJson(Store.todoItemsJson(context))
+            .filter { it.dueMillis > now && it.dueMillis <= now + TODO_HORIZON_MILLIS }
+        val wanted = mutableSetOf<String>()
+        val previous = Store.todoRemindedKeys(context)
+        val reminded = mutableSetOf<String>()
+
+        if (lead > 0) {
+            // 最近的截止时间优先占槽位；超出的部分下一轮同步（或更早的待办完成后）自然补上
+            for (item in items.take(TODO_ALARM_LIMIT)) {
+                val trigger = todoTriggerAt(item.dueMillis, lead)
+                val key = todoItemKey(item)
+                if (trigger <= now && previous.contains(key)) {
+                    reminded.add(key)
+                    continue
+                }
+                reminded.add(key)
+                wanted.add(todoAlarmId(item.id).toString())
+                manager.setWindow(
+                    AlarmManager.RTC_WAKEUP,
+                    if (trigger <= now) now else trigger,
+                    TODO_ALARM_WINDOW_MILLIS,
+                    todoAlarmIntent(context, item, lead)
+                )
+            }
+        }
+
+        for (stale in Store.scheduledTodoAlarms(context) - wanted) {
+            val id = stale.toIntOrNull() ?: continue
+            manager.cancel(todoCancelIntent(context, id))
+        }
+        Store.saveScheduledTodoAlarms(context, wanted)
+        // lead == 0（用户关了提醒）时这里清空：下次再打开，所有未来待办重新按新设置排
+        Store.saveTodoRemindedKeys(context, reminded)
+    }
+
+    /**
+     * 取消全部待办提醒闹钟。退出登录时用。
+     *
+     * 与课程那边同理：不能调 rescheduleTodoAlarms(empty) 图省事 —— 本地快照还在，
+     * 它会把闹钟照原样排回来，紧接着 clearSession 抹掉名单，就再也取消不掉了。
+     */
+    fun cancelTodoAlarms(context: Context) {
+        val manager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        for (raw in Store.scheduledTodoAlarms(context)) {
+            val id = raw.toIntOrNull() ?: continue
+            manager.cancel(todoCancelIntent(context, id))
+        }
+        Store.saveScheduledTodoAlarms(context, emptySet())
+        Store.saveTodoRemindedKeys(context, emptySet())
+    }
+
+    private fun todoAlarmIntent(
+        context: Context,
+        item: TodoReminderItem,
+        leadMinutes: Int
+    ): PendingIntent {
+        val intent = Intent(context, AlarmReceiver::class.java).apply {
+            action = AlarmReceiver.ACTION_TODO_REMIND
+            putExtra(AlarmReceiver.EXTRA_ID, item.id)
+            putExtra(AlarmReceiver.EXTRA_TITLE, item.title)
+            putExtra(AlarmReceiver.EXTRA_DUE, item.dueMillis)
+            putExtra(AlarmReceiver.EXTRA_TODO_LEAD, leadMinutes)
+            putExtra(AlarmReceiver.EXTRA_TODO_TAG, item.tag)
+        }
+        return PendingIntent.getBroadcast(
+            context,
+            todoAlarmId(item.id),
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+    }
+
+    /** 取消用的 PendingIntent：与活动/课程一样，只需 action + requestCode 一致即可匹配 */
+    private fun todoCancelIntent(context: Context, alarmId: Int): PendingIntent {
+        val intent = Intent(context, AlarmReceiver::class.java).apply {
+            action = AlarmReceiver.ACTION_TODO_REMIND
+        }
+        return PendingIntent.getBroadcast(
+            context,
+            alarmId,
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )

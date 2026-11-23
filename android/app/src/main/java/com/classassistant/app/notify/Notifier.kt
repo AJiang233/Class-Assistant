@@ -48,6 +48,13 @@ object Notifier {
     private const val CHANNEL_COURSE_LEGACY = "course_reminder"
 
     /**
+     * 待办到期提醒渠道。「还有 1 小时截止」和上课提醒一样是「马上要发生的事」，
+     * 但用户可能只想静音其中一类，所以单独一条；用 v1 是因为此前没有待办渠道，
+     * 以后要调重要性仍照「换新 id」的老规矩。
+     */
+    const val CHANNEL_TODO = "todo_reminder_v1"
+
+    /**
      * 前台服务那条常驻通知的渠道。IMPORTANCE_MIN：不响铃、不弹横幅、不进锁屏，
      * 只在通知栏里占一行 —— 这是「让用户知道有东西在后台跑」的最低调形式。
      *
@@ -62,6 +69,12 @@ object Notifier {
      * 沿用通知 / 表单那套「分段留空间」的做法（见 SyncRunner.NOTICE_ID_BASE）。
      */
     const val ONGOING_ID = 300_000
+
+    /**
+     * 待办提醒的通知 id 基数。号段再往后排：活动 1 起、通知 10 万、表单 20 万、常驻 30 万，
+     * 待办接 40 万。单条待办用 400_000 + todoId，重复提醒同一条只是覆盖。
+     */
+    const val TODO_NOTIFY_BASE = 400_000
 
     /** 点通知要直达的页面深链（?view=…&id=…），MainActivity 启动时拼到站点地址后面 */
     const val EXTRA_DEEP_LINK = "ca_deep_link"
@@ -107,6 +120,14 @@ object Notifier {
         )
         // 课程渠道 v1 老 id
         manager.deleteNotificationChannel(CHANNEL_COURSE_LEGACY)
+        // 待办到期提醒：与课程同级（MAX），点通知进待办页
+        manager.createNotificationChannel(
+            NotificationChannel(
+                CHANNEL_TODO,
+                context.getString(R.string.channel_todo),
+                NotificationManager.IMPORTANCE_MAX
+            ).apply { description = context.getString(R.string.channel_todo_desc) }
+        )
         // 前台服务那条常驻通知：最低重要级，不响不弹，只在通知栏占一行（见 CHANNEL_BACKGROUND 的注释）
         manager.createNotificationChannel(
             NotificationChannel(
@@ -130,7 +151,10 @@ object Notifier {
         FORM(R.drawable.ic_notify_form, R.drawable.ic_logo_form),
 
         /** 上课提醒：沿用铃铛，不做大图标 */
-        COURSE(R.drawable.ic_notify, null)
+        COURSE(R.drawable.ic_notify, null),
+
+        /** 待办提醒：借用表单那套「待办清单」图标 */
+        TODO(R.drawable.ic_notify_form, R.drawable.ic_logo_form)
     }
 
     /** 活动到点提醒。notificationId 就是活动 id（Scheduler → AlarmReceiver 传的 event.id），
@@ -180,6 +204,14 @@ object Notifier {
      */
     fun notifyCourse(context: Context, notificationId: Int, title: String, body: String) {
         send(context, CHANNEL_COURSE, notificationId, title, body, "?view=academic", Kind.COURSE)
+    }
+
+    /**
+     * 待办到期提醒。落地页是网页的待办页；没有「单条待办详情」页面，
+     * 深链只能到列表（与课程提醒同理）。
+     */
+    fun notifyTodo(context: Context, notificationId: Int, title: String, body: String) {
+        send(context, CHANNEL_TODO, notificationId, title, body, "?view=todos", Kind.TODO)
     }
 
     /**

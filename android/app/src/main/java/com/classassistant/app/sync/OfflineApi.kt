@@ -66,6 +66,7 @@ object OfflineApi {
         Regex("^/api/academic/grades$"),
         Regex("^/api/forms/mine$"),
         Regex("^/api/forms/\\d+$"),
+        Regex("^/api/todos$"),
         Regex("^/api/auth/me$")
     )
 
@@ -73,7 +74,7 @@ object OfflineApi {
      * 列表形状的路径：这些响应会被当作「详情回退」的数据源（见 OfflineCache.findItem）。
      * 详情接口本身不进 CACHE_PATHS —— 单独缓存每条详情会让文件数随「点开过多少条」无限涨。
      */
-    private val LIST_PATHS = setOf("/api/notices", "/api/activities")
+    private val LIST_PATHS = setOf("/api/notices", "/api/activities", "/api/todos")
 
     /** 详情路径 → 去哪个列表里按 id 找：捕获组 1 是 id */
     private val DETAIL_PATHS = listOf(
@@ -86,6 +87,17 @@ object OfflineApi {
      * （课表小组件 + 课程提醒），需要按路径精确比对，不能只靠字符串字面量。
      */
     const val TIMETABLE_PATH = "/api/academic/timetable"
+
+    /**
+     * 待办列表的三条网页请求。参数顺序必须与 `web/assets/js/todos.js` / `index.js` 拼的
+     * 逐字一致 —— 缓存键就是 URL，差一个参数就是另一份（不命中的）缓存。
+     *
+     * [TODO_OPEN_PATH] 还兼作待办提醒的数据源（见 SyncRunner.refreshTodos）：
+     * 后台同步拉到这份列表后落成本地快照，到期闹钟据此排期。
+     */
+    const val TODO_SUMMARY_PATH = "/api/todos?status=open&limit=3"
+    const val TODO_OPEN_PATH = "/api/todos?status=open&limit=50&offset=0"
+    const val TODO_HISTORY_PATH = "/api/todos?status=history&limit=50&offset=0"
 
     /**
      * 后台同步顺手预热的 URL。**必须与网页真实请求的 URL 完全一致**（缓存键就是 URL），
@@ -109,7 +121,12 @@ object OfflineApi {
         "/api/academic/credits",
         "/api/academic/grades",                  // 学业页：成绩（不带 xnxq 即「全部学期」）
         "/api/forms/mine?limit=100&offset=0",
-        "/api/auth/me"                           // 个人中心
+        "/api/auth/me",                          // 个人中心
+        // 待办：首页摘要 + 待办页（进行中 / 历史）。待办的「本地缓存」与课表同一套机制，
+        // 断网时这三条也得有内容；进行中那份同时是到期提醒的数据源（见 TODO_OPEN_PATH）。
+        TODO_SUMMARY_PATH,
+        TODO_OPEN_PATH,
+        TODO_HISTORY_PATH
     )
 
     /**

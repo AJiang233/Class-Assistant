@@ -46,6 +46,8 @@ import com.classassistant.app.sync.BackgroundSyncService
 import com.classassistant.app.sync.OfflineApi
 import com.classassistant.app.sync.Scheduler
 import com.classassistant.app.sync.SyncRunner
+import com.classassistant.app.sync.TODO_REMIND_MAX
+import com.classassistant.app.sync.parseTodoItemsJson
 import com.classassistant.app.sync.parseTimetableJson
 import org.json.JSONObject
 
@@ -393,6 +395,46 @@ class MainActivity : AppCompatActivity() {
             .put("lead", Store.courseRemindLead(ctx))
             .put("atStart", Store.courseRemindAtStart(ctx))
             .put("courseCount", parseTimetableJson(Store.timetableJson(ctx))?.courses?.size ?: 0)
+            .toString()
+
+        /**
+         * 个人页「待办提醒」卡片读设置。契约见 web/account.html 的 refreshTodoCard()：
+         *   {"lead":60,"todoCount":3}
+         * todoCount 来自本地快照（SyncRunner 每次同步落一份），用来提示「本机还没同步到待办」。
+         */
+        @JavascriptInterface
+        fun todoReminderSettings(): String {
+            if (!fromAppPage()) return ""
+            return todoSettingsJson(applicationContext)
+        }
+
+        /**
+         * 个人页改待办提前量：存下来并**立即重排**。0 = 不提醒；上限 7 天（见 TODO_REMIND_MAX）。
+         * 桥是公开接口，网页传什么都按范围夹一次。
+         */
+        @JavascriptInterface
+        fun saveTodoReminderSettings(lead: Int): String {
+            if (!fromAppPage()) return ""
+            val ctx = applicationContext
+            Store.setTodoRemindLead(ctx, lead.coerceIn(0, TODO_REMIND_MAX))
+            Scheduler.rescheduleTodoAlarms(ctx)
+            return todoSettingsJson(ctx)
+        }
+
+        /**
+         * 网页上待办发生增删改（新建 / 完成 / 删除 / 代加 / 从通知加入）后调这里：
+         * 立刻拉一次进行中列表并重排提醒，不等 15 分钟的周期同步。
+         * 网络请求放线程里 —— 桥方法跑在 WebView 的 JS 线程，同步等会卡住页面。
+         */
+        @JavascriptInterface
+        fun todoChanged() {
+            if (!fromAppPage()) return
+            Thread { SyncRunner.refreshTodos(applicationContext) }.start()
+        }
+
+        private fun todoSettingsJson(ctx: Context): String = JSONObject()
+            .put("lead", Store.todoRemindLead(ctx))
+            .put("todoCount", parseTodoItemsJson(Store.todoItemsJson(ctx)).size)
             .toString()
 
         /**

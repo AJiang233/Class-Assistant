@@ -19,6 +19,8 @@ class BootReceiver : BroadcastReceiver() {
         // 课程提醒只靠本地课表就能排，不必等上面那次同步的结果：
         // 断网开机时同步拉不到东西，只等它等于「开机后一条课程提醒都没有」。
         Scheduler.rescheduleCourseAlarms(context)
+        // 待办提醒同理：本地有快照（sync 的 TODO_OPEN_PATH）就能排，断网开机照排不误。
+        Scheduler.rescheduleTodoAlarms(context)
         // 跨过一夜再开机是常态，小组件得先按当天刷一遍
         Scheduler.refreshWidgets(context)
         Scheduler.scheduleMidnightRefresh(context)

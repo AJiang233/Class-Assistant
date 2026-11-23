@@ -126,6 +126,9 @@ object SyncRunner {
         synchronized(Store) {
             if (Store.token(context) != token) return Outcome.Done
             Scheduler.rescheduleCourseAlarms(context)
+            // 待办提醒也按本地快照重排：即便这一轮 deep=false（前台服务），快照是上一轮预热
+            // 落的或用户刚改完的，重排只是读写 SharedPreferences + AlarmManager，不联网
+            Scheduler.rescheduleTodoAlarms(context)
             // 放在预热之后：课表小组件要读到这一轮刚落地的那份课表
             Scheduler.refreshWidgets(context)
             // 只有整轮拉完才记「上次同步」：失败时这个时间不前进，回前台同步的节流就不会
@@ -176,6 +179,9 @@ object SyncRunner {
                 if (path == OfflineApi.TIMETABLE_PATH) {
                     (res as? Api.Res.Ok)?.body?.let { saveTimetable(ctx, it) }
                 }
+                if (path == OfflineApi.TODO_OPEN_PATH) {
+                    (res as? Api.Res.Ok)?.body?.let { saveTodoItems(ctx, it) }
+                }
             }
         }
     }
@@ -190,6 +196,45 @@ object SyncRunner {
     private fun saveTimetable(ctx: Context, body: JSONObject) {
         if (parseTimetable(body) == null) return
         Store.saveTimetableJson(ctx, body.toString())
+    }
+
+    /**
+     * 把「进行中待办」落到本地，给到期提醒排期用（见 Scheduler.rescheduleTodoAlarms）。
+     *
+     * 与课表同一个取舍：只在响应成功时覆盖，失败保留上一份 —— 一次接口抽风就把快照清空，
+     * 已排好的提醒会在下一轮被全部取消，用户看到的是「提醒时有时无」。
+     * 空列表本身是合法状态（确实没有进行中待办），要照常写，否则完成的最后一条会一直留着。
+     */
+    private fun saveTodoItems(ctx: Context, body: JSONObject) {
+        if (!body.optBoolean("success")) return
+        Store.saveTodoItemsJson(ctx, todoItemsJson(parseTodoReminders(body)))
+    }
+
+    /**
+     * 立刻拉一次进行中待办并重排提醒。网页改完待办（新建 / 完成 / 删除 / 代加）后经
+     * HostBridge.todoChanged 触发 —— 等 15 分钟的周期同步太慢，用户刚建完就想看到
+     * 「已设置提醒」的反馈。返回快照里的条数，调用方目前不用。
+     */
+    fun refreshTodos(context: Context): Int {
+        val token = Store.token(context) ?: return 0
+        val res = Api.get(OfflineApi.TODO_OPEN_PATH, token)
+        if (res is Api.Res.Unauthorized) return 0
+        val body = (res as? Api.Res.Ok)?.body ?: return 0
+        if (!body.optBoolean("success")) return 0
+        val items = parseTodoReminders(body)
+        synchronized(Store) {
+            if (Store.token(context) != token) return 0
+            Store.saveTodoItemsJson(context, todoItemsJson(items))
+            // 网页待办页读的就是这个键，顺手刷新缓存，回到页面时首帧直接命中
+            OfflineCache.write(
+                context,
+                OfflineApi.TODO_OPEN_PATH,
+                body.toString(),
+                OfflineCache.Shape.LIST
+            )
+            Scheduler.rescheduleTodoAlarms(context)
+        }
+        return items.size
     }
 
     /** 待提醒项与游标同批持久保存，发送后确认；崩溃重放使用相同系统通知 ID。 */
@@ -255,6 +300,8 @@ object SyncRunner {
         Scheduler.rescheduleAlarms(context, emptyList())
         // 课程提醒闹钟同理，得赶在 clearSession 把它们从存储里抹掉之前取消
         Scheduler.cancelCourseAlarms(context)
+        // 待办提醒闹钟同样要在清快照与名单之前撤掉
+        Scheduler.cancelTodoAlarms(context)
         Store.clearSession(context)
         // 离线缓存也要清：留着的话换账号后断网能翻到上一个账号的通知与课表
         OfflineCache.clear(context)

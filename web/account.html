@@ -131,6 +131,28 @@
                                 <p class="profile-sub profile-sub-tail">提醒在手机本地排期，不用联网；课表跟着后台同步更新。</p>
                             </div>
 
+                            <!-- 待办提醒：仅 App 壳，理由同课程提醒。提前量存在原生侧，
+                                 页面只读写（见 CAHost.todoReminderSettings）。0 = 不提醒；上限 7 天。 -->
+                            <div id="todoCard" class="card-divider" hidden>
+                                <label class="form-label">待办提醒</label>
+                                <p class="profile-sub profile-sub-lead" id="todoStatus"></p>
+                                <div class="form-field mb-14">
+                                    <label class="form-label" for="todoLead">截止前多久提醒</label>
+                                    <select class="form-input" id="todoLead" data-act="save-todo-reminder">
+                                        <option value="0">不提醒</option>
+                                        <option value="10">提前 10 分钟</option>
+                                        <option value="30">提前 30 分钟</option>
+                                        <option value="60">提前 1 小时</option>
+                                        <option value="120">提前 2 小时</option>
+                                        <option value="180">提前 3 小时</option>
+                                        <option value="360">提前 6 小时</option>
+                                        <option value="720">提前 12 小时</option>
+                                        <option value="1440">提前 1 天</option>
+                                    </select>
+                                </div>
+                                <p class="profile-sub profile-sub-tail">到点提醒在手机本地排期，不用联网；待办列表会随后台同步更新。</p>
+                            </div>
+
                             <!-- 后台通知：仅 App 壳。这是「App 没打开、手机放着不动时还能不能收到通知」的开关面，
                                  整块默认 hidden，有桥时由 refreshBackgroundCard() 放出来。
                                  只写本机能如实回答的东西；厂商的「自启动 / 后台管理」没有标准 API，读不到，

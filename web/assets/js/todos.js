@@ -127,10 +127,23 @@ function flash(text, isError) {
 }
 
 // ===== 列表加载 =====
+/** 把一份列表响应落到 state 并重绘（首屏与「后台刷新推回」共用） */
+function applyListData(data, more) {
+    data = data || {};
+    if (data.counts) state.counts = data.counts;
+    if (data.prefs) state.prefs = data.prefs;
+    if (data.tags && data.tags.length) state.tags = data.tags;
+    state.total = typeof data.total === 'number' ? data.total : 0;
+    var page = data.list || [];
+    state.list = more ? state.list.concat(page) : page;
+    render();
+}
+
 /**
  * @param more true = 追加下一页（「加载更多」），false = 从第一页重取
+ * @param force true = 带 refresh=1 绕过本地缓存首帧（刚改完待办时用，避免先闪回旧列表）
  */
-async function loadList(more) {
+async function loadList(more, force) {
     var el = document.getElementById('todoList');
     if (!more) {
         state.list = [];
@@ -140,16 +153,20 @@ async function loadList(more) {
         + '&limit=' + PAGE_SIZE
         + '&offset=' + (more ? state.list.length : 0)
         + (state.tag ? '&tag=' + encodeURIComponent(state.tag) : '');
+    var reqTab = state.tab;
+    var reqTag = state.tag || '';
+    if (!more) {
+        // App 壳：本地有缓存时原生先回一帧，随后把后台刷新的新数据推到「不带 refresh=1」
+        // 的键上（缓存键就是 URL）。不注册的话页面会一直停在旧数据上，直到用户手动操作。
+        // 推回来时已经切了页签 / 标签的，直接丢掉 —— 别把上一个筛选的结果画到当前列表里。
+        onApiData(url, function (data) {
+            if (state.tab !== reqTab || (state.tag || '') !== reqTag) return;
+            applyListData(data, false);
+        });
+    }
     try {
-        var res = await api(url);
-        var data = res.data || {};
-        if (data.counts) state.counts = data.counts;
-        if (data.prefs) state.prefs = data.prefs;
-        if (data.tags && data.tags.length) state.tags = data.tags;
-        state.total = typeof data.total === 'number' ? data.total : 0;
-        var page = data.list || [];
-        state.list = more ? state.list.concat(page) : page;
-        render();
+        var res = await api(force ? url + '&refresh=1' : url);
+        applyListData(res.data, more);
     } catch (err) {
         if (more) {
             flash(err.message, true);
@@ -492,7 +509,8 @@ async function submitTodo() {
             closeTodoModal();
             flash('已添加');
         }
-        loadList(false);
+        notifyTodoChanged();
+        loadList(false, true);
     } catch (err) {
         showError('todoError', err.message);
     } finally {
@@ -506,11 +524,13 @@ async function markDone(id) {
     try {
         await api('/api/todos/' + id + '/status', { method: 'POST', body: JSON.stringify({ status: 'done' }) });
         flash('已完成');
-        loadList(false);
+        notifyTodoChanged();
+        loadList(false, true);
     } catch (err) {
         // 典型是「刚好在点之前超时了」（后端返回 TODO_EXPIRED）：提示 + 重取列表，两边状态就对齐了
         flash(err.message, true);
-        loadList(false);
+        notifyTodoChanged();
+        loadList(false, true);
     }
 }
 
@@ -527,17 +547,38 @@ async function deleteTodo(id) {
     try {
         await api('/api/todos/' + id, { method: 'DELETE' });
         flash('已' + label);
-        loadList(false);
+        notifyTodoChanged();
+        loadList(false, true);
     } catch (err) {
         flash(err.message, true);
     }
 }
 
 // ===== 提醒设置 =====
+/** 原生侧的待办提醒设置；网页版没有桥，返回 null */
+function readTodoRemindSettings() {
+    if (!window.CAHost || typeof CAHost.todoReminderSettings !== 'function') return null;
+    try { return JSON.parse(CAHost.todoReminderSettings() || '') || null; } catch (e) { return null; }
+}
+
 function openPrefs() {
     clearError('prefsError');
     document.getElementById('pfUrgent').value = state.prefs.urgent_hours;
     document.getElementById('pfWarn').value = state.prefs.warn_hours;
+    // 到期前提醒只对 App 壳有意义（网页版没有本地到点通知），没桥就整块不显示
+    var field = document.getElementById('pfRemindField');
+    var info = readTodoRemindSettings();
+    if (field && info) {
+        var sel = document.getElementById('pfRemind');
+        if (sel) sel.value = String(info.lead);
+        var status = document.getElementById('pfRemindStatus');
+        if (status) {
+            status.textContent = info.todoCount
+                ? '已同步 ' + info.todoCount + ' 条进行中待办；到点提醒由手机本地排期。'
+                : '本机还没有进行中的待办；同步过一次后，新待办会自动排上提醒。';
+        }
+        field.hidden = false;
+    }
     openOverlay(prefsModal);
 }
 function closePrefsModal() {
@@ -562,10 +603,17 @@ async function submitPrefs() {
         });
         if (res.data && res.data.prefs) state.prefs = res.data.prefs;
         else state.prefs = { urgent_hours: u, warn_hours: w };
+        // App 壳：到期提前量存在原生侧，存完由原生立刻重排闹钟；网页版没有这个能力
+        var remindField = document.getElementById('pfRemindField');
+        var remindSel = document.getElementById('pfRemind');
+        if (remindField && !remindField.hidden && remindSel
+            && window.CAHost && typeof CAHost.saveTodoReminderSettings === 'function') {
+            try { CAHost.saveTodoReminderSettings(parseInt(remindSel.value, 10) || 0); } catch (e) {}
+        }
         closePrefsModal();
         flash('提醒设置已保存');
         // 阈值一变，每条待办的红 / 黄档就跟着变，必须重取一遍（urgency 由服务端算）
-        loadList(false);
+        loadList(false, true);
     } catch (err) {
         showError('prefsError', err.message);
     } finally {
