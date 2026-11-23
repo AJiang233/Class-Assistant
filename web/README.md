@@ -142,7 +142,7 @@ web/                            # Cloudflare Pages 项目根目录（直接部�
 | DELETE | `/api/auth/roles/:id` | `user:manage` | 删除自定义职位 |
 | GET | `/api/auth/audit-logs` | `user:manage` | 管理员操作日志（分页；支持 `action`/`actor`/`from`/`to` 筛选，`page_size` 上限 200）。保留 180 天 |
 | GET | `/api/admin/settings` | `user:manage` | 读全局功能开关：`{academic, chaoxing, chaoxing_available}`。`chaoxing_available=false` 表示门户还没接学习通路由（开关可先保存，接入后即生效） |
-| PUT | `/api/admin/settings` | `user:manage` | 改全局功能开关（body `{academic?, chaoxing?}`，至少一项）。只接受布尔值，字符串 `"false"` 返回 400；保存后清缓存立即生效，并写一条 `settings_updated` 审计 |
+| PUT | `/api/admin/settings` | `user:manage` | 改全局功能开关（body `{academic?, chaoxing?}`，至少一项）。只接受布尔值，字符串 `"false"` 返回 400；保存后立即写库、清当前 isolate 缓存，并写一条 `settings_updated` 审计 |
 | POST | `/api/auth/email/send-code` | 登录 | 发绑定邮箱的验证码（body `{email}`）。同时把邮箱记成「已填未验证」；1 分钟内重复发返回 429；邮箱被他人占用返回 409；未配邮件服务返回 503 |
 | POST | `/api/auth/email/verify` | 登录 | 验码并置为已验证（body `{email, code}`）。失败文案不区分「码不对」与「码过期」（防试探）；错满 5 次返回 429 需重新获取 |
 | POST | `/api/auth/email/unbind` | 登录 | 解绑邮箱（清空并作废未用的验证码、订阅一并清零）。不需要验证码：解绑要求已登录 |
@@ -153,7 +153,7 @@ web/                            # Cloudflare Pages 项目根目录（直接部�
 
 - **登录限流（issue #104）**：连续失败 5 次后按学号进入指数退避（30s → 2min → 10min → 1 小时封顶），成功登录清零；同一 IP 在 10 分钟窗口内失败 50 次同样拦下。命中时返回 `429` + `Retry-After`（秒），`code` 为 `LOGIN_BACKOFF`（按学号）或 `LOGIN_RATE_LIMITED`（按 IP），`data.retry_after` 与响应头一致。前端不需要改动：`api()` 会把 `error` 文案原样交给登录框，文案里已经带了还要等几秒。
 - **管理操作日志（issue #108）**：重置成员密码、改邮箱、改资料、删成员、增删改职位、改功能开关都会写一条 `audit_logs`（操作人、动作、对象、时间、IP、UA）。`detail` 只存白名单字段（如 `{ fields: ["password"] }`），**不落密码或邮箱明文**；日志写入失败只 `console.error`，不阻断主操作 —— 审计是旁路，不能反过来把管理员卡在「删不掉人」上。`GET /api/auth/audit-logs` 仅 `user:manage` 可读，支持 `action`/`actor`/`from`/`to`/`page` 筛选；保留 180 天，超期记录在每次写日志时顺手清掉（项目没有 Cron，清理挂在写入路径上，写入量小、代价可忽略）。
-- **全局功能开关（issue #106）**：`app_settings` 里放 `academic_enabled` / `chaoxing_enabled`（`'1'` 开、`'0'` 关，**没有记录按开启**）。门户在把请求转发给私有 Worker **之前**读取，关闭时直接回 `503` + `Retry-After: 30`，`code=FEATURE_DISABLED`、`data.feature` 指明是哪一项 —— 停用必须是门户侧止血，不能再让请求穿过 Service Binding 去打教务/学习通。开关在 isolate 内缓存 30 秒（避免每个请求都查一次 D1），管理页保存时主动清缓存，**改完立刻生效，不用等缓存过期**；读取失败按开启处理（迁移没跑也不能把功能整体打死）。学习通那项目前只有入口没有路由（门户 `/api/chaoxing/*` 尚未接入），所以开关先存值，`chaoxing_available=false` 让管理页标成「待接入」。单账号连续失败自动暂停（连续 3 次凭据失效 / 风控 / 解析失败 → 30 分钟内暂停自动同步，返回 `409 ACADEMIC_PAUSED`/`CHAOXING_PAUSED`）在私有 Worker 实现，门户前端会把 `error` 文案原样展示；管理员恢复入口尚未做（运维可 `DELETE FROM binding_health WHERE user_id=? AND provider=?` 解除）。
+- **全局功能开关（issue #106）**：`app_settings` 里放 `academic_enabled` / `chaoxing_enabled`（`'1'` 开、`'0'` 关，**没有记录按开启**）。门户在把请求转发给私有 Worker **之前**读取，关闭时直接回 `503` + `Retry-After: 30`，`code=FEATURE_DISABLED`、`data.feature` 指明是哪一项 —— 停用必须是门户侧止血，不能再让请求穿过 Service Binding 去打教务/学习通。开关在 isolate 内缓存 30 秒（避免每个请求都查一次 D1），管理页保存时主动清**当前 isolate** 的缓存；D1 是唯一真源，但没有跨 isolate 广播，**其它 isolate 最长 30 秒后收敛**（线上实测：关闭后 1 秒内即拦截，反向恢复时另一 isolate 仍缓存了关闭值，约 30 秒才放行）。紧急停用要把这 30 秒算进预期，别当成「点完立刻全网生效」；读取失败按开启处理（迁移没跑也不能把功能整体打死）。学习通那项目前只有入口没有路由（门户 `/api/chaoxing/*` 尚未接入），所以开关先存值，`chaoxing_available=false` 让管理页标成「待接入」。单账号连续失败自动暂停（连续 3 次凭据失效 / 风控 / 解析失败 → 30 分钟内暂停自动同步，返回 `409 ACADEMIC_PAUSED`/`CHAOXING_PAUSED`）在私有 Worker 实现，门户前端会把 `error` 文案原样展示；管理员恢复入口尚未做（运维可 `DELETE FROM binding_health WHERE user_id=? AND provider=?` 解除）。
 - **订阅投递**：业务创建同事务登记发件箱，独立 Cron Worker 按收件人及渠道投递、重试、确认；验证码仍同步发送。联动表单的设备提醒只发一条，通知与表单邮件分别按订阅发送。部署顺序、套餐要求、幂等边界及重放方式见[数据一致性与部署](docs/数据一致性与部署.md)。
 
 ```jsonc
