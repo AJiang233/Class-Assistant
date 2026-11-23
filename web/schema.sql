@@ -296,3 +296,24 @@ CREATE TABLE IF NOT EXISTS user_consents (
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+-- 登录失败计数（对应 migrations-v2/0004_login_attempts.sql，DDL 必须逐字一致：
+-- 同样是 architecture.test.js 拿 sqlite_master 深比较的对象）。
+-- 两张表只服务限流、不参与任何业务读，丢了最多是当晚的退避记录归零。
+-- 主键即查询键（学号 / IP 哈希）；last_failed_at 的索引只服务清理语句的范围删除，
+-- 时间列是 Unix 秒整数，理由见 models/loginAttemptModel.js 顶部：字符串时间跨时区比较太容易写错。
+CREATE TABLE IF NOT EXISTS login_attempts (
+  student_id TEXT PRIMARY KEY,
+  failures INTEGER NOT NULL DEFAULT 0,
+  last_failed_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS login_ip_failures (
+  ip_hash TEXT PRIMARY KEY,
+  failures INTEGER NOT NULL DEFAULT 0,
+  window_start INTEGER NOT NULL,
+  last_failed_at INTEGER NOT NULL
+);
+-- 每次记失败都会顺带清理过期行；清理按 last_failed_at 范围删除，给它一条索引，
+-- 否则失败次数一多，这条 DELETE 会变成每次全表扫描（写入放大把自己变成 DoS 面）。
+CREATE INDEX IF NOT EXISTS idx_login_attempts_last_failed_at ON login_attempts(last_failed_at);
+CREATE INDEX IF NOT EXISTS idx_login_ip_failures_last_failed_at ON login_ip_failures(last_failed_at);

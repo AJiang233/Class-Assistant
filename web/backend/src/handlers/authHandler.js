@@ -3,6 +3,7 @@ import { RoleModel } from '../models/roleModel.js';
 import { EmailCodeModel } from '../models/emailCodeModel.js';
 import { EmailSubscriptionModel } from '../models/emailSubscriptionModel.js';
 import { ConsentModel } from '../models/consentModel.js';
+import { LoginAttemptModel, hashClientIp } from '../models/loginAttemptModel.js';
 import { hashPassword, verifyPassword } from '../utils/crypto.js';
 import { sign } from '../utils/jwt.js';
 import { success, error, jsonResponse } from '../utils/response.js';
@@ -130,6 +131,36 @@ async function computePermissions(env, positions) {
 }
 
 /**
+ * 登录失败限流的统一响应：429 + Retry-After。
+ *
+ * 文案里带上还要等几秒：前端目前只会把 error 原样显示在登录框下方，不读
+ * Retry-After 头，所以「等多久」这件事必须靠文字说清楚。data.retry_after 留给
+ * 以后做倒计时用，和邮箱验证码那条 429 一样，前端按 code 分支、不解析中文文案。
+ */
+function tooManyAttempts(code, message, retryAfterSeconds) {
+  const seconds = Math.max(1, Math.ceil(retryAfterSeconds));
+  return jsonResponse(
+    { success: false, error: message, code, data: { retry_after: seconds } },
+    429,
+    { 'Retry-After': String(seconds) }
+  );
+}
+
+/**
+ * 取 Cloudflare 注入的客户端 IP 并哈希；没有这个头就返回 null（不做 IP 维度限流）。
+ *
+ * 只认 CF-Connecting-IP：X-Forwarded-For 是客户端可以随便写的，拿它做限流等于
+ * 「换个头就绕过」，比不限流更糟 —— 还会给出「已经防住了」的错觉。
+ * 本地 `wrangler pages dev` 与单测环境通常没有这个头，那种场合退化为只有按学号的
+ * 退避生效，这也是为什么按学号的那道闸必须自己站得住。
+ */
+async function clientIpHash(request) {
+  const ip = request.headers.get('CF-Connecting-IP');
+  if (!ip) return null;
+  return hashClientIp(ip);
+}
+
+/**
  * 用户注册
  */
 export async function handleRegister(request, env) {
@@ -242,10 +273,33 @@ export async function handleLogin(request, env) {
       return jsonResponse(error('服务端暂时不可用，请联系管理员', 'SERVER_MISCONFIGURED'), 500);
     }
 
+    // ---- 失败限流与退避（issue #104：学号可被在线撞库）----
+    // 两道闸都放在查库和比对密码之前：被挡下的请求不该再跑一次 10 万次 PBKDF2，
+    // 否则「限流」自己就变成了免费的 CPU 放大器。
+    const attemptModel = new LoginAttemptModel(env.DB);
+    const attemptKey = String(student_id);
+    const ipHash = await clientIpHash(request);
+
+    if (ipHash) {
+      const ipWait = await attemptModel.ipRetryAfter(ipHash);
+      if (ipWait > 0) {
+        return tooManyAttempts('LOGIN_RATE_LIMITED', '登录尝试过于频繁，请稍后再试', ipWait);
+      }
+    }
+
+    const accountWait = await attemptModel.accountRetryAfter(attemptKey);
+    if (accountWait > 0) {
+      return tooManyAttempts('LOGIN_BACKOFF', `密码错误次数过多，请 ${accountWait} 秒后再试`, accountWait);
+    }
+
     const userModel = new UserModel(env.DB);
     const user = await userModel.findByStudentId(student_id);
 
     if (!user) {
+      // 不存在的学号照样计数、照样退避：只对存在的账号退避的话，
+      // 429 与 401 的差异本身就成了学号探测器。
+      await attemptModel.recordAccountFailure(attemptKey);
+      if (ipHash) await attemptModel.recordIpFailure(ipHash);
       return jsonResponse(error('学号或密码不正确', 'INVALID_CREDENTIALS'), 401);
     }
 
@@ -254,8 +308,14 @@ export async function handleLogin(request, env) {
     const isValid = await verifyPassword(password, hash, salt);
 
     if (!isValid) {
+      await attemptModel.recordAccountFailure(attemptKey);
+      if (ipHash) await attemptModel.recordIpFailure(ipHash);
       return jsonResponse(error('学号或密码不正确', 'INVALID_CREDENTIALS'), 401);
     }
+
+    // 密码对了就把失败账清零。放在协议检查之前：走到这里已经证明密码正确，
+    // 后面 412「还没同意协议」不该继续累加失败次数。
+    await attemptModel.clearAccount(attemptKey);
 
     // ---- 用户协议同意检查（只能放在密码校验通过之后）----
     // 顺序反过来就成了学号探测器：密码错的请求也拿到 CONSENT_REQUIRED 的话，

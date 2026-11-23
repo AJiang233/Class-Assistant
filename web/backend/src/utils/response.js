@@ -22,10 +22,18 @@ export function error(message, code = 'UNKNOWN_ERROR') {
   };
 }
 
-export function jsonResponse(data, status = 200) {
+/**
+ * 统一 JSON 响应。
+ *
+ * headers 是可选的附加响应头（限流响应要下发 Retry-After）。调用方传的头只能
+ * *补充* 不能覆盖 Content-Type：漏写 Content-Type 的 JSON 响应会被浏览器按文本处理，
+ * 前端 res.json() 直接失败。
+ */
+export function jsonResponse(data, status = 200, headers = {}) {
   return new Response(JSON.stringify(data), {
     status,
     headers: {
+      ...headers,
       'Content-Type': 'application/json'
     }
   });

@@ -19,6 +19,7 @@ const fields = '[{"key":"note","label":"备注","type":"text"}]';
 const baseline = readFileSync(new URL('../../migrations-v2/0001_baseline.sql', import.meta.url), 'utf8');
 const upgrade = readFileSync(new URL('../../migrations-v2/0002_lifecycle.sql', import.meta.url), 'utf8');
 const consentUpgrade = readFileSync(new URL('../../migrations-v2/0003_consent.sql', import.meta.url), 'utf8');
+const loginAttemptsUpgrade = readFileSync(new URL('../../migrations-v2/0004_login_attempts.sql', import.meta.url), 'utf8');
 const formData = { title: '填写报名', description: '', fields, edit_policy: 'always', anonymous: 0,
   deadline: null, creator_id: 2, creator_name: '发布人', remind_people: '[1]' };
 const noticeData = { title: '通知', content: '内容', publish_time: '2026-09-30 08:00:00',
@@ -60,6 +61,7 @@ describe('迁移与生命周期的数据库契约', () => {
     assert.equal(count(fresh, 'push_subscriptions'), 1);
     const old = createSqliteDb(t, false);
     old.sqlite.exec(baseline); old.sqlite.exec(upgrade); old.sqlite.exec(consentUpgrade);
+    old.sqlite.exec(loginAttemptsUpgrade);
     const structure = (db) => db.sqlite.prepare("SELECT type,name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY name").all();
     assert.deepEqual(structure(old), structure(fresh));
     assert.deepEqual(old.sqlite.prepare('PRAGMA foreign_key_check').all(), []);
