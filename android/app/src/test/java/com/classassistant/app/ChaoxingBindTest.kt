@@ -110,6 +110,11 @@ class ChaoxingBindTest {
             cookieJar.contains("_uid=") && chaoxing.contains("ChaoxingCookieJar.hasLogin")
         )
         assertTrue(
+            "没有补齐 i.mooc 会话就回调：课程能读但姓名是空，预览会再次显示「未读取到姓名」",
+            chaoxing.contains("ChaoxingCookieJar.hasMoocSession") &&
+                chaoxing.contains("CHAOXING_SESSION_URL")
+        )
+        assertTrue(
             "域名判定没按子域匹配（passport2 / i.chaoxing.com 都要算学习通）",
             main.contains("endsWith(\".\$CHAOXING_HOST\")")
         )

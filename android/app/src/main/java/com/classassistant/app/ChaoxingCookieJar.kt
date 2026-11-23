@@ -50,4 +50,11 @@ internal object ChaoxingCookieJar {
     /** 有 `_uid` 才算登录成功；失效与否交给后端校验，原生不猜。 */
     fun hasLogin(cookie: String?): Boolean =
         !cookie.isNullOrBlank() && cookie.contains("_uid=")
+
+    /**
+     * 是否已经拿到 i.mooc 的 host-only 会话 Cookie。
+     * `spaceFidEnc` 是个人空间 `/base` 的会话凭据：没有它，课程列表仍可用，但姓名读不到。
+     */
+    fun hasMoocSession(cookie: String?): Boolean =
+        !cookie.isNullOrBlank() && cookie.contains("spaceFidEnc=")
 }

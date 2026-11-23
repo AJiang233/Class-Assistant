@@ -145,6 +145,12 @@ class MainActivity : AppCompatActivity() {
 
         /** 检测到登录后 1.5s 自动完成的延时任务；弹窗关掉后即便醒来也会被身份校验挡掉 */
         var autoFinish: Runnable? = null
+
+        /**
+         * 是否已经为了补齐 i.mooc 的 host-only 会话 Cookie 而主动跳过一次个人空间。
+         * 只跳一次，避免页面 / Cookie 异常时在登录页和 /space/index 之间来回打转。
+         */
+        var sessionHop = false
     }
 
     /**
@@ -1110,7 +1116,28 @@ class MainActivity : AppCompatActivity() {
      */
     private fun refreshChaoxingLoginState(state: ChaoxingLoginState) {
         if (chaoxingLogin !== state || state.delivered || state.signedIn) return
-        if (chaoxingCookie() == null) return
+        val cookie = chaoxingCookie() ?: return
+
+        // 登录页可能先把人送到 i.chaoxing.com；此时课程接口已经能用，但 i.mooc 的
+        // spaceFidEnc 还没下发，个人空间 /base 会 302 回登录页。主动去一次个人空间补上。
+        if (!ChaoxingCookieJar.hasMoocSession(cookie)) {
+            if (!state.sessionHop) {
+                state.sessionHop = true
+                state.hint.text = "正在同步学习通登录…"
+                state.webView.loadUrl(CHAOXING_SESSION_URL)
+                // 页面异常时也别把用户永久卡在小窗：兜底按现有 Cookie 完成，姓名交给后端弱校验。
+                val fallback = Runnable { markChaoxingSignedIn(state) }
+                state.dialog.window?.decorView?.postDelayed(fallback, CHAOXING_SESSION_HOP_TIMEOUT_MS)
+            }
+            return
+        }
+
+        markChaoxingSignedIn(state)
+    }
+
+    /** 登录态已就绪：启用按钮并延后自动完成。 */
+    private fun markChaoxingSignedIn(state: ChaoxingLoginState) {
+        if (chaoxingLogin !== state || state.delivered || state.signedIn) return
         state.signedIn = true
         state.doneButton.isEnabled = true
         state.hint.text = "已检测到学习通登录，正在返回…"
@@ -1293,6 +1320,15 @@ class MainActivity : AppCompatActivity() {
 
         /** 学习通顶级域：判定「当前页在学习通域内」时含所有子域 */
         const val CHAOXING_HOST = "chaoxing.com"
+
+        /**
+         * 登录后补 i.mooc host-only 会话（jrose / spaceFidEnc）的个人空间地址。
+         * 不补这一步，课程列表照常，但 `i.chaoxing.com/base` 会 302 回登录页，姓名读不到。
+         */
+        const val CHAOXING_SESSION_URL = "https://i.mooc.chaoxing.com/space/index"
+
+        /** 补会话的兜底等待：页面异常也不能让用户永久卡在「正在同步」 */
+        const val CHAOXING_SESSION_HOP_TIMEOUT_MS = 5000L
 
         /** 检测到登录后等这么久自动完成，给页面的跳转 / 埋点留一点时间 */
         const val CHAOXING_AUTO_FINISH_MS = 1500L

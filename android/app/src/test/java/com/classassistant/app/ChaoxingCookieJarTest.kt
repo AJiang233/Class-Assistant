@@ -43,4 +43,11 @@ class ChaoxingCookieJarTest {
         assertFalse(ChaoxingCookieJar.hasLogin(null))
         assertFalse(ChaoxingCookieJar.hasLogin(""))
     }
+
+    @Test
+    fun `个人空间会话要 spaceFidEnc`() {
+        assertTrue(ChaoxingCookieJar.hasMoocSession("_uid=123; spaceFidEnc=abc"))
+        assertFalse(ChaoxingCookieJar.hasMoocSession("_uid=123; jrose=xyz"))
+        assertFalse(ChaoxingCookieJar.hasMoocSession(null))
+    }
 }
