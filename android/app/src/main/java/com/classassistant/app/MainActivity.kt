@@ -1018,6 +1018,16 @@ class MainActivity : AppCompatActivity() {
             databaseEnabled = true
             userAgentString = DESKTOP_UA
             loadsImagesAutomatically = true
+            // 学习通登录页没有 viewport meta，桌面 UA 下按 980/1200px 排版；不打开这两项时
+            // WebView 只显示页面左侧一块，输入框和二维码会被裁掉，用户左右滑也看不全。
+            // loadWithOverviewMode 会把整页缩放到 WebView 宽度，useWideViewPort 让页面
+            // 先按桌面宽度布局再缩放（两者缺一不可）。允许双指缩放作为兜底，但不显示
+            // 那对丑陋的 +/- 按钮。
+            useWideViewPort = true
+            loadWithOverviewMode = true
+            setSupportZoom(true)
+            builtInZoomControls = true
+            displayZoomControls = false
             // 学习通页面里有 target=_blank 的营销 / 帮助链接；我们没为小窗实现 onCreateWindow，
             // 关掉多窗口让它们都在小窗里原地打开，免得出「点了没反应」
             setSupportMultipleWindows(false)
@@ -1030,10 +1040,14 @@ class MainActivity : AppCompatActivity() {
 
         webView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(v: WebView, url: String?) {
-                // 登录成功的判据只有一条：当前页在学习通域内，且 Cookie 罐里已经出现 _uid。
+                // 登录成功的判据：当前页在学习通域内、不是 passport2 登录页，且 Cookie 罐里
+                // 已经出现 _uid。
                 // 只看 URL 不行（passport2 是第一页，谁打开都在那个域上），只看 Cookie 也不行
-                // （用户可能刚在别的站点退出了学习通）。
-                if (isChaoxingUrl(url)) refreshChaoxingLoginState(state)
+                // （用户可能刚在别的站点退出了学习通，罐里留着旧 _uid；在登录页上看到旧
+                // Cookie 就自动完成，会把一份失效凭据交给后端，正是「登录后取不到姓名」的根因）。
+                if (isChaoxingUrl(url) && !isChaoxingLoginPage(url)) {
+                    refreshChaoxingLoginState(state)
+                }
             }
 
             override fun shouldOverrideUrlLoading(v: WebView, request: WebResourceRequest): Boolean {
@@ -1150,6 +1164,18 @@ class MainActivity : AppCompatActivity() {
     private fun isChaoxingUrl(url: String?): Boolean {
         val host = url?.let { Uri.parse(it).host?.lowercase() } ?: return false
         return host == CHAOXING_HOST || host.endsWith(".$CHAOXING_HOST")
+    }
+
+    /**
+     * 是不是学习通的登录入口页（passport2 / passport）。
+     *
+     * 学习通会把旧会话的 `_uid` 留在 Cookie 罐里；如果只按「域内 + 有 _uid」判断，打开登录页
+     * 的瞬间就会被当成已登录，1.5 秒后带着旧 Cookie 自动关窗。登录页本身绝不算登录成功，
+     * 必须等它跳到 i.chaoxing.com / i.mooc.chaoxing.com 这类页面后再检测。
+     */
+    private fun isChaoxingLoginPage(url: String?): Boolean {
+        val host = url?.let { Uri.parse(it).host?.lowercase() } ?: return false
+        return host == "passport2.chaoxing.com" || host == "passport.chaoxing.com"
     }
 
     /**

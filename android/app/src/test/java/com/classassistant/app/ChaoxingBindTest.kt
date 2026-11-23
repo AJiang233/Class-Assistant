@@ -83,12 +83,37 @@ class ChaoxingBindTest {
             chaoxing.contains("userAgentString = DESKTOP_UA") &&
                 chaoxing.contains("setAcceptThirdPartyCookies")
         )
+        assertTrue(
+            "小窗没打开 useWideViewPort / loadWithOverviewMode：" +
+                "学习通登录页没有 viewport，会被裁成左边一块",
+            chaoxing.contains("useWideViewPort = true") &&
+                chaoxing.contains("loadWithOverviewMode = true")
+        )
+        assertTrue(
+            "小窗不允许双指缩放：页面被裁时用户没有兜底手段",
+            chaoxing.contains("setSupportZoom(true)") && chaoxing.contains("builtInZoomControls = true")
+        )
         // 判据三件套：学习通域、i.chaoxing.com 的 Cookie、_uid
         assertTrue("没从 i.chaoxing.com 读 Cookie", main.contains("CHAOXING_COOKIE_ORIGIN"))
         assertTrue("没检查 _uid，任何 Cookie 都会当成登录成功", main.contains("_uid="))
         assertTrue(
             "域名判定没按子域匹配（passport2 / i.chaoxing.com 都要算学习通）",
             main.contains("endsWith(\".\$CHAOXING_HOST\")")
+        )
+    }
+
+    @Test
+    fun `登录页上的旧 _uid 不会触发自动完成`() {
+        assertTrue("没有 isChaoxingLoginPage：passport2 登录页会被当成已登录", main.contains("isChaoxingLoginPage"))
+        assertTrue(
+            "onPageFinished 没排除登录页：旧 _uid 会让小窗 1.5 秒后自动关掉，用户无法重新登录",
+            chaoxing.contains("!isChaoxingLoginPage(url)")
+        )
+        val helper = main.substringAfter("private fun isChaoxingLoginPage")
+            .substringBefore("private fun chaoxingCookie")
+        assertTrue(
+            "登录页判定没排除 passport2.chaoxing.com",
+            helper.contains("\"passport2.chaoxing.com\"")
         )
     }
 
