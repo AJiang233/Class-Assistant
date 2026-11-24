@@ -33,6 +33,7 @@ const PREFIX = '/api/chaoxing/';
  * - GET    /api/chaoxing/courses         课程列表（?refresh=1 强制重抓）
  * - GET    /api/chaoxing/works           作业（?courseId= 单门；?refresh=1 强制重抓）
  * - GET    /api/chaoxing/exams           考试（参数同上）
+ * - GET    /api/chaoxing/progress        章节任务点进度（?courseId= 单门；?nodes=1 逐节点）
  */
 export async function chaoxingRoutes(request, env, ctx) {
   if (!new URL(request.url).pathname.startsWith(PREFIX)) return null;
@@ -156,7 +157,8 @@ function touchesChaoxing(method, url) {
   if (method === 'GET') {
     const cacheable = path === PREFIX + 'courses'
       || path === PREFIX + 'works'
-      || path === PREFIX + 'exams';
+      || path === PREFIX + 'exams'
+      || path === PREFIX + 'progress';
     if (!cacheable) return false;
     const refresh = url.searchParams.get('refresh');
     return refresh === '1' || refresh === 'true';

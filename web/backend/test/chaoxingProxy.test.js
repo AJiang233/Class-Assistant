@@ -327,7 +327,8 @@ describe('学习通授权准入', () => {
       '/api/chaoxing/status',
       '/api/chaoxing/courses',
       '/api/chaoxing/works?courseId=123456',
-      '/api/chaoxing/exams?courseId=123456'
+      '/api/chaoxing/exams?courseId=123456',
+      '/api/chaoxing/progress?courseId=123456'
     ]) {
       const res = await worker.fetch(await authedRequest(path), env, {});
       assert.equal(res.status, 200, path);
@@ -335,19 +336,20 @@ describe('学习通授权准入', () => {
     // 撤权之后还得让人能解绑
     const unbind = await worker.fetch(await authedRequest('/api/chaoxing/bind', { method: 'DELETE' }), env, {});
     assert.equal(unbind.status, 200);
-    assert.equal(binding.calls.length, 5);
+    assert.equal(binding.calls.length, 6);
 
     // refresh=1 会真的去学习通重新抓，必须拦
     for (const path of [
       '/api/chaoxing/courses?refresh=1',
       '/api/chaoxing/works?courseId=123456&refresh=1',
-      '/api/chaoxing/exams?refresh=true'
+      '/api/chaoxing/exams?refresh=true',
+      '/api/chaoxing/progress?courseId=123456&refresh=1'
     ]) {
       const res = await worker.fetch(await authedRequest(path), env, {});
       assert.equal(res.status, 403, path);
       assert.equal((await res.json()).code, 'CHAOXING_CONSENT_REQUIRED', path);
     }
-    assert.equal(binding.calls.length, 5, '被拦下的请求不能透到上游');
+    assert.equal(binding.calls.length, 6, '被拦下的请求不能透到上游');
   });
 });
 
