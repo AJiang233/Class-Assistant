@@ -153,6 +153,39 @@
                                 <p class="profile-sub profile-sub-tail">到点提醒在手机本地排期，不用联网；待办列表会随后台同步更新。</p>
                             </div>
 
+                            <!-- 网页版待办提醒（P1-4）：网页/PWA 没有本地定时能力，改由服务端在截止前推送，
+                                 App 没打开也能收到（iOS 16.4+ 主屏 PWA 同样适用）。
+                                 默认 hidden，仅非原生壳、浏览器支持 PushManager 且已登录时由
+                                 refreshWebTodoCard() 放出来；App 壳内待办提醒走上面 #todoCard 的本地排期。
+                                 开关与提前量存服务端（GET/PUT /api/todos/reminder-prefs，见 loadWebTodoReminder）。 -->
+                            <div id="webTodoCard" class="card-divider" hidden>
+                                <label class="form-label">网页版待办提醒</label>
+                                <p class="profile-sub profile-sub-lead">由服务端在截止前推送，即使没打开应用也能收到（需允许通知）。</p>
+                                <label class="switch-row">
+                                    <span>开启待办到期提醒</span>
+                                    <span class="switch">
+                                        <input type="checkbox" id="webTodoEnabled">
+                                        <span class="switch-track" aria-hidden="true"></span>
+                                    </span>
+                                </label>
+                                <div class="form-field mt-14">
+                                    <label class="form-label" for="webTodoLead">截止前多久提醒</label>
+                                    <select class="form-input" id="webTodoLead">
+                                        <option value="0">不提醒</option>
+                                        <option value="10">提前 10 分钟</option>
+                                        <option value="30">提前 30 分钟</option>
+                                        <option value="60" selected>提前 1 小时</option>
+                                        <option value="120">提前 2 小时</option>
+                                        <option value="180">提前 3 小时</option>
+                                        <option value="360">提前 6 小时</option>
+                                        <option value="720">提前 12 小时</option>
+                                        <option value="1440">提前 1 天</option>
+                                    </select>
+                                </div>
+                                <button class="btn btn-primary btn-block" id="webTodoSaveBtn" type="button" data-act="save-web-todo-reminder">保存</button>
+                                <p class="profile-sub profile-sub-tail" id="webTodoStatus"></p>
+                            </div>
+
                             <!-- 后台通知：仅 App 壳。这是「App 没打开、手机放着不动时还能不能收到通知」的开关面，
                                  整块默认 hidden，有桥时由 refreshBackgroundCard() 放出来。
                                  只写本机能如实回答的东西；厂商的「自启动 / 后台管理」没有标准 API，读不到，
@@ -178,6 +211,19 @@
                                 <p class="profile-sub profile-sub-tail" id="backgroundHint"></p>
                             </div>
                         </div>
+                    </div>
+
+                    <!-- iOS 主屏提醒说明：仅 iOS 且已「添加到主屏幕」（standalone）时显示，
+                         判定见 account.js 的 refreshIosPwaCard；App 壳里整块不出现。
+                         说清能力边界即可 —— 关闭后网页不能本地定时是 iOS 的限制，不是设置没生效；
+                         想按时收到提醒有两条现成的路：上方的网页通知（服务端推送）与下方的日历订阅。
+                         语气按实际情况平铺，不做恐吓式提示。 -->
+                    <div class="profile-card" id="iosPwaCard" hidden>
+                        <h2 class="card-title">iOS 提醒说明</h2>
+                        <p class="profile-sub profile-sub-lead">从主屏幕打开时，关闭页面后网页本身不能在本机定时提醒——这是 iOS 对网页应用的限制，不是设置没生效。</p>
+                        <p class="profile-sub profile-sub-even">想在课程开始或待办截止前收到提醒，有两种办法：开启上方的「网页通知」，由服务端在到点时推送；或者订阅下方的日历，交给系统日历提醒。</p>
+                        <p class="profile-sub profile-sub-even">通知权限随时可以在「设置 → 通知 → 班级助理」里修改；权限被关掉后，页面里的开关不会让手机响。</p>
+                        <p class="profile-sub profile-sub-tail">网页推送需要 iOS 16.4 及以上，并且要先把本页「添加到主屏幕」、再从桌面图标打开。</p>
                     </div>
 
                     <!-- 日历订阅（所有登录用户）。默认折叠（结构同 #prefCard / #pwdCard，见 toggleCollapse）：
@@ -224,6 +270,25 @@
                                 </div>
                             </div>
 
+                            <!-- 订阅内容：课程 / 待办默认包含（后端 courses、todos 参数默认 1）。
+                                 两个开关会显式写进订阅链接（courses=1/0、todos=1/0），
+                                 复制出去的链接自带完整配置，换设备订阅结果一致。 -->
+                            <label class="switch-row">
+                                <span>包含课程</span>
+                                <span class="switch">
+                                    <input type="checkbox" id="calCourses" checked>
+                                    <span class="switch-track" aria-hidden="true"></span>
+                                </span>
+                            </label>
+
+                            <label class="switch-row">
+                                <span>包含待办</span>
+                                <span class="switch">
+                                    <input type="checkbox" id="calTodos" checked>
+                                    <span class="switch-track" aria-hidden="true"></span>
+                                </span>
+                            </label>
+
                             <label class="switch-row">
                                 <span>把班级通知加进日历（全天显示）</span>
                                 <span class="switch">
@@ -238,10 +303,13 @@
                             </div>
                             <div class="btn-row">
                                 <button class="btn btn-primary" id="calCopyBtn" type="button">复制链接</button>
-                                <a class="btn btn-outline" id="calOpenBtn" href="#" rel="noopener">打开订阅</a>
+                                <!-- href 由 calRefresh() 设为后端返回的 webcal 链接（见 account.js）：
+                                     iOS 上点它直接打开系统日历的「添加订阅」，不必先复制再粘贴。
+                                     target="_top" 保证个人页在 iframe 里也能让顶层窗口导航到 webcal。 -->
+                                <a class="btn btn-outline" id="calOpenBtn" href="#" target="_top" rel="noopener">打开订阅</a>
                                 <button class="btn btn-danger" id="calResetBtn" type="button">重置密钥</button>
                             </div>
-                            <p class="profile-sub profile-sub-tail">复制链接后，在手机日历里选择「添加订阅日历 / 从网址导入」粘贴即可；重置密钥会让旧链接立即失效（已订阅的设备需重新订阅）。</p>
+                            <p class="profile-sub profile-sub-tail">复制链接后，在手机日历里选择「添加订阅日历 / 从网址导入」粘贴即可；iPhone 上点「打开订阅」会直接打开系统日历，若没有反应就复制链接手动添加。重置密钥会让旧链接立即失效（已订阅的设备需重新订阅）。</p>
                         </div>
                     </div>
                 </div>

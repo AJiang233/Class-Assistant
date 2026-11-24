@@ -14,13 +14,13 @@
 | API | `functions/api/[[path]].js` → `backend/src/index.js` | 只接管 `/api/*`，其余交给静态托管 |
 | 数据库 | Cloudflare D1，绑定名 `DB` | 表结构与迁移见第 5 节 |
 | 教务 / 学习通 / MOOC | Service Binding `ACADEMIC_API` / `CHAOXING_API` → 私有 Worker | 本仓库只做鉴权与转发 |
-| 邮件投递 | `backend/src/deliveryWorker.js`（独立 Cron Worker） | 扫发件箱，按订阅发信 |
+| 邮件 / 推送投递 | `backend/src/deliveryWorker.js`（独立 Cron Worker） | 扫发件箱按订阅发信；同一分钟任务也扫待办到点提醒 |
 
 几个结构上的前提：
 
 - **前后端同域**，`API_BASE` 为空串，不涉及 CORS 跨域；`cors.js` 只保留预检处理。
 - **应用壳 + iframe**：`index.html` 是唯一有侧栏/底栏的文档，其余页面都跑在同源 iframe 里。子页各自一份 `app.js`、各自一份 `apiRenderers`，所以跨页的数据回填要显式转发（见第 7 节）。
-- **Service Worker 在前**：页面壳与静态资源走 `sw.js` 的缓存策略；`/api/*` 刻意不进 SW（数据与登录态必须走网络，App 里由原生层另行兜底）。
+- **Service Worker 在前**：页面壳与静态资源走 `sw.js` 的缓存策略；`/api/*` 刻意不进 SW（数据与登录态必须走网络）。网页版另有一层 JS IndexedDB 缓存，只在断网 / 网络层失败时回放只读 GET（见第 8 节）；App 里由原生层兜底。
 - **一份样式表**：所有样式在 `assets/css/style.css`，CSP 不允许内联样式（见第 7 节）。
 
 ---
@@ -54,12 +54,12 @@ web/
 │   │   ├── handlers/           业务逻辑：认证 / 通知 / 活动 / 表单 / 待办 / 日历 / 推送 / 同步 / 审计 / 设置
 │   │   ├── models/             D1 数据访问，一表一模型
 │   │   ├── middleware/         auth（authenticate / withAuth / withPermission）/ cors / logger
-│   │   ├── services/           outbox（投递事件展开与占用）
+│   │   ├── services/           outbox（投递事件展开与占用）、todoReminders（待办到点提醒）
 │   │   └── utils/              响应信封 / PBKDF2 / JWT / 权限 / 可见性 / 时间 / ICS / 邮件 / Web Push / 链接白名单
 │   └── test/                   用 node:test 直接跑真实 SQL 与前端源码的回归用例
 ├── functions/api/[[path]].js   Pages Functions 入口（薄壳，复用 backend/src）
 ├── db/
-│   ├── migrations-v2/          迁移账本（0001…0009），wrangler 的 migrations_dir 指向这里
+│   ├── migrations-v2/          迁移账本（0001…0010），wrangler 的 migrations_dir 指向这里
 │   ├── migrations/             2026-09 的历史增量，已归档、不再执行
 │   └── schema.sql              完整新库快照，与账本顺序执行后的结构逐字一致
 ├── sw.js                       Service Worker
@@ -143,15 +143,15 @@ web/
 
 ## 5. 数据层
 
-### 表（`db/schema.sql`，26 张）
+### 表（`db/schema.sql`，28 张）
 
 | 分组 | 表 |
 | --- | --- |
 | 账号 | `users`、`roles`、`user_consents`、`email_codes`、`email_subscriptions`、`login_attempts`、`login_ip_failures`、`audit_logs` |
 | 内容 | `notices`、`activities`、`content_changes`、`architecture_versions` |
 | 表单 | `forms`、`form_submissions`、`form_submissions_v2`、`form_notice_links`、`orphan_submission_archive` |
-| 待办 | `todos`、`content_todos`、`todo_prefs`、`todo_sync_state` |
-| 投递 | `outbox_events`、`outbox_deliveries`、`push_subscriptions` |
+| 待办 | `todos`、`content_todos`、`todo_prefs`、`todo_sync_state`、`todo_reminder_prefs` |
+| 投递 | `outbox_events`、`outbox_deliveries`、`todo_reminder_deliveries`、`push_subscriptions` |
 | 其他 | `app_settings`（功能开关）、`audience_migration_issues`（受众迁移留痕） |
 
 ### 触发器（17 个）
@@ -163,9 +163,9 @@ web/
 
 ### 迁移
 
-- `db/migrations-v2/` 是**唯一表结构来源**，按 `0001`…`0009` 顺序执行；wrangler 的 `migrations_dir` 指向它。
+- `db/migrations-v2/` 是**唯一表结构来源**，按 `0001`…`0010` 顺序执行；wrangler 的 `migrations_dir` 指向它。
 - `db/schema.sql` 是完整新库快照，等价于账本顺序执行后的结构 —— `architecture.test.js` 会逐字核对两者，任何只改一边的改动都会失败。
-- `0008` / `0009` 用 `ALTER TABLE` 追加列，因此快照末尾按同样顺序重复这几条语句。
+- `0008` / `0009` 用 `ALTER TABLE` 追加列，因此快照末尾按同样顺序重复这几条语句。`0010` 新建待办提醒偏好与提醒投递两张表；迁移文件与 `schema.sql` 的 DDL 必须逐字一致（含行尾），否则 `architecture.test.js` 的 `sqlite_master` 深比较会失败。
 - `db/migrations/` 是 2026-09 的六份历史增量（表单、推送、内容归属、学生职位、删教务表、邮箱），只在旧库演进里用过，现已归档。
 
 ---
@@ -205,7 +205,7 @@ web/
 | — | `/api/activities`、`/api/activities/:id` | 同上 | 活动与通知同构，多 `location` / `start_time` / `end_time` |
 | GET | `/api/calendar/token` | 登录 | 读订阅链接与密钥 |
 | POST | `/api/calendar/reset` | 登录 | 重置订阅密钥 |
-| GET / HEAD | `/api/calendar.ics` | key（查询串） | iCalendar 订阅源，逐条按可见性过滤 |
+| GET / HEAD | `/api/calendar.ics` | key（查询串） | iCalendar 订阅源，逐条按可见性过滤；`remind` / `past` / `future` / `notices` / `courses` / `todos` 控制范围，`courses` / `todos` 缺省为开、传 `0` 关闭 |
 
 ### 表单
 
@@ -227,6 +227,7 @@ web/
 | POST | `/api/todos/:id/status` | 本人 | 完成 / 重新打开 |
 | POST | `/api/todos/:id/hide` | 本人 | 从历史里隐藏 |
 | GET / PUT | `/api/todos/prefs` | 本人 | 红 / 黄提醒阈值 |
+| GET / PUT | `/api/todos/reminder-prefs` | 本人 | 网页版待办推送：`enabled`、`lead_minutes`（0–10080，默认关闭 / 60） |
 | POST | `/api/todos/delegate` | content:write | 给多个成员代加 |
 | POST | `/api/todos/from-source` | 登录 | 从通知 / 活动加入（重复加入返回 `duplicate`） |
 | POST | `/api/todos/sync-chaoxing`、`/sync-mooc` | 登录 | 分批同步外部作业与考试（`{cursor,batch}` → `next_cursor/done`） |
@@ -272,7 +273,7 @@ web/
 
 ### 数据层
 
-- `api(path, options)`：自动附 Bearer token、30s 兜底超时、401 清会话回登录页、`options.raw` 直接拿 `Response`（CSV 导出用）。
+- `api(path, options)`：自动附 Bearer token、30s 兜底超时、401 清会话回登录页、`options.raw` 直接拿 `Response`（CSV 导出用）。只读 GET 还带一层网页离线缓存：断网先回缓存，在线仅在网络层失败 / 超时时回退；服务端答的 401、5xx、`success:false` 一律原样抛出，不拿旧数据掩盖错误。
 - `onApiData(key, render)`：按「请求 URL 一字不差」注册回填函数，供 App 壳的原生离线层在拿到新数据后重绘（网页版注册了也不会被调用）。
 - `window.__caApiUpdated`：原生推回数据的入口，先喂本窗口，再转发给同源 iframe；iframe 各自一份注册表，不转就收不到。
 
@@ -320,12 +321,38 @@ web/
 - **缓存优先 + 后台回源**：命中缓存先出首帧，同时用 `cache: 'no-cache'` 回源（绕开 CDN 那份 4 小时的 HTTP 缓存）；回源发现页面文档真的变了，就整份重取并通知页面刷新。
 - **规范地址**：写入与查找都走 `canonical()` —— 文件夹首页归一成目录形式（`/todos/index.html` → `/todos/`），分文件夹之前的旧地址查别名表（`/notices.html` → `/affairs/`），保证旧书签、旧推送在离线时也能命中。
 - **去跳转标记**：跟过 308 的响应带 `redirected`，规范禁止用它应答导航请求，所以落缓存前复制一份干净的。
-- **边界**：只接管导航与静态资源，`/api/*` 一律走网络；非导航请求缺缓存时如实失败，不用主页壳顶替（拿 HTML 顶替 JS 只会更难排查）。
+- **边界**：只接管导航与静态资源，`/api/*` 一律走网络；非导航请求缺缓存时如实失败，不用主页壳顶替（拿 HTML 顶替 JS 只会更难排查）。接口数据的离线段在页面 JS 里，见下一节。
 - **刷新与跳转**：`ca-shell-updated` 触发重载（页面里有未提交输入则跳过），`ca-shell-navigate` 给不支持 `client.navigate` 的旧内核做兜底。
+
+### 网页版离线 API 缓存
+
+浏览器（含 iOS 主屏 PWA）里没有安卓的原生拦截层，所以 `app.js` 在 `api()` 里补了一份 IndexedDB 缓存，语义与安卓 `OfflineApi` 对齐：
+
+- **只接管只读 GET**：路径白名单为通知、活动、教务 status / timetable / credits / grades、表单 `mine` 与表单详情、待办、`auth/me`；写请求与 `options.raw`（导出二进制）完全不走这一层。
+- **详情不单独落盘**：`/api/notices/:id`、`/api/activities/:id` 离线时从列表缓存里按 id 拼回 `{success:true,data:item}`，避免缓存条数随“点开过多少条”增长。
+- **键与账号隔离**：键是规范化后的「路径 + 查询串」，`refresh=1` 从键里去掉；每条记录带当前用户 id，换账号不命中，登录成功清掉其它账号、退出登录清空全部。
+- **上限与持久化**：单条响应 ≤512KB，最多 60 条，按 `savedAt` 淘汰最旧；启动时申请 `navigator.storage.persist()`，降低被系统清掉的概率。
+- **预热**：顶层窗口在首屏空闲后串行请求与安卓同口径的固定键（通知 / 活动列表、当天列表、教务四项、表单、`me`、待办）——用户没打开过的页面，断网也能直接看到上次数据。
+- **提示文案**：断网提示条在确认有缓存时显示「当前无网络，显示的是上次缓存的数据」，没有缓存仍显示「部分内容可能无法加载」，不把“没缓存”说成“有缓存”。
 
 ### App 壳内的离线
 
-安卓端在 `shouldInterceptRequest` 里接管 `/api/` 的只读请求：在线时自己取一份存本地，断网时把上次响应原样回给页面；页面侧只需用 `onApiData` 注册「拿到数据 → 渲染」的函数，就能在原生推回新数据时重绘。写操作（POST / PUT / DELETE）一律不接管。
+安卓端在 `shouldInterceptRequest` 里接管 `/api/` 的只读请求：在线时自己取一份存本地，断网时把上次响应原样回给页面；页面侧只需用 `onApiData` 注册「拿到数据 → 渲染」的函数，就能在原生推回新数据时重绘。写操作（POST / PUT / DELETE）一律不接管。网页版的等价能力见上一节，两层不会同时生效（`inNativeShell()` 时网页层不预热）。
+
+### iOS PWA 与提醒
+
+- **安装**：iOS 只能通过 Safari「分享 → 添加到主屏幕」安装，网页无法用代码弹安装提示；个人中心只给出口头引导。
+- **推送**：iOS 16.4+ 且必须已添加到主屏，权限申请必须在用户点击手势内；Safari 不允许静默推送，`sw.js` 收到 `push` 必定 `showNotification`，否则系统会撤销订阅。iOS 不会派发 `pushsubscriptionchange`，所以每次打开个人中心都会重新上报订阅。
+- **本地定时不可用**：iOS PWA 关闭后没有 Background Sync / 本地闹钟，课程与待办的“到点提醒”不能在本机排期。待办走服务端 Cron + Web Push（需在个人中心显式开启）；课程走系统日历订阅。
+- **日历订阅**：个人中心的订阅源已包含活动、通知（可选）、课程与待办；iOS / macOS 用 `webcal:` 直接打开「日历」App，其它平台保留 https 下载 `.ics`。每个事件带稳定 `UID`，`VALARM` 同时带 `UID` / `X-WR-ALARMUID`，尽量满足 iOS 对订阅日历闹钟的字段要求；但系统日历的刷新频率由 iOS 决定（可能一天一次），不能当作实时提醒。
+- **限制说明卡**：iOS 主屏 PWA 的个人中心会显示一张说明卡，明确“关闭后不会本机提醒、请用推送或日历、通知权限在系统设置里改”，避免用户把网页通知开关当成系统闹钟。
+
+### 上线前置
+
+1. `cd web && npm test` 全量通过；
+2. 远端库执行 `npx wrangler d1 migrations apply class-assistant-db --remote`（`0010` 建待办提醒两张表）；
+3. 部署 Pages（静态前端 + Functions）；
+4. 给独立的 Delivery Worker 配好 `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` 并部署 —— Pages 的环境变量不会继承给这个 Worker。待办提醒默认关闭，用户不开启就不会产生任何推送。
 
 ---
 

@@ -482,6 +482,7 @@ async function enablePush() {
     }
     if (btn) btn.disabled = false;
     await refreshNotify();
+    refreshWebTodoStatusFromCache();
     hintEl.textContent = '已开启，建议点一次「发送测试通知」确认能收到。';
 }
 
@@ -503,6 +504,7 @@ async function disablePush() {
     }
     if (btn) btn.disabled = false;
     await refreshNotify();
+    refreshWebTodoStatusFromCache();
     hintEl.textContent = '已关闭，这台设备不会再收到推送。';
 }
 
@@ -710,6 +712,135 @@ function saveTodoReminder() {
     }
 }
 refreshTodoCard();
+
+// ===== 网页版待办提醒（服务端推送，非 App 壳）=====
+// 网页 / PWA 没有本地排期能力：页面一关，setTimeout 就不存在了。所以网页版改成
+// 「服务端在截止前推送」—— App 没打开也能收到（iOS 16.4+ 的主屏 PWA 同样适用）。
+// 设置存服务端 todo_reminder_prefs：
+//   GET /api/todos/reminder-prefs → {success:true,data:{prefs:{enabled,lead_minutes}}}
+//   PUT 同路径 body {enabled,lead_minutes}    → 返回同样的 prefs；lead 为 0–10080 的整数
+// 与 #todoCard 的分工：App 壳里的待办提醒走原生 AlarmManager（#todoCard，经 CAHost 读写），
+// 网页版走这一张；两张卡互斥显示，不会同时出现让人不知道该信哪个。
+var webTodoPrefs = null;   // 最近一次读到的设置；保存后与推送开关变化时用它重绘状态行
+
+/** 状态行措辞（TODO_LEAD_LABEL 是「提前 1 小时」，拼进句子会重复「提前」，所以另起一套） */
+var WEB_TODO_LEAD_TEXT = {
+    0: '不提醒', 10: '10 分钟前', 30: '30 分钟前', 60: '1 小时前',
+    120: '2 小时前', 180: '3 小时前', 360: '6 小时前', 720: '12 小时前', 1440: '1 天前'
+};
+
+/** 这张卡只在网页 / PWA 里出现：原生壳有自己的本地提醒，没有推送通道的浏览器提示了也做不到 */
+function webTodoCardSupported() {
+    if (inNativeShell()) return false;
+    if (!('PushManager' in window)) return false;
+    return !!getSession();
+}
+
+function applyWebTodoPrefs(prefs) {
+    webTodoPrefs = prefs || null;
+    var enabledEl = document.getElementById('webTodoEnabled');
+    if (enabledEl) enabledEl.checked = !!(prefs && prefs.enabled);
+    var leadSel = document.getElementById('webTodoLead');
+    if (!leadSel) return;
+    var lead = prefs && typeof prefs.lead_minutes === 'number' ? prefs.lead_minutes : 60;
+    lead = Math.max(0, Math.round(lead));
+    var value = String(lead);
+    // 服务端允许 0–10080，界面只列常用档位；遇到别的值补一个选项，别把用户设好的值悄悄改掉
+    if (!leadSel.querySelector('option[value="' + value + '"]')) {
+        var opt = document.createElement('option');
+        opt.value = value;
+        opt.textContent = '提前 ' + lead + ' 分钟';
+        leadSel.appendChild(opt);
+    }
+    leadSel.value = value;
+}
+
+/** 推送通道就绪度：权限没给 / 没订阅 / 就绪。状态行据此提示先开上方「网页通知」 */
+function webPushReadiness() {
+    if (!('Notification' in window)) return Promise.resolve('unsupported');
+    if (Notification.permission !== 'granted') return Promise.resolve('permission');
+    return swRegistration(3000).then(function (reg) {
+        if (!reg) return 'nosub';
+        return reg.pushManager.getSubscription().then(function (sub) {
+            return sub ? 'ready' : 'nosub';
+        }, function () { return 'nosub'; });
+    });
+}
+
+async function renderWebTodoStatus(prefs, saved) {
+    var el = document.getElementById('webTodoStatus');
+    if (!el) return;
+    var enabled = !!(prefs && prefs.enabled);
+    var lead = prefs && typeof prefs.lead_minutes === 'number' ? prefs.lead_minutes : 60;
+    var text;
+    if (!enabled) {
+        text = '未开启：待办到期不会推送。';
+    } else if (lead > 0) {
+        text = (saved ? '已保存：' : '当前：') + '截止时间 ' + (WEB_TODO_LEAD_TEXT[lead] || (lead + ' 分钟前')) + '推送。';
+    } else {
+        text = '已开启，但提前量是「不提醒」：把提前量调大才会真的收到。';
+    }
+    var ready = await webPushReadiness();
+    if (ready === 'unsupported') text += '本机不支持网页通知。';
+    else if (ready === 'permission') text += '还没允许通知：请先在上方「网页通知」里点「开启通知」。';
+    else if (ready === 'nosub') text += '网页通知还没订阅成功：请先在上方「网页通知」里开启。';
+    el.textContent = text;
+}
+
+function refreshWebTodoCard() {
+    var card = document.getElementById('webTodoCard');
+    if (!card) return;
+    card.hidden = !webTodoCardSupported();
+    if (card.hidden) return;
+    loadWebTodoReminder();
+}
+
+function loadWebTodoReminder() {
+    var statusEl = document.getElementById('webTodoStatus');
+    if (statusEl) statusEl.textContent = '正在读取提醒设置…';
+    api('/api/todos/reminder-prefs').then(function (res) {
+        var prefs = (res && res.data && res.data.prefs) || { enabled: false, lead_minutes: 60 };
+        applyWebTodoPrefs(prefs);
+        renderWebTodoStatus(prefs, false);
+    }, function (err) {
+        // 后端还没部署这个接口时是 404 —— 如实说读不到，不假装成「未开启」骗用户去点保存
+        if (statusEl) statusEl.textContent = '读取提醒设置失败：' + ((err && err.message) || '请稍后刷新重试');
+    });
+}
+
+/** 保存设置。服务端推送与原生提醒无关：不用 notifyTodoChanged()，也不用通知 CAHost */
+async function saveWebTodoReminder() {
+    var btn = document.getElementById('webTodoSaveBtn');
+    var statusEl = document.getElementById('webTodoStatus');
+    var enabledEl = document.getElementById('webTodoEnabled');
+    var leadSel = document.getElementById('webTodoLead');
+    var enabled = !!(enabledEl && enabledEl.checked);
+    var lead = parseInt(leadSel ? leadSel.value : '60', 10);
+    if (isNaN(lead) || lead < 0) lead = 0;
+    var label = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = '保存中…'; }
+    try {
+        var res = await api('/api/todos/reminder-prefs', {
+            method: 'PUT',
+            body: JSON.stringify({ enabled: enabled, lead_minutes: lead })
+        });
+        var prefs = (res && res.data && res.data.prefs) || { enabled: enabled, lead_minutes: lead };
+        applyWebTodoPrefs(prefs);
+        await renderWebTodoStatus(prefs, true);
+    } catch (err) {
+        if (statusEl) statusEl.textContent = '保存失败：' + ((err && err.message) || '请稍后重试');
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = label; }
+    }
+}
+
+/** 上方「网页通知」开关后权限 / 订阅会变，状态行要跟着说对，否则会一直提示「还没允许通知」 */
+function refreshWebTodoStatusFromCache() {
+    if (!webTodoPrefs) return;
+    if (!document.getElementById('webTodoStatus')) return;
+    renderWebTodoStatus(webTodoPrefs, false);
+}
+refreshWebTodoCard();
 
 // ===== 后台通知（仅 App 壳） =====
 // 状态全部来自 CAHost.backgroundStatus()，它返回：
@@ -1203,35 +1334,87 @@ var calUrlEl = document.getElementById('calUrl');
 var calOpenBtn = document.getElementById('calOpenBtn');
 var calCopyBtn = document.getElementById('calCopyBtn');
 var calResetBtn = document.getElementById('calResetBtn');
+// 后端 /api/calendar/token 同时返回 https 的 url 与 webcal 的 webcal（同一个地址换协议）；
+// 「复制链接」用 https，「打开订阅」用 webcal —— iOS 上 webcal 会直接唤起系统日历的添加订阅。
 var calBaseUrl = '';
+var calBaseWebcal = '';
 
-function calRefresh() {
-    var url = '';
-    if (calBaseUrl) {
-        var u = new URL(calBaseUrl);
-        var remind = document.getElementById('calRemind').value;
-        var past = document.getElementById('calPast').value;
-        var future = document.getElementById('calFuture').value;
-        // 与服务端默认值相同的就不写进链接，保持简洁
-        if (remind !== '30') u.searchParams.set('remind', remind);
-        if (past !== '30') u.searchParams.set('past', past);
-        if (future !== '365') u.searchParams.set('future', future);
-        if (document.getElementById('calNotices').checked) u.searchParams.set('notices', '1');
-        url = u.toString();
-    }
-    calUrlEl.value = url;
-    calOpenBtn.href = url || '#';
+/** 读选项值；HTML 被旧版 Service Worker 缓存时元素可能不存在，给个默认值兜底，别让整页脚本中断 */
+function calVal(id, fallback) {
+    var el = document.getElementById(id);
+    return el ? el.value : fallback;
+}
+function calOn(id, fallback) {
+    var el = document.getElementById(id);
+    return el ? !!el.checked : !!fallback;
 }
 
-['calRemind', 'calPast', 'calFuture', 'calNotices'].forEach(function (id) {
-    document.getElementById(id).addEventListener('change', calRefresh);
+/** 选项拼成查询串（不含 key）：课程 / 待办总是显式写入；其余与服务端默认值相同就不写，链接保持简洁 */
+function calOptionQuery() {
+    var p = new URLSearchParams();
+    var remind = calVal('calRemind', '30');
+    var past = calVal('calPast', '30');
+    var future = calVal('calFuture', '365');
+    if (remind !== '30') p.set('remind', remind);
+    if (past !== '30') p.set('past', past);
+    if (future !== '365') p.set('future', future);
+    if (calOn('calNotices', false)) p.set('notices', '1');
+    // courses / todos 后端默认都是 1，这里显式写 1/0：用户复制出去的链接自带完整配置，
+    // 换设备重新订阅的结果与当前开关一致（改完选项要重新复制链接，见卡片说明）。
+    p.set('courses', calOn('calCourses', true) ? '1' : '0');
+    p.set('todos', calOn('calTodos', true) ? '1' : '0');
+    return p.toString();
+}
+
+function calWithQuery(base, qs) {
+    if (!base) return '';
+    if (!qs) return base;
+    return base + (base.indexOf('?') === -1 ? '?' : '&') + qs;
+}
+
+/**
+ * 「打开订阅」用 webcal 还是 https。
+ *
+ * webcal 只有 Apple 平台（iOS / macOS）才稳定有处理器：iOS 直接弹系统日历的「添加订阅」。
+ * 安卓 / Windows 上没有这个协议处理器，点了很可能毫无反应 —— 那里仍给 https，让浏览器
+ * 下载 .ics 自行导入（这也是改造前的行为，不能为了 iOS 把其它平台弄回归）。
+ */
+function calPrefersWebcal() {
+    if (isIOSDevice()) return true;
+    var ua = navigator.userAgent || '';
+    return /Macintosh/.test(ua) && navigator.maxTouchPoints <= 1;
+}
+
+function calRefresh() {
+    var qs = calBaseUrl ? calOptionQuery() : '';
+    var url = calWithQuery(calBaseUrl, qs);
+    var webcal = '';
+    if (url) {
+        // 优先用后端给的 webcal 地址；后端没给就按协议替换兜底
+        webcal = calBaseWebcal ? calWithQuery(calBaseWebcal, qs) : url.replace(/^https?:/, 'webcal:');
+    }
+    calUrlEl.value = url;
+    calOpenBtn.href = (calPrefersWebcal() ? webcal : url) || '#';
+}
+
+['calRemind', 'calPast', 'calFuture', 'calNotices', 'calCourses', 'calTodos'].forEach(function (id) {
+    var el = document.getElementById(id);
+    if (el) el.addEventListener('change', calRefresh);
 });
+
+/** 把 /api/calendar/token、/reset 返回的 data 落到本地状态；两个接口的返回结构相同 */
+function calApplyToken(data) {
+    data = data || {};
+    calBaseUrl = data.url || '';
+    calBaseWebcal = data.webcal || (calBaseUrl ? calBaseUrl.replace(/^https?:/, 'webcal:') : '');
+    if (!calBaseUrl && calBaseWebcal) calBaseUrl = calBaseWebcal.replace(/^webcal:/, 'https:');
+    calRefresh();
+}
 
 (async function loadCalendarToken() {
     try {
         var res = await api('/api/calendar/token');
-        calBaseUrl = (res.data && res.data.url) || '';
-        calRefresh();
+        calApplyToken(res.data);
     } catch (err) {
         var box = document.getElementById('calError');
         box.textContent = err.message || '获取订阅地址失败';
@@ -1248,8 +1431,7 @@ calResetBtn.addEventListener('click', async function () {
     calResetBtn.textContent = '重置中…';
     try {
         var res = await api('/api/calendar/reset', { method: 'POST' });
-        calBaseUrl = (res.data && res.data.url) || '';
-        calRefresh();
+        calApplyToken(res.data);
     } catch (err) {
         errBox.textContent = err.message || '重置失败';
         errBox.classList.add('show');
@@ -1277,6 +1459,19 @@ calCopyBtn.addEventListener('click', function () {
         done();
     }
 });
+
+// ===== iOS 主屏提醒说明（仅 iOS standalone）=====
+// 个人页常常嵌在壳的 iframe 里，所以复用 app.js 的两个判定（它们都先看顶层窗口），
+// 比在这里直接 matchMedia('(display-mode: standalone)') 更可靠：isStandaloneMode() 内部
+// 同时看 display-mode: standalone 与 navigator.standalone。
+// App 壳有原生提醒通道，这张卡没有意义，整块不出现。
+(function refreshIosPwaCard() {
+    var card = document.getElementById('iosPwaCard');
+    if (!card) return;
+    if (inNativeShell()) return;
+    if (!isIOSDevice() || !isStandaloneMode()) return;
+    card.hidden = false;
+})();
 
 // ===== 个人中心：账号绑定（教务 / 学习通 / 中国大学MOOC） =====
 // 交互约定：
@@ -2208,6 +2403,7 @@ delegate(document, 'click', '[data-act="disable-push"]', function () { disablePu
 delegate(document, 'click', '[data-act="test-push"]', function (el) { testPush(el.getAttribute('data-arg')); });
 delegate(document, 'change', '[data-act="save-course-reminder"]', function () { saveCourseReminder(); });
 delegate(document, 'change', '[data-act="save-todo-reminder"]', function () { saveTodoReminder(); });
+delegate(document, 'click', '[data-act="save-web-todo-reminder"]', function () { saveWebTodoReminder(); });
 delegate(document, 'change', '[data-act="save-background-always-on"]', function () { saveBackgroundAlwaysOn(); });
 delegate(document, 'click', '[data-act="open-battery-action"]', function () { openBatteryAction(); });
 delegate(document, 'click', '[data-act="open-auto-start"]', function () { openAutoStart(); });

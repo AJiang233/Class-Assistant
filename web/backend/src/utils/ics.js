@@ -89,6 +89,11 @@ export function buildCalendar(events, calendarName, reminderMinutes = 30) {
     if (event.location) lines.push(`LOCATION:${escapeText(event.location)}`);
     if (reminderMinutes > 0) {
       lines.push('BEGIN:VALARM');
+      // VALARM 也要有稳定的 UID，否则订阅源每次拉取都被客户端当成「新提醒」，
+      // 反复重排通知；Apple 系（iOS/macOS）额外认 X-WR-ALARMUID，两个都写。
+      const alarmUid = `${escapeText(event.uid)}-alarm`;
+      lines.push(`UID:${alarmUid}`);
+      lines.push(`X-WR-ALARMUID:${alarmUid}`);
       lines.push('ACTION:DISPLAY');
       lines.push(`DESCRIPTION:${escapeText(event.title || '班级活动')}`);
       lines.push(

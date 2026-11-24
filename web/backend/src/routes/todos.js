@@ -8,6 +8,8 @@ import {
   handleAddTodoFromSource,
   handleGetTodoPrefs,
   handleUpdateTodoPrefs,
+  handleGetTodoReminderPrefs,
+  handleUpdateTodoReminderPrefs,
   handleSyncChaoxingTodos,
   handleSyncMoocTodos,
   handleHideTodo
@@ -22,6 +24,12 @@ export async function todoRoutes(request, env, ctx) {
   const url = new URL(request.url);
   const path = url.pathname;
   const method = request.method;
+
+  // 到点 Web Push 提醒设置（P1-4）：同样放在 /api/todos/:id 的数字匹配之前。
+  if (path === '/api/todos/reminder-prefs') {
+    if (method === 'GET') return withAuth(handleGetTodoReminderPrefs)(request, env, ctx);
+    if (method === 'PUT' || method === 'POST') return withAuth(handleUpdateTodoReminderPrefs)(request, env, ctx);
+  }
 
   // 阈值设置（注意放在 /api/todos/:id 的数字匹配之前，虽然后者只认数字、并不冲突）
   if (path === '/api/todos/prefs') {

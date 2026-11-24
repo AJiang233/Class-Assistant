@@ -16,6 +16,16 @@ async function api(path, options = {}) {
   const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
   const token = localStorage.getItem(LS_TOKEN);
   if (token) headers['Authorization'] = 'Bearer ' + token;
+  // 网页版离线缓存只接管「可缓存的只读 GET」（见下方「网页版离线 API 缓存」一节）：
+  // 写操作断网必须失败、raw 响应（导出二进制）不在这里解析，两种都直接跳过这一层。
+  const offline = offlineCacheMode(path, options);
+  let offlineTried = false;
+  // 断网：立刻回缓存，不等一次必然失败的 fetch（刷新请求也一样 —— 那时网络本来就没有）
+  if (offline && navigator.onLine === false) {
+    offlineTried = true;
+    const cached = await offlineCacheRead(offline);
+    if (cached) return cached;
+  }
   let res;
   try {
     // 前端兜底超时：后端或网络挂起时也能拿到异常回显，而不是无限卡在加载态。
@@ -25,6 +35,13 @@ async function api(path, options = {}) {
     // 超时/断网时 fetch 直接 reject，message 常为空，这里转成可读文案
     const timedOut = !(options.signal) && e && (e.name === 'TimeoutError' || e.name === 'AbortError');
     const seconds = Math.round(requestTimeoutMs(options) / 1000);
+    // 只有网络层失败才轮到缓存兜底。服务端答了错误（401 / 5xx / success:false）绝不回退：
+    // 那等于把「登录态失效了」「服务端出错了」盖成一份旧数据，用户看不出自己看的是哪天的。
+    // 调用方自己 abort（options.signal）也不兜底 —— 那是主动取消，不是网络坏了。
+    if (offline && !offlineTried && !(options.signal && e && e.name === 'AbortError')) {
+      const cached = await offlineCacheRead(offline);
+      if (cached) return cached;
+    }
     throw new Error(timedOut ? `请求超时（>${seconds}s），请检查网络后重试` : ('网络错误：' + (e.message || '无法连接服务器')));
   }
   // raw 模式（导出二进制 / 需要自己消费 Response 的调用）直接给回 Response，不做 JSON 解析
@@ -41,6 +58,10 @@ async function api(path, options = {}) {
     err.code = data && data.code ? data.code : '';
     err.httpStatus = res.status;
     throw err;
+  }
+  // 只落 2xx + success:true 的那一份（后端有些错误是 200 + success:false，那种绝不覆盖缓存）
+  if (offline && offline.write && data && data.success === true) {
+    offlineCacheWrite(offline, data);
   }
   return data;
 }
@@ -191,6 +212,388 @@ if (window.top === window) {
   };
 }
 
+/* ===== 网页版离线 API 缓存（IndexedDB）=====
+   安卓 / 鸿蒙 App 里，/api/ 的只读响应由原生层缓存回放（见 android 的 sync/OfflineApi
+   与 data/OfflineCache）；浏览器里没有这一层，而 sw.js 又是**刻意**不碰 /api/ 的
+   （数据与登录态必须走网络，拿旧数据糊弄用户比报错更糟），于是断网后 iOS PWA 只剩一个页面壳。
+   这里在 JS 层补一份等价能力：
+
+     写：只有「可缓存的只读 GET」成功（2xx 且 success:true）后落一份，
+         键 = 规范化后的「路径 + 查询串」（refresh=1 不算数据的一部分，键里去掉）；
+     读：断网时立刻回缓存，不等一次必然失败的 fetch；在线但 fetch 抛网络错误 / 超时也回缓存；
+         401 / 5xx / success:false 绝不回退 —— 那会把「登录态失效」「服务端出错」盖成旧数据。
+
+   白名单、详情回退、条数上限都与 Android 那份对齐（这边用 IndexedDB，省掉文件读写）。
+   所有 IDB 操作都吞异常：缓存坏了只该表现为「离线少几条数据」，不能把 api() 本身打挂。 */
+
+/** 会被写入缓存的接口路径（不含查询串）；只登记网页真会请求的只读接口 */
+const OFFLINE_CACHEABLE_PATHS = [
+  /^\/api\/notices$/,
+  /^\/api\/activities$/,
+  /^\/api\/academic\/(?:status|timetable|credits|grades)$/,
+  /^\/api\/forms\/mine$/,
+  /^\/api\/forms\/\d+$/,
+  /^\/api\/todos$/,
+  /^\/api\/auth\/me$/
+];
+
+/**
+ * 详情路径 → 去哪个列表里按 id 找。详情本身**不单独缓存**：单独存会让条数随
+ * 「点开过多少条」无限涨，而列表项与详情返回的是同一行数据，按 id 拼回来形状完全一致。
+ */
+const OFFLINE_DETAIL_PATHS = [
+  { pattern: /^\/api\/notices\/(\d+)$/, basePath: '/api/notices' },
+  { pattern: /^\/api\/activities\/(\d+)$/, basePath: '/api/activities' }
+];
+
+/** 列表形状的路径（淘汰顺序与详情回退都按它区分，与 Android 的 LIST_PATHS 一致） */
+const OFFLINE_LIST_PATH_SET = { '/api/notices': true, '/api/activities': true, '/api/todos': true };
+
+const OFFLINE_DB_NAME = 'ca-offline';
+const OFFLINE_DB_VERSION = 1;
+const OFFLINE_STORE = 'api';
+/** 条目数上限：缓存键带查询串，`?date=YYYY-MM-DD` 这类会随翻日历慢慢堆积 */
+const OFFLINE_MAX_ENTRIES = 60;
+/** 单条响应上限（字符数，与 Android 的 MAX_BODY_CHARS 同口径）：超了说明形状不对 */
+const OFFLINE_MAX_BODY_CHARS = 512 * 1024;
+
+let offlineDbPromise = null;
+
+/**
+ * 缓存键 = 路径 + 查询串，但去掉 `refresh=1`。
+ * 它只是「别给我缓存」的意图，不是数据的一部分；留在键里会让同一份数据挂两个键，
+ * 还会导致「先刷新、后断网」读到的是另一份（很可能压根没写过的）缓存。
+ */
+function offlineCacheKey(path) {
+  const q = path.indexOf('?');
+  if (q < 0) return path;
+  const rest = path.slice(q + 1).split('&').filter(function (part) {
+    return part && part !== 'refresh=1';
+  });
+  return rest.length ? path.slice(0, q) + '?' + rest.join('&') : path.slice(0, q);
+}
+
+/**
+ * 这条请求该怎么走离线层；不归这一层管的返回 null。
+ * 只认 GET、非 raw、站内相对路径；可缓存路径与详情路径之外一律不接管。
+ */
+function offlineCacheMode(path, options) {
+  if (!options || options.raw) return null;
+  if (String(options.method || 'GET').toUpperCase() !== 'GET') return null;
+  if (typeof indexedDB === 'undefined') return null;
+  const full = String(path == null ? '' : path);
+  if (full.charAt(0) !== '/') return null;   // 绝对 URL / 空路径不在这里猜
+  const q = full.indexOf('?');
+  const pathname = q < 0 ? full : full.slice(0, q);
+
+  const write = OFFLINE_CACHEABLE_PATHS.some(function (re) { return re.test(pathname); });
+  let detail = null;
+  if (!write) {
+    for (let i = 0; i < OFFLINE_DETAIL_PATHS.length; i++) {
+      const m = OFFLINE_DETAIL_PATHS[i].pattern.exec(pathname);
+      if (m) { detail = { basePath: OFFLINE_DETAIL_PATHS[i].basePath, id: m[1] }; break; }
+    }
+    if (!detail) return null;
+  }
+  return {
+    key: offlineCacheKey(full),
+    pathname: pathname,
+    basePath: detail ? detail.basePath : pathname,
+    shape: OFFLINE_LIST_PATH_SET[pathname] ? 'list' : 'other',
+    write: write,
+    detail: detail
+  };
+}
+
+/** 打开缓存库（只打开一次）。失败时调用方一律当作「没有缓存」。 */
+function offlineDbOpen() {
+  if (offlineDbPromise) return offlineDbPromise;
+  if (typeof indexedDB === 'undefined') return Promise.reject(new Error('IndexedDB 不可用'));
+  offlineDbPromise = new Promise(function (resolve, reject) {
+    let req;
+    try {
+      req = indexedDB.open(OFFLINE_DB_NAME, OFFLINE_DB_VERSION);
+    } catch (e) { reject(e); return; }
+    req.onupgradeneeded = function () {
+      const db = req.result;
+      let store;
+      if (!db.objectStoreNames.contains(OFFLINE_STORE)) {
+        store = db.createObjectStore(OFFLINE_STORE, { keyPath: 'key' });
+      } else {
+        store = req.transaction.objectStore(OFFLINE_STORE);
+      }
+      if (!store.indexNames.contains('savedAt')) store.createIndex('savedAt', 'savedAt');
+      if (!store.indexNames.contains('basePath')) store.createIndex('basePath', 'basePath');
+      if (!store.indexNames.contains('shape')) store.createIndex('shape', 'shape');
+    };
+    req.onsuccess = function () {
+      const db = req.result;
+      // 别的标签页要升版本时主动让路，否则会把对方卡在 blocked 上（我们只有一个版本，兜住即可）
+      db.onversionchange = function () {
+        try { db.close(); } catch (e) {}
+        offlineDbPromise = null;
+      };
+      resolve(db);
+    };
+    req.onerror = function () { reject(req.error || new Error('IndexedDB 打开失败')); };
+  }).catch(function (e) {
+    offlineDbPromise = null;
+    throw e;
+  });
+  return offlineDbPromise;
+}
+
+/**
+ * 在缓存库里跑一条 IDB 请求：run 里**同步**发起请求并返回它，成功即用请求结果 resolve。
+ * 任何异常都折叠成 null —— 缓存层的失败不该冒泡到页面。
+ */
+function offlineIdb(mode, run) {
+  return offlineDbOpen().then(function (db) {
+    return new Promise(function (resolve) {
+      let tx;
+      try { tx = db.transaction(OFFLINE_STORE, mode); }
+      catch (e) { resolve(null); return; }
+      let request;
+      try { request = run(tx.objectStore(OFFLINE_STORE)); }
+      catch (e) { resolve(null); return; }
+      if (request && typeof request.onsuccess !== 'undefined') {
+        request.onsuccess = function () { resolve(request.result == null ? null : request.result); };
+        request.onerror = function () { resolve(null); };
+      } else {
+        resolve(request == null ? null : request);
+      }
+    });
+  }, function () { return null; }).catch(function () { return null; });
+}
+
+function offlineCacheGetEntry(key) {
+  return offlineIdb('readonly', function (store) { return store.get(key); });
+}
+
+function offlineCacheListEntries(basePath) {
+  return offlineIdb('readonly', function (store) { return store.index('basePath').getAll(basePath); });
+}
+
+function offlineCacheCount() {
+  return offlineIdb('readonly', function (store) { return store.count(); }).then(function (n) {
+    return typeof n === 'number' ? n : 0;
+  });
+}
+
+/** 缓存里那份 {success,data} 的原样解出来；不是成功响应就当没有（旧版本或写坏了） */
+function offlineCacheParse(body) {
+  try {
+    const payload = JSON.parse(body);
+    return payload && payload.success === true ? payload : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+/** 缓存归属的账号：换账号 / 退出登录后旧缓存不可命中 */
+function offlineUserId() {
+  let u = null;
+  try { u = getSession(); } catch (e) { return null; }
+  if (!u || u.id == null) return null;
+  return String(u.id);
+}
+
+/**
+ * 读缓存。精确键优先；详情再退一步，从同一类列表的缓存里按 id 拼回 {success:true,data:item}。
+ * 账号对不上直接当没有（不删：另一个标签页可能还是那个账号）。
+ */
+async function offlineCacheRead(mode) {
+  const userId = offlineUserId();
+  if (userId == null) return null;
+
+  if (mode.detail) {
+    const rows = await offlineCacheListEntries(mode.detail.basePath);
+    const list = Array.isArray(rows) ? rows : [];
+    for (let i = 0; i < list.length; i++) {
+      const row = list[i];
+      if (!row || row.userId !== userId) continue;
+      const payload = offlineCacheParse(row.body);
+      const items = payload && payload.data && payload.data.list;
+      if (!Array.isArray(items)) continue;
+      for (let j = 0; j < items.length; j++) {
+        const item = items[j];
+        if (item && String(item.id) === mode.detail.id) return { success: true, data: item };
+      }
+    }
+    return null;
+  }
+
+  const entry = await offlineCacheGetEntry(mode.key);
+  if (!entry || entry.userId !== userId) return null;
+  return offlineCacheParse(entry.body);
+}
+
+/** 写缓存：fire-and-forget，绝不 await（写失败不该拖慢或打断这次请求） */
+function offlineCacheWrite(mode, data) {
+  let body;
+  try { body = JSON.stringify(data); } catch (e) { return; }
+  if (!body || body.length > OFFLINE_MAX_BODY_CHARS) return;
+  const userId = offlineUserId();
+  if (userId == null) return;   // 没有会话就不落：缓存必须能归属到某个账号
+  const row = {
+    key: mode.key,
+    body: body,
+    userId: userId,
+    basePath: mode.basePath,
+    shape: mode.shape,
+    savedAt: Date.now()
+  };
+  offlineIdb('readwrite', function (store) { return store.put(row); }).then(function () {
+    return offlineCachePrune();
+  }).catch(function () {});
+}
+
+/** 超过上限就淘汰最旧的几条（savedAt 升序游标，先走先删） */
+function offlineCachePrune() {
+  return offlineDbOpen().then(function (db) {
+    return new Promise(function (resolve) {
+      let tx;
+      try { tx = db.transaction(OFFLINE_STORE, 'readwrite'); }
+      catch (e) { resolve(); return; }
+      tx.oncomplete = function () { resolve(); };
+      tx.onabort = function () { resolve(); };
+      tx.onerror = function () { resolve(); };
+      const store = tx.objectStore(OFFLINE_STORE);
+      const countReq = store.count();
+      countReq.onsuccess = function () {
+        const extra = countReq.result - OFFLINE_MAX_ENTRIES;
+        if (extra <= 0) return;   // 没有超限：事务自己会 complete，resolve 由 oncomplete 做
+        let removed = 0;
+        const cursorReq = store.index('savedAt').openCursor();
+        cursorReq.onsuccess = function () {
+          const cursor = cursorReq.result;
+          if (!cursor || removed >= extra) return;
+          try { cursor.delete(); } catch (e) {}
+          removed++;
+          cursor.continue();
+        };
+      };
+    });
+  }).catch(function () {});
+}
+
+/** 退出登录 / 登录态失效：把离线数据一起清掉，否则换个账号还能断网翻到上一个账号的通知 */
+function offlineCacheClearAll() {
+  return offlineDbOpen().then(function (db) {
+    return new Promise(function (resolve) {
+      let tx;
+      try { tx = db.transaction(OFFLINE_STORE, 'readwrite'); }
+      catch (e) { resolve(); return; }
+      tx.oncomplete = function () { resolve(); };
+      tx.onabort = function () { resolve(); };
+      try { tx.objectStore(OFFLINE_STORE).clear(); } catch (e) { resolve(); }
+    });
+  }).catch(function () {});
+}
+
+/** 登录成功后清掉别的账号留下的条目（多账号共用一台设备时，别把上一个账号的数据带过来） */
+function offlineCachePruneOtherUsers() {
+  const userId = offlineUserId();
+  if (userId == null) return;
+  offlineDbOpen().then(function (db) {
+    return new Promise(function (resolve) {
+      let tx;
+      try { tx = db.transaction(OFFLINE_STORE, 'readwrite'); }
+      catch (e) { resolve(); return; }
+      tx.oncomplete = function () { resolve(); };
+      tx.onabort = function () { resolve(); };
+      const cursorReq = tx.objectStore(OFFLINE_STORE).openCursor();
+      cursorReq.onsuccess = function () {
+        const cursor = cursorReq.result;
+        if (!cursor) return;
+        if (cursor.value && cursor.value.userId !== userId) {
+          try { cursor.delete(); } catch (e) {}
+        }
+        cursor.continue();
+      };
+    });
+  }).catch(function () {});
+}
+
+/**
+ * 顶层窗口预热固定键（与 Android 的 OfflineApi.FIXED_PATHS 同口径）：
+ * 用户没打开过那个页面，断网时也能直接看到内容，而不是等一次必然失败的网络请求。
+ * 缓存键就是 URL，所以参数必须与各页面真实请求的拼法逐字一致 —— 差一个参数就是另一份缓存。
+ */
+function offlinePrewarmKeys(now) {
+  const d = now || new Date();
+  const pad = function (n) { return n < 10 ? '0' + n : '' + n; };
+  const day = d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+  return [
+    // 主页与列表页请求同一张表但参数不同，两条都得存
+    '/api/notices?scope=all&audience=mine&limit=100&offset=0',
+    '/api/notices?scope=all',
+    '/api/activities?scope=all&audience=mine&limit=100&offset=0',
+    '/api/activities?scope=all',
+    // 主页的「当日列表」键每天不同，跟随当天日期（Android 的 todayListPaths 同一口径）
+    '/api/notices?audience=mine&limit=100&date=' + day + '&offset=0',
+    '/api/activities?audience=mine&date=' + day + '&limit=100&offset=0',
+    '/api/academic/status',
+    '/api/academic/timetable',
+    '/api/academic/credits',
+    '/api/academic/grades',
+    '/api/forms/mine?limit=100&offset=0',
+    '/api/auth/me',
+    // 待办：首页摘要 + 待办页（进行中 / 历史）
+    '/api/todos?status=open&limit=3',
+    '/api/todos?status=open&limit=50&offset=0',
+    '/api/todos?status=history&limit=50&offset=0'
+  ];
+}
+
+function offlinePrewarm() {
+  // 子页面与顶层同一份存储：只让顶层刷一次，别每个 iframe 都来一轮
+  if (window.top !== window) return;
+  if (inNativeShell()) return;              // App 壳由原生层预热，网页这层不重复取
+  if (typeof indexedDB === 'undefined') return;
+  if (navigator.onLine === false) return;   // 本来就没网，取也取不到
+  if (!localStorage.getItem(LS_TOKEN)) return;
+  const keys = offlinePrewarmKeys();
+  let i = 0;
+  const next = function () {
+    if (i >= keys.length) return;
+    const key = keys[i++];
+    // 走 api() 而不是 fetch：写缓存、超时、401 处理全部复用同一套逻辑
+    api(key).catch(function () {}).then(function () {
+      if (i < keys.length) setTimeout(next, 80);   // 串行错开，别把首屏那几个请求挤在同一拍
+    });
+  };
+  next();
+}
+
+function offlinePrewarmSoon() {
+  const run = function () {
+    try { offlinePrewarm(); } catch (e) { /* 预热失败不影响页面 */ }
+  };
+  try {
+    if (typeof window.requestIdleCallback === 'function') {
+      window.requestIdleCallback(run, { timeout: 4000 });
+    } else {
+      setTimeout(run, 1500);   // Safari 没有 requestIdleCallback：等首屏稳定后再来
+    }
+  } catch (e) {
+    setTimeout(run, 1500);
+  }
+}
+
+/* 申请持久化存储：配额紧张时浏览器可能清掉缓存，persist() 之后会尽量保留。
+   不支持 / 被拒绝都静默 —— 它只影响缓存能留多久，不影响功能本身。 */
+(function () {
+  try {
+    if (navigator.storage && typeof navigator.storage.persist === 'function') {
+      navigator.storage.persist().catch(function () {});
+    }
+  } catch (e) { /* 无 storage API：忽略 */ }
+})();
+
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', offlinePrewarmSoon);
+else offlinePrewarmSoon();
+
 /** 保存登录会话 */
 function saveSession(data) {
   // Safari 无痕模式或配额耗尽时 setItem 会抛 QuotaExceededError。
@@ -202,6 +605,8 @@ function saveSession(data) {
     console.warn('无法写入本地存储：', e);
     throw new Error('浏览器存储不可用，无法保持登录状态，请退出无痕模式后重试');
   }
+  // 换了账号就把上一个账号的离线数据清掉，避免断网时翻到别人（或自己旧账号）的通知/课表
+  try { offlineCachePruneOtherUsers(); } catch (e) { /* 清理失败不影响登录 */ }
 }
 
 /** 读取当前用户（无则 null） */
@@ -759,7 +1164,9 @@ function hasUnsavedInput() {
    断网时两种情况不一样，不能共用一句话：
      App 里 —— 原生层把 /api/ 的只读响应缓存下来回放（见 android 的 OfflineApi），
               页面照常能看到课表、通知、活动，只是数据是上次同步的；
-     浏览器里 —— 没有这一层。页面壳还能从 Service Worker 缓存里打开，但数据是真的取不到。
+     浏览器里 —— 网页层现在也有一份 IndexedDB 缓存（见上面「网页版离线 API 缓存」）：
+              命中时页面同样能看到上次的数据；但第一次打开、清过站点数据、或这条接口不在
+              白名单里的那部分确实没有缓存，只能如实说「可能无法加载」。
    注意 navigator.onLine 只管「有没有可用网络」，管不了「服务端是不是活着」，够用了。 */
 function renderOfflineNotice() {
   var existing = document.getElementById('offlineNotice');
@@ -776,11 +1183,30 @@ function renderOfflineNotice() {
   var el = document.createElement('div');
   el.id = 'offlineNotice';
   el.className = 'offline-notice';
-  // 文案是固定的（无用户输入），可以直接拼 icon()；用 innerHTML 是为了在文字前放断网图标
+  // 文案是固定的（无用户输入），可以直接拼 icon()；用 innerHTML 是为了在文字前放断网图标。
+  // 先按「不知道有没有缓存」的保守文案出，随后异步探一次库再决定要不要换成更准确的那句 ——
+  // 探测是异步的，不能让提示条晚一拍才出现。
   el.innerHTML = icon('wifi-off') + '<span>' + (inNativeShell()
     ? '当前无网络，显示的是缓存数据'
     : '当前无网络，部分内容可能无法加载') + '</span>';
   host.insertBefore(el, host.firstChild);
+  if (!inNativeShell()) probeOfflineCacheText(el);
+}
+
+/**
+ * 有缓存就把提示条改成「显示的是上次缓存的数据」；没有就保留「部分内容可能无法加载」。
+ * 只换 <span> 里的字，不改 id / class —— 样式与在线移除逻辑都按那两条走。
+ */
+function probeOfflineCacheText(el) {
+  if (typeof indexedDB === 'undefined') return;
+  try {
+    offlineCacheCount().then(function (n) {
+      if (!n || navigator.onLine) return;
+      if (document.getElementById('offlineNotice') !== el) return;   // 期间被移除 / 重建过了
+      var span = el.querySelector('span');
+      if (span) span.textContent = '当前无网络，显示的是上次缓存的数据';
+    }).catch(function () {});
+  } catch (e) { /* 探测失败就保持保守文案 */ }
 }
 
 window.addEventListener('online', renderOfflineNotice);
@@ -821,6 +1247,9 @@ function toggleCollapse(id) {
 function clearSession() {
   localStorage.removeItem(LS_TOKEN);
   localStorage.removeItem(LS_USER);
+  // 退出登录 / 登录态失效时把离线数据一起清掉：否则换个账号还能断网翻到上一个账号的通知。
+  // fire-and-forget：清理是磁盘活，不能拖住「立刻跳回主页」。
+  try { offlineCacheClearAll(); } catch (e) { /* 缓存库不可用时忽略 */ }
 }
 
 /** 是否已经在跳转回主页的路上：并发多个 401 时避免反复触发顶层跳转 */

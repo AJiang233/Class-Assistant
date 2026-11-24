@@ -416,3 +416,33 @@ CREATE TABLE IF NOT EXISTS todo_sync_state (
 -- 与 0008 同理：列只能 ALTER 追加，schema.sql 尾部重复迁移里的写法。
 ALTER TABLE user_consents ADD COLUMN mooc INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE user_consents ADD COLUMN mooc_agreed_at DATETIME;
+
+-- 待办到期 Web Push 提醒（对应 migrations-v2/0010_todo_reminders.sql，DDL 必须逐字一致）。
+-- 服务端 Cron 每分钟检查 7 天内到期、开着提醒的待办，按提前量给本人的推送订阅登记投递；
+-- 投递表独立于 outbox_deliveries（那张表绑定内容变更事件），按待办 + 用户 + 截止时间 + 端点去重。
+CREATE TABLE IF NOT EXISTS todo_reminder_prefs (
+  user_id      INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  enabled      INTEGER NOT NULL DEFAULT 0,
+  lead_minutes INTEGER NOT NULL DEFAULT 60,
+  updated_at   TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS todo_reminder_deliveries (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  todo_id     INTEGER NOT NULL REFERENCES todos(id) ON DELETE CASCADE,
+  due_at      TEXT NOT NULL,
+  endpoint    TEXT NOT NULL,
+  payload     TEXT NOT NULL,
+  state       TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','sending','sent','dead','skipped')),
+  attempts    INTEGER NOT NULL DEFAULT 0,
+  next_at     INTEGER NOT NULL DEFAULT 0,
+  lease_until INTEGER NOT NULL DEFAULT 0,
+  lease_token TEXT,
+  last_error  TEXT,
+  created_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(todo_id, user_id, due_at, endpoint)
+);
+
+CREATE INDEX IF NOT EXISTS idx_todo_reminder_ready ON todo_reminder_deliveries(state, next_at, lease_until);

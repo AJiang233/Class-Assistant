@@ -291,4 +291,30 @@ export class TodoModel {
          updated_at = CURRENT_TIMESTAMP`
     ).bind(userId, urgentHours, warnHours).run();
   }
+
+  // ===== 到期 Web Push 提醒（P1-4）=====
+
+  /**
+   * 到点提醒设置：开关 + 提前量（分钟）。
+   * 没写过记录时默认关闭、提前 60 分钟——服务端只在用户显式打开后才登记投递。
+   */
+  async getReminderPrefs(userId) {
+    const row = await this.db.prepare(
+      'SELECT enabled, lead_minutes FROM todo_reminder_prefs WHERE user_id = ?'
+    ).bind(userId).first();
+    return row
+      ? { enabled: Number(row.enabled) === 1, lead_minutes: Number(row.lead_minutes) }
+      : { enabled: false, lead_minutes: 60 };
+  }
+
+  async setReminderPrefs(userId, { enabled, leadMinutes }) {
+    return this.db.prepare(
+      `INSERT INTO todo_reminder_prefs (user_id, enabled, lead_minutes)
+       VALUES (?, ?, ?)
+       ON CONFLICT(user_id) DO UPDATE SET
+         enabled = excluded.enabled,
+         lead_minutes = excluded.lead_minutes,
+         updated_at = CURRENT_TIMESTAMP`
+    ).bind(userId, enabled ? 1 : 0, leadMinutes).run();
+  }
 }

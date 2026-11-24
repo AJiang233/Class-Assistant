@@ -400,6 +400,48 @@ export async function handleUpdateTodoPrefs(request, env, user) {
   }
 }
 
+/** GET /api/todos/reminder-prefs：本人待办到点提醒设置（默认关闭、提前 60 分钟）。 */
+export async function handleGetTodoReminderPrefs(request, env, user) {
+  try {
+    const prefs = await new TodoModel(env.DB).getReminderPrefs(user.id);
+    return jsonResponse(success({ prefs }));
+  } catch (e) {
+    console.error('获取待办提醒设置失败:', e);
+    return jsonResponse(error('获取待办提醒设置失败', 'GET_TODO_REMINDER_PREFS_FAILED'), 500);
+  }
+}
+
+/**
+ * PUT /api/todos/reminder-prefs：开关 + 提前量（分钟）。
+ *
+ * 提前量 0–10080（7 天）。0 表示「截止那一刻提醒」，Cron 每分钟检查时窗口
+ * [due-0, due) 实际不会命中，所以前端默认 60；服务端仍接受 0 以保持契约稳定。
+ */
+export async function handleUpdateTodoReminderPrefs(request, env, user) {
+  try {
+    const body = await request.json().catch(() => ({}));
+    const lead = body.lead_minutes;
+    // 与阈值设置同一口径：只收真正的数字，字符串/小数一律挡掉。
+    if (lead !== undefined && (typeof lead !== 'number' || !Number.isInteger(lead) || lead < 0 || lead > 10080)) {
+      return jsonResponse(error('提前量需为 0–10080 分钟的整数', 'INVALID_REMINDER_PREFS'), 400);
+    }
+    if (body.enabled !== undefined && typeof body.enabled !== 'boolean') {
+      return jsonResponse(error('提醒开关需为布尔值', 'INVALID_REMINDER_PREFS'), 400);
+    }
+
+    const model = new TodoModel(env.DB);
+    // 漏传的字段保留原值，避免前端只改一项时把另一项重置。
+    const current = await model.getReminderPrefs(user.id);
+    const enabled = body.enabled === undefined ? current.enabled : body.enabled;
+    const leadMinutes = lead === undefined ? current.lead_minutes : lead;
+    await model.setReminderPrefs(user.id, { enabled, leadMinutes });
+    return jsonResponse(success({ prefs: { enabled, lead_minutes: leadMinutes } }));
+  } catch (e) {
+    console.error('保存待办提醒设置失败:', e);
+    return jsonResponse(error('保存待办提醒设置失败', 'UPDATE_TODO_REMINDER_PREFS_FAILED'), 500);
+  }
+}
+
 /**
  * 通知/活动发布时解析附带待办（body.todo）。没传返回 { value:null }。
  * 返回 { value:{title,dueAt,tags} }（注意这里字段是 dueAt，写 content_todos 用）
