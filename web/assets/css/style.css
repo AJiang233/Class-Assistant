@@ -2334,10 +2334,14 @@ body.app-mode { overflow: hidden; }
     flex: 1; min-width: 0;
     display: flex; align-items: baseline; gap: 10px;
 }
+/* 标题允许换行：学习通同步来的标题常带「[课程名] 活动名」前缀，动辄七八十个字。
+   窄屏（≤420px）时 .todo-head-main 变成纵向 flex，nowrap 的标题会按 min-content
+   撑到整串文本的宽度，直接顶出卡片右边；这里放开换行并夹住上限，长标题折行显示。 */
 .todo-head-title {
-    flex: 1; min-width: 0;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    flex: 1; min-width: 0; max-width: 100%;
+    white-space: normal; overflow-wrap: anywhere;
     font-size: 1rem; font-weight: 600; letter-spacing: -0.008em; color: var(--text);
+    line-height: 1.45;
 }
 .todo-head-due {
     flex-shrink: 0; font-size: 0.82rem; color: var(--text-secondary);
