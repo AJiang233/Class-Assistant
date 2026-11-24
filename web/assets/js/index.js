@@ -559,10 +559,14 @@ function renderTodoSummary(data) {
         line.textContent = open + ' 条进行中';
     }
     list.innerHTML = items.map(function (t) {
-        var urgent = t.urgency === 'overdue' || t.urgency === 'urgent' ? ' urgent' : '';
+        // 圆点与待办页同义：绿 = 还早，黄 = 提醒档，红 = 临期 / 已超时。
+        // 摘要卡按用户要求不加背景色，只留这个圆点提示紧急度。
+        var uc = t.urgency === 'overdue' || t.urgency === 'urgent' ? 'urgent'
+            : t.urgency === 'warn' ? 'warn' : 'normal';
         return '<button type="button" class="todo-summary-item" data-view="todos">'
+            + '<span class="todo-dot todo-' + uc + '" aria-hidden="true"></span>'
             + '<span class="todo-summary-name">' + esc(t.title) + '</span>'
-            + '<span class="todo-summary-when' + urgent + '">' + esc(todoSummaryWhen(t.due_at)) + '</span>'
+            + '<span class="todo-summary-when' + (uc === 'urgent' ? ' urgent' : '') + '">' + esc(todoSummaryWhen(t.due_at)) + '</span>'
             + '</button>';
     }).join('');
     box.hidden = false;
