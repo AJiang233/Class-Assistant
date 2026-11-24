@@ -619,3 +619,146 @@ describe('待办：每人自定义红黄阈值', () => {
     }
   });
 });
+
+describe('待办：中国大学MOOC 作业 / 测验自动同步', () => {
+  /** 假的私有 MOOC Worker：课程 1 门，作业 1 条 + 测验 1 条，状态由 state 控制。 */
+  function moocFetch(state) {
+    return async (url) => {
+      const path = new URL(url).pathname;
+      const iso = (hours) => new Date(Date.now() + hours * 3600 * 1000).toISOString();
+      let data;
+      if (path === '/api/mooc/courses') {
+        data = { courses: [{ courseId: '1001752041', name: '植物学' }] };
+      } else if (path === '/api/mooc/works') {
+        data = {
+          courseId: '1001752041',
+          courseName: '植物学',
+          items: [{
+            testId: '9001', kind: 'homework', name: '绪论作业', chapterName: '第一章 绪论',
+            releaseTime: iso(-48), deadline: iso(48), userScore: state.homeScore
+          }]
+        };
+      } else if (path === '/api/mooc/exams') {
+        data = {
+          courseId: '1001752041',
+          courseName: '植物学',
+          items: [{
+            testId: '9002', kind: 'quiz', name: '绪论测验', chapterName: '第一章 绪论',
+            releaseTime: iso(-48), deadline: iso(24), usedTryCount: state.tryCount
+          }]
+        };
+      } else {
+        return new Response(JSON.stringify({ success: false, error: '未知接口', code: 'NOT_FOUND' }), {
+          status: 404, headers: { 'Content-Type': 'application/json' }
+        });
+      }
+      return new Response(JSON.stringify({ success: true, data }), {
+        status: 200, headers: { 'Content-Type': 'application/json' }
+      });
+    };
+  }
+
+  function bindMooc(db, mooc = 1) {
+    db.sqlite.prepare(
+      "INSERT INTO user_consents(user_id,version,terms,chaoxing,academic,mooc) VALUES(1,'v1',1,0,0,?)"
+    ).run(mooc);
+  }
+
+  it('新建、去重、测验作答后并进历史、缺授权时拦截', async (t) => {
+    const db = createSqliteDb(t);
+    await seedUser(db);
+    bindMooc(db);
+    const state = { homeScore: null, tryCount: 0 };
+    const env = {
+      DB: db, JWT_SECRET: SECRET, INTERNAL_TOKEN: 'internal',
+      MOOC_API: { fetch: moocFetch(state) }
+    };
+
+    let res = await call(env, '/api/todos/sync-mooc', { method: 'POST', body: { cursor: 0, batch: 4 } });
+    assert.equal(res.status, 200);
+    assert.equal(res.data.bound, true);
+    assert.equal(res.data.done, true);
+    assert.equal(res.data.created, 2);
+    assert.equal(res.data.total_courses, 1);
+
+    const list = await call(env, '/api/todos');
+    assert.deepEqual(
+      list.data.list.map((x) => x.title).sort(),
+      ['[植物学] 单元作业：绪论作业', '[植物学] 单元测验：绪论测验'].sort()
+    );
+    assert.ok(db.sqlite.prepare('SELECT external_id FROM todos ORDER BY id').all()
+      .every((row) => /^mooc:/.test(row.external_id)));
+
+    // 同日再同步：external_id 去重，只刷新
+    db.sqlite.prepare('UPDATE todo_sync_state SET last_attempt_at = ?').run(past(2));
+    res = await call(env, '/api/todos/sync-mooc', { method: 'POST', body: { cursor: 0 } });
+    assert.equal(res.status, 200);
+    assert.equal(res.data.created, 0);
+    assert.equal(res.data.updated, 2);
+    assert.equal(db.sqlite.prepare('SELECT count(*) AS n FROM todos').get().n, 2);
+
+    // 测验已作答：本地进行中的那条并进历史
+    state.tryCount = 1;
+    db.sqlite.prepare('UPDATE todo_sync_state SET last_attempt_at = ?').run(past(2));
+    res = await call(env, '/api/todos/sync-mooc', { method: 'POST', body: { cursor: 0 } });
+    assert.equal(res.status, 200);
+    assert.equal(res.data.completed, 1);
+    const history = await call(env, '/api/todos?status=history');
+    assert.deepEqual(history.data.list.map((x) => x.title), ['[植物学] 单元测验：绪论测验']);
+
+    // 撤掉 MOOC 授权：同步被 403 拦住，且不调上游
+    db.sqlite.prepare('UPDATE user_consents SET mooc = 0').run();
+    let calls = 0;
+    const guardedEnv = {
+      DB: db, JWT_SECRET: SECRET, INTERNAL_TOKEN: 'internal',
+      MOOC_API: { fetch: async (url, init) => { calls += 1; return moocFetch(state)(url, init); } }
+    };
+    res = await call(guardedEnv, '/api/todos/sync-mooc', { method: 'POST', body: { cursor: 0 } });
+    assert.equal(res.status, 403);
+    assert.equal(res.body.code, 'MOOC_CONSENT_REQUIRED');
+    assert.equal(calls, 0);
+  });
+
+  it('会话失效时不逐门重试，直接给出错误码', async (t) => {
+    const db = createSqliteDb(t);
+    await seedUser(db);
+    bindMooc(db);
+    const env = {
+      DB: db, JWT_SECRET: SECRET, INTERNAL_TOKEN: 'internal',
+      MOOC_API: {
+        fetch: async (url) => {
+          if (new URL(url).pathname === '/api/mooc/courses') {
+            return new Response(JSON.stringify({ success: false, error: '会话已过期', code: 'MOOC_EXPIRED' }), {
+              status: 400, headers: { 'Content-Type': 'application/json' }
+            });
+          }
+          throw new Error('不应该继续请求上游');
+        }
+      }
+    };
+    const res = await call(env, '/api/todos/sync-mooc', { method: 'POST', body: { cursor: 0 } });
+    assert.equal(res.status, 400);
+    assert.equal(res.body.code, 'MOOC_EXPIRED');
+  });
+
+  it('未绑定时返回 NOT_BOUND 且文案是 MOOC，不是学习通', async (t) => {
+    const db = createSqliteDb(t);
+    await seedUser(db);
+    bindMooc(db);
+    const env = {
+      DB: db, JWT_SECRET: SECRET, INTERNAL_TOKEN: 'internal',
+      MOOC_API: {
+        fetch: async () => new Response(
+          JSON.stringify({ success: false, error: '还没绑定中国大学MOOC', code: 'NOT_BOUND' }),
+          { status: 400, headers: { 'Content-Type': 'application/json' } }
+        )
+      }
+    };
+    const res = await call(env, '/api/todos/sync-mooc', { method: 'POST', body: { cursor: 0 } });
+    assert.equal(res.status, 200);
+    assert.equal(res.data.bound, false);
+    assert.equal(res.data.done, true);
+    assert.match(res.data.message, /中国大学MOOC/);
+    assert.doesNotMatch(res.data.message, /学习通/);
+  });
+});

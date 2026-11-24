@@ -900,16 +900,17 @@ async function checkUpdate() {
 }
 
 // ===== 用户协议与授权（关于软件 → 用户协议）=====
-// 后端契约：GET /api/auth/consent 给 { version, agreed, consent:{version,terms,chaoxing,academic,*_agreed_at} }；
+// 后端契约：GET /api/auth/consent 给 { version, agreed, consent:{version,terms,chaoxing,academic,mooc,*_agreed_at} }；
 // POST 同形状。terms 必须为 true —— 撤回《用户协议》就连登录都过不去，后端直接 400 CANNOT_REVOKE_TERMS，
-// 所以这里只有学习通 / 教务两个开关可改，协议那行固定显示「已同意」。
+// 所以这里只有学习通 / 教务 / 中国大学MOOC 三个开关可改，协议那行固定显示「已同意」。
 var consentData = null;
 
-/** 关于软件那一行的摘要：已同意 · 学习通已授权 · 教务未授权 */
+/** 关于软件那一行的摘要：已同意 · 学习通已授权 · 教务未授权 · 中国大学MOOC未授权 */
 function consentSummaryText(data) {
     if (!data || !data.agreed || !data.consent) return '未同意（请退出后重新登录并同意）';
     return '已同意 · ' + (data.consent.chaoxing ? '学习通已授权' : '学习通未授权')
-        + ' · ' + (data.consent.academic ? '教务已授权' : '教务未授权');
+        + ' · ' + (data.consent.academic ? '教务已授权' : '教务未授权')
+        + ' · ' + (data.consent.mooc ? '中国大学MOOC已授权' : '中国大学MOOC未授权');
 }
 
 function renderConsentSummary(data) {
@@ -931,7 +932,7 @@ async function loadConsentSummary() {
     }
 }
 
-/** 用最新数据填充弹窗：协议版本 / 最近同意时间 / 两个开关 */
+/** 用最新数据填充弹窗：协议版本 / 最近同意时间 / 三个开关 */
 function fillConsentModal(data) {
     var version = data && data.version ? data.version : '';
     var c = data && data.consent ? data.consent : null;
@@ -949,8 +950,10 @@ function fillConsentModal(data) {
     }
     var ch = document.getElementById('consentChaoxingSwitch');
     var ac = document.getElementById('consentAcademicSwitch');
+    var mo = document.getElementById('consentMoocSwitch');
     if (ch) { ch.checked = !!(c && c.chaoxing); ch.disabled = !agreed; }
     if (ac) { ac.checked = !!(c && c.academic); ac.disabled = !agreed; }
+    if (mo) { mo.checked = !!(c && c.mooc); mo.disabled = !agreed; }
     var saveBtn = document.getElementById('consentSaveBtn');
     if (saveBtn) { saveBtn.disabled = !agreed; saveBtn.textContent = '保存'; }
 }
@@ -985,6 +988,7 @@ async function saveConsent() {
     if (err) { err.textContent = ''; err.classList.remove('show'); }
     var ch = document.getElementById('consentChaoxingSwitch');
     var ac = document.getElementById('consentAcademicSwitch');
+    var mo = document.getElementById('consentMoocSwitch');
     var btn = document.getElementById('consentSaveBtn');
     var label = btn ? btn.textContent : '保存';
     if (btn) { btn.disabled = true; btn.textContent = '保存中…'; }
@@ -994,7 +998,8 @@ async function saveConsent() {
             body: JSON.stringify({
                 terms: true,
                 chaoxing: !!(ch && ch.checked),
-                academic: !!(ac && ac.checked)
+                academic: !!(ac && ac.checked),
+                mooc: !!(mo && mo.checked)
             })
         });
         consentData = (res && res.data) || null;
@@ -1270,16 +1275,20 @@ calCopyBtn.addEventListener('click', function () {
     }
 });
 
-// ===== 个人中心：账号绑定（教务 / 学习通） =====
+// ===== 个人中心：账号绑定（教务 / 学习通 / 中国大学MOOC） =====
 // 交互约定：
 //   - 页内 tab 切换，所有账号操作走 #accountBindModal 一个弹窗（CSP 无内联脚本，按钮用 data-act 委托）；
-//   - 教务与学习通都先读 /status，再按状态渲染「未绑定选项」或「身份 + 解绑」；
+//   - 教务、学习通与中国大学MOOC 都先读 /status，再按状态渲染「未绑定选项」或「身份 + 解绑」；
 //   - App 内的登录由原生小窗打开真实登录页，原生把 Cookie 回传给本页（__caChaoxingCookies）；
-//   - 学习通按 issue #107：先 /bind/preview 预览身份，用户确认后才 /bind 落库。
+//   - 学习通按 issue #107：先 /bind/preview 预览身份，用户确认后才 /bind 落库；
+//   - 中国大学MOOC 没有账号密码代登录（后端 /login 恒 501 MOOC_LOGIN_UNSUPPORTED）：
+//     icourse163 的登录页是 reg.icourse163.org 的 SPA iframe，服务端拿不到表单，也没有原生桥，
+//     所以只有「浏览器登录后粘贴整条 Cookie」一条路，绑定后由服务端读课程列表验证登录态。
 var BIND_PENDING_KEY = 'ca_account_pending_bind';
 var BIND_RISK_ACK_KEY = 'ca_academic_risk_ack';
 var bindAcademic = null;
 var bindChaoxing = null;
+var bindMooc = null;
 var bindMfaToken = '';
 var bindMfaTimer = null;
 var bindCxPreview = null;
@@ -1441,13 +1450,77 @@ function renderChaoxingBinding(data) {
         + '<p class="bind-hint">学习通登录有时需要人机验证，网页端无法完成时请改用「App 内登录」，或从浏览器复制 Cookie。</p>';
 }
 
+/**
+ * 中国大学MOOC 卡：只有「粘贴 Cookie / 解绑」。
+ *
+ * 后端状态有三种：ok、expired（登录态失效，需要重新粘贴）、paused（连续硬失败，
+ * 暂停自动同步直到 paused_until）。expired / paused 都保留身份信息，因为用户要靠
+ * 它确认「解绑前看到的是哪个账号」，重新粘贴 Cookie 也会覆盖同一个账号。
+ */
+function renderMoocBinding(data) {
+    var body = bindById('moocBindBody');
+    if (!body) return;
+    bindMooc = data || {};
+    if (data && data.bound === true) {
+        var paused = !!data.paused;
+        var expired = data.status === 'expired';
+        var name = data.realName || '中国大学MOOC账号';
+        var count = Number(data.courseCount) || 0;
+        bindBadge('moocBindBadge', paused ? '已暂停' : (expired ? '已过期' : '已绑定'),
+            (paused || expired) ? 'muted' : 'ok');
+        body.innerHTML = ''
+            + '<div class="bind-identity">'
+            + '<span class="bind-avatar" aria-hidden="true">' + esc(name.charAt(0)) + '</span>'
+            + '<div class="bind-identity-main"><p class="bind-name">' + esc(name) + '</p>'
+            + '<p class="bind-id">' + (data.account
+                ? '账号 ' + esc(data.account)
+                : (data.memberId ? 'ID ' + esc(data.memberId) : '已绑定中国大学MOOC')) + '</p></div>'
+            + '</div>'
+            + '<div class="info-list bind-meta">'
+            + '<div class="info-row"><span class="k">状态</span><span class="v">'
+            + (paused ? '已暂停自动同步' : (expired ? '登录态已过期' : '正常')) + '</span></div>'
+            + '<div class="info-row"><span class="k">课程数</span><span class="v">' + count + ' 门</span></div>'
+            + '<div class="info-row"><span class="k">绑定时间</span><span class="v">' + esc(fmtBindTime(data.boundAt)) + '</span></div>'
+            + '<div class="info-row"><span class="k">最近校验</span><span class="v">' + esc(fmtBindTime(data.checkedAt)) + '</span></div>'
+            + '</div>'
+            + (paused ? '<p class="bind-warn">MOOC 登录态连续失效，已自动暂停同步'
+                + (data.paused_until ? '到 ' + esc(fmtBindTime(data.paused_until)) : '')
+                + '，重新粘贴 Cookie 后可恢复。</p>' : '')
+            + (expired && !paused ? '<p class="bind-warn">MOOC 登录态已过期，需要重新登录 www.icourse163.org 并粘贴新的 Cookie。</p>' : '')
+            + '<div class="bind-actions">'
+            + '<button class="btn btn-primary" type="button" data-act="begin-mooc-bind">'
+            + (expired ? '重新粘贴 Cookie' : '换 Cookie') + '</button>'
+            + '<button class="btn btn-danger" type="button" data-act="mooc-unbind">解绑</button>'
+            + '</div>';
+        return;
+    }
+    bindBadge('moocBindBadge', '未绑定', 'muted');
+    body.innerHTML = ''
+        + '<p class="bind-text">绑定后，中国大学MOOC 的作业与测验截止时间会自动并进「我的待办」。'
+        + 'MOOC 不支持账号密码代登录，也不会打开 App 登录窗：请在浏览器登录 www.icourse163.org，'
+        + '再把 Cookie 整条粘贴过来。</p>'
+        + '<div class="bind-actions">'
+        + '<button class="btn btn-primary" type="button" data-act="begin-mooc-bind">绑定 MOOC 账号</button>'
+        + '</div>'
+        + '<p class="bind-hint">粘贴后服务端会先读一次课程列表验证登录态，验证通过才保存；'
+        + 'Cookie 只用于读课程 / 作业 / 测验，不保存账号密码。</p>';
+}
+
 function renderBindLoadError(kind, err) {
-    var academic = kind === 'academic';
-    var body = bindById(academic ? 'academicBindBody' : 'chaoxingBindBody');
-    bindBadge(academic ? 'academicBindBadge' : 'chaoxingBindBadge', '读取失败', 'muted');
+    // kind → 该卡片的 body / badge id。三张卡共用一份失败渲染（文案 + 重试 + 授权入口），
+    // 只是节点不同；用表而不是嵌套三元，新增来源时不需要再动判断逻辑。
+    var nodes = {
+        academic: { body: 'academicBindBody', badge: 'academicBindBadge' },
+        chaoxing: { body: 'chaoxingBindBody', badge: 'chaoxingBindBadge' },
+        mooc: { body: 'moocBindBody', badge: 'moocBindBadge' }
+    }[kind] || { body: 'academicBindBody', badge: 'academicBindBadge' };
+    var body = bindById(nodes.body);
+    bindBadge(nodes.badge, '读取失败', 'muted');
     var msg = (err && err.message) || '暂时无法读取绑定状态';
     var extra = '';
-    if (err && (err.code === 'ACADEMIC_CONSENT_REQUIRED' || err.code === 'CHAOXING_CONSENT_REQUIRED')) {
+    if (err && (err.code === 'ACADEMIC_CONSENT_REQUIRED'
+        || err.code === 'CHAOXING_CONSENT_REQUIRED'
+        || err.code === 'MOOC_CONSENT_REQUIRED')) {
         extra = '<button class="btn btn-primary btn-block" type="button" data-act="open-consent">去开启授权</button>';
     }
     if (body) {
@@ -1475,6 +1548,19 @@ async function loadChaoxingBinding() {
         renderChaoxingBinding(res.data || {});
     } catch (err) {
         renderBindLoadError('chaoxing', err);
+    }
+}
+
+async function loadMoocBinding() {
+    var body = bindById('moocBindBody');
+    if (!body) return;
+    try {
+        // GET status 不校验 MOOC 授权（只读状态），所以未授权时也能正常显示「未绑定」；
+        // 功能开关关掉时后端回 503 FEATURE_DISABLED，这里按失败卡片展示并给重试。
+        var res = await api('/api/mooc/status');
+        renderMoocBinding(res.data || {});
+    } catch (err) {
+        renderBindLoadError('mooc', err);
     }
 }
 
@@ -1511,6 +1597,7 @@ function switchAccountPane(pane) {
     if (binding) {
         loadAcademicBinding();
         loadChaoxingBinding();
+        loadMoocBinding();
     }
     try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch (e) { window.scrollTo(0, 0); }
 }
@@ -1936,18 +2023,98 @@ window.__caChaoxingCancel = function () {
     bindFlash('已取消学习通登录');
 };
 
+// ===== 中国大学MOOC 绑定 =====
+// 与学习通不同，MOOC 没有原生桥、也没有账号密码接口（后端 /login 恒 501），
+// 唯一可行路径是「浏览器登录 → 复制 Cookie → 服务端读一次课程列表验证 → 落库」。
+// 因此入口只有一个按钮，不出现 App 登录 / 密码步骤，也就不需要身份预览那一步：
+// /bind 成功本身就是「登录态可读课程列表」的证明，失败会回 MOOC_EXPIRED / MOOC_NOT_ACCESSIBLE。
+function beginMoocBind() {
+    var c = consentData && consentData.consent;
+    // 本地已知没开 MOOC 授权时先拦一下，省一次必然 403 的请求；状态没取到就不拦，
+    // 交给服务端判定（保证「取不到授权状态」不会把绑定入口锁死）。
+    if (c && !c.mooc) {
+        openBindModal('需要开启中国大学MOOC授权', ''
+            + '<p class="bind-text">还没有开启「使用身份登录中国大学MOOC」授权。开启后才能绑定 MOOC 账号、读取课程与作业。</p>'
+            + '<div class="form-error" id="bindModalError"></div>'
+            + '<div class="bind-actions">'
+            + '<button class="btn btn-primary" type="button" data-act="open-consent">去开启授权</button>'
+            + '<button class="btn btn-outline" type="button" data-act="close-account-bind">取消</button>'
+            + '</div>');
+        return;
+    }
+    openMoocCookieStep();
+}
+
+function openMoocCookieStep() {
+    openBindModal('绑定中国大学MOOC', ''
+        + '<div class="form-error" id="bindModalError"></div>'
+        + '<p class="bind-text">请先在浏览器打开 <strong>www.icourse163.org</strong> 并登录，'
+        + '再打开开发者工具 → Network，任选一个请求，把请求头里的 Cookie 整行粘贴到这里。</p>'
+        + '<div class="form-field"><label class="form-label" for="moocCookie">Cookie</label>'
+        + '<textarea class="form-input" id="moocCookie" rows="5" placeholder="NTESSTUDYSI=...; P_INFO=...; ..."></textarea></div>'
+        + '<div class="bind-actions">'
+        + '<button class="btn btn-primary" type="button" data-act="mooc-bind-cookie">验证并绑定</button>'
+        + '<button class="btn btn-outline" type="button" data-act="close-account-bind">取消</button>'
+        + '</div>'
+        + '<p class="bind-hint">服务端会用这份 Cookie 读一次课程列表来验证登录态，验证通过才保存；'
+        + 'Cookie 过期时会提示重新登录，不会拿旧凭据反复重试。</p>');
+}
+
+async function submitMoocCookie() {
+    bindToggleError('');
+    var input = bindById('moocCookie');
+    var cookies = extractBindCookie(input && input.value);
+    if (!cookies) { bindToggleError('请先粘贴中国大学MOOC的 Cookie'); return; }
+    var btn = document.querySelector('#accountBindBody [data-act="mooc-bind-cookie"]');
+    if (btn) { btn.disabled = true; btn.textContent = '验证中…'; }
+    try {
+        await api('/api/mooc/bind', { method: 'POST', body: JSON.stringify({ cookies: cookies }) });
+        closeBindModal();
+        await loadMoocBinding();
+        bindFlash('中国大学MOOC绑定成功');
+    } catch (err) {
+        if (err && err.code === 'MOOC_CONSENT_REQUIRED') {
+            openBindModal('需要开启中国大学MOOC授权', ''
+                + '<p class="bind-text">' + esc(err.message || '还没有开启「使用身份登录中国大学MOOC」授权。') + '</p>'
+                + '<div class="form-error" id="bindModalError"></div>'
+                + '<div class="bind-actions">'
+                + '<button class="btn btn-primary" type="button" data-act="open-consent">去开启授权</button>'
+                + '<button class="btn btn-outline" type="button" data-act="close-account-bind">取消</button>'
+                + '</div>');
+            return;
+        }
+        // MOOC_EXPIRED / MISSING_COOKIES：Cookie 不是有效登录态，提示重新登录再复制；
+        // 错误文案已由服务端写清，这里只在末尾补一句行动指引，不重复整段解释。
+        var suffix = (err && (err.code === 'MOOC_EXPIRED' || err.code === 'MISSING_COOKIES'))
+            ? '请重新登录 www.icourse163.org 后复制新的 Cookie。' : '';
+        bindToggleError(((err && err.message) || '绑定失败') + (suffix ? '（' + suffix + '）' : ''));
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = '验证并绑定'; }
+    }
+}
+
 // ===== 解绑 =====
 function askUnbind(kind) {
     var academic = kind === 'academic';
-    openBindModal(academic ? '解绑教务系统' : '解绑学习通', ''
-        + '<p class="bind-text">' + (academic
-            ? '解绑后会清除本机缓存的课表、学分与成绩数据。'
-            : '解绑后会清除服务端保存的学习通登录凭据与课程缓存。') + '</p>'
+    var mooc = kind === 'mooc';
+    var title = academic ? '解绑教务系统' : (mooc ? '解绑中国大学MOOC' : '解绑学习通');
+    var desc = academic
+        ? '解绑后会清除本机缓存的课表、学分与成绩数据。'
+        : (mooc
+            ? '解绑后会清除服务端保存的 MOOC 登录凭据与课程缓存，MOOC 作业不再自动进待办。'
+            : '解绑后会清除服务端保存的学习通登录凭据与课程缓存。');
+    // data-act 必须写成字面量：CSP 测试会静态扫描页面/脚本里的 data-act 与委托注册是否双向对齐，
+    // 拼出来的动作名它认不出来（会报「没有委托注册」），所以三个分支各写一条完整按钮。
+    var confirmBtn = academic
+        ? '<button class="btn btn-danger" type="button" data-act="academic-unbind-confirm">确认解绑</button>'
+        : (mooc
+            ? '<button class="btn btn-danger" type="button" data-act="mooc-unbind-confirm">确认解绑</button>'
+            : '<button class="btn btn-danger" type="button" data-act="chaoxing-unbind-confirm">确认解绑</button>');
+    openBindModal(title, ''
+        + '<p class="bind-text">' + desc + '</p>'
         + '<div class="form-error" id="bindModalError"></div>'
         + '<div class="bind-actions">'
-        + (academic
-            ? '<button class="btn btn-danger" type="button" data-act="academic-unbind-confirm">确认解绑</button>'
-            : '<button class="btn btn-danger" type="button" data-act="chaoxing-unbind-confirm">确认解绑</button>')
+        + confirmBtn
         + '<button class="btn btn-outline" type="button" data-act="close-account-bind">取消</button>'
         + '</div>');
 }
@@ -1982,6 +2149,21 @@ async function doUnbindChaoxing() {
     }
 }
 
+async function doUnbindMooc() {
+    bindToggleError('');
+    var btn = document.querySelector('#accountBindBody [data-act="mooc-unbind-confirm"]');
+    if (btn) { btn.disabled = true; btn.textContent = '解绑中…'; }
+    try {
+        await api('/api/mooc/bind', { method: 'DELETE' });
+        closeBindModal();
+        await loadMoocBinding();
+        bindFlash('中国大学MOOC已解绑');
+    } catch (err) {
+        bindToggleError((err && err.message) || '解绑失败');
+        if (btn) { btn.disabled = false; btn.textContent = '确认解绑'; }
+    }
+}
+
 // ===== 初始化：App 登录返回后自动落到「账号绑定」 =====
 (function initAccountBinding() {
     if (!bindById('accountTabs')) return;
@@ -1999,6 +2181,7 @@ async function doUnbindChaoxing() {
     } else {
         loadAcademicBinding();
         loadChaoxingBinding();
+        loadMoocBinding();
     }
     var modal = bindById('accountBindModal');
     if (modal) {
@@ -2046,6 +2229,7 @@ delegate(document, 'click', '[data-act="switch-account-pane"]', function (el) { 
 delegate(document, 'click', '[data-act="refresh-account-bindings"]', function () {
     loadAcademicBinding();
     loadChaoxingBinding();
+    loadMoocBinding();
 });
 delegate(document, 'click', '[data-act="begin-academic-bind"]', function (el) { beginAcademicBind(el.getAttribute('data-arg')); });
 delegate(document, 'click', '[data-act="academic-app-login-continue"]', function () {
@@ -2070,8 +2254,12 @@ delegate(document, 'click', '[data-act="chaoxing-preview-retry"]', function () {
 delegate(document, 'click', '[data-act="chaoxing-bind-confirm"]', function () { confirmChaoxingBind(); });
 delegate(document, 'click', '[data-act="academic-unbind"]', function () { askUnbind('academic'); });
 delegate(document, 'click', '[data-act="chaoxing-unbind"]', function () { askUnbind('chaoxing'); });
+delegate(document, 'click', '[data-act="mooc-unbind"]', function () { askUnbind('mooc'); });
 delegate(document, 'click', '[data-act="academic-unbind-confirm"]', function () { doUnbindAcademic(); });
 delegate(document, 'click', '[data-act="chaoxing-unbind-confirm"]', function () { doUnbindChaoxing(); });
+delegate(document, 'click', '[data-act="mooc-unbind-confirm"]', function () { doUnbindMooc(); });
+delegate(document, 'click', '[data-act="begin-mooc-bind"]', function () { beginMoocBind(); });
+delegate(document, 'click', '[data-act="mooc-bind-cookie"]', function () { submitMoocCookie(); });
 delegate(document, 'click', '[data-act="open-consent"]', function () {
     closeBindModal();
     openConsentManage();

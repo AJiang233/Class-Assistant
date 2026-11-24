@@ -671,7 +671,7 @@ function countResult(stats, result) {
   }
 }
 
-async function recordSyncFailure(model, user, e) {
+async function recordSyncFailure(model, user, e, notBoundMessage = '还没绑定学习通，绑定后会自动同步作业和考试') {
   const code = (e && e.code) || 'SYNC_FAILED';
   const message = (e && e.message) || '同步失败，请稍后再试';
   if (code === 'NOT_BOUND') {
@@ -679,7 +679,7 @@ async function recordSyncFailure(model, user, e) {
     return jsonResponse(success({
       bound: false,
       done: true,
-      message: '还没绑定学习通，绑定后会自动同步作业和考试'
+      message: notBoundMessage
     }));
   }
   await model.finishSync(user.id, { result: 'error', message });
@@ -852,6 +852,257 @@ export async function handleSyncChaoxingTodos(request, env, user) {
   } catch (e) {
     console.error('同步学习通待办失败:', e);
     return jsonResponse(error('同步学习通待办失败，请稍后重试', 'SYNC_CHAOXING_FAILED'), 500);
+  }
+}
+
+/** 中国大学MOOC 同步：一门课要拉一次学期 DTO，批次比学习通更小。 */
+const MOOC_SYNC_BATCH_DEFAULT = 4;
+const MOOC_SYNC_BATCH_MAX = 4;
+const MOOC_SYNC_MAX_COURSES = 20;
+const MOOC_SYNC_TIMEOUT_MS = 30000;
+
+/** 中国大学MOOC 的私有 Worker 与学习通是同一个：优先专用 binding，没有就复用。 */
+function moocBinding(env) {
+  return env.MOOC_API || env.CHAOXING_API;
+}
+
+async function callMooc(env, user, path, timeoutMs = 20000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let res;
+  try {
+    res = await moocBinding(env).fetch(`https://private-api.local${path}`, {
+      method: 'GET',
+      headers: chaoxingHeaders(env, user),
+      signal: controller.signal
+    });
+  } catch (e) {
+    clearTimeout(timer);
+    const aborted = e && (e.name === 'AbortError' || /abort/i.test(String(e.message)));
+    throw new ChaoxingCallError(
+      aborted ? '中国大学MOOC 响应超时' : '中国大学MOOC 暂时不可用',
+      aborted ? 'MOOC_TIMEOUT' : 'MOOC_UNAVAILABLE'
+    );
+  }
+  clearTimeout(timer);
+
+  const text = await res.text();
+  let body = null;
+  try {
+    body = text ? JSON.parse(text) : null;
+  } catch {
+    throw new ChaoxingCallError('中国大学MOOC 返回了无法解析的内容', 'MOOC_BAD_RESPONSE');
+  }
+  if (!res.ok || !body || body.success === false) {
+    throw new ChaoxingCallError(
+      (body && body.error) || `中国大学MOOC 请求失败（HTTP ${res.status}）`,
+      (body && body.code) || 'MOOC_BAD_RESPONSE',
+      res.status
+    );
+  }
+  return body.data || {};
+}
+
+function isMoocSessionError(code) {
+  return code === 'MOOC_EXPIRED' || code === 'MOOC_DECRYPT_FAILED'
+    || code === 'MOOC_UNREACHABLE' || code === 'NOT_BOUND';
+}
+
+const MOOC_KIND_LABEL = { homework: '单元作业', quiz: '单元测验', exam: '考试' };
+
+/** 私有 API 的 deadline 是 ISO（带 Z）字符串；待办口径统一用北京时间本地字符串。 */
+function moocLocalTime(value) {
+  if (!value) return null;
+  const ms = Date.parse(value);
+  if (Number.isNaN(ms)) return toLocalDateTime(value);
+  return formatLocalDateTime(ms);
+}
+
+/**
+ * 中国大学MOOC 的一条作业 / 测验 → 待办字段。
+ *
+ * 完成态只能从数据里推断：测验看已作答次数（usedTryCount > 0），作业看是否已有得分
+ * （userScore 非空；未批阅时为空，宁可不标完成）。deadline 是私有 API 转好的 ISO 时间。
+ */
+function moocTestToTodo(entry, courseName, now, nowMs) {
+  const externalId = entry.testId ? `mooc:${entry.testId}` : '';
+  if (!externalId) return null;
+
+  const dueAt = moocLocalTime(entry.deadline) || '';
+  const dueMs = parseLocalDateTime(dueAt);
+  if (!dueAt || dueMs == null) return null;
+
+  const label = MOOC_KIND_LABEL[entry.kind] || '测验';
+  const startAt = moocLocalTime(entry.releaseTime);
+  return {
+    externalId,
+    title: trimTitle(`${courseName ? `[${courseName}] ` : ''}${label}：${entry.name || ''}`.trim()),
+    description: [
+      '中国大学MOOC',
+      label,
+      courseName,
+      entry.chapterName ? `章节：${entry.chapterName}` : ''
+    ].filter(Boolean).join(' · ').slice(0, DESC_MAX),
+    startAt: startAt || null,
+    dueAt,
+    dueMs,
+    finished: entry.kind === 'quiz'
+      ? Number(entry.usedTryCount) > 0
+      : entry.userScore != null,
+    tags: JSON.stringify([entry.kind === 'homework' ? '作业' : '考试']),
+    now,
+    nowMs
+  };
+}
+
+/**
+ * POST /api/todos/sync-mooc
+ * body: { cursor?:number, batch?:number, refresh?:boolean }
+ *
+ * 与学习通一致：分批同步，前端拿 next_cursor 继续。每门课先抓 /works（会顺带刷新学期
+ * 缓存），再抓 /exams 复用同一份缓存，避免一门课重复请求两次上游。
+ */
+export async function handleSyncMoocTodos(request, env, user) {
+  try {
+    const body = await request.json().catch(() => ({}));
+    const cursor = Math.max(0, Number.parseInt(body.cursor, 10) || 0);
+    const batchSize = Math.min(
+      MOOC_SYNC_BATCH_MAX,
+      Math.max(1, Number.parseInt(body.batch, 10) || MOOC_SYNC_BATCH_DEFAULT)
+    );
+
+    if (!(await new SettingModel(env.DB).isEnabled('mooc'))) {
+      return jsonResponse(
+        {
+          success: false,
+          error: '该功能正在维护中，请稍后再试',
+          code: 'FEATURE_DISABLED',
+          data: { feature: 'mooc', retry_after: 30 }
+        },
+        503,
+        { 'Retry-After': '30' }
+      );
+    }
+    if (!moocBinding(env) || !env.INTERNAL_TOKEN) {
+      return jsonResponse(error('中国大学MOOC 功能暂时不可用，请稍后重试', 'MOOC_UNAVAILABLE'), 503);
+    }
+    const consent = await new ConsentModel(env.DB).get(user.id);
+    if (!consent || Number(consent.mooc) !== 1) {
+      return jsonResponse(
+        error(
+          '尚未同意「使用身份登录中国大学MOOC」，请到「个人中心 → 用户协议与授权」开启 MOOC 授权',
+          'MOOC_CONSENT_REQUIRED'
+        ),
+        403
+      );
+    }
+
+    const model = new TodoModel(env.DB);
+    const now = formatLocalDateTime();
+    const nowMs = parseLocalDateTime(now);
+
+    if (cursor === 0) {
+      const state = await model.getSyncState(user.id);
+      const lastMs = state && state.last_attempt_at ? parseLocalDateTime(state.last_attempt_at) : null;
+      if (lastMs != null && nowMs - lastMs < SYNC_COOLDOWN_MS) {
+        const retryAfter = Math.max(1, Math.ceil((SYNC_COOLDOWN_MS - (nowMs - lastMs)) / 1000));
+        return jsonResponse(
+          {
+            success: false,
+            error: `同步太频繁，请 ${retryAfter} 秒后再试`,
+            code: 'SYNC_COOLDOWN',
+            data: { retry_after: retryAfter }
+          },
+          429,
+          { 'Retry-After': String(retryAfter) }
+        );
+      }
+      await model.markSyncAttempt(user.id, now);
+      await model.expireOverdue(user.id, now);
+    }
+
+    let courses = [];
+    try {
+      const data = await callMooc(env, user, '/api/mooc/courses');
+      courses = Array.isArray(data.courses) ? data.courses : [];
+    } catch (e) {
+      return recordSyncFailure(model, user, e, '还没绑定中国大学MOOC，绑定后会自动同步作业和测验');
+    }
+
+    const capped = courses.slice(0, MOOC_SYNC_MAX_COURSES);
+    const total = capped.length;
+    const batch = capped.slice(cursor, cursor + batchSize);
+    const stats = { created: 0, updated: 0, completed: 0, skipped: 0, no_deadline: 0 };
+    const errors = [];
+
+    if (batch.length) {
+      const settled = await Promise.allSettled(batch.map(async (course) => {
+        const courseId = encodeURIComponent(course.courseId);
+        const works = await callMooc(env, user, `/api/mooc/works?courseId=${courseId}&refresh=1`, MOOC_SYNC_TIMEOUT_MS);
+        let exams = { items: [] };
+        try {
+          exams = await callMooc(env, user, `/api/mooc/exams?courseId=${courseId}`, MOOC_SYNC_TIMEOUT_MS);
+        } catch (e) {
+          // 学期缓存刚被 /works 写好，这里失败不应拖垮作业；记一条提示即可。
+          exams = { items: [], error: e };
+        }
+        return { works, exams };
+      }));
+
+      for (let i = 0; i < settled.length; i += 1) {
+        const result = settled[i];
+        const course = batch[i];
+        if (result.status === 'rejected') {
+          const e = result.reason;
+          if (isMoocSessionError(e && e.code)) return recordSyncFailure(model, user, e, '还没绑定中国大学MOOC，绑定后会自动同步作业和测验');
+          errors.push(`${course.name || course.courseId}：${(e && e.message) || '同步失败'}`);
+          continue;
+        }
+        const courseName = course.name || '';
+        const { works, exams } = result.value;
+        for (const entry of [...(works.items || []), ...(exams.items || [])]) {
+          const item = moocTestToTodo(entry, entry.courseName || courseName, now, nowMs);
+          if (!item) { stats.skipped += 1; stats.no_deadline += 1; continue; }
+          countResult(stats, await syncSourceItem(model, user, item));
+        }
+        if (exams.error) {
+          errors.push(`${courseName || course.courseId} 测验：${exams.error.message || '同步失败'}`);
+        }
+      }
+    }
+
+    const processed = Math.min(cursor + batch.length, total);
+    const done = processed >= total;
+    let message = '';
+    if (done) {
+      const parts = [];
+      if (stats.created) parts.push(`新增 ${stats.created} 条`);
+      if (stats.updated) parts.push(`更新 ${stats.updated} 条`);
+      if (stats.completed) parts.push(`完成 ${stats.completed} 条`);
+      if (stats.no_deadline) parts.push(`${stats.no_deadline} 条没有截止时间，未加入`);
+      message = parts.join('，') || '已是最新';
+      if (errors.length) message += `；${errors.length} 项暂时失败`;
+      await model.finishSync(user.id, { result: 'ok', message, syncedAt: now });
+    }
+
+    return jsonResponse(success({
+      bound: true,
+      done,
+      next_cursor: processed,
+      total_courses: total,
+      processed,
+      created: stats.created,
+      updated: stats.updated,
+      completed: stats.completed,
+      skipped: stats.skipped,
+      no_deadline: stats.no_deadline,
+      errors: errors.slice(0, 5),
+      message,
+      truncated: courses.length > MOOC_SYNC_MAX_COURSES
+    }));
+  } catch (e) {
+    console.error('同步中国大学MOOC待办失败:', e);
+    return jsonResponse(error('同步中国大学MOOC待办失败，请稍后重试', 'SYNC_MOOC_FAILED'), 500);
   }
 }
 

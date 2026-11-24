@@ -22,12 +22,14 @@ const CACHE_TTL_MS = 30 * 1000;
 
 export const FEATURE_KEYS = {
   academic: 'academic_enabled',
-  chaoxing: 'chaoxing_enabled'
+  chaoxing: 'chaoxing_enabled',
+  mooc: 'mooc_enabled'
 };
 
 const DEFAULT_VALUES = {
   academic_enabled: '1',
-  chaoxing_enabled: '1'
+  chaoxing_enabled: '1',
+  mooc_enabled: '1'
 };
 
 const cacheByDb = new WeakMap();
@@ -75,7 +77,8 @@ export class SettingModel {
     const values = await this.load();
     return {
       academic: values.academic_enabled !== '0',
-      chaoxing: values.chaoxing_enabled !== '0'
+      chaoxing: values.chaoxing_enabled !== '0',
+      mooc: values.mooc_enabled !== '0'
     };
   }
 

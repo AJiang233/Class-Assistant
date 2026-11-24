@@ -24,6 +24,9 @@ const PASSWORD = 'pw123456';
 const baseline = readFileSync(new URL('../../db/migrations-v2/0001_baseline.sql', import.meta.url), 'utf8');
 const lifecycle = readFileSync(new URL('../../db/migrations-v2/0002_lifecycle.sql', import.meta.url), 'utf8');
 const consentUpgrade = readFileSync(new URL('../../db/migrations-v2/0003_consent.sql', import.meta.url), 'utf8');
+// 0009 给 user_consents 追加了 mooc 列：ConsentModel 现在总会写这两列，
+// 所以「基线 + 0002 + 0003」的旧库用例也必须补上 0009，否则测的是旧模型而不是迁移顺序。
+const consentMooc = readFileSync(new URL('../../db/migrations-v2/0009_consent_mooc.sql', import.meta.url), 'utf8');
 
 function count(db, table) {
   return db.sqlite.prepare(`SELECT count(*) AS n FROM ${table}`).get().n;
@@ -85,6 +88,7 @@ describe('user_consents 迁移与级联', () => {
     db.sqlite.exec(baseline);
     db.sqlite.exec(lifecycle);
     db.sqlite.exec(consentUpgrade);
+    db.sqlite.exec(consentMooc);
 
     await seedUser(db);
     await new ConsentModel(db).upsert(1, { terms: true, chaoxing: true, academic: true });
@@ -115,18 +119,21 @@ describe('同意口径的纯函数', () => {
   it('summarizeConsent 把 0/1 转成布尔、空时间转 null', () => {
     assert.equal(summarizeConsent(null), null);
     const summary = summarizeConsent({
-      version: AGREEMENT_VERSION, terms: 1, chaoxing: 0, academic: 1,
+      version: AGREEMENT_VERSION, terms: 1, chaoxing: 0, academic: 1, mooc: 0,
       terms_agreed_at: '2026-10-19 10:00:00', chaoxing_agreed_at: null,
-      academic_agreed_at: '2026-10-19 11:00:00', updated_at: '2026-10-19 11:00:00'
+      academic_agreed_at: '2026-10-19 11:00:00', mooc_agreed_at: null,
+      updated_at: '2026-10-19 11:00:00'
     });
     assert.deepEqual(summary, {
       version: AGREEMENT_VERSION,
       terms: true,
       chaoxing: false,
       academic: true,
+      mooc: false,
       terms_agreed_at: '2026-10-19 10:00:00',
       chaoxing_agreed_at: null,
       academic_agreed_at: '2026-10-19 11:00:00',
+      mooc_agreed_at: null,
       updated_at: '2026-10-19 11:00:00'
     });
   });
@@ -137,12 +144,14 @@ describe('同意口径的纯函数', () => {
     assert.equal(parseConsentPayload({}), null);
     assert.equal(parseConsentPayload({ terms: false }), null);
     assert.equal(parseConsentPayload({ terms: 'true' }), null);
-    assert.deepEqual(parseConsentPayload({ terms: true }), { terms: true, chaoxing: false, academic: false });
-    assert.deepEqual(parseConsentPayload({ terms: true, chaoxing: true, academic: 1 }), {
-      terms: true, chaoxing: true, academic: true
+    assert.deepEqual(parseConsentPayload({ terms: true }), {
+      terms: true, chaoxing: false, academic: false, mooc: false
+    });
+    assert.deepEqual(parseConsentPayload({ terms: true, chaoxing: true, academic: 1, mooc: true }), {
+      terms: true, chaoxing: true, academic: true, mooc: true
     });
     assert.deepEqual(parseConsentPayload({ terms: 1, chaoxing: true }), {
-      terms: true, chaoxing: true, academic: false
+      terms: true, chaoxing: true, academic: false, mooc: false
     });
   });
 });

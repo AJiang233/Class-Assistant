@@ -14,7 +14,9 @@ export async function handleGetSettings(request, env, user) {
     return jsonResponse(success({
       academic: settings.academic,
       chaoxing: settings.chaoxing,
-      chaoxing_available: true
+      mooc: settings.mooc,
+      chaoxing_available: true,
+      mooc_available: true
     }));
   } catch (e) {
     console.error('读取功能开关失败:', e);
@@ -33,7 +35,7 @@ export async function handleUpdateSettings(request, env, user) {
   try {
     const body = await request.json().catch(() => ({}));
     const changes = {};
-    for (const feature of ['academic', 'chaoxing']) {
+    for (const feature of ['academic', 'chaoxing', 'mooc']) {
       if (body[feature] === undefined) continue;
       if (typeof body[feature] !== 'boolean') {
         return jsonResponse(error('开关值必须是布尔值', 'INVALID_SETTINGS'), 400);

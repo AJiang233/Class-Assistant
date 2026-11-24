@@ -9,6 +9,7 @@ import {
   handleGetTodoPrefs,
   handleUpdateTodoPrefs,
   handleSyncChaoxingTodos,
+  handleSyncMoocTodos,
   handleHideTodo
 } from '../handlers/todoHandler.js';
 import { withAuth, withPermission } from '../middleware/auth.js';
@@ -39,6 +40,11 @@ export async function todoRoutes(request, env, ctx) {
   // 学习通作业/考试同步（分批拉取，前端按 next_cursor 继续）。
   if (path === '/api/todos/sync-chaoxing' && method === 'POST') {
     return withAuth(handleSyncChaoxingTodos)(request, env, ctx);
+  }
+
+  // 中国大学MOOC 作业/测验同步（同一套分批协议）。
+  if (path === '/api/todos/sync-mooc' && method === 'POST') {
+    return withAuth(handleSyncMoocTodos)(request, env, ctx);
   }
 
   if (path === '/api/todos') {

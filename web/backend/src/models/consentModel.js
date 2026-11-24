@@ -33,24 +33,26 @@ export class ConsentModel {
    * SQLite 的新行由「原行 + 各 SET 表达式」算出，表达式读到的都是原值，
    * 所以同一条 UPDATE 里先写 chaoxing = ? 不会影响后面判断 chaoxing = 0。
    */
-  async upsert(userId, { terms, chaoxing, academic }) {
+  async upsert(userId, { terms, chaoxing, academic, mooc }) {
     const t = terms === true || terms === 1 ? 1 : 0;
     const c = chaoxing === true || chaoxing === 1 ? 1 : 0;
     const a = academic === true || academic === 1 ? 1 : 0;
+    const m = mooc === true || mooc === 1 ? 1 : 0;
     const existing = await this.get(userId);
 
     if (!existing) {
       await this.db
         .prepare(
           `INSERT INTO user_consents
-             (user_id, version, terms, chaoxing, academic,
-              terms_agreed_at, chaoxing_agreed_at, academic_agreed_at)
-           VALUES (?, ?, ?, ?, ?,
+             (user_id, version, terms, chaoxing, academic, mooc,
+              terms_agreed_at, chaoxing_agreed_at, academic_agreed_at, mooc_agreed_at)
+           VALUES (?, ?, ?, ?, ?, ?,
+              CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE NULL END,
               CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE NULL END,
               CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE NULL END,
               CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE NULL END)`
         )
-        .bind(userId, AGREEMENT_VERSION, t, c, a, t, c, a)
+        .bind(userId, AGREEMENT_VERSION, t, c, a, m, t, c, a, m)
         .run();
     } else {
       await this.db
@@ -60,13 +62,15 @@ export class ConsentModel {
              terms = ?,
              chaoxing = ?,
              academic = ?,
+             mooc = ?,
              terms_agreed_at = COALESCE(terms_agreed_at, CASE WHEN ? THEN CURRENT_TIMESTAMP END),
              chaoxing_agreed_at = CASE WHEN chaoxing = 0 AND ? = 1 THEN CURRENT_TIMESTAMP ELSE chaoxing_agreed_at END,
              academic_agreed_at = CASE WHEN academic = 0 AND ? = 1 THEN CURRENT_TIMESTAMP ELSE academic_agreed_at END,
+             mooc_agreed_at = CASE WHEN mooc = 0 AND ? = 1 THEN CURRENT_TIMESTAMP ELSE mooc_agreed_at END,
              updated_at = CURRENT_TIMESTAMP
            WHERE user_id = ?`
         )
-        .bind(AGREEMENT_VERSION, t, c, a, t, c, a, userId)
+        .bind(AGREEMENT_VERSION, t, c, a, m, t, c, a, m, userId)
         .run();
     }
 

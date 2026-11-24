@@ -442,7 +442,8 @@ export async function handleUpdateConsent(request, env, userPayload) {
     const updated = await consentModel.upsert(userPayload.id, {
       terms: true,
       chaoxing: body.chaoxing === undefined ? keep('chaoxing') : toBool(body.chaoxing),
-      academic: body.academic === undefined ? keep('academic') : toBool(body.academic)
+      academic: body.academic === undefined ? keep('academic') : toBool(body.academic),
+      mooc: body.mooc === undefined ? keep('mooc') : toBool(body.mooc)
     });
 
     return jsonResponse(success({

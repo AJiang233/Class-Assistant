@@ -22,10 +22,18 @@ var state = {
     counts: { open: 0, history: 0, overdue: 0, hidden: 0 },
     prefs: { urgent_hours: 24, warn_hours: 36 },
     tags: DEFAULT_TAGS.slice(),
-    sync: null,           // 后端返回的学习通同步状态（见 GET /api/todos 的 data.sync）
-    syncing: false,
-    syncProgress: null,   // 同步中的 { processed, total }，用于「第 x/y 门课」文案
+    sync: null,           // 服务端共享的同步状态（见 GET /api/todos 的 data.sync，两个来源共用这一条）
     autoSynced: false     // 每次进页面最多自动同步一次，避免失败后无限重试
+};
+
+// ===== 同步按钮的各自状态 =====
+// 服务端只有一条 todo_sync_state（60 秒冷却也是共用的），但两个按钮的「同步中 / 冷却」
+// 必须各存一份：点学习通不该把 MOOC 按钮一起锁住，否则用户会以为 MOOC 同步也失败了。
+// readyAt 是本地的冷却截止时刻；进入页面时会用服务端 last_attempt_at 播种（见 seedSyncCooldown），
+// 换设备 / 刷新页面也能续上同一条服务端冷却。
+var syncUi = {
+    chaoxing: { busy: false, progress: null, readyAt: 0 },
+    mooc: { busy: false, progress: null, readyAt: 0 }
 };
 
 // ===== 编辑弹窗状态 =====
@@ -142,6 +150,7 @@ function applyListData(data, more) {
     if (data.prefs) state.prefs = data.prefs;
     if (data.tags && data.tags.length) state.tags = data.tags;
     if (data.sync !== undefined) state.sync = data.sync;
+    seedSyncCooldown();
     state.total = typeof data.total === 'number' ? data.total : 0;
     var page = data.list || [];
     state.list = more ? state.list.concat(page) : page;
@@ -631,18 +640,59 @@ async function deleteTodo(id) {
     }
 }
 
-// ===== 学习通同步 =====
-// 前端只负责「分批把服务端跑完」和「把 60 秒降温画出来」：
-// 拉哪些课、怎么判定完成、什么时候并进历史，全部在 todoHandler.handleSyncChaoxingTodos 里。
+// ===== 学习通 / 中国大学MOOC 同步 =====
+// 前端只负责「分批把服务端跑完」和「把冷却画出来」：
+// 拉哪些课、怎么判定完成、什么时候并进历史，全部在 handleSyncChaoxingTodos / handleSyncMoocTodos 里。
+// 两个来源共用服务端同一条 todo_sync_state（60 秒冷却也共用），按钮状态按 kind 分开存。
 var SYNC_COOLDOWN_MS = 60 * 1000;
 var syncClock = 0;
+var SYNC_DEFS = {
+    chaoxing: {
+        btn: 'syncBtn',
+        endpoint: '/api/todos/sync-chaoxing',
+        label: '同步学习通',
+        name: '学习通',
+        boot: '正在从学习通拉取未交作业和未考考试，第一次同步可能要一会儿…',
+        progress: function (p) {
+            return '正在同步学习通：第 ' + Math.min(p.processed, p.total) + '/' + p.total + ' 门课…';
+        },
+        notBound: '还没绑定学习通，绑定后每天会自动同步。'
+    },
+    mooc: {
+        btn: 'moocSyncBtn',
+        endpoint: '/api/todos/sync-mooc',
+        label: '同步中国大学MOOC',
+        name: '中国大学MOOC',
+        boot: '正在从中国大学MOOC拉取未交作业与测验，第一次同步可能要一会儿…',
+        progress: function (p) {
+            return '正在同步中国大学MOOC：第 ' + Math.min(p.processed, p.total) + '/' + p.total + ' 门课程…';
+        },
+        notBound: '还没绑定中国大学MOOC，绑定后每天会自动同步。'
+    }
+};
 
-/** 服务端记的 last_attempt_at 换算成本地剩余冷却毫秒（换设备 / 刷新页面也能续上）。 */
-function syncCooldownLeft() {
-    if (!state.sync || !state.sync.last_attempt_at) return 0;
+/** 某个来源本地剩余冷却毫秒（只读自己那份 readyAt，不读服务端共享状态）。 */
+function syncCooldownLeft(kind) {
+    var ui = syncUi[kind];
+    if (!ui || !ui.readyAt) return 0;
+    return Math.max(0, ui.readyAt - Date.now());
+}
+
+/**
+ * 用服务端那份共享的 last_attempt_at 给两个按钮各播一次冷却。
+ * 服务端 60 秒窗口是共用的：刚同步过学习通，MOOC 按钮也应显示冷却，
+ * 否则点了必然 429 —— 显示真实状态比「让按钮看起来可点」更有用。
+ * 取 max 是为了不让一次较早的响应把本地刚点出来的冷却缩短。
+ */
+function seedSyncCooldown() {
+    if (!state.sync || !state.sync.last_attempt_at) return;
     var ms = dueMs(state.sync.last_attempt_at);
-    if (!ms) return 0;
-    return Math.max(0, ms + SYNC_COOLDOWN_MS - Date.now());
+    if (!ms) return;
+    var until = ms + SYNC_COOLDOWN_MS;
+    if (until <= Date.now()) return;
+    Object.keys(syncUi).forEach(function (kind) {
+        if (until > syncUi[kind].readyAt) syncUi[kind].readyAt = until;
+    });
 }
 
 function stopSyncClock() {
@@ -672,6 +722,17 @@ function ensureTodoShell() {
         else toolbar.appendChild(btn);
     }
 
+    // MOOC 按钮同理：旧壳里没有它，也要补出来，否则升级当次用户看不到新入口。
+    if (toolbar && !document.getElementById('moocSyncBtn')) {
+        var moocBtn = document.createElement('button');
+        moocBtn.type = 'button';
+        moocBtn.className = 'btn btn-outline';
+        moocBtn.id = 'moocSyncBtn';
+        moocBtn.setAttribute('data-act', 'sync-mooc');
+        moocBtn.textContent = '同步中国大学MOOC';
+        toolbar.appendChild(moocBtn);
+    }
+
     if (toolbar && !document.getElementById('syncNote')) {
         var note = document.createElement('p');
         note.className = 'todo-sync-note';
@@ -680,11 +741,11 @@ function ensureTodoShell() {
         toolbar.insertAdjacentElement('afterend', note);
     }
 
-    // 工具栏顺序统一成「代加 / 同步 / 提醒 / 新建」：整体靠右后，从右往左读依次是
-    // 新建、提醒、同步、代加，最常用的新建落在右手拇指最容易够到的位置。
-    // 旧壳里同步按钮是补进来的，位置会落在中间；这里按 data-act 重排一次，新旧壳都对齐。
+    // 工具栏顺序统一成「代加 / 同步学习通 / 同步 MOOC / 提醒 / 新建」：整体靠右后，从右往左读依次是
+    // 新建、提醒、MOOC、学习通、代加，最常用的新建落在右手拇指最容易够到的位置。
+    // 旧壳里同步按钮是补进来的，位置会落在末尾；这里按 data-act 重排一次，新旧壳都对齐。
     if (toolbar) {
-        ['open-delegate', 'sync-chaoxing', 'open-prefs', 'new-todo'].forEach(function (act) {
+        ['open-delegate', 'sync-chaoxing', 'sync-mooc', 'open-prefs', 'new-todo'].forEach(function (act) {
             var node = toolbar.querySelector('[data-act="' + act + '"]');
             if (node) toolbar.appendChild(node);
         });
@@ -710,44 +771,62 @@ function ensureTodoShell() {
 }
 
 function renderSyncUI() {
-    var btn = document.getElementById('syncBtn');
     var note = document.getElementById('syncNote');
-    if (!btn) return;
+    var ticking = false;
 
-    var left = syncCooldownLeft();
-    if (state.syncing) {
-        btn.disabled = true;
-        btn.textContent = '同步中…';
-    } else if (left > 0) {
-        btn.disabled = true;
-        btn.textContent = '同步学习通（' + Math.ceil(left / 1000) + ' 秒）';
+    Object.keys(SYNC_DEFS).forEach(function (kind) {
+        var def = SYNC_DEFS[kind];
+        var btn = document.getElementById(def.btn);
+        if (!btn) return;
+        var ui = syncUi[kind];
+        var left = syncCooldownLeft(kind);
+        if (ui.busy) {
+            btn.disabled = true;
+            btn.textContent = '同步中…';
+        } else if (left > 0) {
+            btn.disabled = true;
+            btn.textContent = def.label + '（' + Math.ceil(left / 1000) + ' 秒）';
+            ticking = true;
+        } else {
+            btn.disabled = false;
+            btn.textContent = def.label;
+        }
+    });
+
+    if (ticking) {
         if (!syncClock) syncClock = setInterval(function () {
             renderSyncUI();
-            if (syncCooldownLeft() <= 0) stopSyncClock();
+            var any = Object.keys(SYNC_DEFS).some(function (k) { return syncCooldownLeft(k) > 0; });
+            if (!any) stopSyncClock();
         }, 1000);
     } else {
+        // 两个按钮都没冷却了就把定时器停掉，别让一个空转的 1s interval 常驻页面。
         stopSyncClock();
-        btn.disabled = false;
-        btn.textContent = '同步学习通';
     }
 
     if (!note) return;
     var text = '';
+    var busyKind = null;
+    Object.keys(SYNC_DEFS).some(function (kind) {
+        if (syncUi[kind].busy) { busyKind = kind; return true; }
+        return false;
+    });
     var s = state.sync;
-    if (state.syncing) {
-        var p = state.syncProgress;
-        text = p && p.total
-            ? '正在同步学习通：第 ' + Math.min(p.processed, p.total) + '/' + p.total + ' 门课…'
-            : '正在从学习通拉取未交作业和未考考试，第一次同步可能要一会儿…';
+    if (busyKind) {
+        var def = SYNC_DEFS[busyKind];
+        var p = syncUi[busyKind].progress;
+        text = p && p.total ? def.progress(p) : def.boot;
     } else if (s && s.last_result === 'not_bound') {
-        text = '还没绑定学习通，绑定后每天会自动同步。';
+        // 这一行是两种同步共用的服务端状态，只记最后一次结果；
+        // 不点名具体来源，免得出「学习通同步失败」却让用户以为 MOOC 也坏了。
+        text = '有同步来源还没绑定账号，绑定后每天会自动同步。';
     } else if (s && s.last_result === 'error') {
         text = s.last_message || '上次同步失败，可以稍后手动重试。';
     } else if (s && s.last_synced_at) {
         text = '上次同步 ' + fmtWhen(s.last_synced_at) + (s.synced_today ? '（今天已同步）' : '');
     } else {
         // 从没同步过（sync 为 null）也要给一句提示，否则按钮旁边是空的。
-        text = '今天还没同步，进入本页时会自动同步。';
+        text = '今天还没同步，进入本页时会自动同步学习通。';
     }
     note.textContent = text;
     note.hidden = !text;
@@ -755,20 +834,27 @@ function renderSyncUI() {
 
 /** 每天第一次进页面自动同步一次；页面内失败不反复重试，交给手动按钮。 */
 function maybeAutoSync() {
-    if (state.autoSynced || state.syncing) return;
+    if (state.autoSynced || syncUi.chaoxing.busy) return;
     state.autoSynced = true;
     var s = state.sync;
     // s 为 null 表示这个账号从没同步过（还没有 todo_sync_state 行），同样应该自动跑第一次。
     if (s && s.synced_today) return;
     if (s && s.last_result === 'not_bound') return;
-    if (syncCooldownLeft() > 0) return;
-    syncNow();
+    if (syncCooldownLeft('chaoxing') > 0) return;
+    // 只自动同步学习通：两个来源共用服务端 60 秒窗口，进页面同时跑 MOOC 会立刻撞 429；
+    // MOOC 作业量小、也可能没绑，交给用户手动点更可控。
+    syncNow('chaoxing');
 }
 
-async function syncNow() {
-    if (state.syncing || syncCooldownLeft() > 0) { renderSyncUI(); return; }
-    state.syncing = true;
-    state.syncProgress = null;
+async function syncNow(kind) {
+    var def = SYNC_DEFS[kind] || SYNC_DEFS.chaoxing;
+    var ui = syncUi[kind];
+    if (!ui) return;
+    // 只拦自己这一份：学习通在同步时，MOOC 按钮仍然可点（服务端若是同一冷却窗口，
+    // 会用 429 + retry_after 告诉用户还剩多久，比前端硬锁住更透明）。
+    if (ui.busy || syncCooldownLeft(kind) > 0) { renderSyncUI(); return; }
+    ui.busy = true;
+    ui.progress = null;
     renderSyncUI();
 
     var cursor = 0;
@@ -782,7 +868,7 @@ async function syncNow() {
             guard += 1;
             var res;
             try {
-                res = await api('/api/todos/sync-chaoxing', {
+                res = await api(def.endpoint, {
                     method: 'POST',
                     timeoutMs: timeoutMs,
                     body: JSON.stringify({ cursor: cursor, batch: 4, refresh: cursor === 0 })
@@ -790,7 +876,7 @@ async function syncNow() {
             } catch (err) {
                 // 非第一批遇到网络抖动可以原样重试一次；第一批不能重试，否则会撞 60s 冷却。
                 if (!err.code && cursor > 0) {
-                    res = await api('/api/todos/sync-chaoxing', {
+                    res = await api(def.endpoint, {
                         method: 'POST',
                         timeoutMs: timeoutMs,
                         body: JSON.stringify({ cursor: cursor, batch: 4, refresh: false })
@@ -799,17 +885,24 @@ async function syncNow() {
                     throw err;
                 }
             }
+            // 第一批真的打到服务端了，服务端已记下这次尝试：本地立刻点亮这一次的冷却。
+            // 后面几批失败也不该让按钮马上又能点（再点也是 429），等 finally 的刷新校正。
+            // bound===false 不算一次有效尝试（服务端可能不记 last_attempt_at），
+            // 放到下面判断之后再点冷却，免得用户刚绑好账号却要白等 60 秒。
             var data = res.data || {};
             if (data.bound === false) {
-                message = data.message || '还没绑定学习通';
+                // 服务端 NOT_BOUND 的 message 是两种同步共用、写死了「学习通」；
+                // MOOC 这里用本地文案，避免出现「还没绑定学习通」而用户点的是 MOOC。
+                message = kind === 'mooc' ? def.notBound : (data.message || def.notBound);
                 break;
             }
+            if (guard === 1) ui.readyAt = Date.now() + SYNC_COOLDOWN_MS;
             if (typeof data.total_courses === 'number') {
-                state.syncProgress = { processed: data.processed || 0, total: data.total_courses };
+                ui.progress = { processed: data.processed || 0, total: data.total_courses };
                 renderSyncUI();
             }
             if (data.done) {
-                message = data.message || '同步完成';
+                message = data.message || (kind === 'mooc' ? '中国大学MOOC同步完成' : '同步完成');
                 break;
             }
             var next = typeof data.next_cursor === 'number' ? data.next_cursor : cursor;
@@ -820,11 +913,11 @@ async function syncNow() {
         if (message) flash(message);
     } catch (err) {
         // 429 说明服务端刚记过一次尝试（例如另一个标签页刚点过）：提示并靠刷新拿回冷却状态。
-        var suffix = cursor > 0 ? '（已同步的前 ' + cursor + ' 门课已保存，稍后可继续）' : '';
+        var suffix = cursor > 0 ? '（已处理的前 ' + cursor + ' 项已保存，稍后可继续）' : '';
         flash(err.message + suffix, true);
     } finally {
-        state.syncing = false;
-        state.syncProgress = null;
+        ui.busy = false;
+        ui.progress = null;
         await loadList(false, true);
     }
 }
@@ -932,7 +1025,8 @@ delegate(document, 'click', '[data-act="del-todo"]', function (el) { deleteTodo(
 delegate(document, 'click', '[data-act="add-tag"]', function () { addCustomTag(); });
 delegate(document, 'click', '[data-act="select-all-members"]', function () { toggleAllMembers(); });
 delegate(document, 'click', '[data-act="load-more"]', function () { loadList(true); });
-delegate(document, 'click', '[data-act="sync-chaoxing"]', function () { syncNow(); });
+delegate(document, 'click', '[data-act="sync-chaoxing"]', function () { syncNow('chaoxing'); });
+delegate(document, 'click', '[data-act="sync-mooc"]', function () { syncNow('mooc'); });
 delegate(document, 'click', '[data-act="toggle-hidden"]', function () { toggleHidden(); });
 delegate(document, 'click', '[data-act="hide-todo"]', function (el) { setTodoHidden(el.getAttribute('data-id'), true); });
 delegate(document, 'click', '[data-act="unhide-todo"]', function (el) { setTodoHidden(el.getAttribute('data-id'), false); });
