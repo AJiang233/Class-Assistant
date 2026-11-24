@@ -29,12 +29,13 @@
                 <p class="page-desc">自己的作业、考试与杂事都记在这里；截止前会按「红色 / 黄色」两档提醒，班委也可以直接给你加一条。</p>
             </div>
 
-            <!-- 操作区：新建 / 提醒设置 / 代加（代加只对 content:write 显示，见 todos.js） -->
+            <!-- 操作区：代加 / 同步 / 提醒 / 新建，整体靠右（右手单手操作时拇指刚好在最右）。
+                 顺序是反着的：越常用的越靠右，新建排在最后一个。代加只对 content:write 显示（见 todos.js）。 -->
             <div class="todo-toolbar">
-                <button type="button" class="btn btn-primary" data-act="new-todo">+ 新建待办</button>
-                <button type="button" class="btn btn-outline" data-act="open-prefs">提醒设置</button>
-                <button type="button" class="btn btn-outline" id="syncBtn" data-act="sync-chaoxing">同步学习通</button>
                 <button type="button" class="btn btn-outline" id="delegateBtn" hidden data-act="open-delegate">代加待办</button>
+                <button type="button" class="btn btn-outline" id="syncBtn" data-act="sync-chaoxing">同步学习通</button>
+                <button type="button" class="btn btn-outline" data-act="open-prefs">提醒设置</button>
+                <button type="button" class="btn btn-primary" data-act="new-todo">+ 新建待办</button>
             </div>
 
             <!-- 学习通同步状态：上次成功时间 / 失败原因 / 手动按钮 60 秒降温 -->

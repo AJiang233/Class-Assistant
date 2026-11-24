@@ -16,6 +16,9 @@ var state = {
     hidden: false,        // 历史页是否在看「已隐藏」视图
     list: [],
     total: 0,
+    // 详情展开状态：key 是待办 id，value 是 true。列表重绘（刷新 / 同步 / 切页签）后仍保留，
+    // 用户展开看说明时不会被一次后台刷新又收回去。
+    expanded: {},
     counts: { open: 0, history: 0, overdue: 0, hidden: 0 },
     prefs: { urgent_hours: 24, warn_hours: 36 },
     tags: DEFAULT_TAGS.slice(),
@@ -243,42 +246,72 @@ function render() {
 
 function rowHTML(t) {
     var history = state.tab === 'history';
+    var sid = String(t.id);
+    var expanded = !!state.expanded[sid];
+    var uc = urgencyClass(t);
+
+    // 收起时只留「标题 + 截止时间」；开始时间、剩余时间、标签、说明、操作全部放进详情。
+    // 详情展开状态按 id 记在 state.expanded 里，后台刷新 / 同步重绘后不会又收回去。
     var meta = [];
     if (history) {
         if (t.status === 'done' && t.completed_at) {
             meta.push('<span>' + icon('clock') + '完成于 ' + esc(fmtWhen(t.completed_at)) + '</span>');
         }
-        meta.push('<span>' + icon('clock') + '截止 ' + esc(fmtWhen(t.due_at)) + '</span>');
     } else {
-        meta.push('<span>' + icon('clock') + '截止 ' + esc(fmtWhen(t.due_at)) + '</span>');
         if (t.start_at) meta.push('<span>' + icon('calendar') + '开始 ' + esc(fmtWhen(t.start_at)) + '</span>');
         var left = leftText(t);
-        if (left) meta.push('<span class="todo-left todo-' + urgencyClass(t) + '">' + esc(left) + '</span>');
+        if (left) meta.push('<span class="todo-left todo-' + uc + '">' + esc(left) + '</span>');
     }
 
     var tags = (t.tags || []).map(function (tag) {
         return '<span class="todo-tag">' + esc(tag) + '</span>';
     }).join('');
+    var badges = sourceBadge(t) + statusBadge(t);
     var desc = t.description
         ? '<div class="todo-desc">' + esc(t.description) + '</div>'
         : '';
-    // 未超时的进行中件才给红点：已超时的已经挪进历史页，颜色在那儿由状态徽章表达
-    var dot = history ? '' : '<span class="todo-dot todo-' + urgencyClass(t) + '" aria-hidden="true"></span>';
 
-    return '<div class="list-row todo-row">'
-        + dot
-        + '<div class="list-row-main">'
-        + '<div class="list-row-title">'
-        + '<span class="list-row-name">' + esc(t.title) + '</span>'
-        + sourceBadge(t)
-        + statusBadge(t)
-        + tags
-        + '</div>'
-        + '<div class="list-row-meta">' + meta.join('') + '</div>'
+    var detail = '<div class="todo-detail" id="todoDetail-' + escAttr(sid) + '"' + (expanded ? '' : ' hidden') + '>'
+        + (badges || tags ? '<div class="todo-detail-tags">' + badges + tags + '</div>' : '')
+        + (meta.length ? '<div class="list-row-meta">' + meta.join('') + '</div>' : '')
         + desc
-        + '</div>'
         + rowActionsHTML(t, history)
         + '</div>';
+
+    // 整行按紧急度铺一层「左深右浅」的提示色：绿 = 还早，黄 = 该留神，红 = 临期 / 已超时。
+    // 圆点与左侧渐变同色，扫一眼不看字也能分出三档。
+    return '<div class="list-row todo-row todo-row-' + uc + (expanded ? ' expanded' : '') + '" data-id="' + escAttr(sid) + '">'
+        + '<div class="todo-head" data-act="toggle-todo">'
+        + '<span class="todo-dot todo-' + uc + '" aria-hidden="true"></span>'
+        + '<span class="todo-head-main">'
+        + '<span class="todo-head-title">' + esc(t.title) + '</span>'
+        + '<span class="todo-head-due">截止 ' + esc(fmtWhen(t.due_at)) + '</span>'
+        + '</span>'
+        + '<button type="button" class="todo-toggle" data-act="toggle-todo" aria-expanded="' + (expanded ? 'true' : 'false') + '"'
+        + ' aria-controls="todoDetail-' + escAttr(sid) + '" aria-label="' + (expanded ? '收起详情' : '展开详情') + '">'
+        + '<svg class="todo-caret" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 10l5 5 5-5z"/></svg>'
+        + '</button>'
+        + '</div>'
+        + detail
+        + '</div>';
+}
+
+/** 展开 / 收起一条待办的详情：只改这一行，不重绘整个列表（滚动位置不会跳）。 */
+function toggleTodo(el) {
+    var row = el && el.closest ? el.closest('.todo-row') : null;
+    if (!row) return;
+    var id = row.getAttribute('data-id');
+    if (id == null) return;
+    var open = !state.expanded[id];
+    state.expanded[id] = open;
+    row.classList.toggle('expanded', open);
+    var detail = row.querySelector('.todo-detail');
+    if (detail) detail.hidden = !open;
+    var btn = row.querySelector('.todo-toggle');
+    if (btn) {
+        btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+        btn.setAttribute('aria-label', open ? '收起详情' : '展开详情');
+    }
 }
 
 function rowActionsHTML(t, history) {
@@ -647,6 +680,16 @@ function ensureTodoShell() {
         toolbar.insertAdjacentElement('afterend', note);
     }
 
+    // 工具栏顺序统一成「代加 / 同步 / 提醒 / 新建」：整体靠右后，从右往左读依次是
+    // 新建、提醒、同步、代加，最常用的新建落在右手拇指最容易够到的位置。
+    // 旧壳里同步按钮是补进来的，位置会落在中间；这里按 data-act 重排一次，新旧壳都对齐。
+    if (toolbar) {
+        ['open-delegate', 'sync-chaoxing', 'open-prefs', 'new-todo'].forEach(function (act) {
+            var node = toolbar.querySelector('[data-act="' + act + '"]');
+            if (node) toolbar.appendChild(node);
+        });
+    }
+
     var historyNote = document.getElementById('historyNote');
     if (historyNote && !document.querySelector('.todo-history-bar')) {
         var bar = document.createElement('div');
@@ -882,6 +925,7 @@ delegate(document, 'click', '[data-act="cancel-todo"]', function () { closeTodoM
 delegate(document, 'click', '[data-act="cancel-prefs"]', function () { closePrefsModal(); });
 delegate(document, 'click', '[data-act="switch-tab"]', function (el) { switchTab(el.getAttribute('data-tab')); });
 delegate(document, 'click', '[data-act="filter-tag"]', function (el) { setTagFilter(el.getAttribute('data-tag') || ''); });
+delegate(document, 'click', '[data-act="toggle-todo"]', function (el) { toggleTodo(el); });
 delegate(document, 'click', '[data-act="done-todo"]', function (el) { markDone(el.getAttribute('data-id')); });
 delegate(document, 'click', '[data-act="edit-todo"]', function (el) { startEdit(el.getAttribute('data-id')); });
 delegate(document, 'click', '[data-act="del-todo"]', function (el) { deleteTodo(el.getAttribute('data-id')); });

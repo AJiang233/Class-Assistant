@@ -2189,10 +2189,13 @@ body.app-mode { overflow: hidden; }
    浅色下取深一点的琥珀以保证白底对比度，深色下用亮黄才压得住深底。 */
 :root {
     --todo-warn: #a35a00;
+    /* 圆点 / 渐变用亮一档的琥珀：文字要深色压白底，色块要亮色才看得出是「黄」 */
+    --todo-warn-tint: #ff9f0a;
     --todo-warn-soft: rgba(255, 159, 10, 0.16);
 }
 :root[data-theme="dark"] {
     --todo-warn: #ffd60a;
+    --todo-warn-tint: #ffd60a;
     --todo-warn-soft: rgba(255, 214, 10, 0.18);
 }
 
@@ -2237,7 +2240,7 @@ body.app-mode { overflow: hidden; }
 
 /* ── 待办页：工具条 / 分段 / 提示条 / 标签筛选 ───────────────── */
 .todo-toolbar {
-    display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px;
     margin-bottom: 18px;
 }
 /* 分段控件默认 margin-bottom 24，这一页下面紧跟标签筛选，收一档更紧凑 */
@@ -2288,18 +2291,86 @@ body.app-mode { overflow: hidden; }
 .todo-more-wrap { margin-top: 16px; }
 
 /* ── 待办页：列表行 ────────────────────────────────────────────── */
-/* 复用 .list-row 的间距与分隔线，只把纵向对齐改成顶部：右侧操作区有多行按钮时，
-   标题应当跟第一行对齐，而不是被拉到整行中线。 */
-.todo-row { align-items: flex-start; }
-/* urgency 圆点：红 = 已超时/临期，琥珀 = 提醒档，灰 = 还早 */
+/* 收起态只占「标题 + 截止 + 展开箭头」一行，点箭头（或整行标题区）才展开详情。
+   行本身改成纵向：头一行固定，详情块按需出现。 */
+.todo-row {
+    display: block;
+    padding: 0;
+    /* 左深右浅的紧急度底色：绿 = 还早、黄 = 该留神、红 = 临期 / 已超时。
+       用 color-mix 叠在列表材质上，深色主题下同一套百分比也成立。 */
+    --todo-tint: var(--success);
+    background-image: linear-gradient(90deg,
+        color-mix(in srgb, var(--todo-tint) 24%, transparent) 0%,
+        color-mix(in srgb, var(--todo-tint) 8%, transparent) 46%,
+        transparent 100%);
+}
+.todo-row.todo-row-urgent { --todo-tint: var(--danger); }
+.todo-row.todo-row-warn { --todo-tint: var(--todo-warn-tint); }
+.todo-row.todo-row-normal { --todo-tint: var(--success); }
+/* .list-row:hover 用 background 简写铺一层强调色，会把渐变清掉；这里补回来，悬停时再深一档 */
+@media (hover: hover) {
+    .todo-row:hover {
+        background-color: color-mix(in srgb, var(--todo-tint) 5%, transparent);
+        background-image: linear-gradient(90deg,
+            color-mix(in srgb, var(--todo-tint) 32%, transparent) 0%,
+            color-mix(in srgb, var(--todo-tint) 10%, transparent) 48%,
+            transparent 100%);
+    }
+}
+.todo-row:active {
+    background-color: color-mix(in srgb, var(--todo-tint) 10%, transparent);
+    background-image: linear-gradient(90deg,
+        color-mix(in srgb, var(--todo-tint) 32%, transparent) 0%,
+        color-mix(in srgb, var(--todo-tint) 10%, transparent) 48%,
+        transparent 100%);
+    box-shadow: none;
+}
+
+.todo-head {
+    display: flex; align-items: center; gap: 10px;
+    padding: 15px 18px; cursor: pointer; user-select: none;
+}
+.todo-head-main {
+    flex: 1; min-width: 0;
+    display: flex; align-items: baseline; gap: 10px;
+}
+.todo-head-title {
+    flex: 1; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: 1rem; font-weight: 600; letter-spacing: -0.008em; color: var(--text);
+}
+.todo-head-due {
+    flex-shrink: 0; font-size: 0.82rem; color: var(--text-secondary);
+    font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.todo-toggle {
+    flex: 0 0 auto; display: grid; place-items: center;
+    width: 32px; height: 32px; padding: 0;
+    border: 0; border-radius: 50%; background: none;
+    color: var(--text-tertiary); cursor: pointer;
+    transition: background-color var(--dur-fast) var(--ease-standard),
+                color var(--dur-fast) var(--ease-standard);
+}
+.todo-toggle:hover { background: var(--material-muted); color: var(--text); }
+.todo-caret { transition: transform var(--dur-base) var(--ease-standard); }
+.todo-row.expanded .todo-caret { transform: rotate(180deg); }
+
+/* urgency 圆点：绿 = 还早，黄 = 提醒档，红 = 临期 / 已超时 */
 .todo-dot {
     flex: 0 0 auto; width: 9px; height: 9px;
-    margin-top: 8px; border-radius: 50%;
-    background: var(--text-tertiary);
+    border-radius: 50%;
+    background: var(--success); box-shadow: 0 0 0 3px var(--success-soft);
 }
+.todo-head .todo-dot { margin-top: 0; }
 .todo-dot.todo-urgent { background: var(--danger); box-shadow: 0 0 0 3px var(--danger-soft); }
-.todo-dot.todo-warn { background: var(--todo-warn); box-shadow: 0 0 0 3px var(--todo-warn-soft); }
-.todo-row .list-row-title { flex-wrap: wrap; }
+.todo-dot.todo-warn { background: var(--todo-warn-tint); box-shadow: 0 0 0 3px var(--todo-warn-soft); }
+
+/* 详情：与标题左缘对齐（18 内边距 + 9 圆点 + 10 间距），层级比标题轻 */
+.todo-detail { padding: 0 18px 16px 37px; }
+.todo-detail-tags {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+    margin-bottom: 8px;
+}
 /* 标签：比徽章更轻，读起来是「分类」而不是「状态」 */
 .todo-tag {
     padding: 1px 8px; font-size: 0.76rem; line-height: 1.65;
@@ -2310,12 +2381,15 @@ body.app-mode { overflow: hidden; }
 .todo-left { font-weight: 600; }
 .todo-left.todo-urgent { color: var(--danger); }
 .todo-left.todo-warn { color: var(--todo-warn); }
-.todo-left.todo-normal { color: var(--text-tertiary); }
+.todo-left.todo-normal { color: var(--success); }
 .todo-desc {
     margin-top: 7px; font-size: 0.85rem; line-height: 1.6;
     color: var(--text-tertiary); white-space: pre-wrap; word-break: break-word;
 }
-.todo-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; }
+.todo-actions {
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end;
+    gap: 8px; margin-top: 12px;
+}
 
 /* ── 待办页：弹窗里的标签选择与成员多选 ─────────────────────── */
 .todo-tag-picker { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
@@ -2327,11 +2401,15 @@ body.app-mode { overflow: hidden; }
 }
 .todo-member-hint { font-size: 0.82rem; color: var(--text-secondary); }
 
-/* 窄屏：操作按钮换到标题下面一整行，避免把标题挤成一个字一行 */
+/* 窄屏：标题与截止时间分两行，别把标题挤成一个字一行 */
 @media (max-width: 640px) {
-    .todo-row { flex-wrap: wrap; }
-    .todo-actions { width: 100%; justify-content: flex-end; padding-left: 25px; }
+    .todo-head { padding: 14px; gap: 8px; }
+    .todo-detail { padding: 0 14px 14px 31px; }
     .todo-summary { padding: 16px 16px; }
+}
+@media (max-width: 420px) {
+    .todo-head-main { flex-direction: column; align-items: flex-start; gap: 2px; }
+    .todo-head-due { font-size: 0.78rem; }
 }
 
 /* ═══════════════════════════════════════════════════════════════════
