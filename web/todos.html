@@ -29,16 +29,21 @@
                 <p class="page-desc">自己的作业、考试与杂事都记在这里；截止前会按「红色 / 黄色」两档提醒，班委也可以直接给你加一条。</p>
             </div>
 
-            <!-- 操作区：代加 / 同步 / 提醒 / 新建，整体靠右（右手单手操作时拇指刚好在最右）。
-                 顺序是反着的：越常用的越靠右，新建排在最后一个。代加只对 content:write 显示（见 todos.js）。 -->
+            <!-- 操作区：代加 / 同步学习通 / 同步 MOOC / 提醒 / 新建，整体靠右（右手单手操作时拇指刚好在最右）。
+                 顺序是反着的：越常用的越靠右，新建排在最后一个。代加只对 content:write 显示（见 todos.js）。
+                 两个同步按钮各自维护冷却与进度（todos.js 的 syncUi），互不复用对方状态：
+                 服务端虽然共用一个 60 秒窗口，但按钮文案/禁用只由自己那次点击决定。 -->
             <div class="todo-toolbar">
                 <button type="button" class="btn btn-outline" id="delegateBtn" hidden data-act="open-delegate">代加待办</button>
                 <button type="button" class="btn btn-outline" id="syncBtn" data-act="sync-chaoxing">同步学习通</button>
+                <button type="button" class="btn btn-outline" id="moocSyncBtn" data-act="sync-mooc">同步中国大学MOOC</button>
                 <button type="button" class="btn btn-outline" data-act="open-prefs">提醒设置</button>
                 <button type="button" class="btn btn-primary" data-act="new-todo">+ 新建待办</button>
             </div>
 
-            <!-- 学习通同步状态：上次成功时间 / 失败原因 / 手动按钮 60 秒降温 -->
+            <!-- 同步状态：上次成功时间 / 失败原因 / 手动按钮 60 秒降温。
+                 服务端只有一条共享的同步状态（todo_sync_state），所以这行文案是两项共用的；
+                 两个按钮自己的「同步中 / 冷却」由 syncUi 分开渲染。 -->
             <p class="todo-sync-note" id="syncNote" hidden></p>
 
             <!-- 进行中 / 历史 分段控件。滑块（.tab-pill）由 todos.js 的 moveSegPill() 定位，

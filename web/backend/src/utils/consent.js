@@ -38,9 +38,11 @@ export function summarizeConsent(row) {
     terms: Number(row.terms) === 1,
     chaoxing: Number(row.chaoxing) === 1,
     academic: Number(row.academic) === 1,
+    mooc: Number(row.mooc) === 1,
     terms_agreed_at: row.terms_agreed_at || null,
     chaoxing_agreed_at: row.chaoxing_agreed_at || null,
     academic_agreed_at: row.academic_agreed_at || null,
+    mooc_agreed_at: row.mooc_agreed_at || null,
     updated_at: row.updated_at || null
   };
 }
@@ -50,7 +52,7 @@ export function summarizeConsent(row) {
  *
  * 返回 null 表示「形状不合法」，调用方据此回 400。terms 必须显式为 true（或数字 1）：
  * 缺省、false、"true" 一律不认 —— 免得客户端漏传字段被当成「同意」。
- * chaoxing / academic 是可选项，没传或非 true 就当不同意。
+ * chaoxing / academic / mooc 是可选项，没传或非 true 就当不同意。
  */
 export function parseConsentPayload(payload) {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
@@ -59,6 +61,7 @@ export function parseConsentPayload(payload) {
   return {
     terms: true,
     chaoxing: payload.chaoxing === true || payload.chaoxing === 1,
-    academic: payload.academic === true || payload.academic === 1
+    academic: payload.academic === true || payload.academic === 1,
+    mooc: payload.mooc === true || payload.mooc === 1
   };
 }

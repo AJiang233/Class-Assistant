@@ -418,9 +418,36 @@ web/                            # Cloudflare Pages 项目根目录（直接部�
 
 ---
 
+### 中国大学MOOC（icourse163）转发
+
+MOOC 的课程、章节任务点、单元作业 / 单元测验同样由私有 Worker 读取，门户只转发（`backend/src/routes/mooc.js`）。绑定**优先读 `MOOC_API`，没有就复用 `CHAOXING_API`**（两者指向同一个私有 Worker：少一条绑定就少一处部署时漏配的可能）。
+
+- **独立授权**：`user_consents.mooc` 是独立同意项（迁移 0009）。未开启时，绑定 / 预览 / 登录与 `?refresh=1` 的抓取一律 403 `MOOC_CONSENT_REQUIRED`；`status`、缓存 GET、`DELETE /bind` 放行。
+- **没有代登录**：icourse163 的登录是跨域 iframe 的 SPA，服务端复刻不稳定也无必要，`POST /api/mooc/login` 恒 501 `MOOC_LOGIN_UNSUPPORTED`；绑定只收用户粘贴的 Cookie。
+- **进度口径**：单门课程的 `GET /api/mooc/progress?courseId=&refresh=1` 一次拿回「章 → 小节 → 任务点」与每个任务点的 `completePercent`；完成只认 `completePercent >= 1`（`viewStatus=5` 不等于完成）。
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/mooc/status` | 绑定状态 + 账号 + 已缓存课程数 |
+| POST | `/api/mooc/bind/preview` | 只读校验 Cookie（**不落库**） |
+| POST | `/api/mooc/bind` | `{cookies}` 正式绑定 |
+| POST | `/api/mooc/login` | 恒 501（见上） |
+| DELETE | `/api/mooc/bind` | 解绑并清空课程 / 学期缓存 |
+| GET | `/api/mooc/courses` | MOOC + SPOC 课程卡；`?refresh=1` 强制重抓 |
+| GET | `/api/mooc/progress` | 任务点（`?courseId=`、`?nodes=1`、`?refresh=1`） |
+| GET | `/api/mooc/works` / `exams` | 单元作业 / 单元测验 + 考试；带 `courseId` 时同步该门，缺省聚合缓存 + `missing[]` |
+
+错误码：缺绑定 → 503 `MOOC_UNAVAILABLE`，缺 `INTERNAL_TOKEN` → 500 `SERVER_MISCONFIGURED`，功能开关 `mooc_enabled=0` → 503 `FEATURE_DISABLED` + `Retry-After: 30`。上游数据口径、缓存表与实测数据都在私有仓 README 第 13 节，本站不复制。
+
+**待办同步**：`POST /api/todos/sync-mooc`（与 `sync-chaoxing` 同一套分批协议：`{cursor,batch}` → `next_cursor/done`）。每门课先抓 `/works`（顺带刷新学期缓存）再抓 `/exams` 复用同一份缓存；`external_id` 形如 `mooc:<testId>`，作业 / 测验分别打「作业」「考试」标签。完成态从数据推断：测验看 `usedTryCount > 0`，作业看 `userScore` 非空（未批阅不标完成）。冷却窗口与学习通共用 60 秒。
+
+学习通课程卡另有「最近截止」字段（私有仓 12.10）：`nextDeadlineAt` / `nextDeadlineKind` / `nextDeadlineTitle`，是**该课程最近一个未完成作业或考试的截止时间**（学习通课程页没有开课/结课时间，这是可解释的口径）。字段随课程列表返回，前端暂未消费，留给后续课程页使用。
+
+---
+
 ## 数据库与同步
 
-唯一表结构来源为 [migrations-v2](migrations-v2)，[schema.sql](schema.sql) 是经测试核对的完整新库快照，包含推送订阅、生命周期约束、发件箱、变更日志、登录失败限流、管理员操作审计（`audit_logs`，迁移 0005）、全局功能开关（`app_settings`，迁移 0006）和个人待办（`todos` / `content_todos` / `todo_prefs`，迁移 0007）。
+唯一表结构来源为 [migrations-v2](migrations-v2)，[schema.sql](schema.sql) 是经测试核对的完整新库快照，包含推送订阅、生命周期约束、发件箱、变更日志、登录失败限流、管理员操作审计（`audit_logs`，迁移 0005）、全局功能开关（`app_settings`，迁移 0006）、个人待办（`todos` / `content_todos` / `todo_prefs`，迁移 0007）、外部来源待办与同步状态（迁移 0008）以及中国大学MOOC 授权（`user_consents.mooc`，迁移 0009）。0008/0009 都是 `ALTER TABLE`，因此 `schema.sql` 末尾按顺序重复同一批语句 —— `architecture.test.js` 会逐字核对迁移执行后的结构与快照是否一致。
 
 个人列表使用 `audience=mine` 并返回 `nextOffset`；Android 使用 `/api/sync` 的固定上界快照与增量协议。受众写入只接受用户 ID，姓名只用于展示。
 

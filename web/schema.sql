@@ -411,3 +411,8 @@ CREATE TABLE IF NOT EXISTS todo_sync_state (
   last_message   TEXT,
   updated_at     TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+-- 中国大学MOOC 授权（对应 migrations-v2/0009_consent_mooc.sql，DDL 必须逐字一致）。
+-- 与 0008 同理：列只能 ALTER 追加，schema.sql 尾部重复迁移里的写法。
+ALTER TABLE user_consents ADD COLUMN mooc INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE user_consents ADD COLUMN mooc_agreed_at DATETIME;

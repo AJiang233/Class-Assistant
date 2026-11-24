@@ -4,6 +4,7 @@ import { activityRoutes } from './routes/activities.js';
 import { calendarRoutes } from './routes/calendar.js';
 import { academicRoutes } from './routes/academic.js';
 import { chaoxingRoutes } from './routes/chaoxing.js';
+import { moocRoutes } from './routes/mooc.js';
 import { settingRoutes } from './routes/settings.js';
 import { formRoutes } from './routes/forms.js';
 import { pushRoutes } from './routes/push.js';
@@ -69,6 +70,10 @@ async function dispatch(request, env, ctx) {
 
   // 学习通路由（与教务同一套 Service Binding 转发，前缀不同，互不接管）
   response = await chaoxingRoutes(request, env, ctx);
+  if (response) return response;
+
+  // 中国大学MOOC路由（同一个私有 Worker，前缀 /api/mooc/*）
+  response = await moocRoutes(request, env, ctx);
   if (response) return response;
 
   // 全局功能开关（系统级配置，独立于教务转发）

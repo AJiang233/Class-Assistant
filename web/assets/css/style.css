@@ -2438,6 +2438,12 @@ body.app-mode { overflow: hidden; }
 }
 .bind-logo-chaoxing { background: rgba(0, 168, 132, 0.14); color: #00876b; }
 :root[data-theme="dark"] .bind-logo-chaoxing { background: rgba(48, 209, 176, 0.18); color: #4cd7b6; }
+/* 中国大学MOOC 用品牌绿：与学习通的青绿区分开，又不抢主色 */
+.bind-logo-mooc { background: rgba(0, 166, 81, 0.14); color: #007a3d; }
+:root[data-theme="dark"] .bind-logo-mooc { background: rgba(64, 214, 132, 0.18); color: #4fd68a; }
+/* MOOC 只有 Cookie 一条绑定路径，单独占一整行放在两张并排卡下方；
+   与 .bind-grid 的行间 gap 保持一致，别看起来像掉队的一块。 */
+.bind-card-mooc { margin-top: 16px; }
 .bind-card-title { flex: 1; min-width: 0; }
 .bind-card-title .card-title { margin-bottom: 4px; }
 .bind-sub { margin: 0; font-size: 0.82rem; line-height: 1.5; color: var(--text-tertiary); }

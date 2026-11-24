@@ -312,7 +312,7 @@
                             <div class="info-row"><span class="k">版本号</span><span class="v" id="aboutVersion">—</span></div>
                             <div class="info-row"><span class="k">检查更新</span><span class="v"><button class="btn btn-outline btn-sm" type="button" id="updateBtn" data-act="check-update">检查更新</button></span></div>
                             <!-- 用户协议：点进弹窗查看协议版本与三项授权状态；摘要由 account.js 从
-                                 GET /api/auth/consent 渲染（已同意 · 学习通已授权 · 教务未授权）。
+                                 GET /api/auth/consent 渲染（已同意 · 学习通已授权 · 教务未授权 · 中国大学MOOC未授权）。
                                  .info-row-consent 给手机布局用：摘要文案较长（未同意时会带
                                  「请退出后重新登录并同意」），窄屏下折成第二行，见 style.css 的手机端样式。 -->
                             <div class="info-row info-row-consent"><span class="k">用户协议</span><span class="v"><span class="v-actions"><span class="consent-summary" id="consentSummary">加载中…</span><button class="btn btn-outline btn-sm" type="button" id="openConsentBtn">查看与修改</button></span></span></div>
@@ -327,8 +327,11 @@
             </div>
             </div><!-- /#paneProfile -->
 
-            <!-- 账号绑定：教务系统与学习通各自一张卡。登录/换绑统一走 #accountBindModal，
-                 状态由 account.js 调 /api/academic/status 与 /api/chaoxing/status 填充。
+            <!-- 账号绑定：教务系统与学习通并排两张卡，中国大学MOOC 单独一张整宽卡。
+                 MOOC 只有「粘贴 Cookie」一条路（服务端不支持账号密码代登录），所以不做
+                 App 登录 / 密码入口，单独放一行也避免三张窄卡把入口挤成两行字。
+                 登录/换绑统一走 #accountBindModal，状态由 account.js 调 /api/academic/status、
+                 /api/chaoxing/status 与 /api/mooc/status 填充。
                  App 内「登录」由原生小窗打开学校/学习通真实登录页，登录后原生把 Cookie 回传本页。 -->
             <div id="paneBinding" class="account-pane" role="tabpanel" aria-labelledby="accountTabBinding" hidden>
                 <p class="bind-flash" id="bindFlash" hidden></p>
@@ -361,7 +364,24 @@
                         </div>
                     </section>
                 </div>
-                <p class="bind-footnote">账号绑定仅用于以你的身份读取课表、成绩、课程等只读数据，不会替你选课或提交作业。教务系统在 App 内由学校真实登录页完成登录；学习通在 App 内打开登录小窗，登录成功后只把 Cookie 交给服务端，网页版无法跨域读取学习通 Cookie，因此提供密码登录与粘贴 Cookie 两种兜底。姓名比对是弱校验（学习通可能不返回姓名），绑定后随时可在本页解绑。</p>
+
+                <!-- 中国大学MOOC：icourse163.org 没有可用的账号密码代登录（登录页是 SPA iframe，
+                     表单接口早就不认了），唯一可靠的绑定方式是复制浏览器登录后的 Cookie。
+                     因此这张卡只有「粘贴 Cookie / 解绑」，不出现 App 登录与密码入口。 -->
+                <section class="profile-card bind-card bind-card-mooc" aria-labelledby="moocBindTitle">
+                    <div class="bind-card-head">
+                        <span class="bind-logo bind-logo-mooc" aria-hidden="true">慕</span>
+                        <div class="bind-card-title">
+                            <h2 class="card-title" id="moocBindTitle">中国大学MOOC</h2>
+                            <p class="bind-sub">icourse163.org · 作业 / 测验自动进待办</p>
+                        </div>
+                        <span class="badge badge-muted" id="moocBindBadge">检查中</span>
+                    </div>
+                    <div class="bind-body" id="moocBindBody">
+                        <p class="bind-hint">正在读取绑定状态…</p>
+                    </div>
+                </section>
+                <p class="bind-footnote">账号绑定仅用于以你的身份读取课表、成绩、课程等只读数据，不会替你选课或提交作业。教务系统在 App 内由学校真实登录页完成登录；学习通在 App 内打开登录小窗，登录成功后只把 Cookie 交给服务端，网页版无法跨域读取学习通 Cookie，因此提供密码登录与粘贴 Cookie 两种兜底。中国大学MOOC 不支持账号密码代登录，请先在浏览器登录 www.icourse163.org，再把 Cookie 整条粘贴到绑定弹窗里；服务端会先读一次课程列表验证登录态，验证通过才保存。姓名比对是弱校验（学习通可能不返回姓名），绑定后随时可在本页解绑。</p>
             </div>
         </div>
 
@@ -471,7 +491,7 @@
         </div>
 
         <!-- 用户协议与授权：显示协议版本与最近同意时间；《用户协议》固定已同意、只能看全文，
-             学习通 / 教务两项可选授权可以随时开关，点「保存」写后端（account.js 的 saveConsent）。 -->
+             学习通 / 教务 / 中国大学MOOC 三项可选授权可以随时开关，点「保存」写后端（account.js 的 saveConsent）。 -->
         <div class="modal-overlay" id="consentModal">
             <div class="modal modal-consent">
                 <div class="modal-head">
@@ -503,6 +523,15 @@
                             <span class="consent-switch-label">使用身份登录教务系统<small>关闭后无法同步教务系统学业情况及课表</small></span>
                             <span class="switch">
                                 <input type="checkbox" id="consentAcademicSwitch">
+                                <span class="switch-track" aria-hidden="true"></span>
+                            </span>
+                        </label>
+                        <!-- 中国大学MOOC 单独一项授权：后端在绑定 / 同步这类出网动作上校验
+                             mooc 授权（403 MOOC_CONSENT_REQUIRED），只读状态接口不校验。 -->
+                        <label class="switch-row">
+                            <span class="consent-switch-label">使用身份登录中国大学MOOC<small>关闭后无法绑定 MOOC 账号、同步 MOOC 作业与测验</small></span>
+                            <span class="switch">
+                                <input type="checkbox" id="consentMoocSwitch">
                                 <span class="switch-track" aria-hidden="true"></span>
                             </span>
                         </label>
