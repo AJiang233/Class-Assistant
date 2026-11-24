@@ -1,553 +1,356 @@
 # Class Assistant · Web 模块
 
-「班级助理」项目的 Web 门户：**Cloudflare Pages 一体部署**（静态前端 + Functions 后端 + D1），纯 HTML/CSS/JS，登录后按职位提供不同权限。
+「班级助理」的 Web 门户。**Cloudflare Pages 一体部署**：同一域名下既是静态前端，也是后端 API，数据落 D1。
 
-- 前端：`web/` 根目录静态文件 — 原生 HTML/CSS/JS，应用壳布局（左侧固定栏 + 右侧内容区 iframe 嵌入）
-- 后端：`backend/src/` — 经 `functions/api/[[path]].js` 接入 Pages Functions，JWT + PBKDF2 认证，通知 / 活动 / 表单 CRUD、按职位鉴权，运行时零依赖
-- 数据库：Cloudflare D1（SQLite）
-- 文案：面向用户的中文措辞与术语统一口径见 [`COPY.md`](../COPY.md)（新增 / 改动文案前对照一下）
-
-## 本地回归验证
-
-本轮架构改造的完整验证步骤见[数据一致性与部署](docs/数据一致性与部署.md)。
-
-在 `web/` 运行 `npm test`。测试使用 Node 原生测试框架；需要 **Node 22.13+，推荐 Node 24 LTS**。`backend/test/dataConsistency.test.js` 使用内置 `node:sqlite` 与项目 `db/schema.sql`，验证实际 SQL 的分页、日历窗口及表单并发写入，不需要连接 Cloudflare 或安装额外测试依赖。
-
-班务时间统一按北京时间（UTC+8）解释，与开发机和 Worker 的宿主时区无关。表单在写入时重新检查字段定义、提交名单、关闭状态、截止时间和编辑策略；期间状态变化返回 `409 FORM_CHANGED`，刷新后再提交。通知和活动的无效时间、结束早于开始返回 `400 INVALID_TIME`，可选结束时间仍可清空。表单联动通知使用相同校验。
-
-日历先按请求日期窗口筛选，再按受众分页，每种内容最多输出 200 条，按时间先后取数。排除成员的列表分页将 `offset` 解释为过滤后的条目数。
-
-跨时区回归可在 PowerShell 中运行（环境变量仅在当前终端生效，结束后恢复）：
-
-```powershell
-$previousTz = $env:TZ
-try {
-  foreach ($testZone in @('UTC', 'Asia/Shanghai', 'America/New_York')) {
-    $env:TZ = $testZone
-    node --test backend/test/dataConsistency.test.js
-    if ($LASTEXITCODE -ne 0) { throw "时区 $testZone 的测试失败" }
-  }
-} finally {
-  $env:TZ = $previousTz
-}
-```
+前端是原生 HTML / CSS / JS，没有构建步骤、没有框架、没有前端依赖；后端零运行时依赖，只用 Web Crypto、D1 绑定与 Service Binding。
 
 ---
 
-## 当前状态
+## 1. 运行形态
 
-已上线 `class.qxwkstudio.top`。
+| 层 | 实现 | 说明 |
+| --- | --- | --- |
+| 静态前端 | `web/` 下的 HTML / CSS / JS | Pages 直接托管，不做打包 |
+| API | `functions/api/[[path]].js` → `backend/src/index.js` | 只接管 `/api/*`，其余交给静态托管 |
+| 数据库 | Cloudflare D1，绑定名 `DB` | 表结构与迁移见第 5 节 |
+| 教务 / 学习通 / MOOC | Service Binding `ACADEMIC_API` / `CHAOXING_API` → 私有 Worker | 本仓库只做鉴权与转发 |
+| 邮件投递 | `backend/src/deliveryWorker.js`（独立 Cron Worker） | 扫发件箱，按订阅发信 |
 
-- **账号与权限**：学号 + 密码登录（PBKDF2 加盐哈希）、JWT 鉴权；班长/团支书/学习委员等预设职位 + 自定义职位权限，支持一人多职位（权限取并集）；成员管理、修改密码、个人资料（联系方式）自助修改、邮箱绑定与验证（邮箱验证码；**找回密码的后端接口已就绪**，页面流程本期未做），以及活动 / 通知 / 表单的邮件订阅（发布时按订阅向提醒对象推邮件，见「邮箱接口」小节）。改动 / 重置密码会把此前签发的令牌全部作废（见下面「安全说明」的会话失效一条）
-- **内容管理**：通知与活动的发布 / 编辑 / 删除（统一弹窗表单）、通知过期自动隐藏与归档查看、提醒对象选择（支持按职位一键全选，如「通知所有团员」）
-- **待办**：每人一份私人待办（只看得到自己的）。主页顶部一条摘要卡（进行中 / 已超时 + 最近 3 条），完整列表在「待办」页（进行中 / 历史两个页签，历史附「共 N 条、其中 M 条超时」）。截止时间必填、开始时间选填；超时不靠定时任务，读取时按当前时间懒判定为「已超时」（之后不能再完成 / 编辑，只能删除）。红 / 黄提醒阈值每人自定义（默认红 24 小时、黄 36 小时，存 `todo_prefs`）。标签为预置标签 + 手动输入（≤4 个，每个 1–12 字）。班委（`content:write`）可一次多选成员代加待办，代加人只能撤回自己加的、且对方尚未完成的那条。通知 / 活动发布时可顺带挂一条待办模板，读者在详情里「加入我的待办」生成一份快照（同一个人同一条内容只会加入一次）
-- **界面体验**：液态玻璃设计（浅色 / 深色双主题）、响应式布局（小屏隐藏侧栏、改为底部导航，并针对手机做字号密度适配）、班级主页（日历 + 当日通知/活动 + 详情弹窗）、折叠式管理员面板（左栏发布内容 / 右栏管理成员）、个人中心（资料 / 偏好设置 / 日历订阅 / 安装到桌面 / 修改密码 / 退出登录）与「关于软件」卡片（版本号 / 检查更新 / 项目仓库 / 开发者）
-- **日历订阅**：一键生成 `.ics` 订阅链接，可自定义「提前提醒时间 / 包含过去与未来的范围 / 是否包含班级通知」，并支持重置密钥。订阅源与网页列表**同一套可见性判定**：key 只证明「你是谁」，不代表能看到全班内容，所以活动和通知都按 `remind_people` 逐条过滤（key 无效返回 403，不是 404 —— 那是鉴权失败，不是路由不存在）
-- **学业**：绑定教务系统后展示个人课表（节次网格、当前周高亮）、未安排课程、课程成绩（按学期分组、默认全部学期，顶部附平均分 / 平均绩点）与学业达成学分看板；数据经后端代理抓取并缓存进 D1（**三天**内直接读缓存，不必每次翻课表都去打扰教务；想要最新的按「刷新」）。**教务登录态过期也照常显示这份缓存** —— 那边大概一天就会重置一次会话，以前一过期就把人打回绑定页，手上明明有课表也不给看；现在只出一行小字说明「这是上次同步的 + 有变动请点刷新」，只有手动点「刷新」仍然拉不到时才问一句要不要重新登录。绑定有三条路径：App 内一键绑定、学号 + 密码代登录（复刻金智 CAS，密码用完即弃）、手动粘贴 Cookie
-- **安全加固**：登录 / 注册 / 改密统一校验密码长度（6–72 位）；**登录失败按学号指数退避 + 按 IP 失败限流**（`429` + `Retry-After`，见「安全说明」的登录限流一条）；系统预置职位（学生 / 班长 / 团支书 / 学习委员）不允许写入 `roles` 表（否则等于给全班提权），自定义职位只接受 `content:write` / `user:manage` 两个白名单权限点；教务绑定强制「教务学号 = 门户学号」；多因子验证码错满 5 次即作废本次中间态；教务会话 Cookie 与 MFA 中间态均 AES-GCM 封存。完整清单见下面「安全说明」
-- **测试与迁移**：`cd web && npm test`（Node 原生 `node --test`，覆盖鉴权与权限边界）；表结构见 `db/schema.sql`，增量变更见 `db/migrations/`，各迁移各有一条 `npm run db:migrate:*` 脚本
-- **离线**：页面壳由 Service Worker 缓存（`sw.js`：预热各页面与静态资源、命中缓存先出首帧再后台回源、回源发现文档真的变了就通知页面立刻重载（页面那边有未提交的输入就跳过这次刷新）、断网回退缓存），断网也能打开；`/api/*` 刻意不走 Service Worker —— 数据与登录态必须走网络，App 里由原生层另外兜底（见 [`android/README.md`](../android/README.md) 的离线一节），浏览器里没有这一层，所以断网提示分两种文案（见下面「前端说明」）。同一层在 App 里还顺手把首帧做快了：缓存够新鲜时原生先把缓存交回页面（不必等网络），后台取到新数据再经 `window.__caApiUpdated` 推回来重绘 —— 页面侧要做的事只有一件，把「拿到数据 → 渲染」里那段渲染抽成函数、用 `app.js` 的 `onApiData(请求URL, fn)` 注册（键必须与请求 URL 一字不差，网页版不会被调用，所以不用判断环境）。预热清单与缓存键都用**去扩展名的规范地址**：站点会把 `/notices.html` 308 跳到 `/notices`，跟着跳转取回来的响应带着 `redirected` 标记，而规范禁止用这种响应应答**导航请求**（页面与 iframe 的加载都算导航）。写成 `.html` 的后果是真机上暴露出来的那个现象 —— 断网杀进程重开后主页能开（`/` 不跳转）、点其它标签页全是「网页无法打开」。离线回退时也会拿规范地址再找一次，因为页面里的 iframe 和后端下发的 `forms.html` 链接仍然写 `.html`。缓存名是固定的（`ca-shell`），**不再需要按发版手改版本号**：条目在每次被用到时都会回源刷新，另外一旦回源发现某个页面文档真的变了（＝部署了）就把整份预热清单重取一遍（`sw.js` 的 `precache`）—— 以前是靠人记得把名字 `+1`，忘了就会出现「新页面结构 + 旧样式」的混合壳。清单里每条路径与真实路由对不对得上、每个页面引用的脚本与样式是否都进了清单，都由 `backend/test/pwa.test.js` 钉着（写错了只有断网的用户才会发现，线上没有任何信号）
+几个结构上的前提：
+
+- **前后端同域**，`API_BASE` 为空串，不涉及 CORS 跨域；`cors.js` 只保留预检处理。
+- **应用壳 + iframe**：`index.html` 是唯一有侧栏/底栏的文档，其余页面都跑在同源 iframe 里。子页各自一份 `app.js`、各自一份 `apiRenderers`，所以跨页的数据回填要显式转发（见第 7 节）。
+- **Service Worker 在前**：页面壳与静态资源走 `sw.js` 的缓存策略；`/api/*` 刻意不进 SW（数据与登录态必须走网络，App 里由原生层另行兜底）。
+- **一份样式表**：所有样式在 `assets/css/style.css`，CSP 不允许内联样式（见第 7 节）。
 
 ---
 
-## 目录结构
+## 2. 目录结构
 
 ```
-web/                            # Cloudflare Pages 项目根目录（直接部署本层）
-├── functions/
-│   └── api/
-│       └── [[path]].js         # Pages Functions 入口：仅接管 /api/*，复用 backend/src 的 fetch handler
-├── index.html                  # 应用壳：侧边栏 + 内容区（iframe 嵌入子页）；小屏改为底部导航
-├── affairs/                    # 班级事务
-│   ├── index.html              #   通知列表/详情（iframe 内容页，/affairs/）—— 发布/编辑/删除/过期归档/提醒对象
-│   ├── activities.html         #   活动列表/详情（/affairs/activities.html）—— 发布/编辑/删除/提醒对象
-│   └── forms.html              #   表单填写页（/affairs/forms.html）—— 由首页「我的表单」或通知里的「去填写」进入，不在导航中
-├── todos/
-│   └── index.html              # 我的待办（/todos/）—— 新建/完成/编辑/删除、标签筛选、历史、提醒阈值、班委代加与撤回
-├── academic/
-│   └── index.html              # 学业（/academic/）—— 教务课表 / 未安排课程 / 学分达成 / 课程成绩
+web/
+├── index.html                  应用壳：侧栏 + 内容区（iframe 嵌入子页）；小屏改为底部导航
+├── affairs/                    班级事务
+│   ├── index.html              通知列表 / 详情（/affairs/）
+│   ├── activities.html         活动列表 / 详情（/affairs/activities.html）
+│   └── forms.html              表单填写页（/affairs/forms.html），不在导航中
+├── todos/index.html            我的待办（/todos/）
+├── academic/index.html         学业：课表 / 学业达成 / 成绩（/academic/）
 ├── account/
-│   ├── index.html              # 个人中心（/account/）—— 资料（联系方式自助修改；「上次同步时间」按北京时间显示，仅 App 壳内有）/ 偏好设置（主题外观 + 通知；网页通知走网页推送，App 壳内不显示，由壳的本地通知承担，其下方另有「App 端通知」块：推送测试 + 本机通知开关，状态经 JS 桥取，网页版没有桥则整块隐藏；**可折叠，默认展开**）/ 日历订阅（**可折叠，默认收起**）/ 安装到桌面（仅 iOS 与 PC 显示，安卓 / 鸿蒙已有原生 App）/ 修改密码（**可折叠，默认收起**）/ 关于软件（版本号 / 检查更新）/ 退出登录。**折叠规则**：内容长的设置类卡片可折叠（上面三张），一两行的短卡（管理员入口 / 安装到桌面 / 退出登录 / 关于软件）常显；两列按高度分（左列资料/偏好设置/日历订阅，右列其余），桌面端基本齐平；手机端合并成单列，顺序按「收起的短卡在前、带按钮的大卡在后」排（资料 → 偏好设置 → 日历订阅 → 修改密码 → 管理员面板 → 退出登录 → 关于软件）
-│   └── admin.html              # 管理员面板（/account/admin.html）—— 左栏 添加通知·添加活动·添加表单·管理表单，右栏 管理成员·添加成员·管理职位·添加职位·操作日志·功能开关（折叠区块，按权限显示）
-├── legal/                      # 隐私政策 / 用户协议 / 免责声明（站内法务页）
+│   ├── index.html              个人中心（/account/）
+│   └── admin.html              管理员面板（/account/admin.html）
+├── legal/                      隐私政策 / 用户协议 / 免责声明（站内静态页）
 ├── assets/
-│   ├── css/style.css           # 共享样式（液态玻璃主题变量 + 组件 + 响应式；末尾另有 CSP 配套的工具类/语义类）
-│   └── js/
-│       ├── theme.js            # 主题切换（在 <head> 同步执行，防浅色闪一下）
-│       ├── app.js              # API 封装 + 会话管理 + 权限判断 + 工具 + 事件委托 delegate()
-│       └── <页面名>.js         # 各页面自己的逻辑：index / notices / activities / todos / academic / forms / account / admin
-├── _headers                    # 安全响应头 + 静态资源缓存策略（全站）
-├── _redirects                  # 分文件夹之前的旧地址 → 新地址（308）
+│   ├── css/style.css           共享样式（令牌 + 组件 + 响应式 + 降级）
+│   ├── js/
+│   │   ├── theme.js            主题：首帧前写 data-theme，防浅色闪一下
+│   │   ├── app.js              API 客户端 + 会话 + 权限判断 + 工具 + 事件委托 + 原生桥
+│   │   └── <页面>.js           各页逻辑：index / notices / activities / todos / academic / forms / account / admin
+│   └── icons/                  PWA 图标
 ├── backend/
-│   └── src/                    # 后端源码（被 functions 引入，同域运行）
-│       ├── index.js            # fetch 入口（CORS 预检 + 路由分发 + 404）
-│       ├── routes/             # 路由分发：auth / notices / activities / forms / calendar / academic / todos（只做转发）
-│       ├── handlers/           # 业务逻辑：认证 / 通知 / 活动 / 表单 / 日历订阅 / 待办
-│       ├── models/             # D1 数据访问（users / notices / activities / roles / forms / todos / push 订阅 / 邮箱验证码与订阅）
-│       ├── middleware/         # CORS / JWT 认证（含改密后的令牌失效） / 权限 / 日志
-│       └── utils/              # 统一响应 / PBKDF2 / JWT / 权限映射 / 提醒对象可见性 / 时间处理 / iCalendar 生成 / 邮件发送与订阅推送
-├── db/                         # 数据库相关（全部与后端一起进仓库，部署时随 Pages 上传）
-│   ├── migrations-v2/          #   D1 官方迁移账本入口（新库与已有基线库统一；wrangler 的 migrations_dir 指向这里）
-│   ├── migrations/             #   2026-09 的历史增量（表单 / 推送 / 内容归属 / 学生职位 / 删教务表 / 邮箱），已归档不再执行
-│   └── schema.sql              #   D1 表结构（经测试核对的完整新库快照）
-├── wrangler.toml               # 本地开发绑定（DB + ACADEMIC_API，生产绑定在 Pages 面板配置）
-├── package.json                # wrangler devDependency + 脚本（dev / deploy / db）
-├── version.json                # 「关于软件 → 检查更新」的数据源：按端分段（android / harmony）的最新版本号 + 安装包稳定直链（发版时更新对应那段）
-└── README.md
+│   ├── src/
+│   │   ├── index.js            fetch 入口：分发顺序见第 3 节
+│   │   ├── deliveryWorker.js   发件箱投递 Worker（Cron 触发）
+│   │   ├── routes/             notices / activities / forms / todos / auth / calendar / settings / academic / chaoxing / mooc
+│   │   ├── handlers/           业务逻辑：认证 / 通知 / 活动 / 表单 / 待办 / 日历 / 推送 / 同步 / 审计 / 设置
+│   │   ├── models/             D1 数据访问，一表一模型
+│   │   ├── middleware/         auth（authenticate / withAuth / withPermission）/ cors / logger
+│   │   ├── services/           outbox（投递事件展开与占用）
+│   │   └── utils/              响应信封 / PBKDF2 / JWT / 权限 / 可见性 / 时间 / ICS / 邮件 / Web Push / 链接白名单
+│   └── test/                   用 node:test 直接跑真实 SQL 与前端源码的回归用例
+├── functions/api/[[path]].js   Pages Functions 入口（薄壳，复用 backend/src）
+├── db/
+│   ├── migrations-v2/          迁移账本（0001…0009），wrangler 的 migrations_dir 指向这里
+│   ├── migrations/             2026-09 的历史增量，已归档、不再执行
+│   └── schema.sql              完整新库快照，与账本顺序执行后的结构逐字一致
+├── sw.js                       Service Worker
+├── manifest.json               PWA 清单
+├── _headers                    全站安全响应头与缓存策略
+├── _redirects                  旧地址 → 新地址（分文件夹之前的写法）
+├── version.json                各端最新版本号与安装包直链（「关于软件」读取）
+├── wrangler.toml               Pages 本地开发绑定（DB + 两条 Service Binding）
+├── wrangler.delivery.toml      投递 Worker 的配置与 Cron 触发
+└── package.json                脚本与唯一 devDependency（wrangler）
 ```
 
 ---
 
-## 权限体系（按职位）
+## 3. 请求链路
 
-用户 `positions` 字段决定权限，**支持多个职位**（单值字符串或 JSON 数组，如 `["班长","团员"]`）。多职位时权限取**各职位权限的并集**。预设职位：
+```
+页面 → app.js 的 api(path) → fetch('/api/…')   （自动带 Bearer token，401 清会话回登录页）
+     → functions/api/[[path]].js
+     → backend/src/index.js
+         ├─ OPTIONS            → 预检
+         ├─ GET /api/sync      → syncHandler（安卓增量快照）
+         ├─ 依次询问各 routes   → 认领则返回，否则 null
+         │    auth → settings → notices → activities → forms → calendar → todos → push
+         │    → academic / chaoxing / mooc（转发私有 Worker）
+         └─ 无人认领           → 404
+```
 
-| 职位 | 内容权限（发布/编辑/删除 通知·活动·表单） | 管理权限（注册账号·成员管理·添加/管理职位） |
-| --- | :---: | :---: |
-| 班长 / 团支书 | ✅ | ✅ |
-| 学习委员 | ✅ | ❌ |
-| 其它成员 | ❌（只读） | ❌ |
-
-- **自定义职位（增删需 `user:manage`）**：「添加职位」卡片可新建职位并勾选权限（可发布内容 / 可管理成员 / 不计入班级管理），存入 `roles` 表持久化；「管理职位」卡片列出默认职位（不可修改 / 删除）与自定义职位（可删除）。**职位列表对所有登录用户可读**，因此这两张卡片对任何可进入管理页的成员都正常显示；而**新增 / 删除职位需 `user:manage`（管理成员）权限**，无权限者点击提交会收到 403「没有操作权限」。无权限要求的自定义职位（如「团员」）直接写进 `positions` 即可，无需建 `roles`。注册 / 编辑成员时，可选项会自动包含**预设职位 + `roles` 表已定义的自定义职位 + 成员表中已在用的自定义职位**。
-- **没有职务的人一律存 `学生`，只有这一种写法**：注册与编辑成员两条写入路径都过 `positionsToStore`，空数组 / 空串 / `[]` 在入库前就归一成它（存量由 `db/migrations/2026-09-17-student-role.sql` 刷平）。它不在上面的预设权限表里，所以**不代表任何权限**——作用只是职务徽章的兜底文案与「按职位选择」的分组名。`roles` 表里的预置职位同名行**一律不生效**（读表时 `buildRoleMap` 直接忽略预置名，不管库里有没有这行），写入口也不允许新增。
-- **不计入班级管理（`class:exclude`，只能挂在自定义职位上）**：带该权限的人**不算「默认全班」的一员**——通知 / 活动 / 表单的提醒对象为空（默认全班）时，列表里看不到、安卓 / 鸿蒙也不推送，只有把他**明确勾选**进提醒对象才通知；表单的「未交名单」同样不把他算作应交人员（但通过链接打开仍可提交）。判断都在服务端做（`utils/audience.js`），网页列表与两端 App 推送读的是同一接口，因此客户端不需要各自再算一遍。**例外：持 `user:manage` 的管理员看得到全部**——被排除的人若同时持 `user:manage`（管理成员权限，如班长 / 团支书，权限取并集），「全部通知 / 活动」页（`listByAudience`）不再过滤「默认全班」的内容，单条读取（`canViewItem`）也随之放行，否则他管不了本该自己管理的通知 / 活动；只有 `content:write` 的班委（如学习委员）不在此列。日历订阅与推送仍按原规则，不因管理员身份放宽。
-- **按职位一键选择提醒对象**：发布 / 编辑 通知·活动时，提醒对象选择区顶部会按成员职位生成快捷标签，点击即全选该职位的成员（最终保存为稳定用户 ID 数组）。点「不计入班级管理」职位的标签属于**明确勾选**，这些人会照常收到。
-- 登录 / `me` 接口会返回当前用户的 `permissions` 数组，前端据此显隐发布/编辑/删除/成员管理入口。
-- **内容归属（谁能改 / 删某一篇）**：上面那张表说的是「能不能发内容」，具体到某一篇还要看归属 —— **通知、活动、表单三者同一口径**：创建者本人，或持 `user:manage` 的班委（`utils/audience.js` 的 `canManageItem`，逐条附 `canManage`）。只有 `content:write` 的学习委员因此碰不到别人发的内容（包括别人的表单与全班学号名单）。管理面板的「管理表单」**照常列出全部表单**（好看清班里发过什么、收了多少份），但每行带 `can_manage`，管得了的那几行才显示那四个按钮；管不了的行也不下发 `remind_people`（谁该填的名单）。归属字段名不同（通知/活动是 `created_by`、表单是 `creator_id`），由 `canManageItem` 内部统一。
-- 读取（通知/活动列表、详情）对任意已登录用户开放。
+- **响应信封**：成功 `{ "success": true, "data": … }`；失败 `{ "success": false, "error": "中文文案", "code": "MACHINE_CODE" }`，HTTP 状态码同时给出（400/401/403/404/409/412/429/500/503）。
+- **分发约定**：每个 routes 文件是 `(request, env, ctx) => Response | null`，按路径前缀或精确路径认领；`index.js` 只按顺序问一遍。
+- **鉴权位置**：代理类路由（`/api/academic/*`、`/api/chaoxing/*`、`/api/mooc/*`）在本仓库完成 JWT 校验与用户载入，再把用户 id / 学号与 `INTERNAL_TOKEN` 通过请求头交给私有 Worker；私有 Worker 没有公网入口。
+- **代理路径与信封保持不变**：私有 Worker 监听的正是这三组前缀，错误码（`ACADEMIC_EXPIRED` / `ACADEMIC_UNREACHABLE` / `NOT_BOUND` 等）与本站一致，前端不必区分是哪一侧回的。
 
 ---
 
-## 后端 API 文档
+## 4. 认证与权限
 
-### 基础信息
+### 凭据
 
-- 内容类型：请求/响应均为 `application/json`
-- 认证：JWT（HS256），登录后获得 token，请求头携带 `Authorization: Bearer <token>`
-- Token 有效期：默认 7 天
+- 密码哈希：PBKDF2-SHA256，10 万次迭代，64 字节派生密钥，16 字节随机盐，存成 `salt:hash`。
+- JWT：HS256，密钥来自 `JWT_SECRET`，载荷是最小用户信息 + `iat` / `exp`，有效期由 `JWT_EXPIRES_IN` 决定（默认 7 天）。
+- **改密即全局失效**：改密 / 重置会写 `users.password_changed_at`，后续校验要求 token 的 `iat` 不早于它，此前签发的令牌一律作废（含多设备）。
+- 前端把 `ca_token` / `ca_user` 放 localStorage；收到 401 时清会话并回登录页。
 
-### 统一响应格式
+### 中间件三层
 
-```jsonc
-// 成功
-{ "success": true, "data": { ... } }
-// 失败
-{ "success": false, "error": "错误信息", "code": "ERROR_CODE" }
-```
+| 名称 | 作用 |
+| --- | --- |
+| `authenticate` | 解析并验证 JWT，从库里载入最新用户（权限、职位、改密时间都以库里为准，不信 token 里的旧权限） |
+| `withAuth(fn)` | 已登录即可访问；把用户对象交给业务处理 |
+| `withPermission(point)(fn)` | 在此基础上要求某个权限点 |
 
-### 认证接口
+### 权限点与职位
 
-| 方法 | 路径 | 权限 | 说明 |
-| --- | --- | --- | --- |
-| POST | `/api/auth/register` | `user:manage` | 注册账号（需班长/团支书）。可代填 `email`（选填，落库即「未验证」） |
-| POST | `/api/auth/login` | 公开 | 登录，返回 `token` + `user`（含 `permissions`）。连续失败 5 次后按学号进入指数退避，成功登录清零；同一 IP 失败过多同样拦下，命中均返回 `429` + `Retry-After` |
-| GET | `/api/auth/me` | 登录 | 当前用户信息（含 `permissions`） |
-| POST | `/api/auth/change-password` | 登录 | 修改自己密码 |
-| PUT | `/api/auth/profile` | 登录 | 修改自己的联系方式（仅本人） |
-| GET | `/api/auth/users` | `user:manage` | 班级成员列表 |
-| PUT | `/api/auth/users/:id` | `user:manage` | 编辑成员（姓名/职务/联系方式/邮箱，传 password 则重置密码；**改了邮箱就把 `email_verified` 打回 0**，只改姓名不影响） |
-| DELETE | `/api/auth/users/:id` | `user:manage` | 删除成员 |
-| GET | `/api/auth/members-pick` | 登录 | 成员精简列表（id/name/positions，供提醒对象按职位一键选择） |
-| GET | `/api/auth/roles` | 登录 | 自定义职位列表（含 id/name/permissions）+ `presets`（系统预置职位的权限表，供「管理职位」卡片展示默认职位权限 —— 前端不再手抄一份后端 `ROLE_PERMISSIONS`，issue #84） |
-| POST | `/api/auth/roles` | `user:manage` | 新增/更新自定义职位（同名则覆盖权限） |
-| DELETE | `/api/auth/roles/:id` | `user:manage` | 删除自定义职位 |
-| GET | `/api/auth/audit-logs` | `user:manage` | 管理员操作日志（分页；支持 `action`/`actor`/`from`/`to` 筛选，`page_size` 上限 200）。保留 180 天 |
-| GET | `/api/admin/settings` | `user:manage` | 读全局功能开关：`{academic, chaoxing, chaoxing_available}`。`chaoxing_available` 表示门户的学习通转发层是否可用（现已接入，恒为 `true`） |
-| PUT | `/api/admin/settings` | `user:manage` | 改全局功能开关（body `{academic?, chaoxing?}`，至少一项）。只接受布尔值，字符串 `"false"` 返回 400；保存后立即写库、清当前 isolate 缓存，并写一条 `settings_updated` 审计 |
-| POST | `/api/auth/email/send-code` | 登录 | 发绑定邮箱的验证码（body `{email}`）。同时把邮箱记成「已填未验证」；1 分钟内重复发返回 429；邮箱被他人占用返回 409；未配邮件服务返回 503 |
-| POST | `/api/auth/email/verify` | 登录 | 验码并置为已验证（body `{email, code}`）。失败文案不区分「码不对」与「码过期」（防试探）；错满 5 次返回 429 需重新获取 |
-| POST | `/api/auth/email/unbind` | 登录 | 解绑邮箱（清空并作废未用的验证码、订阅一并清零）。不需要验证码：解绑要求已登录 |
-| GET | `/api/auth/email/subscriptions` | 登录 | 读订阅开关，返回 `{subscriptions:{activities, notices, forms}}`（未验证也照常返回，前端自行决定显隐） |
-| POST | `/api/auth/email/subscriptions` | 登录 | 写订阅开关（body `{activities, notices, forms}`，布尔或 0/1）。**仅已绑且已验证的邮箱可写**（未验证 409） |
-| POST | `/api/auth/forgot/send` | 公开 | 发找回密码的重置码（body `{email}`）。**只对已绑定且已验证的邮箱真发信**，其余情况回同一句成功文案（防账号枚举） |
-| POST | `/api/auth/forgot/reset` | 公开 | 验码重置并直接登录（body `{email, code, new_password}`），返回新 `token` + `user`；失败一律回「验证码错误或已过期」 |
+| 权限点 | 含义 |
+| --- | --- |
+| `content:write` | 发布 / 取消 通知与活动、创建表单、管理表单 |
+| `user:manage` | 注册账号、管理成员、增删自定义职位、操作日志、功能开关 |
+| `class:exclude` | 不计入班级管理：提醒对象为空（默认全班）时不算全班一员，只有被点名才收到 |
 
-- **登录限流（issue #104）**：连续失败 5 次后按学号进入指数退避（30s → 2min → 10min → 1 小时封顶），成功登录清零；同一 IP 在 10 分钟窗口内失败 50 次同样拦下。命中时返回 `429` + `Retry-After`（秒），`code` 为 `LOGIN_BACKOFF`（按学号）或 `LOGIN_RATE_LIMITED`（按 IP），`data.retry_after` 与响应头一致。前端不需要改动：`api()` 会把 `error` 文案原样交给登录框，文案里已经带了还要等几秒。
-- **管理操作日志（issue #108）**：重置成员密码、改邮箱、改资料、删成员、增删改职位、改功能开关都会写一条 `audit_logs`（操作人、动作、对象、时间、IP、UA）。`detail` 只存白名单字段（如 `{ fields: ["password"] }`），**不落密码或邮箱明文**；日志写入失败只 `console.error`，不阻断主操作 —— 审计是旁路，不能反过来把管理员卡在「删不掉人」上。`GET /api/auth/audit-logs` 仅 `user:manage` 可读，支持 `action`/`actor`/`from`/`to`/`page` 筛选；保留 180 天，超期记录在每次写日志时顺手清掉（项目没有 Cron，清理挂在写入路径上，写入量小、代价可忽略）。
-- **全局功能开关（issue #106）**：`app_settings` 里放 `academic_enabled` / `chaoxing_enabled`（`'1'` 开、`'0'` 关，**没有记录按开启**）。门户在把请求转发给私有 Worker **之前**读取，关闭时直接回 `503` + `Retry-After: 30`，`code=FEATURE_DISABLED`、`data.feature` 指明是哪一项 —— 停用必须是门户侧止血，不能再让请求穿过 Service Binding 去打教务/学习通。开关在 isolate 内缓存 30 秒（避免每个请求都查一次 D1），管理页保存时主动清**当前 isolate** 的缓存；D1 是唯一真源，但没有跨 isolate 广播，**其它 isolate 最长 30 秒后收敛**（线上实测：关闭后 1 秒内即拦截，反向恢复时另一 isolate 仍缓存了关闭值，约 30 秒才放行）。紧急停用要把这 30 秒算进预期，别当成「点完立刻全网生效」；读取失败按开启处理（迁移没跑也不能把功能整体打死）。学习通转发层已接入（门户 `/api/chaoxing/*`，见下文），`chaoxing_available` 恒为 `true`，管理页不再显示「待接入」。单账号连续失败自动暂停（连续 3 次凭据失效 / 风控 / 解析失败 → 30 分钟内暂停自动同步，返回 `409 ACADEMIC_PAUSED`/`CHAOXING_PAUSED`）在私有 Worker 实现，门户前端会把 `error` 文案原样展示；管理员恢复入口尚未做（运维可 `DELETE FROM binding_health WHERE user_id=? AND provider=?` 解除）。
-- **订阅投递**：业务创建同事务登记发件箱，独立 Cron Worker 按收件人及渠道投递、重试、确认；验证码仍同步发送。联动表单的设备提醒只发一条，通知与表单邮件分别按订阅发送。部署顺序、套餐要求、幂等边界及重放方式见[数据一致性与部署](docs/数据一致性与部署.md)。
+- 预设职位映射写在 `utils/permissions.js`：班长 / 团支书 → `content:write` + `user:manage`；学习委员 → `content:write`。
+- `users.positions` 支持串或 JSON 数组，**多职位取权限并集**；无职务一律存 `学生`（唯一写法），它不带任何权限，只作兜底文案与分组名。
+- 自定义职位存 `roles` 表，只允许上面三个权限点；预置职位（含 `学生`）禁止写进 `roles`，否则等于给全班提权。
+- **内容归属**：改 / 删 / 看结果限创建者本人，或持 `user:manage` 的班委；三者同一口径（`utils/audience.js` 的 `canManageItem`）。
 
-```jsonc
-// 注册 POST /api/auth/register（body，需 user:manage）
-{ "student_id":"2024001", "name":"张三", "password":"123456",
-  "positions":["班长","团员"], "contact":"13800000000" }   // positions 可为字符串或数组（多职位）
-// 邮箱选填：管理员代填也走同一套格式 / 占用校验，但**落库一定是未验证**（本人收码才算验过）
-{ "student_id":"2024002", "name":"李四", "password":"123456", "email":"lisi@qq.com" }
-// 兼容旧客户端：注册时也可顺带创建/更新一个自定义职位并配权限（role_name 指定名称）；
-// 现推荐改用「添加职位」卡片 → POST /api/auth/roles，无需在注册请求里携带
-{ "role_permissions": ["content:write","user:manage"], "role_name": "文艺委员" }
+### 可见性
 
-// 登录 POST /api/auth/login → 200
-{ "success":true, "data":{
-    "token":"eyJ...",
-    "user":{ "id":1, "student_id":"2024001", "name":"张三",
-             "positions":"[\"班长\"]", "contact":"", "permissions":["content:write","user:manage"] } } }
+- 通知 / 活动 / 表单用 `remind_people` 表达「谁该看到」：`null` / 空串 / `[]` 都表示全班；否则按用户 id 或姓名精确匹配。
+- `class:exclude` 的人不会因为「默认全班」而收到，必须被明确写进名单。
+- 日历订阅（`.ics`）与网页列表共用同一套判定：key 只证明「你是谁」，不代表能看全班内容，所以仍逐条过滤；key 无效返回 403（鉴权失败而非路由不存在）。
 
-// 编辑成员 PUT /api/auth/users/:id（body，需 user:manage）
-{ "name":"张三", "positions":["班长","学习委员"], "contact":"13800000000" }
-// 代填 / 改动邮箱：留空字符串表示清掉（存 NULL）。地址真的变了才把 email_verified 打回 0 ——
-// 只改姓名（邮箱原样提交，大小写不同也算原样）不会让已验证的人重新验证
-{ "email":"zhangsan@qq.com" }
-// 重置该成员密码：额外传 password（至少 6 位，留空/不传则不修改）
-{ "password":"newpass123" }
+### 防护
 
-// 修改自己的联系方式 PUT /api/auth/profile（body，需登录，仅能改本人）
-{ "contact":"13800000000" }        // 留空字符串表示清空，最多 60 字符
-```
+- **登录限流**：按学号指数退避（`login_attempts`）叠加按 IP 的失败限流（`login_ip_failures`），超限返回 `429` + `Retry-After`。
+- **防账号枚举**：忘记密码对「邮箱不存在 / 未验证」回同一句文案。
+- **协议同意**：`user_consents` 记录同意版本与两个可选授权，登录时版本落后返回 `412 CONSENT_REQUIRED` 并要求重新勾选。
+- **多因子中间态**：教务代登录的验证码错误累计 5 次即作废本次中间态。
+- **第三方会话**：教务 Cookie 与 MFA 中间态由私有 Worker 用 AES-GCM 封存，`COOKIE_SECRET` 不在本仓库。
 
-### 通知接口（均需登录）
+---
 
-| 方法 | 路径 | 权限 | 说明 |
-| --- | --- | --- | --- |
-| POST | `/api/notices` | `content:write` | 发布通知 |
-| GET | `/api/notices` | 登录 | 通知列表（默认只返回「当前生效」，支持 `scope`/`date`，见下） |
-| GET | `/api/notices/archive` | `content:write` | 归档列表（含已过期，供管理员查看） |
-| GET | `/api/notices/:id` | 登录 | 通知详情 |
-| PUT | `/api/notices/:id` | `content:write` | 编辑通知（仅自己发布的，或持 `user:manage`——详见「权限体系」的内容归属） |
-| DELETE | `/api/notices/:id` | `content:write` | 删除通知（同上） |
+## 5. 数据层
 
-```jsonc
-// 发布通知 POST /api/notices
-{ "title":"班会通知", "content":"周六晚上 7 点开会",
-  "publish_time":"2026-09-10 19:00:00",
-  "expire_time":"2026-09-12 19:00:00",   // 选填，到期自动从列表隐藏
-  "remind_people":[2,3],         // 选填，提醒对象（存为 JSON 字符串）
-  "todo":{"due_at":"2026-09-12 19:00:00",  // 选填：同时挂一条待办模板，读者可在详情里一键加入
-          "title":"交班会材料",              // 选填，默认同通知标题
-          "tags":["材料"]},                  // 选填，≤4 个、每个 1–12 字
-  "link":"/affairs/forms.html?id=1" }              // 选填，站内相对路径；列表会多一个「表单」徽章、详情多一个「去填写」按钮
-// 发布人 publisher 取当前登录用户名；source 默认 "manual"
-```
+### 表（`db/schema.sql`，26 张）
 
-### 活动接口（均需登录）
+| 分组 | 表 |
+| --- | --- |
+| 账号 | `users`、`roles`、`user_consents`、`email_codes`、`email_subscriptions`、`login_attempts`、`login_ip_failures`、`audit_logs` |
+| 内容 | `notices`、`activities`、`content_changes`、`architecture_versions` |
+| 表单 | `forms`、`form_submissions`、`form_submissions_v2`、`form_notice_links`、`orphan_submission_archive` |
+| 待办 | `todos`、`content_todos`、`todo_prefs`、`todo_sync_state` |
+| 投递 | `outbox_events`、`outbox_deliveries`、`push_subscriptions` |
+| 其他 | `app_settings`（功能开关）、`audience_migration_issues`（受众迁移留痕） |
+
+### 触发器（17 个）
+
+两类，都写在 `schema.sql` 里：
+
+- **内容变更留痕**：通知 / 活动 / 表单 / 提交的增删改写 `content_changes`（含 `seq` 递增与版本号），`/api/sync` 的增量协议靠它取数。
+- **级联与清理**：删表单删联动通知、删通知清表单链接、删成员清订阅、删通知 / 活动清待办模板。
+
+### 迁移
+
+- `db/migrations-v2/` 是**唯一表结构来源**，按 `0001`…`0009` 顺序执行；wrangler 的 `migrations_dir` 指向它。
+- `db/schema.sql` 是完整新库快照，等价于账本顺序执行后的结构 —— `architecture.test.js` 会逐字核对两者，任何只改一边的改动都会失败。
+- `0008` / `0009` 用 `ALTER TABLE` 追加列，因此快照末尾按同样顺序重复这几条语句。
+- `db/migrations/` 是 2026-09 的六份历史增量（表单、推送、内容归属、学生职位、删教务表、邮箱），只在旧库演进里用过，现已归档。
+
+---
+
+## 6. 接口一览
+
+`权限` 一列写「登录」表示任意已登录用户，其余为所需权限点。
+
+### 认证与账号 `/api/auth/*`
 
 | 方法 | 路径 | 权限 | 说明 |
 | --- | --- | --- | --- |
-| POST | `/api/activities` | `content:write` | 发布活动 |
-| GET | `/api/activities` | 登录 | 活动列表（默认只返回「当前生效」，支持 `scope`/`date`，见下） |
-| GET | `/api/activities/:id` | 登录 | 活动详情 |
-| PUT | `/api/activities/:id` | `content:write` | 编辑活动（仅自己发布的，或持 `user:manage`——详见「权限体系」的内容归属） |
-| DELETE | `/api/activities/:id` | `content:write` | 删除活动（同上） |
+| POST | `/login` | 公开 | 学号 + 密码；未同意协议返回 412 |
+| POST | `/register` | user:manage | 注册账号 |
+| GET | `/me` | 登录 | 当前用户（含 `permissions`） |
+| PUT | `/profile` | 登录 | 改联系方式 |
+| POST | `/change-password` | 登录 | 改密并作废旧令牌 |
+| GET / POST | `/consent` | 登录 | 读 / 写协议同意与两项授权 |
+| POST | `/email/send-code` `…/verify` `…/unbind` | 登录 | 邮箱绑定三连（解绑连带清订阅） |
+| GET / POST | `/email/subscriptions` | 登录 | 读 / 写邮件订阅开关 |
+| POST | `/forgot/send` `/forgot/reset` | 公开 | 找回密码（防枚举） |
+| GET | `/users` | user:manage | 成员列表 |
+| PUT / DELETE | `/users/:id` | user:manage | 改 / 删成员 |
+| GET | `/members-pick` | 登录 | 成员精简列表（提醒对象选择） |
+| GET | `/roles` | 登录 | 自定义职位（只读，供管理卡片展示） |
+| POST / DELETE | `/roles`、`/roles/:id` | user:manage | 增 / 删自定义职位 |
+| GET | `/audit-logs` | user:manage | 操作日志（可按动作 / 操作人 / 日期筛选） |
 
-```jsonc
-// 发布活动 POST /api/activities
-{ "title":"班级秋游", "content":"一起去公园野餐", "location":"西湖",
-  "start_time":"2026-09-12 09:00:00", "end_time":"2026-09-12 16:00:00",
-  "remind_people":[2],
-  "todo":{"due_at":"2026-09-11 20:00:00","tags":["活动"]} }  // 选填，语义同通知
-```
+### 内容
 
-> 通知 / 活动的详情接口在存在待办模板时会多返回 `todo:{title,due_at,tags,joined}`；`joined` 是「当前登录用户是否已加入」。
+| 方法 | 路径 | 权限 | 说明 |
+| --- | --- | --- | --- |
+| GET | `/api/notices` | 登录 | 列表：`audience=mine`、`date=`、`scope=`、分页 |
+| POST | `/api/notices` | content:write | 发布（可挂表单链接、可附待办模板） |
+| GET | `/api/notices/archive` | content:write | 归档（含已过期） |
+| GET / PUT / DELETE | `/api/notices/:id` | 登录（改删限归属） | 详情 / 编辑 / 删除 |
+| — | `/api/activities`、`/api/activities/:id` | 同上 | 活动与通知同构，多 `location` / `start_time` / `end_time` |
+| GET | `/api/calendar/token` | 登录 | 读订阅链接与密钥 |
+| POST | `/api/calendar/reset` | 登录 | 重置订阅密钥 |
+| GET / HEAD | `/api/calendar.ics` | key（查询串） | iCalendar 订阅源，逐条按可见性过滤 |
 
-### 列表筛选参数（通知与活动一致）
+### 表单
 
-| 参数 | 默认 | 说明 |
+| 方法 | 路径 | 权限 | 说明 |
+| --- | --- | --- | --- |
+| POST | `/api/forms` | content:write | 创建（可同时下发通知） |
+| GET | `/api/forms` | content:write | 管理列表，每行带 `can_manage` |
+| GET | `/api/forms/mine` | 登录 | 我的：待填 / 已提交 |
+| GET / PUT / DELETE | `/api/forms/:id` | 登录（改删限归属） | 详情 / 编辑 / 删除 |
+| POST | `/api/forms/:id/submit` | 登录 | 提交（服务端重校验字段、名单、截止、编辑策略；状态变了返回 409 `FORM_CHANGED`） |
+| GET | `/api/forms/:id/submissions` `/progress` `/export` | 登录（限归属） | 明细 / 进度与未交名单 / 导出 |
+
+### 待办
+
+| 方法 | 路径 | 权限 | 说明 |
+| --- | --- | --- | --- |
+| GET / POST | `/api/todos` | 登录 | 列表（`status=open|history`、`tag=`）/ 新建 |
+| PUT / DELETE | `/api/todos/:id` | 本人 | 编辑 / 删除（超时件只读） |
+| POST | `/api/todos/:id/status` | 本人 | 完成 / 重新打开 |
+| POST | `/api/todos/:id/hide` | 本人 | 从历史里隐藏 |
+| GET / PUT | `/api/todos/prefs` | 本人 | 红 / 黄提醒阈值 |
+| POST | `/api/todos/delegate` | content:write | 给多个成员代加 |
+| POST | `/api/todos/from-source` | 登录 | 从通知 / 活动加入（重复加入返回 `duplicate`） |
+| POST | `/api/todos/sync-chaoxing`、`/sync-mooc` | 登录 | 分批同步外部作业与考试（`{cursor,batch}` → `next_cursor/done`） |
+
+### 其它
+
+| 方法 | 路径 | 权限 | 说明 |
+| --- | --- | --- | --- |
+| GET | `/api/sync` | 登录 | 安卓端固定上界快照 + 增量协议（基于 `content_changes`） |
+| GET | `/api/push/config` | 登录 | VAPID 公钥 |
+| POST | `/api/push/subscribe` `/unsubscribe` `/test` | 登录 | Web Push 订阅三连 |
+| GET / PUT | `/api/admin/settings` | user:manage | 全局功能开关 |
+| ALL | `/api/academic/*` | 登录 + 教务授权 | 转发私有 Worker：状态 / 绑定 / 解绑 / 代登录 / 多因子 / 课表 / 学分 / 成绩 |
+| ALL | `/api/chaoxing/*` | 登录 + 学习通授权 | 同上：绑定预览 / 绑定 / 待办与作业 / 进度 |
+| ALL | `/api/mooc/*` | 登录 + MOOC 授权 | 同上：课程 / 任务点 / 作业 / 考试 |
+
+---
+
+## 7. 前端架构
+
+### 页面与脚本
+
+| 页面 | 地址 | 脚本 |
 | --- | --- | --- |
-| `scope` | `active` | `active` 只返回「当前生效」的条目；`all` 返回全部（含未开始/已结束），供「全部」页按 进行中/将要开始/已结束 分类 |
-| `date` | 不传 | `YYYY-MM-DD`，只返回时间窗口覆盖该日的条目，用于主页按日历选中日期展示 |
-| `limit` / `offset` | `50` / `0` | 分页 |
+| 应用壳 + 主页 | `/` | `index.js` |
+| 通知 | `/affairs/` | `notices.js` |
+| 活动 | `/affairs/activities.html` | `activities.js` |
+| 表单填写 | `/affairs/forms.html` | `forms.js` |
+| 待办 | `/todos/` | `todos.js` |
+| 学业 | `/academic/` | `academic.js` |
+| 个人中心 | `/account/` | `account.js` |
+| 管理员面板 | `/account/admin.html` | `admin.js` |
 
-时间窗口按「天」比较、两端都含：通知为 `[publish_time, expire_time]`，活动为 `[start_time, end_time]`。
-不传 `date` 时以「今天」为目标日；结束时间为空时，通知视为永不失效，活动视为仅开始当天。
+每个页面都是独立的 HTML 文档，引入顺序固定为 `theme.js`（head，同步）→ `app.js` → 自己的脚本。
 
-### 待办接口（均需登录）
+### 壳与导航
 
-每人只能读写自己的待办；班委（`content:write`）可以代人添加，但撤回有额外限制（见下）。
+- 桌面：固定侧栏 + 内容区；手机（≤768px 或矮视口 + 粗指针）：隐藏侧栏，改底部导航 5 项。
+- 视图切换只翻 iframe 的 `hidden`，`FRAME_KEYS`（iframe id）与 `FRAME_URLS`（子页地址）两张表分开管。
+- **深链**：`?view=notices&id=3` 这类地址在壳上原样保留，壳负责把子页 `src` 指到带 `id` 的地址，子页自己开详情。
+- **视图历史**：每次切视图写一条 `?view=` 记录，安卓返回键据此回上一个视图，栈底停在主页才退出。
+- **侧滑切页**：手机端左右滑动按固定顺序切换，落在可横向滚动区域（如课表）时不拦截。
+- 子页在 iframe 里各自成一棵树，所以「未登录」与「网络断了」两种壳级状态都得在壳和各子页各显一次。
 
-| 方法 | 路径 | 权限 | 说明 |
-| --- | --- | --- | --- |
-| GET | `/api/todos` | 登录 | 我的待办：`status=open`（默认）/ `history`，可按 `tag` 过滤；返回 `list`、`total`、`counts:{open,history,overdue}`、`prefs`、`tags`（预置标签） |
-| POST | `/api/todos` | 登录 | 新建自己的待办 |
-| PUT | `/api/todos/:id` | 登录（仅本人） | 编辑（仅 `status='open'`；超时后 400 `TODO_LOCKED`） |
-| POST | `/api/todos/:id/status` | 登录（仅本人） | `{"status":"done"｜"open"}` 完成 / 重新打开；超时件不能完成（400 `TODO_EXPIRED`） |
-| DELETE | `/api/todos/:id` | 登录 | 本人可删自己的任意一条；代加人可撤回「自己加的、对方尚未完成的」那一条，否则 403 |
-| POST | `/api/todos/delegate` | `content:write` | 一次给多个成员代加：`{"user_ids":[…],"title","due_at","description?","start_at?","tags?"}`，成员不存在整批 400 `INVALID_MEMBERS` |
-| POST | `/api/todos/from-source` | 登录 | 从通知 / 活动加入：`{"kind":"notice"｜"activity","id":123}`；已加入返回 200 `{duplicate:true}`，模板过期 400 `SOURCE_TODO_EXPIRED`，无模板 404 `SOURCE_TODO_NOT_FOUND` |
-| GET | `/api/todos/prefs` | 登录 | 读取红 / 黄阈值（默认 24 / 36 小时） |
-| PUT | `/api/todos/prefs` | 登录 | `{"urgent_hours":24,"warn_hours":36}`，只收数字：红 1–168、黄 2–720 且黄 > 红 |
+### 数据层
 
-- 列表每条附带 `urgency`：`overdue`（已超时）/ `urgent`（进入红区）/ `warn`（黄区）/ `normal`，由服务端按本人阈值和当前时间算出，前端不再自己算。
-- 超时是**读取时懒判定**：`GET /api/todos` 会先把本人已过截止时间的 `open` 改成 `expired`，所以没有定时任务也不会一直显示「进行中」。
-- `due_at` 必填且必须晚于当前时间；`start_at` 选填但不得晚于 `due_at`；`tags` 最多 4 个、每个 1–12 字（去重）。
-- 通知 / 活动附带待办的来源快照存在 `todos.source`（`notice` / `activity`）+ `source_id`，同一个人同一条内容只会加入一次（部分唯一索引兜底）。
+- `api(path, options)`：自动附 Bearer token、30s 兜底超时、401 清会话回登录页、`options.raw` 直接拿 `Response`（CSV 导出用）。
+- `onApiData(key, render)`：按「请求 URL 一字不差」注册回填函数，供 App 壳的原生离线层在拿到新数据后重绘（网页版注册了也不会被调用）。
+- `window.__caApiUpdated`：原生推回数据的入口，先喂本窗口，再转发给同源 iframe；iframe 各自一份注册表，不转就收不到。
 
-```jsonc
-// 新建 POST /api/todos
-{ "title":"交实验报告", "description":"周五前交到学习委员处",
-  "start_at":"2026-11-24 08:00:00",      // 选填
-  "due_at":"2026-11-27 22:00:00",        // 必填，晚于现在
-  "tags":["作业"] }
-```
+### 渲染约定
 
+- 不用框架，列表一律 `innerHTML` 重绘 + 事件委托：`delegate(root, 'click', '[data-act="x"]', fn)`，参数走 `data-arg` / `data-id`。
+- 转义：文本用 `esc()`，插进属性值用 `escAttr()`（`esc` 不转义引号）。
+- 显隐统一 `hidden` 属性（样式表里有 `[hidden]{display:none!important}`），不用行内样式。
+- 空态 / 错误态 / 加载态复用 `stateHTML(text, isError, icon)` 与 `skeletonHTML(rows)`，图标取自 `DETAIL_ICONS`。
 
-### 表单接口（班委下发 / 同学填写）
+### 主题
 
-| 方法 | 路径 | 权限 | 说明 |
-| --- | --- | --- | --- |
-| POST | `/api/forms` | `content:write` | 创建表单（可选同时下发一条通知） |
-| GET | `/api/forms` | `content:write` | 表单列表（管理面板用，带提交数）。列出全部表单，每行带 `can_manage`（创建者本人或持 `user:manage` 的班委，前端据此隐藏按钮）；管不了的那几行**不含 `remind_people`** |
-| GET | `/api/forms/mine` | 登录 | 我的表单：`pending`（待填）+ `editable`（已填且允许修改）；每条带 `created_at`（下发时刻，App 端据此判断这条表单提醒过没有，与通知的 `publish_time` 同一口径） |
-| GET | `/api/forms/:id` | 登录 | 表单详情 + 我的提交 + `canSubmit` / `submitBlockedReason` |
-| PUT | `/api/forms/:id` | `content:write` | 更新表单（只能改自己创建的；已有人提交则字段锁定；一个字段都没带回 400 `MISSING_FIELDS`） |
-| DELETE | `/api/forms/:id` | `content:write` | 删除表单（连同其全部提交） |
-| POST | `/api/forms/:id/submit` | 登录 | 提交 / 覆盖提交（每人每表一条，学号姓名取登录态） |
-| GET | `/api/forms/:id/submissions` | `content:write` | 提交明细（匿名表单不返回学号姓名） |
-| GET | `/api/forms/:id/progress` | `content:write` | 已交 / 未交名单（催交用） |
-| GET | `/api/forms/:id/export` | `content:write` | 导出 CSV（UTF-8 BOM，Excel 直接打开不乱码） |
+`data-theme="light|dark"` 挂在 `<html>` 上；`theme.js` 在首帧前按 `localStorage('theme')` 或系统偏好写入，避免浅色闪一下。手动切换时同步改 `meta[name=theme-color]`，应用壳与 iframe 子页通过 `storage` 事件保持一致。
 
-- **能管这条表单的人才能改 / 删 / 看名单**：`PUT` / `DELETE` / `submissions` / `progress` / `export` 除 `content:write` 外还校验归属 —— **创建者本人，或持 `user:manage` 的班委**（与通知 / 活动同一口径），否则返回 403。`GET /api/forms/:id` 也对这两类人放行，否则管理面板的「提交明细」点进去只有 404。这样只有 `content:write` 的学习委员拿不到别人的全班学号名单，班长 / 团支书则可以替人收尾。
-- **学号 / 姓名由服务端从登录态注入**，请求体里的同名字段一律忽略（前端 `readonly` 挡不住伪造请求）。
-- **匿名表单**（`anonymous: true`）：只记「谁已交」，明细与 CSV 隐去学号姓名；内部仍按 `user_id` 去重，未交名单照常准确（弱匿名的固有边界）。
-- **字段锁定**：一旦有人提交，`fields` 不能再改（否则旧答案的 key 会悬空）；标题 / 说明 / 截止时间 / 允许修改仍可改。
-- **D1 无事务**：创建表单时若联动通知写入失败，会删掉刚建的表单回滚，不留半成品。
-- 字段类型 `text` / `textarea` / `radio` / `checkbox` / `number` / `date`；`radio` / `checkbox` 必须给 `options`（≥2 个）。上限：字段 50、选项 50、单值 2000 字符、答案总长 32KB。
+### 样式体系
 
-```jsonc
-// 创建 POST /api/forms（body，需 content:write）
-{ "title":"国庆聚餐报名", "description":"填写须知",
-  "fields":[{"key":"q1","label":"姓名","type":"text","required":true},
-            {"key":"q2","label":"口味","type":"radio","options":["午餐","晚餐"]}],
-  "edit_policy":"before_deadline",   // none（不可改）/ before_deadline（截止前可改）/ always（随时可改）
-  "anonymous":false,
-  "deadline":"2026-09-30 18:00:00",  // 选填，留空 = 长期开放
-  "remind_people":[2,3],     // 选填，提交对象（空 = 全班，用于算未交名单）
-  "notice":true,                     // 选填，同时下发一条通知，「去填写」指向 /affairs/forms.html?id=…
-  "notice_title":"请填写聚餐报名",     // 选填，通知标题（默认同表单标题）
-  "notice_content":"请尽快填写" }      // 选填，通知正文
+只有一个 `assets/css/style.css`，按层组织：
 
-// 提交 POST /api/forms/:id/submit（body，需登录）
-{ "answers": { "q1":"张三", "q2":"午餐" } }   // 只保留字段定义内的 key，多余键忽略；必填项为空会被拒
+| 层 | 内容 |
+| --- | --- |
+| 令牌 | 颜色 / 背景层级 / 文字层级 / 描边 / 强调与语义色 / 圆角 / 间距 / 材质 / 阴影 / 字体 / 动效 / 安全区 / 命中区，深浅两套 |
+| 基元 | 按钮、图标按钮、列表与列表行、徽章、分段控件、表单、弹窗、骨架屏、空态 |
+| 结构 | 应用壳、侧栏、底栏、页头、区块、首页分栏与日历、个人中心、管理员面板、教务课表 |
+| 响应式 | `900`（窄桌面单列）→ `768` 或「矮视口 + 粗指针」（手机：底栏、密度、命中区）→ `400`（小屏）→ 横屏矮视口 |
+| 降级 | `prefers-reduced-motion` / `prefers-reduced-transparency` / `prefers-contrast` |
 
-// 详情 GET /api/forms/:id → 200
-{ "success":true, "data":{
-    "form":{ "id":1, "title":"国庆聚餐报名", "fields":[...], "edit_policy":"before_deadline",
-             "anonymous":false, "status":"open", "deadline":"2026-09-30 18:00:00", "creator_name":"张三" },
-    "mySubmission":{ "answers":{...}, "created_at":"...", "updated_at":"..." },  // 未提交则为 null
-    "canSubmit":true, "submitBlockedReason":"" } }
-```
+材质规则：`backdrop-filter` 只出现在导航与浮层（侧栏、底栏、弹窗）这一层，内容层用不模糊的标准材质，玻璃不叠玻璃；正文滚动区不加模糊层。
 
-### 日历订阅接口
+### CSP 约束
 
-把班级日程同步到手机系统日历（iOS / 鸿蒙 / Android / 桌面通用，无需安装 App）。
-系统日历无法携带 `Authorization` 头，因此订阅源用 URL 里的长期密钥鉴权。
+`_headers` 对全站下发，`script-src` 与 `style-src` 都只放行 `'self'`，因此：
 
-| 方法 | 路径 | 权限 | 说明 |
-| --- | --- | --- | --- |
-| GET | `/api/calendar/token` | 登录 | 取（首次访问则生成）本人订阅密钥与订阅地址 |
-| POST | `/api/calendar/reset` | 登录 | 重置订阅密钥（旧链接立即失效） |
-| GET | `/api/calendar.ics` | `?key=` 密钥 | `.ics` 订阅源，返回 `text/calendar` |
-
-```jsonc
-// GET /api/calendar/token → 200
-{ "success":true, "data":{
-    "key":"1b5b14a3...",                                          // 32 位十六进制
-    "url":"https://class.qxwkstudio.top/api/calendar.ics?key=1b5b14a3...",
-    "webcal":"webcal://class.qxwkstudio.top/api/calendar.ics?key=1b5b14a3..." } }   // 供 iOS/macOS 一键订阅
-```
-
-订阅源可选参数（未传时用默认值，前端「个人中心 → 日历订阅」会自动拼好）：
-
-| 参数 | 默认 | 范围 | 说明 |
-| --- | --- | --- | --- |
-| `remind` | 30 | 0–1440 | 活动开始前多少分钟提醒；`0` 表示不提醒。通知（全天事件）固定在当天 09:00 提醒 |
-| `past` | 30 | 0–365 | 包含过去多少天的日程 |
-| `future` | 365 | 1–730 | 包含未来多少天的日程 |
-| `notices` | 0 | 0/1 | `1` 时把班级通知也作为当天全天事件加入 |
-
-- 活动导出为 `VEVENT`，时间使用**浮动本地时间**（不带 `Z`/`TZID`，由日历客户端按本机时区解释，与服务端存储的本地时间一致）
-- 未填结束时间的活动按 1 小时处理；通知的 `DTEND` 为次日（RFC 5545 全天事件约定）
-- 密钥泄露时可在个人中心「重置密钥」一键作废旧订阅链接
+- 页面里不能有内联 `<script>`、内联 `onclick`、内联 `style="…"`，也不能有 `<style>` 块 —— 写了会被浏览器整条丢掉，表现是「按钮点了没反应 / 样式莫名消失」，只有控制台有提示。
+- 页面逻辑全部外置到 `assets/js/`；动态生成的 DOM 走事件委托。
+- JS 里用 CSSOM 写的值（`el.style.width`、`setProperty`）不受限制，滑块定位、进度条宽度这类动态值仍留在 JS。
+- `img-src` 额外放行 `data:`（下拉箭头内嵌 SVG）与 `https://weavatar.com`（QQ 邮箱头像）；`connect-src` / `script-src` 对 Cloudflare Web Analytics 的 beacon 有精确主机放行。
 
 ---
 
-### 教务系统接口（均需登录）
+## 8. 离线与 PWA
 
-课表、学分与成绩来自教务系统（数智教学微服务平台）。这部分**实现在独立部署的私有 Worker
-`class-assistant-private-api` 里，不在本仓库** —— 教务接口清单、CAS 代登录的复刻、字段归一化、
-缓存决策、以及 `academic_*` 那几张表都在那边。
+### Service Worker
 
-这么切有两个原因：把「主动访问校方系统」的那部分代码与公开仓库分开；同时让它自成一体，
-有自己的 D1 与密钥，单独 clone 就能跑。
+- **预热**：安装时抓一份应用壳清单 —— 8 个页面（文件夹首页用目录地址，如 `/todos/`）、`style.css`、全部页面脚本、`manifest.json`、法务三页。单条失败不影响整体。
+- **缓存优先 + 后台回源**：命中缓存先出首帧，同时用 `cache: 'no-cache'` 回源（绕开 CDN 那份 4 小时的 HTTP 缓存）；回源发现页面文档真的变了，就整份重取并通知页面刷新。
+- **规范地址**：写入与查找都走 `canonical()` —— 文件夹首页归一成目录形式（`/todos/index.html` → `/todos/`），分文件夹之前的旧地址查别名表（`/notices.html` → `/affairs/`），保证旧书签、旧推送在离线时也能命中。
+- **去跳转标记**：跟过 308 的响应带 `redirected`，规范禁止用它应答导航请求，所以落缓存前复制一份干净的。
+- **边界**：只接管导航与静态资源，`/api/*` 一律走网络；非导航请求缺缓存时如实失败，不用主页壳顶替（拿 HTML 顶替 JS 只会更难排查）。
+- **刷新与跳转**：`ca-shell-updated` 触发重载（页面里有未提交输入则跳过），`ca-shell-navigate` 给不支持 `client.navigate` 的旧内核做兜底。
 
-本站只保留一层转发（`backend/src/routes/academic.js`）：`withAuth` 认过登录态后，
-把用户 id 与学号放进请求头，经 **Service Binding**（绑定名 `ACADEMIC_API`，请求不走公网）
-交给那个 Worker，再原样把响应回给前端。私有 Worker 没有 workers.dev 子域、也没有任何 route，
-公网上不存在入口；绑定之外另有一个共享的 `INTERNAL_TOKEN`，万一误配了公开路由也进不来。
+### App 壳内的离线
 
-**路径、响应体与错误码都与拆分前逐字一致**，所以前端、安卓、以及全部离线缓存都不用改。
-请求体、查询参数与响应示例见私有仓。
-
-| 方法 | 路径 | 说明 |
-| --- | --- | --- |
-| GET | `/api/academic/status` | 绑定状态 + 已缓存学期 |
-| POST | `/api/academic/login` | 学号+密码代登录后绑定；需要验证码时返回 409，账号开了多因子认证时返回 `{ mfaRequired, token, contact, method }` |
-| POST | `/api/academic/mfa/send` | 下发二次验证码（短信/邮箱），body `{ "token" }` |
-| POST | `/api/academic/mfa/verify` | 提交验证码完成绑定，body `{ "token", "code" }` |
-| POST | `/api/academic/bind` | 用会话 Cookie 绑定，body `{ "cookies": "..." }` |
-| DELETE | `/api/academic/bind` | 解绑并清空该用户的教务缓存 |
-| GET | `/api/academic/timetable` | 课表，`?xnxq=2026-2027-1` 指定学期，`?refresh=1` 强制重抓 |
-| GET | `/api/academic/credits` | 学业达成 / 学分，`?refresh=1` 强制重抓 |
-| GET | `/api/academic/grades` | 课程成绩，`?xnxq=2025-2026-2` 指定学期（**省略或留空 = 全部学期**），`?refresh=1` 强制重抓 |
-
-失败时的错误码沿用拆分前那一套（`ACADEMIC_EXPIRED` / `ACADEMIC_UNREACHABLE` / `NOT_BOUND` …），
-本站只做透传。转发层自己会新增两个「配置没到位」的档位：没配 `ACADEMIC_API` 绑定
-返回 503 `ACADEMIC_UNAVAILABLE`（production 与 preview 两个环境的绑定现在都配好了），
-没配 `INTERNAL_TOKEN` 返回 500 `SERVER_MISCONFIGURED` —— 都不是裸 500。
-
-**本地联调**：`wrangler pages dev` 的 Service Binding 找的是**本机正在运行的那个 Worker 的
-`wrangler dev` 会话**（不连线上），所以要起两个进程：先在 `Class-Assistant-Private-API` 里
-`wrangler dev`，再在 `web/` 里 `wrangler pages dev`；两边 `.dev.vars` 里的 `INTERNAL_TOKEN`
-必须逐字一致，否则网关一律 401。没起那个 Worker 时不会报 500 —— 按上面那条返回 503
-`ACADEMIC_UNAVAILABLE`。另外 `web/.dev.vars`（从 `.dev.vars.example` 复制）是本地跑通任何
-需登录接口的前提，缺了 `JWT_SECRET` 会直接 500；`web/wrangler.toml` 里的 `[[services]]`
-现在是打开的（早先是注释状态，本地因此完全调不到教务）。本地的 `workerd` 只支持到
-`compatibility_date` 2025-07-18（线上按 2026-09-18 跑），启动时那句回退警告是 wrangler 3
-自带的运行时版本所致，升到 wrangler 4 就没有了。
-
-> 代登录链路、多因子认证的取舍、教务接口的坑、成绩汇总口径、以及各接口的请求体与响应示例，
-> 都随实现一起记在私有仓的 README 里。本站不再复制一份 —— 两边各写一份的结果是其中一份必然过时。
-
-### 学习通（超星）转发
-
-学习通的课程、作业、考试与章节进度同样由私有 Worker 读取，门户只做一层转发（`backend/src/routes/chaoxing.js`），绑定名 `CHAOXING_API`，与 `ACADEMIC_API` 指向同一个 Worker。与教务转发相比有两处额外约束：
-
-- **独立授权**：学习通有单独的同意项，`ConsentModel.chaoxing !== 1` 时，绑定 / 预览 / 密码登录与 `?refresh=1` 的抓取一律 403 `CHAOXING_CONSENT_REQUIRED`；只读的 `status`、缓存 GET 与 `DELETE /bind` 解绑放行 —— 撤回授权后用户仍能查看已有缓存、也能随时解绑退出。
-- **姓名头编码**：私有 Worker 用 `X-User-Name` 做弱校验，而 HTTP 头只能放 ByteString，故门户用 `encodeURIComponent(user.name)` 写入，私有 Worker 侧 `decodeURIComponent` 还原；不编码时中文姓名会被 undici 直接拒绝（`Cannot convert argument to a ByteString`）。
-
-| 方法 | 路径 | 说明 |
-| --- | --- | --- |
-| GET | `/api/chaoxing/status` | 绑定状态 + 已缓存课程数 |
-| POST | `/api/chaoxing/bind/preview` | 只校验 Cookie 并返回 `{ realName, courseCount, account, matched }`，**不落库**（issue #107：先让用户确认是不是本人） |
-| POST | `/api/chaoxing/bind` | 用 Cookie 正式绑定；姓名不一致返回 403 `CHAOXING_IDENTITY_MISMATCH` |
-| POST | `/api/chaoxing/login` | 账号 + 密码代登录；撞人机验证返回 409 `CHAOXING_NEED_CAPTCHA` |
-| DELETE | `/api/chaoxing/bind` | 解绑并清空该用户的学习通缓存 |
-| GET | `/api/chaoxing/courses` / `works` / `exams` | 课程 / 作业 / 考试；`?refresh=1` 强制重抓 |
-
-转发层自身新增的错误码与教务一致：缺 `CHAOXING_API` 绑定 → 503 `CHAOXING_UNAVAILABLE`，缺 `INTERNAL_TOKEN` → 500 `SERVER_MISCONFIGURED`，功能开关关闭 → 503 `FEATURE_DISABLED` + `Retry-After: 30`。生产 Pages 面板需要手工补 `CHAOXING_API` Service Binding（与 `ACADEMIC_API` 同一个 service），本地联调仍起两个 `wrangler` 进程。
+安卓端在 `shouldInterceptRequest` 里接管 `/api/` 的只读请求：在线时自己取一份存本地，断网时把上次响应原样回给页面；页面侧只需用 `onApiData` 注册「拿到数据 → 渲染」的函数，就能在原生推回新数据时重绘。写操作（POST / PUT / DELETE）一律不接管。
 
 ---
 
-### 中国大学MOOC（icourse163）转发
+## 9. 原生桥 `CAHost`
 
-MOOC 的课程、章节任务点、单元作业 / 单元测验同样由私有 Worker 读取，门户只转发（`backend/src/routes/mooc.js`）。绑定**优先读 `MOOC_API`，没有就复用 `CHAOXING_API`**（两者指向同一个私有 Worker：少一条绑定就少一处部署时漏配的可能）。
+App 壳通过注入的 `CAHost` 提供网页拿不到的能力；网页侧全部做特性探测，桥不存在就隐藏对应入口（纯网页版照常可用）。
 
-- **独立授权**：`user_consents.mooc` 是独立同意项（迁移 0009）。未开启时，绑定 / 预览 / 登录与 `?refresh=1` 的抓取一律 403 `MOOC_CONSENT_REQUIRED`；`status`、缓存 GET、`DELETE /bind` 放行。
-- **没有代登录**：icourse163 的登录是跨域 iframe 的 SPA，服务端复刻不稳定也无必要，`POST /api/mooc/login` 恒 501 `MOOC_LOGIN_UNSUPPORTED`；绑定只收用户粘贴的 Cookie。
-- **进度口径**：单门课程的 `GET /api/mooc/progress?courseId=&refresh=1` 一次拿回「章 → 小节 → 任务点」与每个任务点的 `completePercent`；完成只认 `completePercent >= 1`（`viewStatus=5` 不等于完成）。
-
-| 方法 | 路径 | 说明 |
-| --- | --- | --- |
-| GET | `/api/mooc/status` | 绑定状态 + 账号 + 已缓存课程数 |
-| POST | `/api/mooc/bind/preview` | 只读校验 Cookie（**不落库**） |
-| POST | `/api/mooc/bind` | `{cookies}` 正式绑定 |
-| POST | `/api/mooc/login` | 恒 501（见上） |
-| DELETE | `/api/mooc/bind` | 解绑并清空课程 / 学期缓存 |
-| GET | `/api/mooc/courses` | MOOC + SPOC 课程卡；`?refresh=1` 强制重抓 |
-| GET | `/api/mooc/progress` | 任务点（`?courseId=`、`?nodes=1`、`?refresh=1`） |
-| GET | `/api/mooc/works` / `exams` | 单元作业 / 单元测验 + 考试；带 `courseId` 时同步该门，缺省聚合缓存 + `missing[]` |
-
-错误码：缺绑定 → 503 `MOOC_UNAVAILABLE`，缺 `INTERNAL_TOKEN` → 500 `SERVER_MISCONFIGURED`，功能开关 `mooc_enabled=0` → 503 `FEATURE_DISABLED` + `Retry-After: 30`。上游数据口径、缓存表与实测数据都在私有仓 README 第 13 节，本站不复制。
-
-**待办同步**：`POST /api/todos/sync-mooc`（与 `sync-chaoxing` 同一套分批协议：`{cursor,batch}` → `next_cursor/done`）。每门课先抓 `/works`（顺带刷新学期缓存）再抓 `/exams` 复用同一份缓存；`external_id` 形如 `mooc:<testId>`，作业 / 测验分别打「作业」「考试」标签。完成态从数据推断：测验看 `usedTryCount > 0`，作业看 `userScore` 非空（未批阅不标完成）。冷却窗口与学习通共用 60 秒。
-
-学习通课程卡另有「最近截止」字段（私有仓 12.10）：`nextDeadlineAt` / `nextDeadlineKind` / `nextDeadlineTitle`，是**该课程最近一个未完成作业或考试的截止时间**（学习通课程页没有开课/结课时间，这是可解释的口径）。字段随课程列表返回，前端暂未消费，留给后续课程页使用。
+| 类别 | 方法 |
+| --- | --- |
+| 身份与环境 | `platform`、`appVersion`、`appStatus`、`setTheme` |
+| 通知 | `testNotification`、`backgroundStatus`、`setBackgroundAlwaysOn` |
+| 提醒 | `courseReminderSettings` / `saveCourseReminderSettings`、`todoReminderSettings` / `saveTodoReminderSettings`、`todoChanged` |
+| 系统设置跳转 | `openAutoStartSettings`、`openBatterySettings`、`requestIgnoreBatteryOptimizations` |
+| 绑定 | `startAcademicLogin` / `startAcademicLoginFor`、`startChaoxingLogin` |
 
 ---
 
-## 数据库与同步
+## 10. 安全设计要点
 
-唯一表结构来源为 [db/migrations-v2](db/migrations-v2)，[db/schema.sql](db/schema.sql) 是经测试核对的完整新库快照，包含推送订阅、生命周期约束、发件箱、变更日志、登录失败限流、管理员操作审计（`audit_logs`，迁移 0005）、全局功能开关（`app_settings`，迁移 0006）、个人待办（`todos` / `content_todos` / `todo_prefs`，迁移 0007）、外部来源待办与同步状态（迁移 0008）以及中国大学MOOC 授权（`user_consents.mooc`，迁移 0009）。0008/0009 都是 `ALTER TABLE`，因此 `db/schema.sql` 末尾按顺序重复同一批语句 —— `architecture.test.js` 会逐字核对迁移执行后的结构与快照是否一致。
-
-个人列表使用 `audience=mine` 并返回 `nextOffset`；Android 使用 `/api/sync` 的固定上界快照与增量协议。受众写入只接受用户 ID，姓名只用于展示。
-
-迁移接管、完整接口契约、Cron Worker 配置、故障恢复与回滚说明见[数据一致性与部署](docs/数据一致性与部署.md)。
-
----
-
-## 前端说明
-
-- **应用壳布局**：`index.html` 为侧边栏 + 内容区（iframe 嵌入子页）；**小屏（≤768px）自动隐藏侧边栏、改为底部导航**（主页 / 通知 / 活动 / 学业 / 个人中心，共 5 项，符合底部导航 ≤5 项的规范），并针对手机做字号与间距密度适配
-- **离线提示**：断网时内容顶部出现一条提示条（`app.js` 的 `renderOfflineNotice`，`position: sticky` 插进 `.main` 的第一个子元素，滚动时贴顶）。**文案分两种**：App 里是「当前无网络，显示的是缓存数据」——数据确有原生层回退（`android/` 的 `OfflineApi`）；浏览器里是「当前无网络，部分内容可能无法加载」——那边没有这一层，说成「显示缓存数据」是错的。判据只看 `navigator.onLine`（它管不了「服务端是不是活着」，够用了），`online` / `offline` 事件实时增删
-- **移动端左右滑动切页**：小屏下可左右滑动切换「首页 → 通知 → 活动 → 学业 → 个人中心 → 管理员面板」（左滑前进 / 右滑后退，首尾不循环），新页面横向滑入入场；手势为 `passive`、不拦截滚动，且落在可横向滚动区域（如课表宽表）时只滚动、不切页。**除登录视图外没有「不给滑动」的页面**：管理员面板排在顺序末尾，从它右滑即回个人中心（底部导航里没有管理员这一项，高亮留在「个人中心」，见 `SWIPE_PAGES`）。但**管理员面板只对 `canManagePanel()` 为真的人出现在这份顺序里**：没权限的人在个人中心左滑是「到头停住」，不会被划进去（`switchView` 里另有一道闸门，挡的是 `?view=admin` 这类深链）
-- **管理员入口**：桌面端固定在侧边栏；手机端底栏不再放（避免变成 6 项），改由「个人中心 → 管理员面板」卡片进入（仅手机端显示，按权限出现）
-- **班级主页**：日历（可「回到今天」，有活动的日期可点击）、当日通知与当日活动、「我的表单」待办、顶部一条待办摘要卡（进行中 / 超时计数 + 最近 3 条，点击进入待办页）、点击条目弹出详情弹窗
-- **待办页**：`/todos/` —— 进行中 / 历史两个页签（历史显示「共 N 条，其中 M 条超时」）、标签筛选、新建 / 编辑 / 完成 / 删除、红黄阈值设置；`data-act` 驱动（含代加与撤回）；超时态只读，只能删除
-- **通知 / 活动附带待办**：发布表单可勾选「同时加入大家的待办」（截止时间必填、可选标签），详情里出现「加入我的待办」按钮；加入后按钮变「已加入」并禁用
-- **权限显隐**：`app.js` 提供 `canContentWrite()` / `canManageUsers()`（依据登录返回的 `permissions`），控制发布/编辑/删除与管理员入口的显示
-- **管理员面板**：`/account/admin.html`，左栏「添加通知 / 添加活动 / 添加表单 / 管理表单」、右栏「管理成员 / 添加成员 / 管理职位 / 添加职位 / 操作日志 / 功能开关」十个默认折叠区块（按权限显示）；发布类卡片按 `content:write` 显示，成员卡片与操作日志按 `user:manage` 显示，职位两张卡片对任何登录用户只读展示（增删在提交时由后端校验权限，无权限返回 403）；成员/职位编辑用弹窗，成员列表中的职务以徽章样式呈现。操作日志支持按动作 / 操作人 / 起止日期筛选与翻页，详情按动作做中文映射、纯文本渲染（`textContent`/`esc`，不拼 HTML）。**添加 / 修改成员都能代填邮箱（选填）；「修改成员」弹窗的邮箱栏标题后带验证状态徽章**（「添加成员」不放徽章：新账号只有「未验证」这一种状态，标出来是噪音）：管理员填的或改的地址**一律是「未验证」**（`email_verified` 打回 0）—— 邮箱是找回密码的凭据，只能由本人收码确认，管理员能填地址但代认不了；徽章跟着输入实时变（原样提交就照原状态显示，一改就变「未验证」），所以只改姓名不会把已验证的人误打回未验证（后端按归一化后的值比，大小写不同不算改动）
-- **通知页**：`content:write` 用户可发布/编辑/删除，并可用「查看过期」切到归档列表；带 `link` 的通知在列表显示「表单」徽章，详情里多一个「去填写」按钮
-- **表单**：`/affairs/forms.html` 是填写页（从首页「我的表单」或通知里的「去填写」进入，不在导航里）；首页「我的表单」栏同时列待填与已提交，显示与否只看策略与截止时间——「随时可修改」不删除就不消失，其余两种到截止时间前不消失；发布端在「添加表单」中编排字段（每行左选类型、右勾必填，选择类字段用英文逗号分隔选项，字段带前端序号）、按 `edit_policy` 控制提交后能否改、可匿名、可同时下发通知；「管理表单」每行可「停止收集 / 恢复收集」（停止需二次确认，只改 `status` 不删数据，停止后同学那边不再列出也不能提交）、「修改时间」（截止时间 + 允许修改）、看「结果」（提交进度 + 未交名单，明细按需加载）、「删除」（二次确认，连带提交）；列表**列出全部表单**（好让班委看清班里发过哪些），但管不了的那几行不给这四个按钮——后端要求创建者本人或持 `user:manage` 的班委，前端按每行的 `can_manage` 隐藏
-- **发布/编辑弹窗**：统一弹窗形式；可选「提醒对象」（成员以标签多选，上方可按职位快捷选择，并支持搜索过滤）、通知可设「截止时间」（到期自动隐藏）。**提醒对象名单加载失败时不当作「没有成员」**：编辑与发布（通知 / 活动 / 表单）都会被拦截并提示，避免把定向内容静默发成全班可见（issue #78）；名单恢复后重开弹窗自动重取
-- **列表与详情**：列表行「标题 + 徽章」、元信息带图标（发布人 / 时间 / 地点），点击条目标题弹出详情弹窗
-- **个人中心**：资料（联系方式可自助修改；邮箱那行是「地址 + 一个「管理」」—— 绑定 / 更换 / 解绑全在弹窗里做，验证状态徽章（已验证 / 未验证）放在弹窗标题后，行上不摊按钮；弹窗内「解绑」仅已绑且已验证时出现，解绑会把订阅一并清零；填了 @qq.com 邮箱后，资料卡与侧栏的头像从首字母换成 WeAvatar 头像（URL 用邮箱的 SHA256 拼，哈希由浏览器原生 crypto.subtle 算，不引第三方库；不是 QQ 邮箱、取不到头像或图片加载失败都退回首字母）；已绑且已验证时弹窗里多出「订阅通知」区：一个「全部订阅」总开关 + 活动 / 通知 / 表单三项分订阅，开全部＝三项全开、关掉任一分项＝「全部订阅」跟着关掉，开关只改本地状态、结果由弹窗底部「保存」一并写后端（该按钮与邮箱验证共用一个：未验证时＝验码完成绑定，已验证时＝保存订阅）；「上次同步时间」按北京时间显示，且仅 App 壳内有、网页版整行不出现）、个性化 / 偏好设置（主题外观 跟随系统 / 浅色 / 深色 三选一，同卡片内下方为通知：网页推送仅网页端，iOS 需 16.4 且已加到主屏，其余情况如实说明原因，App 壳内不显示；再下方「App 端通知」块放通知 / 活动 / 表单三个推送测试与一行本机状态：通知开关，数据来自 `CAHost.appStatus()`，网页版没有这个桥就整块隐藏；通知被系统关掉时推送测试会直接说明原因而不是假装成功）、日历订阅（默认折叠；可自定义提醒提前量/时间范围/是否含通知，并可重置密钥）、安装到桌面（仅 iOS 与 PC 显示，安卓 / 鸿蒙已有原生 App 不引导）、修改密码、关于软件（版本号 + 检查更新 + 项目仓库 + 协作方；版本号取自原生桥，检查更新先问原生桥 `CAHost.platform()` 自己是什么端、再读站点根目录 `version.json` 里对应那一段）、退出登录（红色警示卡）
-  - **课程提醒**（偏好设置卡片里的 `#courseCard`，紧接「App 端通知」）：整块默认 `hidden`，只有检测到 `CAHost.courseReminderSettings` 才显示 —— 上课提醒要到点弹出，靠的是原生 `AlarmManager` 排期，网页版没有这个能力，给个点了没反应的开关不如不给。设置存在原生侧，网页只读写；桥返回 `{"lead":15,"atStart":true,"courseCount":23}`，其中 `courseCount` 是为了区分「今天没课」与「本机根本没有课表数据」——用户把开关打开却什么都没发生，得能看出是哪一种。改完即存（无保存按钮），原生侧立刻重排闹钟
-  - **待办到期提醒与离线缓存**（与课表同一套机制）：`/api/todos` 的摘要 / 进行中 / 历史三条 URL 进了 `OfflineApi` 的缓存白名单与预热清单（键与 `index.js` / `todos.js` 的请求逐字一致），App 断网时首页摘要卡与待办页直接读本地缓存；在线时也是「先把够新鲜的缓存交给页面，后台刷新后再经 `onApiData` 推回重绘」。同时后台同步把「进行中」列表解析成本地快照（`sync/TodoReminder.kt`），按「截止时间 − 提前量」用 `AlarmManager` 排到期闹钟（单独渠道 `todo_reminder_v1`，点通知进 `?view=todos`）。提前量每人在个人中心的 `#todoCard` 或待办页「提醒设置」里改（0 = 不提醒，默认 60 分钟，最长 7 天；存原生侧、改完即重排），桥返回 `{"lead":60,"todoCount":3}`，`todoCount` 用本地快照条数区分「没有待办」与「本机还没同步到」。新建 / 完成 / 删除 / 从通知加入后网页调 `CAHost.todoChanged()`，原生立刻重取并重排，不等 15 分钟的周期同步；开机、覆盖安装、改时间 / 时区都会重排，退出登录时取消。网页版没有到点通知能力，相关设置块只在 App 壳内显示。
-  - **账号绑定**（个人中心页内第二个页签，`#accountTabs` / `#paneBinding`）：把原来散在学业页的绑定入口收拢成两张卡。**教务卡**已绑定时显示姓名 / 学号 / 状态 / 绑定与校验时间 / 已同步学期 + 重新登录（App 内优先 `CAHost.startAcademicLoginFor('account')`，回跳 `?view=account`）/ 账号密码 / 换 Cookie / 解绑；未绑定时给 App 内登录、学号密码、粘贴 Cookie 三条路。**学习通卡**同理，但按 issue #107 改成两步：粘贴 Cookie 或 App 原生小窗回传 Cookie 后先调 `/api/chaoxing/bind/preview`，弹出「识别到：张三 · 12 门课程」确认卡，用户确认才调 `bind` 落库；`matched:false` 直接禁用确认按钮，姓名为空则要求额外勾选「我确认是本人」，并如实写明姓名比对是弱校验。App 内登录才显示原生小窗入口（`CAHost.startChaoxingLogin()`，成功回调 `__caChaoxingCookies`），网页端没有桥就只给密码 / Cookie 兜底；409 `CHAOXING_NEED_CAPTCHA` 转为「需要人机验证」提示并指回 App 或 Cookie。两卡解绑都要二次确认；403 `*_CONSENT_REQUIRED` 给「去开启授权」直接打开现有同意弹窗。教务登录前的风险告知与学业页共用 `ca_academic_risk_ack`，未勾选不会调原生桥。
-- **学业**：`/academic/` —— 页内分「课表 / 学业达成 / 成绩」三个子标签（两端统一；切到「学业达成」时收起只对课表生效的学年学期筛选，成绩页仍然用它选学期）；「课表」页为按节次网格渲染的课表（当前周高亮、非本周淡出，窄屏横向滚动）+ 未安排课程（接在课表下方，无数据时整块隐藏）；「学业达成」页为学分看板（要求/已获/在修/还需 + 逐课程体系明细）；「成绩」页按学期分组列出课程成绩，顶部只放平均分与平均绩点（口径见上面教务一节，缓考 / 等级制成绩 / 教务标了「不参与统计」的课都不计入），每条可展开看课程号、学分、成绩性质与成绩标识，默认档是「全部学期」；未绑定时提供三条绑定路径（App 一键 / 学号密码代登录 / 手动粘贴 Cookie 并附分步指引）；账号开了多因子认证时，学号密码代登录会自动进入第二步（下发验证码 → 回填 → 完成绑定，带 60 秒重发倒计时）
-- **API 封装**：`assets/js/app.js` 提供 `api(path, options)`，自动附带 `Bearer` token、401 自动回登录页；`options.raw` 可让调用方直接拿到 `Response`（导出 CSV 这类二进制用，同样走 401 清会话）
-- **CSP 与内联写法**：`_headers` 对全站下发 `Content-Security-Policy`，`script-src` 与 `style-src` 都只放行 `'self'`（唯一例外是 Cloudflare 在边缘注入的 Web Analytics beacon 那个来源），`img-src` 另放行 `data:`（`style.css` 里下拉箭头的内嵌 SVG）与 `https://weavatar.com`（QQ 邮箱头像源）；因此**页面里不能再写内联 `<script>`、内联 `onclick` 或内联 `style="..."`** —— 写了会被浏览器整条丢掉，表现是「按钮点了没反应」「样式莫名其妙没了」（只有控制台有提示），而不是报错弹窗。
-  - 页面逻辑一律外置到 `assets/js/<页面名>.js`（每页一个），共享部分在 `app.js` / `theme.js`
-  - 按钮用 `data-act="动作名"` 标记（带参数用 `data-arg`，带条目 id 用 `data-id`，值走 `escAttr()` 转义），在该页脚本末尾注册一次 `delegate(document, 'click', '[data-act="动作名"]', fn)`；列表 `innerHTML` 重绘后不用重新绑定
-  - `index.html` 的视图切换与日历日期分别用 `data-view` / `data-date` 两个通用委托
-  - 样式一律写在 `assets/css/style.css`：原先散在标签上的边距/尺寸收成了文件末尾那组工具类（`.mt-*` / `.mb-*` / `.grow` / `.w-auto`）与语义类（`.card-title` / `.card-divider` / `.check-row` / `.fld-row` …），清单和取舍都写在文件末尾的注释里
-  - 隐藏/显示统一用 `hidden` 属性（`style.css` 顶部的 `[hidden]{display:none!important}`），JS 侧对应 `el.hidden = true/false`
-  - `el.style.width = …` / `setProperty(…)` 这类 **CSSOM 写法不受 CSP 限制**，滑块定位、学分进度条宽度、层级缩进这些动态值仍然留在 JS 里
-  - `backend/test/csp.test.js` 会扫源码把回退挡住（内联事件、内联脚本、内联 style、`<style>` 块、`data-act` 双侧对齐、CSP 指令与第三方白名单）
-- **主题**：`data-theme` 深浅色（液态玻璃风格），localStorage 记忆；未显式选择时跟随系统 `prefers-color-scheme`，应用壳与各 iframe 子页通过 `storage` 事件保持同步（侧边栏开关或「个性化」的改动会实时反映到另一侧）
-- `API_BASE` 保持 `''`（前后端同域，走 Pages Functions）
-
----
-
-## 生产部署（Cloudflare Pages，前后端一体）
-
-1. **创建 Pages 项目**：构建根目录设为 `web/`（或本地 `npm run deploy`）
-2. **绑定资源（Settings → Functions）**：
-   - **D1 database bindings**：变量名 `DB` → 选择 `class-assistant` 数据库
-   - **Environment variables（Secrets）**：`JWT_SECRET`（`openssl rand -hex 32`，不要写进仓库）、`EMAIL_API_KEY`（Resend 的发信密钥，验证码 / 找回密码 / 订阅推送都用它。**两类缺失的后果不同**：验证码类不配则相关接口统一回 503；订阅推送不配则整块静默关闭，发布通知照常，只是不发邮件）。发件域名需先在 Resend 后台完成 SPF/DKIM 验证，发件人可另配 `EMAIL_FROM` 覆盖（默认 `班级助理 <no-reply@class.qxwkstudio.top>`）
-     （`COOKIE_SECRET` 不在 Pages 侧：教务会话的封存密钥只归私有 Worker `class-assistant-private-api` 用）
-3. **统一迁移**：先按[升级说明](docs/数据一致性与部署.md)核对旧库基线并备份；新库和已有基线库都执行 `npm run db:migrate`。迁移完成后发布 Pages，再单独配置并发布投递 Worker。
-4. **自定义域名**：Pages → Custom domains → 添加域名，在域名商把 CNAME 指向 `<项目名>.pages.dev`
-5. **部署**：`cd web; npm install; npm run deploy`（`wrangler pages deploy .`），或关联 git 仓库 push 自动构建
-6. **发版后更新 `version.json` 对应那段**：`version.json` 按端分成 `android` / `harmony` 两段，页面先问原生桥 `CAHost.platform()` 自己是什么端、只读自己那段（纯网页版没有桥，一段都不读）。
-   `build-android.yml` 注入 `version_name` 并产出 APK，发布 Release 后把 `android` 段的 `version`（与该次 `version_name` 一致）与 `url` 改成该版本的稳定直链
-   `https://github.com/AJiang233/Class-Assistant/releases/download/<tag>/<文件名>`。
-   不要填 Release 页上 `release-assets.githubusercontent.com/...` 那种带签名的临时地址（几十分钟即过期）。
-   鸿蒙端发版后同样更新 `harmony` 段（那段对应的代码现在在 `harmony` 分支）。
-   个人中心「关于软件 → 检查更新」只认自己那段的 `version` / `url`：缺一或读不到，页面只提示「检查更新失败」，不会退回 Actions 构建产物页。
-
-> `/api/*` 由 `functions/api/[[path]].js` 接管，静态页面与后端同域，无需 CORS / 反向代理。
-
----
-
-## 安全说明
-
-- 密码使用 Web Crypto PBKDF2（10 万次迭代 + 随机盐），不存明文
-- JWT 密钥只放 Pages Secrets 或本地 `.dev.vars`，**不要写进 `wrangler.toml`**；教务侧的
-  `COOKIE_SECRET` 与 `INTERNAL_TOKEN` 同理由私有 Worker 用 `wrangler secret put` 管理
-- **教务相关的安全约束**（代登录不落密码、绑定必须是本人、会话 Cookie 用 AES-GCM 封存、
-  跳转链白名单、Cookie 域规则、MFA 尝试上限）都随实现挪到了私有仓，各自的用例也在那边
-- **教务服务只能由本站调到**：Service Binding 不走公网，且请求带一个共享的 `INTERNAL_TOKEN`
-  （私有 Worker 侧对没配令牌的请求一律拒绝，fail closed）；那个 Worker 的 `workers_dev`
-  与 preview URL 都是关的，公网上不存在入口
-- 系统预置职位（学生/班长/团支书/学习委员）不允许写入 `roles` 表覆盖全班权限；
-  写入口（`assertCustomRoleName` / `handleCreateRole`）会拒绝，读表时 `buildRoleMap` 也忽略预置名
-  —— 就算库里残留一行同名的（如早期建的「学生」），它也不会叠加到全班同名职位上
-- **邮箱验证码**：6 位数字由 `crypto.getRandomValues` 生成（不用 `Math.random` —— 它可预测，验证码被猜到等于账号被接管）；**一码制**（发新码先删该用户同用途旧码）；**60 秒限发**；**试错上限 5 次**且用原子占坑实现（`UPDATE ... WHERE attempts < 5`，命中行数就是名额），并发下也绕不过去；验过即焚（`used_at`），并发重放只成功一次；错满作废、需重新获取。换邮箱后发给旧邮箱的码立刻失效（按 `email` 比对）
-- **登录失败限流与退避（issue #104）**：学号在班级里是公开信息（成员列表、提醒对象选择器、CSV 导出都有），密码下限又只有 6 位 —— 不设闸的话，拿一份班级名单在线撞库既可行又廉价。现在两道闸都在 `handleLogin` 里、都在查库与 PBKDF2 **之前**（被挡下的请求不再消耗一次 10 万次迭代，否则限流自己就成了 CPU 放大器），实现全在 `models/loginAttemptModel.js`：
-  - **按学号**：连续失败 5 次后开始退避，30s → 2min → 10min → 1 小时封顶；成功登录立刻清零；超过 24 小时没有新的失败则旧账自动失效（偶尔手滑的人不该被几个月前的记录拖累）。**故意不做长期硬锁定**：锁定等于给任何知道同学学号的人一个「把他关在门外」的按钮，退避是上界有限的减速带。截止时间从「最后一次失败」往前推，所以攻击者想一直拖住某人，就得每次退避到期都重打一次，而他每打一次只是把对方续进同一档。计数的键是**请求里原样传来的学号字符串**，库里不存在的学号同样计数退避 —— 否则 `429` 与 `401` 的差异本身就是学号探测器。
-  - **按来源 IP**：同一 IP 在 10 分钟固定窗口内累计 50 次失败后拦下，防的是「一个弱口令喷洒全班」（按学号的退避对「每个账号只试一次」完全无效）。**只计失败、不计成功**：全班挤在同一个校园 NAT 后面是常态，按请求数限流会在早高峰误伤正常登录。IP 只存 SHA-256，不留明文；也**只认 `CF-Connecting-IP`** —— `X-Forwarded-For` 客户端随便写，拿它限流等于换个头就绕过。本地 `wrangler pages dev` 与单测没有这个头，那种场合退化为只有按学号的闸生效。
-  - 响应统一是 `429` + `Retry-After`（整数秒），body 的 `code` 为 `LOGIN_BACKOFF` / `LOGIN_RATE_LIMITED`，`data.retry_after` 与响应头一致；`error` 文案里也写了还要等几秒（前端目前只显示文案，不读响应头）。**残余面**：没接 Turnstile；Cloudflare 免费套餐自带的 WAF 按 IP 限速需要在面板另行配置，规则不进代码（配了就是第三道闸，不配也不影响应用层这两道）；注册接口本来就要求 `user:manage`，没有叠加限流。
-- **管理操作审计（issue #108）**：管理员能重置全班密码、改邮箱、删成员 —— 这些操作如果只有执行没有记录，出了事（误删、代改邮箱、越权）既查不清也没法追责。现在七类操作各写一条 `audit_logs`：`password_reset` / `email_changed` / `member_updated` / `member_deleted` / `role_created` / `role_updated` / `role_deleted`（另留 `settings_updated` 给功能开关）。`detail` 走白名单（`name`/`student_id`/`fields`/`permissions`），只存字段名不存值 —— **密码哈希与邮箱明文都不进日志**，否则审计表自己就成了新的泄密面。写入放在主操作成功之后：先写日志再删人，一旦删失败就会留下「记了但没做」的假账；反过来写入失败只 `console.error`，不回滚主操作（审计不能变成管理员的单点故障）。`target_id` 存字符串而非外键，删掉的成员/职位之后日志仍然完整。读取仅 `user:manage`，普通成员 403。保留 180 天：项目没有 Cron，清理挂在每次写日志之后（`DELETE ... WHERE created_at < datetime('now','-180 days')`），写入频率低，这点成本可忽略。
-- **校方系统访问的风险与边界（issue #105）**：本服务与学校、教务系统、学习通没有任何隶属或授权关系，教务 / 学习通联动是**以你的身份自动化访问校方系统**。这类代访问可能违反学校的管理规定，也可能触发校方风控导致账号被限制或封禁；风险由使用者自行承担，遇到异常请先在网页端手动登录确认账号状态。密码只在本次代登录请求中使用、不落库；服务端只保留 AES-GCM 封存的会话凭据，可随时解绑并清除。手动粘贴 Cookie 等于把该会话交给服务端，请只在自己的设备上操作。绑定前必须勾选「我已了解校方系统自动化访问的风险」（UI 禁用 + 脚本层二次校验，未勾选不会发出请求），勾选状态只在本机 `localStorage` 记一个布尔值；个人中心可随时解绑、停止同步。
-- **找回密码只认「已绑定且已验证」的邮箱**，且未注册 / 未验证一律回同一句成功文案、也不发信 —— 防的是拿这个接口枚举「谁注册过」。**残余面**：同一邮箱连发两次时，真实存在的账号会撞 429 而未注册的不会，试探者据此仍能区分；要堵住得给不存在的邮箱也记限发记录，代价与收益不成比例，已在代码注释里记明、本期不处理
-- **会话失效（改密后旧令牌立即作废）**：改密、忘记密码重置、管理员重置成员密码三处都写 `users.password_changed_at`（Unix 秒），鉴权时拿令牌的 `iat` 与它比。JWT 是无状态的、没有会话表可撤销，这一比就是「轮换会话」的等价物 —— 漏掉任何一条写入，那位用户手上的旧令牌在接下来 7 天里还能继续用。比较用 `<` 不用 `<=`：改密当刻重新签发的令牌与它同秒，必须继续有效。三条路径都有回归用例钉着（`email.test.js` 的「改密后旧令牌立即失效」；其中管理员重置那条是端到端的：拨时钟 → 重置 → 拿旧令牌请求 → 401 `PASSWORD_CHANGED`）
-- **`password_changed_at` 这一列是 `db/migrations/2026-09-19-email.sql` 加的**：迁移没跑的话不只是邮箱功能不可用 —— `userModel.findById` 会去查一个不存在的列，**所有需登录的接口都会 500**。上线前务必确认这条迁移已执行
-- 内容写操作（发布/编辑/删除）与成员管理均按职位鉴权
-- **待办是私人数据（issue #99）**：读写一律以登录态的 `owner_id` 为准，**不读请求体里传的用户 id**，班委/管理员也看不到别人的待办；代加只写不读，撤回要求 `created_by` 是自己、对方尚未完成且 `status='open'`（完成或超时后一律 403），所以代加权限不会被当成删除别人数据的后门
-- **对外请求都带目标约束**（issue #21），三处出口各自钉住，改动时别拆：
-  - **推送端点白名单**：`endpoint` 完全由客户端提供，只校验 `https:` 是不够的 —— 一个指向私网 / 环回 / 云元数据地址的端点存进来后，服务端会带着 VAPID 头去 POST 它（盲 SSRF），而「测试推送」还会把状态码回读给用户（等于端口探测器）。现在订阅时（`pushHandler.validSubscription`）与投递时（`sendWebPush`，两个调用方都走它）都只认 `utils/webpush.js` 的 `PUSH_HOST_SUFFIXES`（fcm.googleapis.com / push.services.mozilla.com / push.apple.com / notify.windows.com）。**每条只写厂商专属的推送区，或实测确认过的那一个主机，别放行混着别的服务的宽域**（比如 `googleapis.com`）；Apple 那条刻意留了整段 `push.apple.com`（Safari 实测端点是 `web.push.apple.com`）—— 清单写窄了的代价是那台设备从此静默收不到通知，而 iOS 最依赖 Web Push；日志里只记主机名，端点路径里的发送凭据不进日志。
-  - **教务接口的同源与跳转白名单**：教务客户端断言 `path` 必须留在教务域（断言放在拼 Cookie 之前），
-    代登录侧另用主机白名单限制「跟到哪」、并限制 Cookie 的 `Domain` 只能是自己或父域且至少 3 段标签。
-    这三条都随实现搬到了私有仓，改动时别拆 —— 拆掉的后果是把教务会话 Cookie 与一次性 ticket 发给链外主机。
-- **表单导出 CSV 防公式注入**：以 `= + - @` 开头的单元格会先加 `'` 中和（导出的是全班学号姓名，Excel 会当公式执行）
-- 前端所有用户输入经 `esc()` 转义，防止 XSS
+- 凭据：PBKDF2 加盐哈希，不存明文；JWT 密钥与前缀配置只在环境变量 / Secrets 里，不进仓库。
+- 会话：改密即作废全部旧令牌；401 统一清会话。
+- 越权：内容归属逐条判定（创建者或 `user:manage`），提醒对象可见性在服务端过滤而不是前端隐藏。
+- 表单：提交时重新校验字段定义、提交名单、关闭状态与截止时间，期间状态变化返回 409 让前端刷新后重提。
+- 第三方：教务 / 学习通 / MOOC 的实际访问（含 CAS 代登录、字段归一化、缓存）都在私有 Worker，本仓库不含这部分实现；调用走 Service Binding，另带 `INTERNAL_TOKEN` 双保险。
+- 邮件与推送：发信走 Resend（`EMAIL_API_KEY`），Web Push 走 VAPID；两者缺配置时相关能力降级而不是把主流程拖垮。
+- 响应头：`_headers` 下发 CSP、`X-Content-Type-Options`、`X-Frame-Options: SAMEORIGIN`、`Referrer-Policy`、HSTS；页面与资源均为 no-cache / must-revalidate，避免「新页面结构配旧样式」。
