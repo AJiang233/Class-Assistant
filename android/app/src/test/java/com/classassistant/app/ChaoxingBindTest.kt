@@ -25,10 +25,15 @@ class ChaoxingBindTest {
     private val cookieJar: String =
         moduleFile("src/main/java/com/classassistant/app/ChaoxingCookieJar.kt").readText()
 
-    /** 学习通小窗那一段（从分隔注释到 onKeyDown 之前） */
+    /**
+     * 学习通小窗那一段（从分隔注释到下一个分隔注释之前）。
+     *
+     * 边界用「中国大学MOOC 登录小窗」而不是 onKeyDown：MOOC 小窗与它同形、断言几乎一样，
+     * 混在同一段里会让这里的检查被隔壁的代码满足，等于没测。
+     */
     private val chaoxing: String =
         main.substringAfter("===== 学习通登录小窗 =====")
-            .substringBefore("override fun onKeyDown")
+            .substringBefore("===== 中国大学MOOC 登录小窗 =====")
 
     @Test
     fun `桥上有学习通小窗和带视图参数的教务登录`() {

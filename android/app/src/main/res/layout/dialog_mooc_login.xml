@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  中国大学MOOC 登录小窗：一个独立 WebView，让用户在弹窗里自己完成 icourse163 登录
+  （登录表单是 reg.icourse163.org 的跨域内嵌页，可能有滑块 / 手机验证码，原生不代填、
+  也不碰主 WebView）。登录成功由原生检测 Cookie 后回调网页，主页面原地不动。
+
+  窗口本身（宽度 / 高度 / 透明背景）在 MainActivity.showMoocLogin 里设置，
+  这里只画内容：圆角卡片 + 标题栏 + WebView + 底部「完成绑定」。
+  结构与 dialog_chaoxing_login 一致，只换了文案与 id —— 两处刻意保持同形，
+  用户在三张绑定卡里看到的是同一套交互。
+-->
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:layout_margin="10dp"
+    app:cardCornerRadius="18dp"
+    app:cardElevation="12dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical">
+
+        <!-- 标题栏：右侧「取消」只回调取消，不导航主 WebView -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="16dp"
+            android:paddingTop="6dp"
+            android:paddingEnd="6dp"
+            android:paddingBottom="2dp">
+
+            <TextView
+                android:id="@+id/moocTitle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="登录中国大学MOOC"
+                android:textSize="17sp"
+                android:textStyle="bold" />
+
+            <!-- 用 Material3 自带的文本按钮样式：Button 会被 inflate 成 MaterialButton，
+                 直接引 @style 而不是 ?attr，编译期就能校验样式存在，避免运行时属性打架 -->
+            <Button
+                android:id="@+id/moocCancelBtn"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minWidth="0dp"
+                android:text="取消" />
+        </LinearLayout>
+
+        <WebView
+            android:id="@+id/moocWebView"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1" />
+
+        <!-- 底部：「完成绑定」在检测到 NTESSTUDYSI 之前保持禁用（见 MainActivity.refreshMoocLoginState） -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingStart="16dp"
+            android:paddingTop="8dp"
+            android:paddingEnd="16dp"
+            android:paddingBottom="12dp">
+
+            <TextView
+                android:id="@+id/moocHint"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="8dp"
+                android:text="请在上方登录中国大学MOOC，登录成功后会回到班级助理"
+                android:textColor="?android:attr/textColorSecondary"
+                android:textSize="12sp" />
+
+            <Button
+                android:id="@+id/moocDoneBtn"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:enabled="false"
+                android:text="完成绑定" />
+        </LinearLayout>
+    </LinearLayout>
+
+</com.google.android.material.card.MaterialCardView>

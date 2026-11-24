@@ -13,6 +13,8 @@ import android.net.Uri
 import android.net.http.SslError
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import android.util.Log
 import android.view.KeyEvent
@@ -128,6 +130,12 @@ class MainActivity : AppCompatActivity() {
     private var chaoxingLogin: ChaoxingLoginState? = null
 
     /**
+     * 中国大学MOOC 登录小窗的运行时状态；null 表示当前没开（也从侧面防重复弹窗）。
+     * 与 [chaoxingLogin] 同一套约定：只在 UI 线程读写。
+     */
+    private var moocLogin: MoocLoginState? = null
+
+    /**
      * 学习通登录小窗的状态。
      *
      * 两个布尔是「只回调一次」的全部依赖：成功与取消共用 delivered，延时自动完成与用户点
@@ -153,6 +161,37 @@ class MainActivity : AppCompatActivity() {
          * 只跳一次，避免页面 / Cookie 异常时在登录页和 /space/index 之间来回打转。
          */
         var sessionHop = false
+    }
+
+    /**
+     * 中国大学MOOC 登录小窗的状态。
+     *
+     * 与 [ChaoxingLoginState] 同一套「只回调一次」的约定（[delivered] 覆盖成功与取消），
+     * 多两样东西：打开时的 Cookie 基线（区分旧会话与本次登录）和登录态轮询定时器
+     * （icourse163 的登录表单在跨域 iframe 里，主框架不一定有 onPageFinished）。
+     */
+    private class MoocLoginState(
+        val dialog: Dialog,
+        val webView: WebView,
+        val doneButton: Button,
+        val hint: TextView
+    ) {
+        /** 是否已检测到 icourse163 登录（Cookie 里出现 NTESSTUDYSI） */
+        var signedIn = false
+
+        /** 是否已经给页面回调过（成功 / 取消都算），防止重复回调 */
+        var delivered = false
+
+        /** 检测到登录后 1.5s 自动完成的延时任务；弹窗关掉后即便醒来也会被身份校验挡掉 */
+        var autoFinish: Runnable? = null
+
+        /** 打开小窗那一刻的 Cookie（可能为 null），用来识别「罐里遗留的旧会话」 */
+        var initialCookie: String? = null
+
+        /** 轮询登录态的定时器；dismiss 时统一 removeCallbacksAndMessages 清掉 */
+        val handler = Handler(Looper.getMainLooper())
+
+        var poll: Runnable? = null
     }
 
     /**
@@ -304,6 +343,20 @@ class MainActivity : AppCompatActivity() {
         fun startChaoxingLogin() {
             if (!fromAppPage()) return
             runOnUiThread { showChaoxingLogin() }
+        }
+
+        /**
+         * 门户点「在 App 内登录中国大学MOOC」：开登录小窗，用户登录完把 Cookie 交回网页
+         * （网页再 POST /api/mooc/bind 上报）。
+         *
+         * 与学习通不同的是**不做服务端代登录**：icourse163 登录链路上有设备指纹、
+         * 滑块 / 手机验证码和 IP 信誉三道门，Worker 侧无法稳定通过（详见方案 A 的结论），
+         * 所以这里只提供一个真浏览器环境，让人自己登。
+         */
+        @JavascriptInterface
+        fun startMoocLogin() {
+            if (!fromAppPage()) return
+            runOnUiThread { showMoocLogin() }
         }
 
         /**
@@ -631,6 +684,8 @@ class MainActivity : AppCompatActivity() {
         // 学习通小窗是独立 Dialog 窗口，Activity 退出时先关掉：dismiss 监听里会销毁内嵌
         // WebView，不留窗口引用、也不会再往已经要死的页面上 evaluate。
         chaoxingLogin?.dialog?.dismiss()
+        // 中国大学MOOC 小窗同理（两个窗口互斥打开，但都可能存在，各自 dismiss 幂等）
+        moocLogin?.dialog?.dismiss()
         releaseWebView()
         super.onDestroy()
     }
@@ -1304,6 +1359,267 @@ class MainActivity : AppCompatActivity() {
         binding.webView.evaluateJavascript(script, null)
     }
 
+    // ===== 中国大学MOOC 登录小窗 =====
+
+    /**
+     * 弹中国大学MOOC 登录小窗：独立 WebView + 桌面 UA，用户在窗口里完成 icourse163 登录，
+     * 原生只负责读回 Cookie 交给网页（网页再 POST /api/mooc/bind 上报）。
+     *
+     * 为什么不代登录：icourse163 的登录表单在 reg.icourse163.org 的跨域 iframe 里，链路上还有
+     * 设备指纹（fl.reg.163.com 的 fp）、滑块 / 手机验证码，以及按出口 IP 信誉触发的二次验证。
+     * 服务端（Cloudflare Worker 的数据中心 IP）过不去这几道门，所以这里只提供一个真浏览器
+     * 环境，登录动作完全交给人 —— 和学习通小窗同形，但原生不代填任何字段。
+     *
+     * 登录成功的判据见 [refreshMoocLoginState]：Cookie 罐里出现 NTESSTUDYSI，且与打开小窗
+     * 那一刻的旧 Cookie 不同（或在登录页之外的页面上检测到）。
+     */
+    @SuppressLint("SetJavaScriptEnabled")
+    private fun showMoocLogin() {
+        if (moocLogin != null) return
+        if (isFinishing || isDestroyed) return
+
+        val view = layoutInflater.inflate(R.layout.dialog_mooc_login, null)
+        val webView = view.findViewById<WebView>(R.id.moocWebView)
+        val doneButton = view.findViewById<Button>(R.id.moocDoneBtn)
+        val hint = view.findViewById<TextView>(R.id.moocHint)
+
+        val dialog = Dialog(this)
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
+        // 窗口背景置透明：圆角 / 底色由布局里的 MaterialCardView 画，暗色主题自动跟随
+        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+        dialog.setContentView(view)
+        // 点遮罩不关：输手机号 / 拉滑块时误触外面就前功尽弃；返回键仍然取消（见 setOnCancelListener）
+        dialog.setCanceledOnTouchOutside(false)
+
+        val moocState = MoocLoginState(dialog, webView, doneButton, hint)
+        // 打开这一刻的 Cookie 就是「登录前」的基线：罐里可能留着上一次（甚至已失效）的
+        // NTESSTUDYSI，不记下来就没法区分「旧会话」和「这次刚登进去」。
+        moocState.initialCookie = moocCookie()
+        moocLogin = moocState
+
+        webView.settings.apply {
+            javaScriptEnabled = true
+            domStorageEnabled = true
+            databaseEnabled = true
+            userAgentString = DESKTOP_UA
+            loadsImagesAutomatically = true
+            // 与学习通小窗同样的理由：登录页没有 viewport meta，桌面 UA 下按桌面宽度排版，
+            // 不打开这两项时 WebView 只显示页面左侧一块，输入框会被裁掉。
+            useWideViewPort = true
+            loadWithOverviewMode = true
+            setSupportZoom(true)
+            builtInZoomControls = true
+            displayZoomControls = false
+            setSupportMultipleWindows(false)
+        }
+        CookieManager.getInstance().apply {
+            setAcceptCookie(true)
+            // 登录表单在 reg.icourse163.org 的跨域 iframe 里，第三方 Cookie 不接就「登录完还是游客」
+            setAcceptThirdPartyCookies(webView, true)
+        }
+
+        webView.webViewClient = object : WebViewClient() {
+            override fun onPageFinished(v: WebView, url: String?) {
+                refreshMoocLoginState(moocState)
+            }
+
+            override fun shouldOverrideUrlLoading(v: WebView, request: WebResourceRequest): Boolean {
+                // 小窗里只留 http(s)；其它协议（支付宝 / 微信 / intent:）交给系统应用，
+                // 否则点了完全没反应
+                if (!isHandledByWebView(request.url)) {
+                    openExternal(request.url)
+                    return true
+                }
+                return false
+            }
+
+            override fun onRenderProcessGone(v: WebView, detail: RenderProcessGoneDetail?): Boolean {
+                // 不处理的话 targetSdk ≥ 26 会直接杀掉整个应用进程；小窗没有重建的意义
+                if (moocLogin === moocState) cancelMoocLogin(moocState)
+                return true
+            }
+        }
+
+        view.findViewById<Button>(R.id.moocCancelBtn).setOnClickListener {
+            cancelMoocLogin(moocState)
+        }
+        doneButton.setOnClickListener {
+            completeMoocLogin(moocState)
+        }
+
+        dialog.setOnCancelListener {
+            cancelMoocLogin(moocState)
+        }
+        dialog.setOnDismissListener {
+            if (moocLogin === moocState) moocLogin = null
+            moocState.autoFinish = null
+            moocState.poll = null
+            moocState.handler.removeCallbacksAndMessages(null)
+            // 先移出视图树再 destroy，否则 WebView 会留下窗口引用（Android 的明确要求）
+            (moocState.webView.parent as? ViewGroup)?.removeView(moocState.webView)
+            moocState.webView.apply {
+                stopLoading()
+                webChromeClient = null
+                destroy()
+            }
+        }
+
+        dialog.show()
+        dialog.window?.setLayout(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            (resources.displayMetrics.heightPixels * MOOC_DIALOG_HEIGHT_RATIO).toInt()
+        )
+        dialog.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+        webView.loadUrl(MOOC_LOGIN_URL)
+
+        // 登录表单跑在跨域 iframe 里：iframe 内部的跳转不触发主框架的 onPageFinished，
+        // 登录成功后顶层页面也可能只是脚本改写、不发导航。所以再加一条定时轮询兜底，
+        // 保证「登录完了但小窗没反应」不会发生。窗口关掉时在 dismiss 里统一清掉。
+        val poll = object : Runnable {
+            override fun run() {
+                if (moocLogin !== moocState || moocState.delivered) return
+                refreshMoocLoginState(moocState)
+                moocState.handler.postDelayed(this, MOOC_POLL_MS)
+            }
+        }
+        moocState.poll = poll
+        moocState.handler.postDelayed(poll, MOOC_POLL_MS)
+    }
+
+    /**
+     * 检测是否已经登录 icourse163。
+     *
+     * 判据是 Cookie（不是 URL）：登录成功后 NTESSTUDYSI 一定落到 Cookie 罐里，而顶层页面
+     * 可能由脚本改写、未必发一次导航。两个来源会让「登录」和「旧会话」混淆，这里都挡掉：
+     *
+     * 1. 还在登录页上（www/member/login.htm 或 reg.icourse163.org）时，只有 Cookie 与打开
+     *    小窗时的基线不同才算登录成功 —— 否则罐里那份旧凭据会让小窗一打开就自动关；
+     * 2. 已经离开登录页（跳回 www 首页或课程页），Cookie 有 NTESSTUDYSI 就算登录成功。
+     *
+     * 检测到就启用按钮并等 [MOOC_AUTO_FINISH_MS] 自动完成（与教务 / 学习通一致）。
+     */
+    private fun refreshMoocLoginState(moocState: MoocLoginState) {
+        if (moocLogin !== moocState || moocState.delivered || moocState.signedIn) return
+        val cookie = moocCookie() ?: return
+        val onLoginPage = isMoocLoginPage(moocState.webView.url)
+        if (onLoginPage && cookie == moocState.initialCookie) return
+        markMoocSignedIn(moocState)
+    }
+
+    /** 登录态已就绪：启用按钮并延后自动完成。 */
+    private fun markMoocSignedIn(moocState: MoocLoginState) {
+        if (moocLogin !== moocState || moocState.delivered || moocState.signedIn) return
+        moocState.signedIn = true
+        moocState.doneButton.isEnabled = true
+        moocState.hint.text = "已检测到中国大学MOOC 登录，正在返回…"
+        val auto = Runnable { completeMoocLogin(moocState) }
+        moocState.autoFinish = auto
+        moocState.dialog.window?.decorView?.postDelayed(auto, MOOC_AUTO_FINISH_MS)
+    }
+
+    /**
+     * 用户点「完成绑定」（或检测到登录后自动触发）：把 Cookie 交给网页，然后关窗。
+     *
+     * 再读一次 Cookie：从检测成功到点按钮之间用户可能已经在 icourse163 里点了退出。
+     */
+    private fun completeMoocLogin(moocState: MoocLoginState) {
+        if (moocLogin !== moocState || moocState.delivered) return
+        val cookie = moocCookie()
+        if (cookie == null) {
+            moocState.signedIn = false
+            moocState.doneButton.isEnabled = false
+            moocState.hint.text = "还没检测到中国大学MOOC 登录，请先完成登录"
+            return
+        }
+        moocState.delivered = true
+        evaluateMoocCookies(cookie)
+        moocState.dialog.dismiss()
+    }
+
+    /**
+     * 用户取消（「取消」按钮 / 返回键 / 渲染进程崩溃）：只回调取消并关窗，不导航主 WebView。
+     * 已经回调过就不再回调（例如点了取消之后 dismiss 又触发一次）。
+     */
+    private fun cancelMoocLogin(moocState: MoocLoginState) {
+        if (moocLogin === moocState && !moocState.delivered) {
+            moocState.delivered = true
+            evaluateMoocCancel()
+        }
+        moocState.dialog.dismiss()
+    }
+
+    /**
+     * 汇总 icourse163 登录 Cookie；只有出现 `NTESSTUDYSI` 才算已登录，否则返回 null。
+     *
+     * NTESSTUDYSI 是所有 `/web/j/` 下 `*.rpc` 的 csrfKey（服务端 moocApi.js 的 csrfKeyOf 直接取它，
+     * 没有就抛 MoocSessionExpired），所以它是「能不能读数据」的唯一硬门槛；STUDY_INFO 只影响
+     * 展示的账号名，缺了不影响绑定。合并规则见 [MoocCookieJar]。
+     */
+    private fun moocCookie(): String? {
+        val manager = CookieManager.getInstance()
+        val cookie = MoocCookieJar.merge(MoocCookieJar.ORIGINS.map { manager.getCookie(it) })
+        return if (MoocCookieJar.hasLogin(cookie)) cookie else null
+    }
+
+    /**
+     * 是不是 icourse163 的登录入口页：`/member/login.htm`，以及登录表单所在的
+     * reg.icourse163.org。登录页本身绝不算登录成功（否则罐里的旧 Cookie 会让小窗一开就关）。
+     */
+    private fun isMoocLoginPage(url: String?): Boolean {
+        if (url.isNullOrBlank()) return true
+        val uri = Uri.parse(url)
+        val host = uri.host?.lowercase()
+        if (host == "reg.$MOOC_HOST") return true
+        val path = uri.path ?: return false
+        return path.startsWith("/member/login")
+    }
+
+    /**
+     * 把 icourse163 Cookie 交回网页。
+     *
+     * 与学习通一样两处都试：回调可能挂在顶层窗口，也可能挂在个人中心那个 iframe
+     * （`#frameAccount`）里。Cookie 只经 evaluateJavascript 传递，不写日志、不落盘。
+     */
+    private fun evaluateMoocCookies(cookie: String) {
+        val script = """
+            (function(){
+              var c = ${JSONObject.quote(cookie)};
+              function call(w){
+                try {
+                  if (w && typeof w.__caMoocCookies === 'function') { w.__caMoocCookies(c); return true; }
+                } catch (e) {}
+                return false;
+              }
+              if (call(window)) return;
+              try {
+                var f = document.getElementById('frameAccount');
+                if (f && f.contentWindow) call(f.contentWindow);
+              } catch (e) {}
+            })();
+        """.trimIndent()
+        evaluateOnPortal(script)
+    }
+
+    /** 通知网页「用户取消了 MOOC 绑定」；页面没有这个函数就静默（下次打开自己读状态） */
+    private fun evaluateMoocCancel() {
+        val script = """
+            (function(){
+              function call(w){
+                try {
+                  if (w && typeof w.__caMoocCancel === 'function') { w.__caMoocCancel(); return true; }
+                } catch (e) {}
+                return false;
+              }
+              if (call(window)) return;
+              try {
+                var f = document.getElementById('frameAccount');
+                if (f && f.contentWindow) call(f.contentWindow);
+              } catch (e) {}
+            })();
+        """.trimIndent()
+        evaluateOnPortal(script)
+    }
+
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         if (keyCode == KeyEvent.KEYCODE_BACK) {
             // 教务登录中途返回 = 放弃绑定，直接回门户（也是 issue #29 之后唯一的退出口：
@@ -1377,6 +1693,25 @@ class MainActivity : AppCompatActivity() {
 
         /** 登录小窗高度占屏幕的比例（桌面 UA 渲染的页面需要够宽够高） */
         const val CHAOXING_DIALOG_HEIGHT_RATIO = 0.9f
+
+        /**
+         * 中国大学MOOC 登录小窗的入口。用 www 的 `/member/login.htm`（而不是 reg 的登录页）：
+         * 它是 icourse163 自己的外壳页，登录表单由它嵌 reg.icourse163.org 的跨域 iframe，
+         * 登录完成后页面自己跳回 www 首页 —— 用户看到的是熟悉的那个登录界面。
+         */
+        const val MOOC_LOGIN_URL = "https://www.icourse163.org/member/login.htm"
+
+        /** icourse163 主域（www / reg / m 都是它的子域），用于判断登录页与 Cookie 归属 */
+        const val MOOC_HOST = "icourse163.org"
+
+        /** 轮询登录态间隔：iframe 里的登录不触发主框架回调，用轮询兜底 */
+        const val MOOC_POLL_MS = 1200L
+
+        /** 检测到登录后等这么久自动完成，给页面的跳转 / 埋点留一点时间 */
+        const val MOOC_AUTO_FINISH_MS = 1500L
+
+        /** 登录小窗高度占屏幕的比例（与学习通一致：桌面 UA 的登录页需要够高） */
+        const val MOOC_DIALOG_HEIGHT_RATIO = 0.9f
 
         /**
          * 页面探针：每 250ms 探一次，通过 CAHost 桥把三件事回传给原生层 ——

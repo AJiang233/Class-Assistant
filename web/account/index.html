@@ -395,12 +395,12 @@
             </div>
             </div><!-- /#paneProfile -->
 
-            <!-- 账号绑定：教务系统与学习通并排两张卡，中国大学MOOC 单独一张整宽卡。
-                 MOOC 只有「粘贴 Cookie」一条路（服务端不支持账号密码代登录），所以不做
-                 App 登录 / 密码入口，单独放一行也避免三张窄卡把入口挤成两行字。
+            <!-- 账号绑定：教务系统与学习通并排两张卡，中国大学MOOC 单独一张整宽卡（三处入口
+                 都带说明文字，单独一行比三张窄卡挤成两行更好读）。
                  登录/换绑统一走 #accountBindModal，状态由 account.js 调 /api/academic/status、
                  /api/chaoxing/status 与 /api/mooc/status 填充。
-                 App 内「登录」由原生小窗打开学校/学习通真实登录页，登录后原生把 Cookie 回传本页。 -->
+                 App 内「登录」由原生小窗打开学校 / 学习通 / 中国大学MOOC 的真实登录页，登录后
+                 原生把 Cookie 回传本页；网页版读不到别家 Cookie，退回密码或粘贴 Cookie。 -->
             <div id="paneBinding" class="account-pane" role="tabpanel" aria-labelledby="accountTabBinding" hidden>
                 <p class="bind-flash" id="bindFlash" hidden></p>
                 <div class="bind-grid">
@@ -433,9 +433,10 @@
                     </section>
                 </div>
 
-                <!-- 中国大学MOOC：icourse163.org 没有可用的账号密码代登录（登录页是 SPA iframe，
-                     表单接口早就不认了），唯一可靠的绑定方式是复制浏览器登录后的 Cookie。
-                     因此这张卡只有「粘贴 Cookie / 解绑」，不出现 App 登录与密码入口。 -->
+                <!-- 中国大学MOOC：没有可用的账号密码代登录（登录页是 reg.icourse163.org 的 SPA
+                     iframe）。只提供两条路：App 内用原生小窗打开真实登录页（登录完成自动回传
+                     Cookie），网页版复制浏览器登录后的 Cookie 粘贴。主次按钮与文案由
+                     account.js 的 bindNativeMooc() 决定，页面里只留容器。 -->
                 <section class="profile-card bind-card bind-card-mooc" aria-labelledby="moocBindTitle">
                     <div class="bind-card-head">
                         <span class="bind-logo bind-logo-mooc" aria-hidden="true">慕</span>
@@ -449,7 +450,7 @@
                         <p class="bind-hint">正在读取绑定状态…</p>
                     </div>
                 </section>
-                <p class="bind-footnote">账号绑定仅用于以你的身份读取课表、成绩、课程等只读数据，不会替你选课或提交作业。教务系统在 App 内由学校真实登录页完成登录；学习通在 App 内打开登录小窗，登录成功后只把 Cookie 交给服务端，网页版无法跨域读取学习通 Cookie，因此提供密码登录与粘贴 Cookie 两种兜底。中国大学MOOC 不支持账号密码代登录，请先在浏览器登录 www.icourse163.org，再把 Cookie 整条粘贴到绑定弹窗里；服务端会先读一次课程列表验证登录态，验证通过才保存。姓名比对是弱校验（学习通可能不返回姓名），绑定后随时可在本页解绑。</p>
+                <p class="bind-footnote">账号绑定仅用于以你的身份读取课表、成绩、课程等只读数据，不会替你选课或提交作业。教务系统在 App 内由学校真实登录页完成登录；学习通在 App 内打开登录小窗，登录成功后只把 Cookie 交给服务端，网页版无法跨域读取学习通 Cookie，因此提供密码登录与粘贴 Cookie 两种兜底。中国大学MOOC 在 App 内同样是原生小窗打开真实登录页，登录完成后由原生把 Cookie 交回页面；网页版读不到 icourse163 的 Cookie，请在浏览器登录 www.icourse163.org 后把 Cookie 整条粘贴到绑定弹窗里。两条路都会由服务端先读一次课程列表验证登录态，验证通过才保存。姓名比对是弱校验（学习通可能不返回姓名），绑定后随时可在本页解绑。</p>
             </div>
         </div>
 

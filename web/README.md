@@ -366,7 +366,9 @@ App 壳通过注入的 `CAHost` 提供网页拿不到的能力；网页侧全部
 | 通知 | `testNotification`、`backgroundStatus`、`setBackgroundAlwaysOn` |
 | 提醒 | `courseReminderSettings` / `saveCourseReminderSettings`、`todoReminderSettings` / `saveTodoReminderSettings`、`todoChanged` |
 | 系统设置跳转 | `openAutoStartSettings`、`openBatterySettings`、`requestIgnoreBatteryOptimizations` |
-| 绑定 | `startAcademicLogin` / `startAcademicLoginFor`、`startChaoxingLogin` |
+| 绑定 | `startAcademicLogin` / `startAcademicLoginFor`、`startChaoxingLogin`、`startMoocLogin` |
+
+绑定类桥的特点是「原生打开真实登录页 → 用户自己完成人机验证 → 原生把 Cookie 经 `window.__ca*Cookies(...)` 交回网页 → 网页调 `POST /api/*/bind` 落库」，原生不代填、不代登录、不做上报；取消走 `window.__ca*Cancel()`。MOOC 只有这一条与「网页版粘贴 Cookie」共存的路径 —— 账号密码代登录要过设备指纹 + 滑块验证码 + IP 信誉三道门，Worker 出口是数据中心 IP，必然更容易被要求验证码，所以没做（详见 `android/README.md` 的「中国大学MOOC 绑定」）。
 
 ---
 

@@ -212,6 +212,33 @@ if (window.top === window) {
   };
 }
 
+/**
+ * 中国大学MOOC 登录小窗的 Cookie 回传，与上面的学习通是同一套转发。
+ *
+ * 原生只把 evaluateJavascript 执行在**顶层文档**（个人页在 #frameAccount 里），所以 Android 的
+ * startMoocLogin() 成功后调 window.__caMoocCookies(cookie) 时，顶层这个转发函数把整条 Cookie
+ * 交给 iframe 里的同名回调；用户取消走 __caMoocCancel（关掉「正在绑定」弹窗并提示已取消）。
+ * 不做任何解析或上报：Cookie 只往页面里递，落库仍由页面调 POST /api/mooc/bind 完成。
+ */
+if (window.top === window) {
+  window.__caMoocCookies = function (cookies) {
+    try {
+      var f = document.getElementById('frameAccount');
+      if (f && f.contentWindow && f.contentWindow.__caMoocCookies) {
+        f.contentWindow.__caMoocCookies(cookies);
+      }
+    } catch (e) { /* frame 还没加载：忽略 */ }
+  };
+  window.__caMoocCancel = function () {
+    try {
+      var f = document.getElementById('frameAccount');
+      if (f && f.contentWindow && f.contentWindow.__caMoocCancel) {
+        f.contentWindow.__caMoocCancel();
+      }
+    } catch (e) { /* frame 还没加载：忽略 */ }
+  };
+}
+
 /* ===== 网页版离线 API 缓存（IndexedDB）=====
    安卓 / 鸿蒙 App 里，/api/ 的只读响应由原生层缓存回放（见 android 的 sync/OfflineApi
    与 data/OfflineCache）；浏览器里没有这一层，而 sw.js 又是**刻意**不碰 /api/ 的

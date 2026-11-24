@@ -74,7 +74,7 @@ cd android
 
 - WebView 套壳加载线上门户：登录态持久化、下拉刷新（仅在页面置顶时触发）、返回键回退；站内与教务域留在 WebView，其它外链（含 APK 下载）交给系统浏览器
 - **系统栏配色**：状态栏 / 导航栏跟随网页底色（浅色 / 深色各自适配，图标明暗自动切换）
-- **JS 桥 `CAHost`**：`setToken` / `setPullRefreshReady` / `setTheme` / `startAcademicLogin` / `startAcademicLoginFor` / `startChaoxingLogin` / `platform` / `appVersion` / `appStatus` / `testNotification` —— 与鸿蒙端同一套契约（网页按字面量调用，所以 R8 的 keep 规则不能少，见下面「体积与混淆」）。**桥只挂在本站文档上**：离开门户 host（教务 / CAS 域）时 `removeJavascriptInterface`，回到本站再挂回来，判定与桥方法开头的 `fromAppPage()` 共用 `isAppOrigin`（主机精确相等，不放宽子域）—— 外部页面上拿到的不是「调了被拒」而是根本没有这个对象，不再依赖「`currentUrl` 与正在执行的文档一致」这个前提（issue #28）
+- **JS 桥 `CAHost`**：`setToken` / `setPullRefreshReady` / `setTheme` / `startAcademicLogin` / `startAcademicLoginFor` / `startChaoxingLogin` / `startMoocLogin` / `platform` / `appVersion` / `appStatus` / `testNotification` —— 与鸿蒙端同一套契约（网页按字面量调用，所以 R8 的 keep 规则不能少，见下面「体积与混淆」）。**桥只挂在本站文档上**：离开门户 host（教务 / CAS 域）时 `removeJavascriptInterface`，回到本站再挂回来，判定与桥方法开头的 `fromAppPage()` 共用 `isAppOrigin`（主机精确相等，不放宽子域）—— 外部页面上拿到的不是「调了被拒」而是根本没有这个对象，不再依赖「`currentUrl` 与正在执行的文档一致」这个前提（issue #28）
 - **通知深链**：点提醒直达对应活动 / 通知详情，App 未打开（冷启动读启动 Intent）与已在运行（`onNewIntent`）都生效；表单在 App 里没有列表页，通知直接开网页填写页（`/affairs/forms.html?id=`，与 Web Push 同一个落地页）
 
 ### 本地提醒与通知
@@ -138,6 +138,14 @@ cd android
 - **「登录好了」怎么判**：当前页在学习通域内（`chaoxing.com` 及所有子域）**且** `CookieManager.getCookie("https://i.chaoxing.com")` 里出现 `_uid`，两者缺一不可。只看 URL 不行（passport2 是第一页，谁打开都在那个域上），只看 Cookie 也不行（用户可能刚在别处退出了学习通）。检测到后启用「完成绑定」并等 1.5 s 自动完成 —— 用户多半以为登录完自己会回去。Cookie 可能正被学习通自己改写，所以点「完成绑定」时**再读一次**，读不到就把按钮退回禁用、留在小窗里重新登录
 - **只回调一次**：成功 `window.__caChaoxingCookies('<JSON 字符串形式的 Cookie>')`、取消 `window.__caChaoxingCancel()`，都由原生 `evaluateJavascript` 调用。个人中心跑在 `#frameAccount` iframe 里，顶层拿不到它的函数，所以两个位置都试、谁先接住算谁的（先顶层、再 iframe）。两个布尔（`signedIn` / `delivered`）挡住「自动完成撞上用户点取消」这类重复回调；小窗 dismiss 时先 `removeView` 再 `destroy()` 内嵌 WebView，Activity 退出时也先关小窗 —— 不留窗口引用，也不会往要死的页面上 evaluate
 - **Cookie 不落日志**：原生侧只把它经 `evaluateJavascript` 交给网页，不写日志、不落盘（绑定是否有效由后端校验），也没有额外权限 —— 读的就是 WebView 自己的 Cookie 罐
+
+### 中国大学MOOC 绑定
+
+- **为什么不代登录**：icourse163 的账号密码登录链路（`/dl/zj/yd/ini → /gt → /pwd/l`）技术上能复刻 —— `encParams` 是 SM4（密钥硬编码在前端 JS 里），密码单独 RSA-1024，都实测能算出与浏览器逐字节一致的密文。但后面还有三道不可控的门：设备指纹（`fl.reg.163.com` 的 `fingerprint2`，连带 `utid` / `rtid` 一起算风险）、验证码（`ret 805/806` 的 AI 滑块或点选）、IP 信誉（Worker 出口是 Cloudflare 数据中心 IP，比家宽更容易被判可疑）。一旦弹验证码，体验就比学习通差，且要概率性可用 + 对抗性维护 + 多存一份密码。所以 **MOOC 只走真实登录页抓 Cookie**，与本文件里的「教务 / 学习通」同一个形态、零对抗
+- **小窗怎么开**：`CAHost.startMoocLogin()` 弹独立 Dialog（`res/layout/dialog_mooc_login.xml`），内嵌**另开的 WebView**（桌面 UA、开第三方 Cookie、宽视口、九成屏高），打开 `https://www.icourse163.org/member/login.htm`。**第三方 Cookie 必须开**：登录表单本身跑在跨域的 `reg.icourse163.org` iframe 里，不开的话登录完 `www` 这一侧拿不到票
+- **「登录好了」怎么判**：判据是 Cookie 罐里**出现 `NTESSTUDYSI`**，而不是当前 URL 离开登录页。原因是 iframe 登录成功时顶层文档可能根本不发导航（表单在 `reg` 子域里提交），只看 URL 会一直等下去。具体做法：开窗时先记下当前 Cookie 串当基线，`onPageFinished` 与每 `MOOC_POLL_MS`（1.2 s）一次的轮询都读一次；**只有在登录页上且 Cookie 与基线完全一致时才继续等**（防「罐里本来就有上一次的登录态」一开窗就误判），一旦变了就认定登录成功。检测到后启用「完成绑定」并等 1.5 s 自动完成，点按钮时**再读一次**，读不到就把按钮退回禁用、留在小窗里继续登录
+- **Cookie 怎么拼**：`MoocCookieJar.merge()` 把 `www` / `reg` / `m` 三个来源按 name 去重合并，**`www` 放第一位** —— 后端所有 `.rpc` 都向 `www.icourse163.org` 发，`csrfKey` 取的就是这一域的 `NTESSTUDYSI`。`JSESSIONID` / `route` 是主机级会话号，只保留第一个来源里的，不跨子域搬。`hasLogin()` 只认 `NTESSTUDYSI=`（不要求 `STUDY_INFO`：它只用来显示账号名，缺了照样能读课程，绑定接口会先拉一次课程列表验证，失败回 `MOOC_EXPIRED`）
+- **回调与生命周期**：成功 `window.__caMoocCookies('<JSON 字符串形式的 Cookie>')`、取消 `window.__caMoocCancel()`，顶层与 `#frameAccount` iframe 两处都试；`signedIn` / `delivered` 挡重复回调；dismiss 时清掉轮询与自动完成这两条 `postDelayed`（`handler.removeCallbacksAndMessages(null)`）再 `removeView` / `destroy()`；Activity 退出时先关小窗。Cookie 同样不落日志、不落盘
 
 ### 体积与混淆
 
