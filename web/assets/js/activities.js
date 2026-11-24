@@ -313,6 +313,9 @@ delegate(document, 'click', '[data-act="del-activity"]', function (el) { deleteA
 delegate(document, 'click', '[data-act="activity-detail"]', function (el) { showDetail(el.getAttribute('data-id')); });
 delegate(document, 'click', '[data-act="add-todo-from-source"]', function (el) { addTodoFromSource(el); });
 
+// 班级事务子标签（issue #95）：通知/活动合并成一个导航项，页内切换
+initAffairsTabs('activities');
+
 var deepActivityId = new URLSearchParams(location.search).get('id');
 if (deepActivityId) showDetail(deepActivityId);
 })();

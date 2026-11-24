@@ -12,6 +12,29 @@ var FRAME_KEYS = { academic: 'frameAcademic', activities: 'frameActivities', not
 // 会写它，若声明留在初始化之后，那句 `var currentView = 'home'` 会把深链视图重置成主页。
 var currentView = 'home';
 
+// 班级事务（issue #95）：通知与活动在导航上合并为一项，但实际仍是两个子页。
+// 记住上次看的是哪一块，点「班级事务」时落回同一块，而不是每次都被拽回通知。
+// 用 sessionStorage：同一个标签页里有效，关掉 App 重进从头开始，符合「上次看到哪」的语义。
+var AFFAIRS_TAB_KEY = 'caAffairsTab';
+function lastAffairsTab() {
+    try { return sessionStorage.getItem(AFFAIRS_TAB_KEY) === 'activities' ? 'activities' : 'notices'; }
+    catch (e) { return 'notices'; }
+}
+function rememberAffairsTab(key) {
+    if (key !== 'notices' && key !== 'activities') return;
+    try { sessionStorage.setItem(AFFAIRS_TAB_KEY, key); } catch (e) {}
+}
+
+/** 给 iframe 指定 src，并挂一次 load 监听。预载（隐藏）的页面也要挂：等它显示时 load
+ *  早就过去了，再挂就绑不上 iframe 内部的滑动切页。data-loaded 只表示「src 已指定」。 */
+function loadFrame(k, src) {
+    var f = document.getElementById(FRAME_KEYS[k]);
+    if (!f || f.getAttribute('data-loaded') === '1') return;
+    f.setAttribute('data-loaded', '1');
+    f.addEventListener('load', function () { bindFrameSwipe(f); });
+    f.src = src || (k + '.html');
+}
+
 // ===== 视图历史（安卓返回键 / 浏览器后退） =====
 // 门户是单页壳：切视图只是翻一下 iframe 的 hidden，浏览器历史里不留记录。安卓壳的
 // MainActivity.onKeyDown 只在 webView.canGoBack() 为真时 goBack()，否则把按键交还系统 ——
@@ -113,15 +136,15 @@ window.addEventListener('popstate', onHistoryPop);
     try {
         var params = new URLSearchParams(window.location.search);
         var v = params.get('view');
-        if (v && ['academic', 'activities', 'notices', 'todos', 'account', 'admin'].indexOf(v) >= 0) target = v;
+        if (v && ['academic', 'activities', 'notices', 'affairs', 'todos', 'account', 'admin'].indexOf(v) >= 0) target = v;
         deepId = params.get('id') || '';
     } catch (e) {}
+    // ?view=affairs 是导航别名，落到上次看的子页；历史里记的也应是真实子页
+    if (target === 'affairs') target = lastAffairsTab();
     // ?view=notices&id=123 深链（App 点提醒会带过来）：先把 iframe 的 src 指到带 id 的地址，
-    // 再切视图；标记 data-loaded 是为了让 switchView 不要再覆盖 src。子页自己读 ?id= 开详情。
+    // 再切视图。子页自己读 ?id= 开详情。
     if (authed && deepId && (target === 'notices' || target === 'activities')) {
-        var deepFrame = document.getElementById(FRAME_KEYS[target]);
-        deepFrame.src = target + '.html?id=' + encodeURIComponent(deepId);
-        deepFrame.setAttribute('data-loaded', '1');
+        loadFrame(target, target + '.html?id=' + encodeURIComponent(deepId));
     }
     // 先把入口这条记录钉成「主页」，再把深链视图作为新记录压上去 —— 深链进来时
     // 按一次返回也是回主页，而不是退出 App（实现见上面「视图历史」）。
@@ -178,11 +201,15 @@ function switchView(key, slideDir) {
     // 权限闸门：未登录只放行 home/login；管理员面板只对能管理的人开。侧栏入口是按权限
     // 藏的，但 ?view=admin 深链与滑动切页都不经过那个入口，所以闸门钉在这里（同 resolveView）
     key = resolveView(key);
+    // 「班级事务」是导航别名：真正显示的仍是通知/活动子页，落回上次看的那一块
+    if (key === 'affairs') key = lastAffairsTab();
     currentView = key;
-    // 当前应高亮的导航项：未登录显示登录视图时，"个人中心"保持高亮
-    var navKey = key === 'login' ? 'account' : key;
+    rememberAffairsTab(key);
+    // 当前应高亮的导航项：通知/活动算同一个「班级事务」；未登录显示登录视图时，"个人中心"保持高亮
+    var navKey = key === 'login' ? 'account'
+        : ((key === 'notices' || key === 'activities') ? 'affairs' : key);
     // 侧边栏 active 状态
-    ['home', 'academic', 'activities', 'notices', 'todos', 'account', 'admin'].forEach(function (k) {
+    ['home', 'affairs', 'todos', 'academic', 'account', 'admin'].forEach(function (k) {
         var el = document.getElementById('nav' + k.charAt(0).toUpperCase() + k.slice(1));
         if (el) el.classList.toggle('active', k === navKey);
     });
@@ -198,19 +225,16 @@ function switchView(key, slideDir) {
     var isLogin = key === 'login';
     document.getElementById('homeView').hidden = !isHome;
     document.getElementById('loginView').hidden = !isLogin;
+    // 班级事务的两个子页一起预载：页内子标签互相切换时不用再等 iframe 首次加载。
+    // 只填 src、不改 hidden，显隐仍交给下面统一的循环。
+    if (key === 'notices' || key === 'activities') {
+        ['notices', 'activities'].forEach(function (k) { loadFrame(k); });
+    }
     for (var fk in FRAME_KEYS) {
         var f = document.getElementById(FRAME_KEYS[fk]);
         var show = !isHome && !isLogin && fk === key;
         f.hidden = !show;
-        if (show && f.getAttribute('data-loaded') !== '1') {
-            f.src = fk + '.html';
-            f.setAttribute('data-loaded', '1');
-        }
-        // iframe 内的触摸不会冒泡到主壳，同源下挂到其文档上才能收到手势
-        if (show && f.getAttribute('data-swipe') !== '1') {
-            f.setAttribute('data-swipe', '1');
-            f.addEventListener('load', function () { bindFrameSwipe(this); });
-        }
+        if (show) loadFrame(fk);
     }
     if (isHome) {
         document.getElementById('homeView').scrollTop = 0;

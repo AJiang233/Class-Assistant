@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <title>班级活动 - 班级助理</title>
-    <meta name="description" content="班级助理：班级活动列表与详情。">
+    <title>班级事务 - 班级助理</title>
+    <meta name="description" content="班级助理：班级通知与班级活动列表及详情。">
     <meta name="color-scheme" content="light dark">
     <meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#07070c" media="(prefers-color-scheme: dark)">
@@ -26,8 +26,15 @@
         <div class="container">
             <div id="listView">
                 <div class="page-head">
-                    <h1 class="page-title">班级活动</h1>
-                    <p class="page-desc">班级活动的安排、地点与时间，按「正在进行 / 将要开始 / 已经结束」分类展示。</p>
+                    <h1 class="page-title">班级事务</h1>
+                    <p class="page-desc">班级通知与班级活动的安排都在这里，按「正在进行 / 将要开始 / 已经结束」分类展示。</p>
+                </div>
+
+                <!-- 子标签：班级通知 / 班级活动（issue #95，通知与活动合并为班级事务） -->
+                <div class="tabs ac-seg" id="affairsSeg">
+                    <span class="tab-pill" id="affairsSegPill" aria-hidden="true"></span>
+                    <button type="button" class="tab" data-affairs-tab="notices">班级通知</button>
+                    <button type="button" class="tab" data-affairs-tab="activities">班级活动</button>
                 </div>
 
                 <div id="activityListView"></div>

@@ -269,6 +269,55 @@ function delegate(root, type, selector, handler) {
   });
 }
 
+/* ===== 班级事务子标签（通知 / 活动共用，issue #95）=====
+   两个页面仍各是一份独立文档，页内只放同一套分段控件：点另一个标签时交给外壳
+   switchView 换 iframe（外壳已把两页一起预载好）；不在外壳里直接打开子页时，
+   退化成整页跳到外壳的对应视图。 */
+function initAffairsTabs(active) {
+  var seg = document.getElementById('affairsSeg');
+  if (!seg) return;
+  var current = active === 'activities' ? 'activities' : 'notices';
+  var btns = seg.querySelectorAll('[data-affairs-tab]');
+  for (var i = 0; i < btns.length; i++) {
+    btns[i].classList.toggle('active', btns[i].getAttribute('data-affairs-tab') === current);
+  }
+  moveAffairsPill();
+  seg.addEventListener('click', function (e) {
+    // 被点的可能是按钮里的文字，往上找到带 data-affairs-tab 的那个按钮
+    var btn = e.target;
+    while (btn && btn !== seg && !btn.getAttribute('data-affairs-tab')) btn = btn.parentNode;
+    if (!btn || btn === seg) return;
+    var tab = btn.getAttribute('data-affairs-tab');
+    if (tab !== current) openAffairsTab(tab);
+  });
+  window.addEventListener('resize', moveAffairsPill);
+}
+
+/** 切到另一块事务页：优先让外壳换 iframe（保留导航与返回历史），否则整页跳转 */
+function openAffairsTab(tab) {
+  var target = tab === 'activities' ? 'activities' : 'notices';
+  try {
+    if (window.top && window.top !== window && typeof window.top.switchView === 'function') {
+      window.top.switchView(target);
+      return;
+    }
+  } catch (e) { /* 跨域或被阻止时退回整页跳转 */ }
+  window.location.href = 'index.html?view=' + target;
+}
+
+/** 滑块：与学业页子标签、移动端底栏同一套弹簧动画，位置按激活项实测写入 */
+function moveAffairsPill() {
+  var pill = document.getElementById('affairsSegPill');
+  if (!pill) return;
+  var active = pill.parentNode.querySelector('.tab.active');
+  if (!active || !active.offsetWidth) { pill.style.opacity = '0'; return; }
+  pill.style.left = active.offsetLeft + 'px';
+  pill.style.top = active.offsetTop + 'px';
+  pill.style.width = active.offsetWidth + 'px';
+  pill.style.height = active.offsetHeight + 'px';
+  pill.style.opacity = '1';
+}
+
 /** 取某个提醒选择区中「属于指定职位」的成员复选框 */
 function _remindByPosition(boxId, pos) {
   const box = document.getElementById(boxId);
