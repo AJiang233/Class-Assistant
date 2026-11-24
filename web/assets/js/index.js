@@ -8,6 +8,70 @@ var activeDate = null;
 // 所以必须声明在初始化之前：靠 var 提升拿到的是 undefined，会导致 ?view=xxx 抛错、白屏。
 var FRAME_KEYS = { academic: 'frameAcademic', activities: 'frameActivities', notices: 'frameNotices', todos: 'frameTodos', account: 'frameAccount', admin: 'frameAdmin' };
 
+// 当前视图（供移动端左右滑动判断相邻页）。同样必须在初始化之前赋值：init 里的 switchView
+// 会写它，若声明留在初始化之后，那句 `var currentView = 'home'` 会把深链视图重置成主页。
+var currentView = 'home';
+
+// ===== 视图历史（安卓返回键 / 浏览器后退） =====
+// 门户是单页壳：切视图只是翻一下 iframe 的 hidden，浏览器历史里不留记录。安卓壳的
+// MainActivity.onKeyDown 只在 webView.canGoBack() 为真时 goBack()，否则把按键交还系统 ——
+// 表现就是「在待办页按返回直接退出到桌面」。这里把每次视图切换写进历史，返回键就变成
+// 回上一个视图；主页是栈底，停在主页再返回才退出（浏览器里则是离开本站）。
+var VIEW_HISTORY_KEY = 'caView';
+var viewHistoryNav = false;   // popstate 触发的切换不再写历史，否则后退会变成前进
+
+/** 视图对应的地址：主页保持干净路径，其余与 ?view= 深链同一套参数 */
+function viewHistoryUrl(key) {
+    return window.location.pathname + window.location.hash
+        + (key === 'home' ? '' : '?view=' + encodeURIComponent(key));
+}
+
+/** 视图权限闸门：未登录 → 登录页；无管理权限 → 主页。深链（?view=xxx）、滑动切页、
+ *  导航按钮都从这里过，光靠按权限隐藏入口拦不住手写地址的深链。 */
+function resolveView(key) {
+    if (!localStorage.getItem(LS_TOKEN) && key !== 'home' && key !== 'login') key = 'login';
+    if (key === 'admin' && !canManagePanel()) key = 'home';
+    return key;
+}
+
+/**
+ * 首屏：把入口这条历史记录钉成主页。带 ?view= 的深链（App 点提醒进来）另压一条，
+ * 地址原样保留（含 &id=）—— 刷新还能落回那条详情，按一次返回则回主页而不是退出 App。
+ * 深链被闸门改写成登录页时不压记录：登录页没有可回退的上一页。
+ */
+function bootViewHistory(target) {
+    var href = window.location.href;
+    var key = resolveView(target);
+    try {
+        history.replaceState({ caView: 'home' }, '', viewHistoryUrl('home'));
+        if (key !== 'home' && key !== 'login') {
+            history.pushState({ caView: key }, '', href);
+        }
+    } catch (e) {}
+}
+
+/** 切换视图时补一条历史。已经站在目标视图上就不动：连点同一个导航项不该堆记录 */
+function recordViewHistory(key) {
+    if (viewHistoryNav || key === 'login') return;
+    var state = history.state;
+    if (state && state[VIEW_HISTORY_KEY] === key) return;
+    var next = {};
+    next[VIEW_HISTORY_KEY] = key;
+    try { history.pushState(next, '', viewHistoryUrl(key)); } catch (e) {}
+}
+
+/** 返回键 / 浏览器后退：按记录里的视图切回去，入场方向沿用左右滑动那套 */
+function onHistoryPop(event) {
+    var key = (event.state && event.state[VIEW_HISTORY_KEY]) || 'home';
+    if (key === 'login' || key === currentView) return;
+    var from = SWIPE_PAGES.indexOf(currentView);
+    var to = SWIPE_PAGES.indexOf(key);
+    viewHistoryNav = true;
+    try { switchView(key, from >= 0 && to >= 0 && to < from ? -1 : 1); }
+    finally { viewHistoryNav = false; }
+}
+window.addEventListener('popstate', onHistoryPop);
+
 // ===== 初始化 =====
 (function () {
     var authed = !!localStorage.getItem(LS_TOKEN);
@@ -59,6 +123,9 @@ var FRAME_KEYS = { academic: 'frameAcademic', activities: 'frameActivities', not
         deepFrame.src = target + '.html?id=' + encodeURIComponent(deepId);
         deepFrame.setAttribute('data-loaded', '1');
     }
+    // 先把入口这条记录钉成「主页」，再把深链视图作为新记录压上去 —— 深链进来时
+    // 按一次返回也是回主页，而不是退出 App（实现见上面「视图历史」）。
+    bootViewHistory(target);
     switchView(target);
 })();
 
@@ -107,14 +174,10 @@ function bindAppThemeToggle() {
 }
 
 // ===== 视图切换 =====
-var currentView = 'home';   // 当前视图（供移动端左右滑动判断相邻页）
 function switchView(key, slideDir) {
-    var authed = !!localStorage.getItem(LS_TOKEN);
-    // 未登录访问受保护视图 → 显示登录视图
-    if (!authed && key !== 'home' && key !== 'login') key = 'login';
-    // 管理员面板只对能管理的人开。侧栏入口是按权限藏的，但 ?view=admin 深链与滑动切页
-    // 都不经过那个入口 —— 光藏按钮拦不住，闸门钉在这里，三个入口共用（同 canManagePanel 的注释）
-    if (key === 'admin' && !canManagePanel()) key = 'home';
+    // 权限闸门：未登录只放行 home/login；管理员面板只对能管理的人开。侧栏入口是按权限
+    // 藏的，但 ?view=admin 深链与滑动切页都不经过那个入口，所以闸门钉在这里（同 resolveView）
+    key = resolveView(key);
     currentView = key;
     // 当前应高亮的导航项：未登录显示登录视图时，"个人中心"保持高亮
     var navKey = key === 'login' ? 'account' : key;
@@ -156,9 +219,11 @@ function switchView(key, slideDir) {
         renderGreeting();
         // 待办摘要也在这里重取：在待办页点了「完成」再切回主页，数字和列表都得是最新的
         // （首屏也走这条路径，所以初始化里不必再单独调一次）
-        if (authed) loadTodoSummary();
+        if (localStorage.getItem(LS_TOKEN)) loadTodoSummary();
     }
     slideShownView(isHome, isLogin, key, slideDir);
+    // 最后才写历史：上面可能已经把视图改写成登录页 / 主页，记录要跟着真实视图走
+    recordViewHistory(key);
 }
 
 // ===== 主页欢迎文案（文案表见 app.js 的 GREETING_BANDS）=====
