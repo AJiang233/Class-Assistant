@@ -351,13 +351,25 @@ describe('待办：学习通作业 / 考试自动同步', () => {
           }]
         };
       } else if (path === '/api/chaoxing/works') {
-        data = {
-          courseId: '101', courseName: '高等数学',
-          items: [{
-            workId: 'w1', title: '第三章作业', status: state.workStatus,
-            deadline: '剩余 47 小时 0 分钟', url: 'https://mooc.example/w1'
-          }]
-        };
+        const items = [{
+          workId: 'w1', title: '第三章作业', status: state.workStatus,
+          deadline: '剩余 47 小时 0 分钟', url: 'https://mooc.example/w1'
+        }];
+        // 新私有 API 会给未交作业补绝对截止时间；这里按需造第二条验证优先级
+        if (state.deadlineAt) {
+          items.push({
+            workId: 'w2', title: '第四章作业', status: '未交',
+            deadline: '', deadlineAt: state.deadlineAt, url: 'https://mooc.example/w2'
+          });
+        }
+        // 详情页也没解析出截止时间的作业：不能静默丢掉，要计数提示
+        if (state.noDeadline) {
+          items.push({
+            workId: 'w3', title: '没有截止的作业', status: '未交',
+            deadline: '', url: 'https://mooc.example/w3'
+          });
+        }
+        data = { courseId: '101', courseName: '高等数学', items };
       } else {
         return new Response(JSON.stringify({ success: false, error: '未知接口', code: 'NOT_FOUND' }), {
           status: 404, headers: { 'Content-Type': 'application/json' }
@@ -450,6 +462,77 @@ describe('待办：学习通作业 / 考试自动同步', () => {
     assert.equal(cooled.status, 429);
     assert.equal(cooled.body.code, 'SYNC_COOLDOWN');
     assert.ok(cooled.body.data.retry_after > 0);
+  });
+
+  it('作业优先用详情页的绝对截止时间；「待提交」也算未交', async (t) => {
+    const db = createSqliteDb(t);
+    await seedUser(db);
+    bindChaoxing(db);
+    const due = formatLocalDateTime(Date.now() + 72 * 3600 * 1000);
+    const state = { workStatus: '待提交', examStatus: '未交', deadlineAt: due };
+    const env = {
+      DB: db, JWT_SECRET: SECRET, INTERNAL_TOKEN: 'internal',
+      CHAOXING_API: { fetch: chaoxingFetch(state) }
+    };
+
+    const res = await call(env, '/api/todos/sync-chaoxing', { method: 'POST', body: { cursor: 0 } });
+    assert.equal(res.status, 200);
+    assert.equal(res.data.created, 3);
+
+    const rows = db.sqlite.prepare(
+      'SELECT external_id,status,due_at FROM todos ORDER BY external_id'
+    ).all();
+    const w2 = rows.find((row) => row.external_id === 'work:w2');
+    assert.ok(w2, '带 deadlineAt 的作业要建出来');
+    assert.equal(w2.due_at, due, 'due_at 必须原样采用 deadlineAt');
+    assert.equal(w2.status, 'open');
+
+    const w1 = rows.find((row) => row.external_id === 'work:w1');
+    assert.ok(w1, '待提交状态不能被当成已完成');
+  });
+
+  it('作业没有截止时间时跳过并明确提示，不静默吞掉', async (t) => {
+    const db = createSqliteDb(t);
+    await seedUser(db);
+    bindChaoxing(db);
+    const state = { workStatus: '未交', examStatus: '未交', noDeadline: true };
+    const env = {
+      DB: db, JWT_SECRET: SECRET, INTERNAL_TOKEN: 'internal',
+      CHAOXING_API: { fetch: chaoxingFetch(state) }
+    };
+
+    const res = await call(env, '/api/todos/sync-chaoxing', { method: 'POST', body: { cursor: 0 } });
+    assert.equal(res.status, 200);
+    assert.equal(res.data.no_deadline, 1);
+    assert.match(res.data.message, /没有截止时间/);
+    assert.equal(
+      db.sqlite.prepare("SELECT count(*) AS n FROM todos WHERE external_id='work:w3'").get().n,
+      0
+    );
+  });
+
+  it('已截止但没交的作业也进历史，不能假装没抓到', async (t) => {
+    const db = createSqliteDb(t);
+    await seedUser(db);
+    bindChaoxing(db);
+    const pastDue = formatLocalDateTime(Date.now() - 3600 * 1000);
+    const state = { workStatus: '未交', examStatus: '未交', deadlineAt: pastDue };
+    const env = {
+      DB: db, JWT_SECRET: SECRET, INTERNAL_TOKEN: 'internal',
+      CHAOXING_API: { fetch: chaoxingFetch(state) }
+    };
+
+    const res = await call(env, '/api/todos/sync-chaoxing', { method: 'POST', body: { cursor: 0 } });
+    assert.equal(res.status, 200);
+    assert.equal(res.data.created, 3);
+    const row = db.sqlite.prepare(
+      "SELECT status,due_at FROM todos WHERE external_id='work:w2'"
+    ).get();
+    assert.equal(row.status, 'expired');
+    assert.equal(row.due_at, pastDue);
+
+    const history = await call(env, '/api/todos?status=history');
+    assert.ok(history.data.list.some((x) => x.external_id === 'work:w2'));
   });
 
   it('未同意返回 403；未绑定返回 bound=false；只有学业历史待办能隐藏', async (t) => {

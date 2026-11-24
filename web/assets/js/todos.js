@@ -21,6 +21,7 @@ var state = {
     tags: DEFAULT_TAGS.slice(),
     sync: null,           // 后端返回的学习通同步状态（见 GET /api/todos 的 data.sync）
     syncing: false,
+    syncProgress: null,   // 同步中的 { processed, total }，用于「第 x/y 门课」文案
     autoSynced: false     // 每次进页面最多自动同步一次，避免失败后无限重试
 };
 
@@ -691,7 +692,10 @@ function renderSyncUI() {
     var text = '';
     var s = state.sync;
     if (state.syncing) {
-        text = '正在从学习通拉取未交作业和未考考试，第一次同步可能要一会儿…';
+        var p = state.syncProgress;
+        text = p && p.total
+            ? '正在同步学习通：第 ' + Math.min(p.processed, p.total) + '/' + p.total + ' 门课…'
+            : '正在从学习通拉取未交作业和未考考试，第一次同步可能要一会儿…';
     } else if (s && s.last_result === 'not_bound') {
         text = '还没绑定学习通，绑定后每天会自动同步。';
     } else if (s && s.last_result === 'error') {
@@ -721,23 +725,45 @@ function maybeAutoSync() {
 async function syncNow() {
     if (state.syncing || syncCooldownLeft() > 0) { renderSyncUI(); return; }
     state.syncing = true;
+    state.syncProgress = null;
     renderSyncUI();
 
     var cursor = 0;
     var guard = 0;
     var message = '';
+    // 服务端一批 4 门课，每门还要补作业详情页；同步请求单独放宽到 90s，
+    // 别再被 api() 默认的 30s 抢先掐断（服务端其实还在写库，前端却以为失败）。
+    var timeoutMs = 90000;
     try {
-        // 服务端一批只抓 6–10 门课（避开 Pages / Worker 的时长与子请求限制），这里循环到 done。
-        while (guard < 12) {
+        while (guard < 20) {
             guard += 1;
-            var res = await api('/api/todos/sync-chaoxing', {
-                method: 'POST',
-                body: JSON.stringify({ cursor: cursor, batch: 8, refresh: cursor === 0 })
-            });
+            var res;
+            try {
+                res = await api('/api/todos/sync-chaoxing', {
+                    method: 'POST',
+                    timeoutMs: timeoutMs,
+                    body: JSON.stringify({ cursor: cursor, batch: 4, refresh: cursor === 0 })
+                });
+            } catch (err) {
+                // 非第一批遇到网络抖动可以原样重试一次；第一批不能重试，否则会撞 60s 冷却。
+                if (!err.code && cursor > 0) {
+                    res = await api('/api/todos/sync-chaoxing', {
+                        method: 'POST',
+                        timeoutMs: timeoutMs,
+                        body: JSON.stringify({ cursor: cursor, batch: 4, refresh: false })
+                    });
+                } else {
+                    throw err;
+                }
+            }
             var data = res.data || {};
             if (data.bound === false) {
                 message = data.message || '还没绑定学习通';
                 break;
+            }
+            if (typeof data.total_courses === 'number') {
+                state.syncProgress = { processed: data.processed || 0, total: data.total_courses };
+                renderSyncUI();
             }
             if (data.done) {
                 message = data.message || '同步完成';
@@ -751,9 +777,11 @@ async function syncNow() {
         if (message) flash(message);
     } catch (err) {
         // 429 说明服务端刚记过一次尝试（例如另一个标签页刚点过）：提示并靠刷新拿回冷却状态。
-        flash(err.message, true);
+        var suffix = cursor > 0 ? '（已同步的前 ' + cursor + ' 门课已保存，稍后可继续）' : '';
+        flash(err.message + suffix, true);
     } finally {
         state.syncing = false;
+        state.syncProgress = null;
         await loadList(false, true);
     }
 }

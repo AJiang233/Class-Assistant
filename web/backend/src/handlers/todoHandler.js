@@ -426,13 +426,21 @@ export function parseContentTodo(raw, fallbackTitle, now = formatLocalDateTime()
 
 // ===== 学习通作业 / 考试自动加入待办 =====
 
-/** 分批拉课程作业：一批 6 门并发，39 门课约 7 个请求，每个请求都在 30s 前端超时以内。 */
-const SYNC_BATCH_DEFAULT = 6;
-const SYNC_BATCH_MAX = 10;
+/**
+ * 分批拉课程作业：一批 4 门并发。
+ * 每门课内部要先取课程主页、再取作业列表，带 ?details=1 时还要逐份打开作业详情页，
+ * 批次太大最容易把单个 Pages Function 拖过前端超时 —— 宁可多分几批。
+ */
+const SYNC_BATCH_DEFAULT = 4;
+const SYNC_BATCH_MAX = 6;
 /** 单轮最多同步的课程数：私有 Worker 一次调用只有 50 个子请求预算，留出余量。 */
 const SYNC_MAX_COURSES = 40;
 /** 手动按钮点击后的降温窗口（需求：变灰 60 秒）。服务端也校验，避免多标签页绕过。 */
 const SYNC_COOLDOWN_MS = 60 * 1000;
+/** 考试全量页通常很快，单独给短超时，别把第一批卡满 20 秒。 */
+const SYNC_EXAM_TIMEOUT_MS = 15000;
+/** 作业要逐份补详情页，单门调用给足时间；前端对应 90 秒。 */
+const SYNC_WORKS_TIMEOUT_MS = 30000;
 
 class ChaoxingCallError extends Error {
   constructor(message, code, status = 502) {
@@ -516,9 +524,20 @@ function parseExamWindow(text) {
   return { start, end, endMs };
 }
 
-/** 学习通的「未交 / 未考 / 空」算未完成，其余（已交 / 待批阅 / 已考）算完成。 */
-function isFinished(status) {
+/** 考试：「未交 / 未考 / 空」算未完成，其余（已交 / 已考 / 待批阅）算完成。 */
+function isExamFinished(status) {
   return !!status && status !== '未交' && status !== '未考';
+}
+
+/**
+ * 作业的完成态标记：含任一即视为已交（「待提交 / 未交 / 空」都还没交）。
+ * 不能沿用考试的「非空即完成」——学习通作业状态里还有「待提交」。
+ */
+const WORK_DONE_MARKS = ['已完成', '已提交', '已交', '待批阅', '已批阅', '已批改'];
+
+function isWorkFinished(status) {
+  const s = String(status || '').trim();
+  return WORK_DONE_MARKS.some((mark) => s.includes(mark));
 }
 
 function trimTitle(title) {
@@ -573,7 +592,9 @@ async function syncSourceItem(model, user, item) {
     return 'skipped';
   }
 
-  if (item.finished || item.dueMs <= item.nowMs) return 'skipped';
+  if (item.finished) return 'skipped';
+  // 已经截止但还没交：同样建出来，直接落成历史，避免「学习通有、待办里没有」的错觉。
+  const expired = item.dueMs <= item.nowMs;
   try {
     await model.create({
       owner_id: user.id,
@@ -584,7 +605,8 @@ async function syncSourceItem(model, user, item) {
       tags: item.tags,
       source: 'academic',
       external_id: item.externalId,
-      created_by: user.id
+      created_by: user.id,
+      status: expired ? 'expired' : 'open'
     });
     return 'created';
   } catch (e) {
@@ -594,15 +616,21 @@ async function syncSourceItem(model, user, item) {
   }
 }
 
-/** 作业响应 → 统一的待办字段；解析不出截止时间（已过期 / 页面改版）返回 null。 */
+/** 作业响应 → 统一的待办字段；解析不出截止时间（页面无截止 / 改版）返回 null。 */
 function workToTodo(entry, courseName, now, nowMs) {
-  const minutes = parseRemainingMinutes(entry.deadline);
-  if (minutes == null) return null;
-  const dueAt = addMinutes(now, minutes);
-  const dueMs = parseLocalDateTime(dueAt);
-  if (dueMs == null) return null;
   const externalId = entry.workId ? `work:${entry.workId}` : '';
   if (!externalId) return null;
+
+  // 新私有 API 会补 deadlineAt（详情页的绝对截止时间）；老缓存只有「剩余 x 小时」。
+  let dueAt = entry.deadlineAt ? toLocalDateTime(entry.deadlineAt) : '';
+  if (!dueAt) {
+    const minutes = parseRemainingMinutes(entry.deadline);
+    if (minutes == null) return null;
+    dueAt = addMinutes(now, minutes);
+  }
+  const dueMs = parseLocalDateTime(dueAt);
+  if (dueMs == null) return null;
+
   return {
     externalId,
     title: trimTitle(`${courseName ? `[${courseName}] ` : ''}${entry.title}`),
@@ -610,7 +638,7 @@ function workToTodo(entry, courseName, now, nowMs) {
     startAt: null,
     dueAt,
     dueMs,
-    finished: isFinished(entry.status),
+    finished: isWorkFinished(entry.status),
     tags: JSON.stringify(['作业']),
     now,
     nowMs
@@ -630,7 +658,7 @@ function examToTodo(entry, courseName, now, nowMs) {
     startAt: win.start,
     dueAt: win.end,
     dueMs: win.endMs,
-    finished: isFinished(entry.status),
+    finished: isExamFinished(entry.status),
     tags: JSON.stringify(['考试']),
     now,
     nowMs
@@ -737,13 +765,13 @@ export async function handleSyncChaoxingTodos(request, env, user) {
     const capped = courses.slice(0, SYNC_MAX_COURSES);
     const total = capped.length;
     const batch = capped.slice(cursor, cursor + batchSize);
-    const stats = { created: 0, updated: 0, completed: 0, skipped: 0 };
+    const stats = { created: 0, updated: 0, completed: 0, skipped: 0, no_deadline: 0 };
     const errors = [];
 
     // 考试只需在第一批发一次全量请求：私有 Worker 会一次抓完学校考试系统并按课程写缓存。
     if (cursor === 0 && refresh) {
       try {
-        const data = await callChaoxing(env, user, '/api/chaoxing/exams?refresh=1');
+        const data = await callChaoxing(env, user, '/api/chaoxing/exams?refresh=1', SYNC_EXAM_TIMEOUT_MS);
         for (const entry of data.items || []) {
           const item = examToTodo(entry, entry.courseName || '', now, nowMs);
           if (!item) { stats.skipped += 1; continue; }
@@ -757,12 +785,14 @@ export async function handleSyncChaoxingTodos(request, env, user) {
       }
     }
 
-    // 作业必须逐门抓（私有 Worker 的 /works 只在带 courseId 时出网），这里并发 6 门。
+    // 作业必须逐门抓（私有 Worker 的 /works 只在带 courseId 时出网），这里并发 4 门。
+    // details=1 让私有 API 逐份打开未交作业的详情页补绝对截止时间（列表页没有）。
     if (batch.length) {
       const settled = await Promise.allSettled(batch.map((course) => callChaoxing(
         env,
         user,
-        `/api/chaoxing/works?courseId=${encodeURIComponent(course.courseId)}&refresh=1`
+        `/api/chaoxing/works?courseId=${encodeURIComponent(course.courseId)}&refresh=1&details=1`,
+        SYNC_WORKS_TIMEOUT_MS
       )));
       for (let i = 0; i < settled.length; i += 1) {
         const result = settled[i];
@@ -779,7 +809,12 @@ export async function handleSyncChaoxingTodos(request, env, user) {
         const courseName = data.courseName || course.name || '';
         for (const entry of data.items || []) {
           const item = workToTodo(entry, courseName, now, nowMs);
-          if (!item) { stats.skipped += 1; continue; }
+          if (!item) {
+            stats.skipped += 1;
+            // 未交作业却没有截止时间：详情页也没解析到，单独提示，别让用户以为漏同步。
+            if (!isWorkFinished(entry.status)) stats.no_deadline += 1;
+            continue;
+          }
           countResult(stats, await syncSourceItem(model, user, item));
         }
       }
@@ -793,8 +828,9 @@ export async function handleSyncChaoxingTodos(request, env, user) {
       if (stats.created) parts.push(`新增 ${stats.created} 条`);
       if (stats.updated) parts.push(`更新 ${stats.updated} 条`);
       if (stats.completed) parts.push(`完成 ${stats.completed} 条`);
+      if (stats.no_deadline) parts.push(`${stats.no_deadline} 条作业没有截止时间，未加入`);
       message = parts.join('，') || '已是最新';
-      if (errors.length) message += `；${errors.length} 门课程暂时失败`;
+      if (errors.length) message += `；${errors.length} 项暂时失败`;
       await model.finishSync(user.id, { result: 'ok', message, syncedAt: now });
     }
 
@@ -808,6 +844,7 @@ export async function handleSyncChaoxingTodos(request, env, user) {
       updated: stats.updated,
       completed: stats.completed,
       skipped: stats.skipped,
+      no_deadline: stats.no_deadline,
       errors: errors.slice(0, 5),
       message,
       truncated: courses.length > SYNC_MAX_COURSES

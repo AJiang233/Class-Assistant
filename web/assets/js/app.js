@@ -24,7 +24,8 @@ async function api(path, options = {}) {
   } catch (e) {
     // 超时/断网时 fetch 直接 reject，message 常为空，这里转成可读文案
     const timedOut = !(options.signal) && e && (e.name === 'TimeoutError' || e.name === 'AbortError');
-    throw new Error(timedOut ? '请求超时（>30s），请检查网络后重试' : ('网络错误：' + (e.message || '无法连接服务器')));
+    const seconds = Math.round(requestTimeoutMs(options) / 1000);
+    throw new Error(timedOut ? `请求超时（>${seconds}s），请检查网络后重试` : ('网络错误：' + (e.message || '无法连接服务器')));
   }
   // raw 模式（导出二进制 / 需要自己消费 Response 的调用）直接给回 Response，不做 JSON 解析
   const data = options.raw ? res : await res.json().catch(() => ({}));
@@ -44,16 +45,23 @@ async function api(path, options = {}) {
   return data;
 }
 
-/** 给请求补一个 30s 兜底超时；旧内核缺 AbortSignal.timeout 时退化为 AbortController */
+/** 请求超时：默认 30s；调用方可用 options.timeoutMs 单独放宽（同步学习通这类长请求）。 */
+function requestTimeoutMs(options) {
+  const custom = Number(options && options.timeoutMs);
+  return custom > 0 ? custom : 30000;
+}
+
+/** 给请求补一个兜底超时（默认 30s）；旧内核缺 AbortSignal.timeout 时退化为 AbortController */
 function withTimeout(options) {
   if (options.signal) return options;   // 调用方自带 signal（手动取消）时不覆盖
+  const timeoutMs = requestTimeoutMs(options);
   try {
     if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
-      return { ...options, signal: AbortSignal.timeout(30000) };
+      return { ...options, signal: AbortSignal.timeout(timeoutMs) };
     }
     if (typeof AbortController !== 'undefined') {
       const controller = new AbortController();
-      setTimeout(function () { controller.abort(); }, 30000);
+      setTimeout(function () { controller.abort(); }, timeoutMs);
       return { ...options, signal: controller.signal };
     }
   } catch (e) { /* 特性探测或构造失败：退化成无超时请求，不影响请求本身 */ }

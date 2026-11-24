@@ -105,11 +105,13 @@ export class TodoModel {
       owner_id, title, description = null, start_at = null, due_at,
       tags = null, source = 'manual', source_id = null, external_id = null, created_by = null
     } = data;
+    // 学习通同步可能补建「已经截止但一直没交」的作业：直接落成 expired，进历史而不是进行中。
+    const status = data.status === 'expired' ? 'expired' : 'open';
     const row = await this.db.prepare(
-      `INSERT INTO todos (owner_id, title, description, start_at, due_at, tags, source, source_id, external_id, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO todos (owner_id, title, description, start_at, due_at, tags, source, source_id, external_id, created_by, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        RETURNING id`
-    ).bind(owner_id, title, description, start_at, due_at, tags, source, source_id, external_id, created_by).first();
+    ).bind(owner_id, title, description, start_at, due_at, tags, source, source_id, external_id, created_by, status).first();
     return row ? row.id : null;
   }
 
