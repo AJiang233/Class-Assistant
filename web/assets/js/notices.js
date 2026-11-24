@@ -326,9 +326,14 @@ delegate(document, 'click', '[data-act="del-notice"]', function (el) { deleteNot
 delegate(document, 'click', '[data-act="notice-detail"]', function (el) { showDetail(el.getAttribute('data-id')); });
 delegate(document, 'click', '[data-act="add-todo-from-source"]', function (el) { addTodoFromSource(el); });
 
-// 班级事务子标签（issue #95）：通知/活动合并成一个导航项，页内切换
-initAffairsTabs('notices');
+// 通知与活动现在同处一页（affairs/index.html）：标签切换与滑块由 app.js 的
+// initAffairsPage / showAffairsPane 统一管，这一份只负责通知视图自己。
 
-var deepNoticeId = new URLSearchParams(location.search).get('id');
-if (deepNoticeId) showDetail(deepNoticeId);
+// 深链（推送 / 通知里的 ?id=）只在通知视图是当前视图时才开详情：
+// 同一页里两份脚本都会读到 ?id=，不加这道判断会拿同一个 id 去开错的那条。
+document.addEventListener('DOMContentLoaded', function () {
+    if (window.__caAffairsPane && window.__caAffairsPane() !== 'notices') return;
+    var deepNoticeId = new URLSearchParams(location.search).get('id');
+    if (deepNoticeId) showDetail(deepNoticeId);
+});
 })();

@@ -44,14 +44,13 @@ const CACHE = 'ca-shell';
  *
  * 写的是**规范地址**，与页面里 iframe / 链接实际请求的地址逐字一致：
  * 子页按导航分进四个文件夹（affairs / todos / academic / account），文件夹首页用
- * 目录形式（/todos/），其余仍是带扩展名的文件名（/affairs/activities.html）。
+ * 目录形式（/todos/），其余仍是带扩展名的文件名（/affairs/forms.html）。
  * 两者都**不产生跳转** —— 跟着 308 取回来的响应带 redirected 标记，而规范禁止把这种
  * 响应交给导航请求（页面与 iframe 的加载都算导航），用户看到的就是「网页无法打开」。
  */
 const PRECACHE = [
   '/',
   '/affairs/',
-  '/affairs/activities.html',
   '/affairs/forms.html',
   '/todos/',
   '/academic/',
@@ -99,8 +98,8 @@ const LEGACY_PATHS = {
   '/index.html': '/',
   '/notices': '/affairs/',
   '/notices.html': '/affairs/',
-  '/activities': '/affairs/activities.html',
-  '/activities.html': '/affairs/activities.html',
+  '/activities': '/affairs/',
+  '/activities.html': '/affairs/',
   '/forms': '/affairs/forms.html',
   '/forms.html': '/affairs/forms.html',
   '/admin': '/account/admin.html',
@@ -122,7 +121,7 @@ function canonical(url) {
 }
 
 /**
- * 连查询串也去掉的规范地址：/affairs/activities.html?id=123 → /affairs/activities.html
+ * 连查询串也去掉的规范地址：/affairs/?tab=activities&id=123 → /affairs/
  * （/ 页面带 ?view= 同理 → /）。
  *
  * 深链天然带查询串：App 点提醒时 iframe 的地址就是 /todos/?id=3，推送载荷里的

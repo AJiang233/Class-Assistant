@@ -455,7 +455,7 @@ test('预热清单里的每一条都对应仓库里真实存在的文件', () =>
     // 三种形状各对应一种磁盘布局：
     //   '/'              → 根目录的 index.html
     //   '/todos/'        → 文件夹首页 todos/index.html
-    //   '/affairs/activities.html' → 带扩展名的真实文件
+    //   '/affairs/forms.html' → 带扩展名的真实文件
     const rel = path.slice(1);
     const candidates = path === '/'
       ? ['index.html']
@@ -486,7 +486,7 @@ test('每个页面自身、以及它引用的脚本与样式，都在预热清�
   for (const page of pages) {
     // 页面自身：缓存键、预热键、离线回退查找用的都是规范地址
     //   根目录 index.html → '/'，文件夹首页 affairs/index.html → '/affairs/'，
-    //   其余原样（/affairs/activities.html）
+    //   其余原样（/affairs/forms.html）
     const canonicalPath = page === 'index.html'
       ? '/'
       : (page.endsWith('/index.html') ? '/' + page.slice(0, -'index.html'.length) : '/' + page);

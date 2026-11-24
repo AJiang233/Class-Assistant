@@ -269,41 +269,93 @@ function delegate(root, type, selector, handler) {
   });
 }
 
-/* ===== 班级事务子标签（通知 / 活动共用，issue #95）=====
-   两个页面仍各是一份独立文档，页内只放同一套分段控件：点另一个标签时交给外壳
-   switchView 换 iframe（外壳已把两页一起预载好）；不在外壳里直接打开子页时，
-   退化成整页跳到外壳的对应视图。 */
-function initAffairsTabs(active) {
-  var seg = document.getElementById('affairsSeg');
-  if (!seg) return;
-  var current = active === 'activities' ? 'activities' : 'notices';
-  var btns = seg.querySelectorAll('[data-affairs-tab]');
-  for (var i = 0; i < btns.length; i++) {
-    btns[i].classList.toggle('active', btns[i].getAttribute('data-affairs-tab') === current);
+/* ===== 子页「被显示」通知 =====
+   子页是预载的：src 在 display:none 的状态下就加载完、跑过初始化，那时所有元素的
+   offsetWidth 都是 0 —— 依赖实测宽度的东西（分段控件的滑块）只能先隐身。
+   外壳每次把某个 iframe 显示出来时会调 __caFrameShown（见 index.js 的 switchView），
+   页面在这里登记「可见之后要重排什么」，一个页面可以登记多个。 */
+var frameShownHooks = [];
+function onFrameShown(fn) {
+  if (typeof fn === 'function' && frameShownHooks.indexOf(fn) < 0) frameShownHooks.push(fn);
+}
+window.__caFrameShown = function () {
+  for (var i = 0; i < frameShownHooks.length; i++) {
+    try { frameShownHooks[i](); } catch (e) { /* 单个页面的重排失败不影响其它 */ }
   }
+};
+
+/* ===== 班级事务：通知 / 活动（同一页里的两个视图）=====
+   以前这是两份独立文档，点另一个标签要外壳换 iframe；现在合成一页，切标签只翻 hidden。
+   当前视图同时记在会话（与外壳共用 caAffairsTab）和地址的 ?tab= 上：刷新、分享、
+   以及外壳的 ?view=activities 深链都能落回同一块。 */
+var AFFAIRS_PANE_KEY = 'caAffairsTab';
+var affairsPane = 'notices';
+
+function affairsPaneFromUrl() {
+  var q = '';
+  try { q = new URLSearchParams(location.search).get('tab') || ''; } catch (e) {}
+  return (q === 'activities' || q === 'notices') ? q : '';
+}
+
+function affairsPaneRemembered() {
+  try {
+    var v = sessionStorage.getItem(AFFAIRS_PANE_KEY);
+    return (v === 'activities' || v === 'notices') ? v : '';
+  } catch (e) { return ''; }
+}
+
+/** 切视图。remember=false 用于首屏初始化：那时不该把「刚读到的值」再写回去。 */
+function showAffairsPane(kind, remember) {
+  var pane = kind === 'activities' ? 'activities' : 'notices';
+  affairsPane = pane;
+  var seg = document.getElementById('affairsSeg');
+  if (seg) {
+    var btns = seg.querySelectorAll('[data-affairs-tab]');
+    for (var i = 0; i < btns.length; i++) {
+      btns[i].classList.toggle('active', btns[i].getAttribute('data-affairs-tab') === pane);
+    }
+  }
+  var nPane = document.getElementById('paneNotices');
+  var aPane = document.getElementById('paneActivities');
+  if (nPane) nPane.hidden = pane !== 'notices';
+  if (aPane) aPane.hidden = pane !== 'activities';
   moveAffairsPill();
+  if (remember === false) return;
+  try { sessionStorage.setItem(AFFAIRS_PANE_KEY, pane); } catch (e) {}
+  // 地址只换查询串（replaceState 不重新加载），刷新后仍是同一块
+  try {
+    var url = new URL(location.href);
+    if (url.searchParams.get('tab') !== pane) {
+      url.searchParams.set('tab', pane);
+      history.replaceState(history.state, '', url);
+    }
+  } catch (e) { /* 老内核或 file:// 下没有 history API：忽略，会话里那份仍然生效 */ }
+}
+
+function initAffairsPage() {
+  var seg = document.getElementById('affairsSeg');
+  if (!seg) return;   // 不是班级事务页
+  showAffairsPane(affairsPaneFromUrl() || affairsPaneRemembered() || 'notices', false);
+  // 首屏与「被外壳显示出来」走同一条：都是从另一侧滑到当前项。
+  // 预载时这里是 display:none，量不到宽度，revealAffairsPill 会自己退出去，
+  // 等外壳显示这一页时再经 __caFrameShown 补一次。
+  revealAffairsPill();
+  onFrameShown(revealAffairsPill);
   seg.addEventListener('click', function (e) {
     // 被点的可能是按钮里的文字，往上找到带 data-affairs-tab 的那个按钮
     var btn = e.target;
     while (btn && btn !== seg && !btn.getAttribute('data-affairs-tab')) btn = btn.parentNode;
     if (!btn || btn === seg) return;
     var tab = btn.getAttribute('data-affairs-tab');
-    if (tab !== current) openAffairsTab(tab);
+    if (tab && tab !== affairsPane) showAffairsPane(tab);
   });
   window.addEventListener('resize', moveAffairsPill);
 }
 
-/** 切到另一块事务页：优先让外壳换 iframe（保留导航与返回历史），否则整页跳转 */
-function openAffairsTab(tab) {
-  var target = tab === 'activities' ? 'activities' : 'notices';
-  try {
-    if (window.top && window.top !== window && typeof window.top.switchView === 'function') {
-      window.top.switchView(target);
-      return;
-    }
-  } catch (e) { /* 跨域或被阻止时退回整页跳转 */ }
-  window.location.href = 'index.html?view=' + target;
-}
+// 外壳的 ?view=activities 深链与切视图都走这里（见 index.js 的 notifyAffairsPane）
+window.__caAffairsShow = function (kind) { showAffairsPane(kind, false); };
+window.__caAffairsPane = function () { return affairsPane; };
+document.addEventListener('DOMContentLoaded', initAffairsPage);
 
 /** 滑块：与学业页子标签、移动端底栏同一套弹簧动画，位置按激活项实测写入 */
 function moveAffairsPill() {
@@ -316,6 +368,40 @@ function moveAffairsPill() {
   pill.style.width = active.offsetWidth + 'px';
   pill.style.height = active.offsetHeight + 'px';
   pill.style.opacity = '1';
+}
+
+/**
+ * 带起点地把滑块移到激活项：起点是**另一个标签**。
+ *
+ * 两个视图现在同处一页，滑块位置一变就有弹簧动画；这一层管的是「页面刚出现时」：
+ * 预载的 iframe 初始化在 display:none 里，那时 active.offsetWidth 为 0，滑块只能隐身，
+ * 等外壳把它显示出来（__caFrameShown）才量得到。从另一侧滑过去，比默认的「从左上角
+ * 长出来」更像分段控件该有的样子。
+ */
+function revealAffairsPill() {
+  var pill = document.getElementById('affairsSegPill');
+  if (!pill || !pill.parentNode) return;
+  var seg = pill.parentNode;
+  var active = seg.querySelector('.tab.active');
+  var tabs = seg.querySelectorAll('.tab');
+  var other = null;
+  for (var i = 0; i < tabs.length; i++) {
+    if (!tabs[i].classList.contains('active')) { other = tabs[i]; break; }
+  }
+  var from = other && other.offsetWidth ? other : active;
+  // 还没真正可见（display:none 里量不到宽度）：留着等 __caFrameShown 再来一次
+  if (!from || !from.offsetWidth) return;
+  // 先无过渡地摆到起点、保持透明，再恢复过渡并移到激活项：
+  // 同一帧里改两次会被浏览器合并成一次，所以中间读一次 offsetWidth 把起点样式提交掉。
+  pill.style.transition = 'none';
+  pill.style.left = from.offsetLeft + 'px';
+  pill.style.top = from.offsetTop + 'px';
+  pill.style.width = from.offsetWidth + 'px';
+  pill.style.height = from.offsetHeight + 'px';
+  pill.style.opacity = '0';
+  void pill.offsetWidth;            // 强制回流：起点成为「过渡前的样式」
+  pill.style.transition = '';
+  moveAffairsPill();                // 左/宽走弹簧，透明度同时淡入
 }
 
 /** 取某个提醒选择区中「属于指定职位」的成员复选框 */
@@ -744,8 +830,9 @@ var redirectingToIndex = false;
 function redirectToIndex() {
   if (redirectingToIndex) return;
   redirectingToIndex = true;
-  // 由当前目录推导，而不是写死 'index.html'：换到子路径部署时后者会跳到站根
-  var target = window.location.pathname.replace(/[^/]*$/, '') + 'index.html';
+  // 直接指向站点根：壳（index.html）在根目录，子页都在 /affairs/ /todos/ 这类文件夹里，
+  // 按「当前目录 + index.html」推导会落成 /affairs/index.html（班级事务页）甚至它自己。
+  var target = '/';
   if (window.self !== window.top) {
     window.top.location.href = target;
   } else {
@@ -907,7 +994,11 @@ var DETAIL_ICONS = {
   // 三角感叹号：错误态用。刻意不用圆形的 alert-circle —— 要的就是脱离那个「圆」
   'alert-triangle': '<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
   // 断网提示条用（renderOfflineNotice）：Wi-Fi 上画一道斜杠，一眼即「没网」
-  'wifi-off': '<line x1="1" y1="1" x2="23" y2="23"/><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"/><path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"/><path d="M10.71 5.05A16 16 0 0 1 22.58 9"/><path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/>'
+  'wifi-off': '<line x1="1" y1="1" x2="23" y2="23"/><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"/><path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"/><path d="M10.71 5.05A16 16 0 0 1 22.58 9"/><path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/>',
+  // 圆形「i」：信息类提示用（待办页的同步吐司）
+  info: '<circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="11"/><line x1="12" y1="8" x2="12.01" y2="8"/>',
+  // 圆形对勾：成功类提示用（已完成 / 已保存这类）
+  'check-circle': '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>'
 };
 function icon(name) {
   var p = DETAIL_ICONS[name] || '';

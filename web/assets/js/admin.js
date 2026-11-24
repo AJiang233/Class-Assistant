@@ -27,6 +27,8 @@ async function loadRemindChoices() {
     renderRemindChoices('actRemind', []);
     renderRemindChoices('ntcRemind', []);
     renderRemindChoices('fcRemind', []);
+    // 代加待办用自己的盒子，跟着这份名单一起画（卡片没渲染时内部会直接返回）
+    renderDelegateMembers();
 }
 
 function renderRemindChoices(boxId, checkedNames) {
@@ -72,9 +74,17 @@ document.addEventListener('keydown', function (e) {
 var TODO_TAG_PRESETS = ['作业', '考试', '班会', '活动', '材料', '缴费'];
 var TODO_TAG_MAX = 4;
 var TODO_TAG_LEN = 12;
-var todoTags = { notice: [], activity: [] };
+var todoTags = { notice: [], activity: [], delegate: [] };
 
 function todoRefs(kind) {
+    // 代加待办：整块功能从待办页搬到管理面板后，自带一套字段 id（dlg 前缀），
+    // 但与通知/活动那两套共用同一份标签逻辑（renderTodoTags / toggleTodoTag / addTodoCustomTag）。
+    if (kind === 'delegate') {
+        return {
+            check: null, fields: null, title: 'dlgTitle', due: 'dlgDue',
+            tagsBox: 'dlgTagBox', tagInput: 'dlgTagInput', err: 'dlgError'
+        };
+    }
     return kind === 'notice'
         ? {
             check: 'ntcTodo', fields: 'ntcTodoFields', title: 'ntcTodoTitle', due: 'ntcTodoDue',
@@ -101,7 +111,8 @@ function renderTodoTags(kind) {
     var tags = todoTags[kind];
     // 动作名必须写成字面量：csp.test.js 会扫源码做「标记 ↔ 委托」双向核对，
     // 用变量拼出来的动作名会被当成一个从未注册过的动作而报错。
-    var actAttr = kind === 'notice' ? 'data-act="toggle-notice-tag"' : 'data-act="toggle-activity-tag"';
+    var actAttr = kind === 'delegate' ? 'data-act="toggle-delegate-tag"'
+        : (kind === 'notice' ? 'data-act="toggle-notice-tag"' : 'data-act="toggle-activity-tag"');
     // 预置标签常驻；自定义标签只在被选中时出现，取消勾选后就从列表里消失
     var all = TODO_TAG_PRESETS.slice();
     tags.forEach(function (t) { if (all.indexOf(t) < 0) all.push(t); });
@@ -151,12 +162,134 @@ function toggleTodoFields(kind, on) {
 
 // datetime-local 的 "YYYY-MM-DDTHH:MM" → 后端要的 "YYYY-MM-DD HH:MM:SS"
 function todoDueValue(kind) {
-    var el = document.getElementById(todoRefs(kind).due);
+    return localDateTimeOf(todoRefs(kind).due);
+}
+
+/** 按元素 id 取 datetime-local 值并转成后端格式；空值返回空串 */
+function localDateTimeOf(id) {
+    var el = document.getElementById(id);
     var raw = el ? String(el.value || '').trim() : '';
     if (!raw) return '';
     raw = raw.replace('T', ' ');
     if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(raw)) raw += ':00';
     return raw;
+}
+
+// ===== 代加待办（整块功能从待办页搬来） =====
+// 成员多选直接复用发布内容那套 remind-box（按职位快选 + 搜索，值就是成员 id），
+// 标签复用上面 notice / activity 的同一套芯片逻辑（kind 传 'delegate'）。
+
+/** 默认截止：今天 23:59；已经过点就顺延到明天 23:59 */
+function defaultDelegateDue() {
+    var end = todayEnd();
+    if (end > nowLocal()) return end;
+    var d = new Date();
+    d.setDate(d.getDate() + 1);
+    var pad = function (n) { return n < 10 ? '0' + n : '' + n; };
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + 'T23:59';
+}
+
+function collectDelegateMembers() {
+    var ids = [];
+    document.querySelectorAll('#dlgMemberBox .remind-cb:checked').forEach(function (el) {
+        var n = Number(el.value);
+        if (n > 0) ids.push(n);
+    });
+    return ids;
+}
+
+function updateDelegateHint() {
+    var hint = document.getElementById('dlgMemberHint');
+    if (!hint) return;
+    var n = collectDelegateMembers().length;
+    hint.textContent = n ? '已选 ' + n + ' 人' : '还没选人';
+}
+
+function renderDelegateMembers() {
+    renderRemindBox('dlgMemberBox', remindChoices, [], remindLoadFailed);
+    updateDelegateHint();
+}
+
+function clearDelegateError() {
+    var box = document.getElementById('dlgError');
+    if (!box) return;
+    box.textContent = '';
+    box.classList.remove('show');
+}
+
+/** 提交成功后把表单恢复成「下一件事」的状态，成员与标签清空、截止顺延到默认值 */
+function resetDelegateForm() {
+    ['dlgTitle', 'dlgDesc', 'dlgStart'].forEach(function (id) {
+        var el = document.getElementById(id);
+        if (el) el.value = '';
+    });
+    var due = document.getElementById('dlgDue');
+    if (due) due.value = defaultDelegateDue();
+    todoTags.delegate = [];
+    renderTodoTags('delegate');
+    // 成员：只取消勾选，不重画整个 remind-box —— 那个盒子每次 render 都会重新绑定一次
+    // 委托，重画多了会把「按职位快选」变成点一次触发两次（净效果就是不选）。
+    document.querySelectorAll('#dlgMemberBox .remind-cb').forEach(function (cb) { cb.checked = false; });
+    document.querySelectorAll('#dlgMemberBox .pos-chip').forEach(function (chip) {
+        chip.classList.remove('on');
+        chip.setAttribute('aria-pressed', 'false');
+    });
+    updateDelegateHint();
+    clearDelegateError();
+}
+
+function initDelegateTodo() {
+    if (!document.getElementById('delegateTodoCard')) return;
+    // 成员盒子由 loadRemindChoices() 拿到名单后统一画（避免这里先画一次「暂无成员」）
+    renderTodoTags('delegate');
+    bindTodoTagInput('dlgTagInput', 'delegate');
+    var due = document.getElementById('dlgDue');
+    if (due && !due.value) due.value = defaultDelegateDue();
+}
+
+async function submitDelegateTodo(btn) {
+    clearDelegateError();
+    var memberIds = collectDelegateMembers();
+    // 名单加载失败时 remind-box 显示的是错误提示，这里必须拦住，否则会把待办发给 0 个人
+    if (!memberIds.length) { showTodoError('delegate', remindLoadFailed ? '成员名单加载失败，请刷新后重试' : '请先勾选至少一位同学'); return; }
+
+    var titleEl = document.getElementById('dlgTitle');
+    var title = titleEl ? titleEl.value.trim() : '';
+    if (!title) { showTodoError('delegate', '请填写待办标题'); return; }
+    if (title.length > 100) { showTodoError('delegate', '标题最多 100 字'); return; }
+
+    var dueAt = localDateTimeOf('dlgDue');
+    if (!dueAt) { showTodoError('delegate', '请选择截止时间'); return; }
+    var startAt = localDateTimeOf('dlgStart');
+    // 同格式字符串比较即可：'YYYY-MM-DD HH:MM:SS' 的字典序就是时间序
+    if (startAt && dueAt <= startAt) { showTodoError('delegate', '截止时间必须晚于开始时间'); return; }
+
+    var tags = todoTags.delegate.slice();
+    if (tags.length > TODO_TAG_MAX) { showTodoError('delegate', '标签最多 ' + TODO_TAG_MAX + ' 个'); return; }
+
+    var descEl = document.getElementById('dlgDesc');
+    var body = {
+        user_ids: memberIds,
+        title: title,
+        description: descEl ? descEl.value.trim() : '',
+        due_at: dueAt,
+        tags: tags
+    };
+    if (startAt) body.start_at = startAt;
+
+    var hint = document.getElementById('dlgHint');
+    var label = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = '提交中…'; }
+    try {
+        var res = await api('/api/todos/delegate', { method: 'POST', body: JSON.stringify(body) });
+        var msg = (res.data && res.data.message) || ('已给 ' + memberIds.length + ' 位同学添加待办');
+        resetDelegateForm();
+        if (hint) hint.textContent = msg;
+    } catch (e) {
+        showTodoError('delegate', e.message);
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = label; }
+    }
 }
 
 // 返回 { value: todo|null } 或 { error }：只有勾选才产出 todo，未勾选返回 value:null
@@ -793,10 +926,9 @@ async function saveFeatureSettings(el) {
 // ===== 初始化：按权限显示对应区块 =====
 // 卡片在 HTML 里默认 hidden（CSP 下不再用内联 display:none），有权限才摘掉这个属性
 if (canWrite) {
-    ['addNoticeCard', 'addActivityCard', 'addFormCard', 'manageFormsCard'].forEach(function (id) {
+    ['addNoticeCard', 'addActivityCard', 'addFormCard', 'manageFormsCard', 'delegateTodoCard'].forEach(function (id) {
         document.getElementById(id).hidden = false;
-    });
-    document.getElementById('actStart').value = nowLocal();
+    });    document.getElementById('actStart').value = nowLocal();
     document.getElementById('actEnd').value = todayEnd();
     document.getElementById('ntcPublish').value = nowLocal();
     document.getElementById('ntcExpire').value = todayEnd();
@@ -806,6 +938,7 @@ if (canWrite) {
     renderTodoTags('activity');
     bindTodoTagInput('ntcTodoTagInput', 'notice');
     bindTodoTagInput('actTodoTagInput', 'activity');
+    initDelegateTodo();
     resetFormCreate();
     loadFormsAdmin();
 }
@@ -1284,4 +1417,18 @@ delegate(document, 'click', '[data-act="audit-page"]', function (el) {
 delegate(document, 'click', '[data-act="save-features"]', function (el) {
     saveFeatureSettings(el);
 });
+
+// 代加待办：选人 / 标签 / 提交都在这一张卡里（原先的「跳去待办页」已经不需要了）
+delegate(document, 'click', '[data-act="toggle-delegate-tag"]', function (el) {
+    toggleTodoTag('delegate', el.getAttribute('data-tag'));
+});
+delegate(document, 'click', '[data-act="add-delegate-tag"]', function () {
+    addTodoCustomTag('delegate', document.getElementById('dlgTagInput'));
+});
+delegate(document, 'click', '[data-act="submit-delegate-todo"]', function (el) {
+    submitDelegateTodo(el);
+});
+delegate(document, 'change', '#dlgMemberBox .remind-cb', updateDelegateHint);
+// 「按职位快选」是程序化改 checked 的，不会触发 change，得单独补一拍计数
+delegate(document, 'click', '#dlgMemberBox .pos-chip', function () { updateDelegateHint(); });
 })();

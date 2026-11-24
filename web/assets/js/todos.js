@@ -22,8 +22,7 @@ var state = {
     counts: { open: 0, history: 0, overdue: 0, hidden: 0 },
     prefs: { urgent_hours: 24, warn_hours: 36 },
     tags: DEFAULT_TAGS.slice(),
-    sync: null,           // 服务端共享的同步状态（见 GET /api/todos 的 data.sync，两个来源共用这一条）
-    autoSynced: false     // 每次进页面最多自动同步一次，避免失败后无限重试
+    sync: null            // 服务端共享的同步状态（见 GET /api/todos 的 data.sync，两个来源共用这一条）
 };
 
 // ===== 同步按钮的各自状态 =====
@@ -37,13 +36,11 @@ var syncUi = {
 };
 
 // ===== 编辑弹窗状态 =====
-// 新建 / 编辑 / 代加 共用一个弹窗，靠 mode 区分：字段一样，差的只是标题、成员多选块和提交的接口
+// 新建 / 编辑共用一个弹窗，靠 mode 区分（字段一样，差的只是标题文案与提交的接口）。
+// 代加待办整块在管理员面板，本页不参与。
 var editor = {
-    mode: 'create',         // create | edit | delegate
-    id: null,
-    members: [],            // 代加模式的可选成员
-    membersLoaded: false,   // 名单只取一次
-    membersFailed: false
+    mode: 'create',         // create | edit
+    id: null
 };
 
 var todoModal = document.getElementById('todoModal');
@@ -130,16 +127,55 @@ function positionsText(p) {
     return '';
 }
 
-// ===== 一次性提示条 =====
-var flashTimer = 0;
+// 旧的页面内提示条（#todoFlash）已经并入吐司：调用点保持 flash(text, isError) 的样子，
+// 语义按是否出错分两档 —— 成功蓝色短、失败红色长。
 function flash(text, isError) {
-    var box = document.getElementById('todoFlash');
-    if (!box) return;
-    box.textContent = text;
-    box.hidden = false;
-    box.classList.toggle('error', !!isError);
-    if (flashTimer) clearTimeout(flashTimer);
-    flashTimer = setTimeout(function () { box.hidden = true; }, 4000);
+    showToast(text, isError ? { error: true } : { success: true });
+}
+
+// ===== 吐司（浮层提示，不占页面空间）=====
+/* 本页所有「说一句就过去」的信息都走这里：固定贴顶、宽度随文案伸缩、不参与布局。
+   三档语义：
+     success —— 蓝（完成了什么），默认 2 秒就收，别挡着看列表
+     error   —— 红（失败了、被拒了），默认 4.5 秒，给足读完的时间
+     默认    —— 中性（同步进度与同步结果这类）
+   需要用户动手的问题（未授权 / 未绑定）仍然留在页面里（#syncNotice，在分类标签下面）——
+   吐司会自己消失，放「你得去改个设置」这种话就会被错过。
+   同一时刻只有一条：后一条直接顶掉前一条，避免叠成一列。 */
+var toastTimer = 0;
+var toastSticky = false;   // 同步进行中：一直挂着，等进度结束再收
+var TOAST_SHORT = 2000;
+var TOAST_LONG = 4500;
+
+function showToast(text, opts) {
+    var host = document.getElementById('toastHost');
+    if (!host || !text) return;
+    opts = opts || {};
+    var kind = opts.error ? 'error' : (opts.success ? 'success' : '');
+    // 文案来自服务端（失败原因里可能带用户数据），一律 esc() 后再拼 HTML
+    host.innerHTML = icon(kind === 'error' ? 'alert-triangle'
+        : (kind === 'success' ? 'check-circle' : 'info'))
+        + '<span class="toast-text">' + esc(text) + '</span>';
+    host.classList.toggle('error', kind === 'error');
+    host.classList.toggle('success', kind === 'success');
+    host.hidden = false;
+    // 强制回流：同一句文案再弹一次时，也要重新播一遍入场动画
+    host.classList.remove('show');
+    void host.offsetWidth;
+    host.classList.add('show');
+    toastSticky = !!opts.sticky;
+    if (toastTimer) { clearTimeout(toastTimer); toastTimer = 0; }
+    if (toastSticky) return;
+    toastTimer = setTimeout(hideToast, opts.duration || (kind === 'error' ? TOAST_LONG : TOAST_SHORT));
+}
+
+function hideToast() {
+    if (toastTimer) { clearTimeout(toastTimer); toastTimer = 0; }
+    toastSticky = false;
+    var host = document.getElementById('toastHost');
+    if (!host) return;
+    host.classList.remove('show');
+    host.hidden = true;
 }
 
 // ===== 列表加载 =====
@@ -187,7 +223,6 @@ async function loadList(more, force) {
     try {
         var res = await api(force ? url + '&refresh=1' : url);
         applyListData(res.data, more);
-        if (!more) maybeAutoSync();
     } catch (err) {
         if (more) {
             flash(err.message, true);
@@ -329,6 +364,11 @@ function rowActionsHTML(t, history) {
         btns.push('<button type="button" class="btn btn-sm btn-outline" data-act="done-todo" data-id="' + escAttr(t.id) + '">完成</button>');
         btns.push('<button type="button" class="btn btn-sm btn-outline" data-act="edit-todo" data-id="' + escAttr(t.id) + '">编辑</button>');
     }
+    // 历史里已完成的可以取消完成（回到「进行中」）；已超时的没有这个入口 —— 超时是只读的，
+    // 后端也会拒绝，摆一个点了报错的按钮不如不摆。
+    if (history && t.status === 'done') {
+        btns.push('<button type="button" class="btn btn-sm btn-outline" data-act="reopen-todo" data-id="' + escAttr(t.id) + '">取消完成</button>');
+    }
     // 历史页里，学习通同步来的待办可以收进「已隐藏」；手动 / 通知 / 活动待办不提供这个入口。
     if (history && t.source === 'academic') {
         if (state.hidden) {
@@ -363,6 +403,74 @@ function setTagFilter(tag) {
     state.tag = tag || '';
     loadList(false);
 }
+
+// ===== 更多操作菜单（两个同步 + 提醒设置）=====
+/* 这三个入口频率低，收进滑轨右侧的圆形按钮里；菜单只负责显隐，
+   动作仍由各自的 data-act 委托处理，菜单项被点掉后自动收起。
+
+   定位不走 CSS 的 right/top：这一页在 iframe 里，祖先任何一处溢出让位都可能把菜单
+   顶出可视区（手机窄屏尤其明显）。改成开菜单时按按钮实测坐标算，并夹回可视区：
+   优先右对齐到按钮右缘，放不下就左移；下方装不下就翻到按钮上方。 */
+var todoMenuOpen = false;
+
+function setTodoMenu(open) {
+    var btn = document.getElementById('todoMenuBtn');
+    var menu = document.getElementById('todoMenu');
+    if (!btn || !menu) return;
+    todoMenuOpen = !!open;
+    if (todoMenuOpen) {
+        // 先显示出来才量得到尺寸；量之前先藏视觉，免得在 (0,0) 闪一帧
+        menu.hidden = false;
+        menu.style.visibility = 'hidden';
+        positionTodoMenu(btn, menu);
+        menu.style.visibility = '';
+        // 定位完成后再加入场类：transform-origin 已经按「上方还是下方展开」设好
+        menu.classList.add('is-open');
+    } else {
+        menu.classList.remove('is-open');
+        menu.hidden = true;
+    }
+    btn.setAttribute('aria-expanded', todoMenuOpen ? 'true' : 'false');
+}
+
+/** 把菜单摆到按钮下方（或上方）并对齐右缘，四周留 8px 安全边 */
+function positionTodoMenu(btn, menu) {
+    var GAP = 6;
+    var PAD = 8;
+    var r = btn.getBoundingClientRect();
+    var vw = window.innerWidth || document.documentElement.clientWidth || 0;
+    var vh = window.innerHeight || document.documentElement.clientHeight || 0;
+    var mw = menu.offsetWidth;
+    var mh = menu.offsetHeight;
+    var left = r.right - mw;                    // 右缘对齐按钮右缘，向左长
+    if (left + mw > vw - PAD) left = vw - PAD - mw;
+    if (left < PAD) left = PAD;                 // 窄屏兜底：贴着左边也别出去
+    var top = r.bottom + GAP;
+    var flipped = false;
+    if (top + mh > vh - PAD) {                  // 下方放不下 → 翻到上方
+        top = r.top - GAP - mh;
+        flipped = true;
+    }
+    if (top < PAD) top = PAD;
+    menu.style.top = top + 'px';
+    menu.style.left = left + 'px';
+    // 展开动画以贴着按钮的那个角为原点：向下展开时是右上角，向上翻时是右下角
+    menu.style.transformOrigin = flipped ? 'bottom right' : 'top right';
+}
+
+function closeTodoMenu() {
+    if (todoMenuOpen) setTodoMenu(false);
+}
+
+/* fixed 定位不跟随滚动：菜单开着时页面一滚，它就会和按钮脱开。这里直接收起，
+   再点开时重新按按钮位置算一遍。尺寸变化同理，但能重算就重算，不必打断用户。 */
+window.addEventListener('scroll', closeTodoMenu, { passive: true });
+window.addEventListener('resize', function () {
+    if (!todoMenuOpen) return;
+    var btn = document.getElementById('todoMenuBtn');
+    var menu = document.getElementById('todoMenu');
+    if (btn && menu) positionTodoMenu(btn, menu);
+});
 
 // ===== 分段控件（进行中 / 历史） =====
 function moveSegPill() {
@@ -414,11 +522,8 @@ function closeOverlay(overlay) {
 function openTodoModal(mode, todo) {
     editor.mode = mode;
     editor.id = todo ? todo.id : null;
-    document.getElementById('todoModalTitle').textContent =
-        mode === 'edit' ? '编辑待办' : (mode === 'delegate' ? '代加待办' : '新建待办');
-    document.getElementById('todoSubmitBtn').textContent = mode === 'delegate' ? '添加到所选同学' : '保存';
-    // 成员多选只在代加模式出现，其余两种模式下整块不占位置
-    document.getElementById('memberField').hidden = mode !== 'delegate';
+    document.getElementById('todoModalTitle').textContent = mode === 'edit' ? '编辑待办' : '新建待办';
+    document.getElementById('todoSubmitBtn').textContent = '保存';
 
     document.getElementById('tdTitle').value = todo ? (todo.title || '') : '';
     document.getElementById('tdDesc').value = todo ? (todo.description || '') : '';
@@ -428,7 +533,6 @@ function openTodoModal(mode, todo) {
     clearError('todoError');
     renderTagPicker(todo ? (todo.tags || []) : []);
 
-    if (mode === 'delegate') loadMembers();
     openOverlay(todoModal);
 }
 
@@ -481,71 +585,9 @@ function addCustomTag() {
     input.value = '';
 }
 
-// ===== 代加模式的成员多选 =====
-async function loadMembers() {
-    var box = document.getElementById('memberBox');
-    if (editor.membersLoaded) { renderMembers(); return; }
-    box.innerHTML = '<span class="remind-hint">正在加载名单…</span>';
-    try {
-        var res = await api('/api/auth/members-pick');
-        editor.members = (res.data && res.data.list) || [];
-        editor.membersLoaded = true;
-        editor.membersFailed = false;
-    } catch (e) {
-        // 失败与「班里真没有成员」必须分开：失败时提交会把待办发给 0 个人，用户却以为成功了
-        editor.members = [];
-        editor.membersFailed = true;
-    }
-    renderMembers();
-}
-
-function renderMembers() {
-    var box = document.getElementById('memberBox');
-    var hint = document.getElementById('memberHint');
-    var submit = document.getElementById('todoSubmitBtn');
-    if (editor.membersFailed) {
-        box.innerHTML = '<span class="remind-hint remind-text-error">名单加载失败，请关闭弹窗重试</span>';
-        hint.textContent = '';
-        submit.disabled = true;
-        return;
-    }
-    submit.disabled = false;
-    if (!editor.members.length) {
-        box.innerHTML = '<span class="remind-hint">暂无可选的班级成员</span>';
-        hint.textContent = '';
-        return;
-    }
-    box.innerHTML = editor.members.map(function (m) {
-        var pos = positionsText(m.positions);
-        return '<label class="chip"><input type="checkbox" class="member-cb" value="' + escAttr(m.id) + '">'
-            + esc(m.name) + (pos ? ' · ' + esc(pos) : '') + '</label>';
-    }).join('');
-    updateMemberHint();
-}
-
-function collectMembers() {
-    var out = [];
-    document.querySelectorAll('#memberBox .member-cb:checked').forEach(function (el) { out.push(Number(el.value)); });
-    return out;
-}
-
-function updateMemberHint() {
-    var hint = document.getElementById('memberHint');
-    if (!hint) return;
-    var n = collectMembers().length;
-    hint.textContent = n ? '已选 ' + n + ' 人' : '还没选人';
-}
-
-function toggleAllMembers() {
-    var boxes = document.querySelectorAll('#memberBox .member-cb');
-    if (!boxes.length) return;
-    var allChecked = true;
-    boxes.forEach(function (b) { if (!b.checked) allChecked = false; });
-    boxes.forEach(function (b) { b.checked = !allChecked; });
-    updateMemberHint();
-}
-
-// ===== 提交：新建 / 编辑 / 代加 =====
+// ===== 提交：新建 / 编辑 =====
+// 代加待办不在这里：它是一次给多个人的操作，整块搬到了管理员面板（account/admin.html），
+// 本页只负责「收到别人代加的那条」的展示与撤回。
 async function submitTodo() {
     clearError('todoError');
     var title = document.getElementById('tdTitle').value.trim();
@@ -563,12 +605,6 @@ async function submitTodo() {
     if (startAt && dueAt <= startAt) { showError('todoError', '截止时间必须晚于开始时间'); return; }
     if (tags.length > TAGS_MAX) { showError('todoError', '标签最多 4 个'); return; }
 
-    var memberIds = [];
-    if (editor.mode === 'delegate') {
-        memberIds = collectMembers();
-        if (!memberIds.length) { showError('todoError', '请选择至少一位同学'); return; }
-    }
-
     var body = { title: title, description: description, due_at: dueAt, tags: tags };
     // 新建时开始时间是可选字段，空着就别传；编辑时显式传空串才能把原来的开始时间清掉
     if (startAt || editor.mode === 'edit') body.start_at = startAt;
@@ -578,15 +614,7 @@ async function submitTodo() {
     btn.disabled = true;
     btn.textContent = '提交中…';
     try {
-        if (editor.mode === 'delegate') {
-            var res = await api('/api/todos/delegate', {
-                method: 'POST',
-                body: JSON.stringify(Object.assign({ user_ids: memberIds }, body))
-            });
-            var msg = (res.data && res.data.message) || ('已给 ' + memberIds.length + ' 位同学添加待办');
-            closeTodoModal();
-            flash(msg);
-        } else if (editor.mode === 'edit') {
+        if (editor.mode === 'edit') {
             await api('/api/todos/' + editor.id, { method: 'PUT', body: JSON.stringify(body) });
             closeTodoModal();
             flash('已保存');
@@ -606,6 +634,8 @@ async function submitTodo() {
 }
 
 // ===== 行内操作 =====
+// 完成 / 取消完成是一次点击就结束的动作，提示走吐司（成功蓝、失败红），
+// 不再在列表上方插一条占位提示条 —— 那一条会把下面的行整体顶下去一次。
 async function markDone(id) {
     try {
         await api('/api/todos/' + id + '/status', { method: 'POST', body: JSON.stringify({ status: 'done' }) });
@@ -614,6 +644,20 @@ async function markDone(id) {
         loadList(false, true);
     } catch (err) {
         // 典型是「刚好在点之前超时了」（后端返回 TODO_EXPIRED）：提示 + 重取列表，两边状态就对齐了
+        flash(err.message, true);
+        notifyTodoChanged();
+        loadList(false, true);
+    }
+}
+
+/** 取消完成：回到「进行中」。历史里点的那条会从当前视图消失，所以提示一下去哪了。 */
+async function reopenTodo(id) {
+    try {
+        await api('/api/todos/' + id + '/status', { method: 'POST', body: JSON.stringify({ status: 'open' }) });
+        flash('已取消完成，回到「进行中」');
+        notifyTodoChanged();
+        loadList(false, true);
+    } catch (err) {
         flash(err.message, true);
         notifyTodoChanged();
         loadList(false, true);
@@ -717,9 +761,7 @@ function ensureTodoShell() {
         btn.id = 'syncBtn';
         btn.setAttribute('data-act', 'sync-chaoxing');
         btn.textContent = '同步学习通';
-        var delegateBtn = document.getElementById('delegateBtn');
-        if (delegateBtn && delegateBtn.parentNode === toolbar) toolbar.insertBefore(btn, delegateBtn);
-        else toolbar.appendChild(btn);
+        toolbar.appendChild(btn);   // 随后会被搬进「更多」菜单（见下面的菜单整理）
     }
 
     // MOOC 按钮同理：旧壳里没有它，也要补出来，否则升级当次用户看不到新入口。
@@ -733,22 +775,80 @@ function ensureTodoShell() {
         toolbar.appendChild(moocBtn);
     }
 
-    if (toolbar && !document.getElementById('syncNote')) {
-        var note = document.createElement('p');
-        note.className = 'todo-sync-note';
-        note.id = 'syncNote';
-        note.hidden = true;
-        toolbar.insertAdjacentElement('afterend', note);
+    // 吐司宿主与「分类标签下面那条阻塞提示」：旧壳里没有，补出来。
+    // 旧壳里还留着 #syncNote（顶部那行常驻状态），新脚本不再往里写，它就一直是隐藏的。
+    if (!document.getElementById('toastHost')) {
+        var host = document.createElement('div');
+        host.className = 'toast-host';
+        host.id = 'toastHost';
+        host.setAttribute('role', 'status');
+        host.setAttribute('aria-live', 'polite');
+        host.hidden = true;
+        document.body.appendChild(host);
+    }
+    if (!document.getElementById('syncNotice')) {
+        var noticeEl = document.createElement('p');
+        noticeEl.className = 'todo-notice';
+        noticeEl.id = 'syncNotice';
+        noticeEl.hidden = true;
+        var filterRow = document.getElementById('tagFilter');
+        if (filterRow && filterRow.parentNode) filterRow.insertAdjacentElement('afterend', noticeEl);
+        else document.body.appendChild(noticeEl);
     }
 
-    // 工具栏顺序统一成「代加 / 同步学习通 / 同步 MOOC / 提醒 / 新建」：整体靠右后，从右往左读依次是
-    // 新建、提醒、MOOC、学习通、代加，最常用的新建落在右手拇指最容易够到的位置。
-    // 旧壳里同步按钮是补进来的，位置会落在末尾；这里按 data-act 重排一次，新旧壳都对齐。
-    if (toolbar) {
-        ['open-delegate', 'sync-chaoxing', 'sync-mooc', 'open-prefs', 'new-todo'].forEach(function (act) {
-            var node = toolbar.querySelector('[data-act="' + act + '"]');
-            if (node) toolbar.appendChild(node);
+    // 滑轨右侧的圆形「更多」按钮 + 下拉菜单。旧壳里两个同步与提醒还在工具栏上，
+    // 这里把滑轨包进 .todo-seg-row，并把那三个入口挪进菜单（新壳已就位时整段跳过）。
+    var seg = document.getElementById('todoSeg');
+    if (seg && !document.getElementById('todoMenuWrap')) {
+        var row = document.createElement('div');
+        row.className = 'todo-seg-row';
+        seg.parentNode.insertBefore(row, seg);
+        row.appendChild(seg);
+
+        var wrap = document.createElement('div');
+        wrap.className = 'todo-menu-wrap';
+        wrap.id = 'todoMenuWrap';
+
+        var menuBtn = document.createElement('button');
+        menuBtn.type = 'button';
+        menuBtn.className = 'icon-btn todo-menu-btn';
+        menuBtn.id = 'todoMenuBtn';
+        menuBtn.setAttribute('data-act', 'toggle-todo-menu');
+        menuBtn.setAttribute('aria-haspopup', 'true');
+        menuBtn.setAttribute('aria-expanded', 'false');
+        menuBtn.setAttribute('aria-label', '同步与提醒');
+        menuBtn.title = '同步与提醒';
+        menuBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"'
+            + ' stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+            + '<polyline points="23 4 23 10 17 10"/>'
+            + '<path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>';
+        wrap.appendChild(menuBtn);
+
+        var menu = document.createElement('div');
+        menu.className = 'todo-menu';
+        menu.id = 'todoMenu';
+        menu.hidden = true;
+        wrap.appendChild(menu);
+
+        row.appendChild(wrap);
+    }
+
+    // 三个低频入口统一收进菜单：旧壳里她们在工具栏，新壳里本来就在菜单里（命中就不动）
+    var menuBox = document.getElementById('todoMenu');
+    if (menuBox) {
+        ['sync-chaoxing', 'sync-mooc', 'open-prefs'].forEach(function (act) {
+            var entry = document.querySelector('[data-act="' + act + '"]');
+            if (!entry) return;
+            if (entry.parentNode !== menuBox) menuBox.appendChild(entry);
+            entry.className = 'todo-menu-item';
         });
+    }
+
+    // 工具条现在只剩「新建待办」（代加已移到管理面板）。旧壳里可能还留着代加按钮：
+    // 没有对应权限就不必摆，但它仍能点开弹窗，所以不主动删，只保证新建排在最后。
+    if (toolbar) {
+        var newBtn = toolbar.querySelector('[data-act="new-todo"]');
+        if (newBtn) toolbar.appendChild(newBtn);
     }
 
     var historyNote = document.getElementById('historyNote');
@@ -771,7 +871,6 @@ function ensureTodoShell() {
 }
 
 function renderSyncUI() {
-    var note = document.getElementById('syncNote');
     var ticking = false;
 
     Object.keys(SYNC_DEFS).forEach(function (kind) {
@@ -804,48 +903,40 @@ function renderSyncUI() {
         stopSyncClock();
     }
 
-    if (!note) return;
-    var text = '';
+    // 进度 → 吐司；需要用户动手的问题 → 页面里那一条（#syncNotice，在分类标签下面）
     var busyKind = null;
     Object.keys(SYNC_DEFS).some(function (kind) {
         if (syncUi[kind].busy) { busyKind = kind; return true; }
         return false;
     });
-    var s = state.sync;
     if (busyKind) {
         var def = SYNC_DEFS[busyKind];
         var p = syncUi[busyKind].progress;
-        text = p && p.total ? def.progress(p) : def.boot;
-    } else if (s && s.last_result === 'not_bound') {
-        // 这一行是两种同步共用的服务端状态，只记最后一次结果；
-        // 不点名具体来源，免得出「学习通同步失败」却让用户以为 MOOC 也坏了。
-        text = '有同步来源还没绑定账号，绑定后每天会自动同步。';
-    } else if (s && s.last_result === 'error') {
-        text = s.last_message || '上次同步失败，可以稍后手动重试。';
-    } else if (s && s.last_synced_at) {
-        text = '上次同步 ' + fmtWhen(s.last_synced_at) + (s.synced_today ? '（今天已同步）' : '');
-    } else {
-        // 从没同步过（sync 为 null）也要给一句提示，否则按钮旁边是空的。
-        text = '今天还没同步，进入本页时会自动同步学习通。';
+        showToast(p && p.total ? def.progress(p) : def.boot, { sticky: true });
+    } else if (toastSticky) {
+        hideToast();   // 同步结束：进度那条该收了，结果由 syncNow 另发一条
     }
-    note.textContent = text;
-    note.hidden = !text;
-}
 
-/** 每天第一次进页面自动同步一次；页面内失败不反复重试，交给手动按钮。 */
-function maybeAutoSync() {
-    if (state.autoSynced || syncUi.chaoxing.busy) return;
-    state.autoSynced = true;
+    var notice = document.getElementById('syncNotice');
+    if (!notice) return;
     var s = state.sync;
-    // s 为 null 表示这个账号从没同步过（还没有 todo_sync_state 行），同样应该自动跑第一次。
-    if (s && s.synced_today) return;
-    if (s && s.last_result === 'not_bound') return;
-    if (syncCooldownLeft('chaoxing') > 0) return;
-    // 只自动同步学习通：两个来源共用服务端 60 秒窗口，进页面同时跑 MOOC 会立刻撞 429；
-    // MOOC 作业量小、也可能没绑，交给用户手动点更可控。
-    syncNow('chaoxing');
+    var blockText = '';
+    if (s && s.last_result === 'not_bound') {
+        // 两种同步共用一条服务端状态，只记最后一次结果；不点名来源，
+        // 免得出现「学习通同步失败」却让用户以为 MOOC 也坏了。
+        blockText = '有同步来源还没绑定账号，绑定后每天会自动同步。';
+    } else if (s && s.last_result === 'error') {
+        // 未授权（「尚未同意…」）、上游异常等都落在这一档：这类要用户去改设置，
+        // 不能做成会自己消失的吐司，否则一闪就没、用户根本来不及看。
+        blockText = s.last_message || '上次同步失败，可以稍后手动重试。';
+    }
+    notice.textContent = blockText;
+    notice.hidden = !blockText;
 }
 
+/** 同步只在用户点菜单里那两项时发生：进页面不再自动跑一次。
+ *  （原先每进一次页面自动同步学习通，会在用户只是想看一眼列表时占用 60 秒冷却，
+ *   顺带把进度吐司顶到眼前；后台同步由 App 壳自己的周期任务负责，网页不做。） */
 async function syncNow(kind) {
     var def = SYNC_DEFS[kind] || SYNC_DEFS.chaoxing;
     var ui = syncUi[kind];
@@ -860,6 +951,9 @@ async function syncNow(kind) {
     var cursor = 0;
     var guard = 0;
     var message = '';
+    // 结果提示放到 finally 里发：那时进度吐司已经收起，不会被「收进度」顺手吞掉
+    var resultText = '';
+    var resultError = false;
     // 服务端一批 4 门课，每门还要补作业详情页；同步请求单独放宽到 90s，
     // 别再被 api() 默认的 30s 抢先掐断（服务端其实还在写库，前端却以为失败）。
     var timeoutMs = 90000;
@@ -910,14 +1004,21 @@ async function syncNow(kind) {
             if (next <= cursor) { message = data.message || '同步完成'; break; }
             cursor = next;
         }
-        if (message) flash(message);
+        if (message) resultText = message;   // 成功路径：文案在循环里攒好，统一在 finally 发
     } catch (err) {
         // 429 说明服务端刚记过一次尝试（例如另一个标签页刚点过）：提示并靠刷新拿回冷却状态。
         var suffix = cursor > 0 ? '（已处理的前 ' + cursor + ' 项已保存，稍后可继续）' : '';
-        flash(err.message + suffix, true);
+        resultText = err.message + suffix;
+        resultError = true;
     } finally {
         ui.busy = false;
         ui.progress = null;
+        // 先把按钮文案与进度吐司恢复，再发结果那条 —— 顺序反了会被「收进度」顺手收掉
+        renderSyncUI();
+        if (resultText) {
+            // 同步完成算成功（蓝），失败给足阅读时间（红）
+            showToast(resultText, resultError ? { error: true, duration: 6000 } : { success: true, duration: 3000 });
+        }
         await loadList(false, true);
     }
 }
@@ -1012,27 +1113,26 @@ async function submitPrefs() {
 // CSP 的 script-src 只放行 'self'，页面里不能再写内联 onclick：
 // 列表行由 innerHTML 反复重绘，所以统一用 data-act 标记 + document 上的委托（与通知页同一套写法）。
 delegate(document, 'click', '[data-act="new-todo"]', function () { openTodoModal('create', null); });
-delegate(document, 'click', '[data-act="open-delegate"]', function () { openTodoModal('delegate', null); });
-delegate(document, 'click', '[data-act="open-prefs"]', function () { openPrefs(); });
+delegate(document, 'click', '[data-act="open-prefs"]', function () { closeTodoMenu(); openPrefs(); });
 delegate(document, 'click', '[data-act="cancel-todo"]', function () { closeTodoModal(); });
 delegate(document, 'click', '[data-act="cancel-prefs"]', function () { closePrefsModal(); });
 delegate(document, 'click', '[data-act="switch-tab"]', function (el) { switchTab(el.getAttribute('data-tab')); });
 delegate(document, 'click', '[data-act="filter-tag"]', function (el) { setTagFilter(el.getAttribute('data-tag') || ''); });
 delegate(document, 'click', '[data-act="toggle-todo"]', function (el) { toggleTodo(el); });
 delegate(document, 'click', '[data-act="done-todo"]', function (el) { markDone(el.getAttribute('data-id')); });
+delegate(document, 'click', '[data-act="reopen-todo"]', function (el) { reopenTodo(el.getAttribute('data-id')); });
 delegate(document, 'click', '[data-act="edit-todo"]', function (el) { startEdit(el.getAttribute('data-id')); });
 delegate(document, 'click', '[data-act="del-todo"]', function (el) { deleteTodo(el.getAttribute('data-id')); });
 delegate(document, 'click', '[data-act="add-tag"]', function () { addCustomTag(); });
-delegate(document, 'click', '[data-act="select-all-members"]', function () { toggleAllMembers(); });
 delegate(document, 'click', '[data-act="load-more"]', function () { loadList(true); });
-delegate(document, 'click', '[data-act="sync-chaoxing"]', function () { syncNow('chaoxing'); });
-delegate(document, 'click', '[data-act="sync-mooc"]', function () { syncNow('mooc'); });
+delegate(document, 'click', '[data-act="sync-chaoxing"]', function () { closeTodoMenu(); syncNow('chaoxing'); });
+delegate(document, 'click', '[data-act="sync-mooc"]', function () { closeTodoMenu(); syncNow('mooc'); });
+delegate(document, 'click', '[data-act="toggle-todo-menu"]', function () { setTodoMenu(!todoMenuOpen); });
 delegate(document, 'click', '[data-act="toggle-hidden"]', function () { toggleHidden(); });
 delegate(document, 'click', '[data-act="hide-todo"]', function (el) { setTodoHidden(el.getAttribute('data-id'), true); });
 delegate(document, 'click', '[data-act="unhide-todo"]', function (el) { setTodoHidden(el.getAttribute('data-id'), false); });
 // 勾选变化：标签超过 4 个要立刻拦、成员数要实时报给用户
 delegate(document, 'change', '#tagPicker .tag-cb', onTagChange);
-delegate(document, 'change', '#memberBox .member-cb', updateMemberHint);
 
 var todoSubmitBtn = document.getElementById('todoSubmitBtn');
 if (todoSubmitBtn) todoSubmitBtn.addEventListener('click', submitTodo);
@@ -1054,15 +1154,18 @@ if (prefsModal) prefsModal.addEventListener('click', function (e) {
 });
 document.addEventListener('keydown', function (e) {
     if (e.key !== 'Escape') return;
+    closeTodoMenu();
     if (todoModal && todoModal.classList.contains('show')) closeTodoModal();
     else if (prefsModal && prefsModal.classList.contains('show')) closePrefsModal();
 });
 
-// 代加入口只给 content:write（班长 / 团支书 / 学习委员）。后端同样有权限门，这里只是不摆死按钮
-if (canContentWrite()) {
-    var delegateBtn = document.getElementById('delegateBtn');
-    if (delegateBtn) delegateBtn.hidden = false;
-}
+// 点菜单外面收起：菜单项自己的动作已负责收起，这里兜住「点了别处」的情况
+document.addEventListener('click', function (e) {
+    if (!todoMenuOpen) return;
+    var wrap = document.getElementById('todoMenuWrap');
+    if (wrap && e.target instanceof Element && wrap.contains(e.target)) return;
+    closeTodoMenu();
+});
 
 // 先补齐旧壳缺失的节点，再进入首屏渲染：后面的 render() 会直接读写这些入口。
 ensureTodoShell();
@@ -1070,6 +1173,9 @@ ensureTodoShell();
 // 滑块在布局完成后才有尺寸：首帧排一次，窗口变化再排一次
 moveSegPill();
 window.addEventListener('resize', moveSegPill);
+// 待办页是预载的 iframe，初始化时还在 display:none 里，宽度量不到：
+// 外壳把它显示出来时会通知一次（见 app.js 的 onFrameShown）。
+onFrameShown(moveSegPill);
 
 loadList(false);
 })();

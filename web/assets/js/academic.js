@@ -485,6 +485,9 @@ function initAcSeg() {
     });
     switchAcTab('timetable');
     window.addEventListener('resize', moveAcSegPill);
+    // 这一页是预载的，初始化时还在 display:none 里，滑块的宽度量不到；
+    // 外壳把学业页显示出来时会通知一次（见 app.js 的 onFrameShown）。
+    onFrameShown(moveAcSegPill);
 }
 
 function switchAcTab(name) {

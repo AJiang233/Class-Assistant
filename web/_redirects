@@ -11,8 +11,9 @@
 # 查询串由 Pages 原样带到新地址，/forms.html?id=3 → /affairs/forms.html?id=3。
 /notices.html        /affairs/                308
 /notices             /affairs/                308
-/activities.html     /affairs/activities.html 308
-/activities          /affairs/activities.html 308
+# 活动视图已并入 /affairs/（页内 tab=activities），旧地址带查询串一起转过去
+/activities.html     /affairs/?tab=activities 308
+/activities          /affairs/?tab=activities 308
 /forms.html          /affairs/forms.html      308
 /forms               /affairs/forms.html      308
 /todos.html          /todos/                  308

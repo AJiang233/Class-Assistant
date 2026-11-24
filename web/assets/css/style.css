@@ -2088,63 +2088,57 @@ body.app-mode { overflow: hidden; }
 }
 
 /* ── 条款排版：独立页与登录弹窗注入的正文共用（弹窗里字号再收一档）── */
-.legal-content h1, .consent-doc h1 {
+.legal-content h1 {
   font-size: 1.5rem; line-height: 1.3; margin: 0 0 12px;
   color: var(--text); letter-spacing: -0.02em;
 }
-.legal-content h2, .consent-doc h2 {
+.legal-content h2 {
   font-size: 1.1rem; line-height: 1.4; margin: 28px 0 10px;
   color: var(--text); letter-spacing: -0.01em;
 }
-.legal-content h3, .consent-doc h3 {
+.legal-content h3 {
   font-size: 0.98rem; line-height: 1.5; margin: 18px 0 8px; color: var(--text);
 }
-.legal-content p, .legal-content li,
-.consent-doc p, .consent-doc li {
+.legal-content p, .legal-content li {
   font-size: 0.92rem; line-height: 1.8; color: var(--text-secondary);
 }
-.legal-content p, .consent-doc p { margin-bottom: 10px; }
-.legal-content ul, .legal-content ol,
-.consent-doc ul, .consent-doc ol { margin: 0 0 12px; padding-left: 1.35em; }
-.legal-content li, .consent-doc li { margin-bottom: 4px; }
-.legal-content strong, .consent-doc strong { color: var(--text); font-weight: 650; }
-.legal-content a, .consent-doc a { color: var(--accent); text-decoration: none; }
-.legal-content a:hover, .consent-doc a:hover { text-decoration: underline; }
-.legal-content .legal-meta, .consent-doc .legal-meta {
+.legal-content p { margin-bottom: 10px; }
+.legal-content ul, .legal-content ol { margin: 0 0 12px; padding-left: 1.35em; }
+.legal-content li { margin-bottom: 4px; }
+.legal-content strong { color: var(--text); font-weight: 650; }
+.legal-content a { color: var(--accent); text-decoration: none; }
+.legal-content a:hover { text-decoration: underline; }
+.legal-content .legal-meta {
   font-size: 0.82rem; color: var(--text-tertiary); line-height: 1.6;
 }
-.legal-content .legal-callout, .consent-doc .legal-callout {
+.legal-content .legal-callout {
   padding: 12px 14px; margin-bottom: 16px;
   border: 1px solid var(--border); border-radius: var(--radius-md);
   background: var(--accent-soft); color: var(--text-secondary);
 }
 
-/* ── 登录前同意弹窗：正文自己滚，底部按钮常驻 ── */
+/* 条款里的表格：给框线；外层 .legal-table 负责左右滚动。
+   关键在 min-width：光有 overflow-x 是滚不起来的 —— 表格默认会把自己压进容器宽度，
+   于是列被挤成一条、文字竖着堆（一坨），永远不触发滚动。给表格一个下限（32em ≈ 420px）
+   就反过来：容器够宽时它撑满（width: 100%），不够宽时保持可读列宽、由外层横向滚。
+   上下各留一点间距，表格不会贴着上一段文字。 */
+.legal-table { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 16px 0 20px; }
+.legal-content table {
+  border-collapse: collapse; width: 100%; min-width: 32em; font-size: 0.88rem;
+}
+.legal-content th, .legal-content td {
+  border: 1px solid var(--border); padding: 8px 10px; text-align: left; vertical-align: top;
+  color: var(--text-secondary); line-height: 1.6;
+}
+.legal-content th {
+  background: var(--material-muted); color: var(--text); font-weight: 650; white-space: nowrap;
+}
+
+/* 个人中心的「用户协议与授权」弹窗沿用这个宽度 */
 .modal-consent { width: min(560px, 92vw); max-width: 560px; }
 /* .modal-body 仍是整块的滚动容器（小屏时正文 + 勾选项一起滚，底部按钮不会被顶出屏幕），
    里面的协议正文再单独滚 —— 滑动判定只看协议正文，不受勾选项高度影响 */
 .modal-consent .modal-body { display: flex; flex-direction: column; gap: 12px; }
-.consent-lead { font-size: 0.85rem; line-height: 1.6; color: var(--text-secondary); }
-.consent-doc {
-  flex: 0 1 auto; min-height: 150px; max-height: 46vh;
-  overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
-  padding: 14px 16px;
-  border: 1px solid var(--border); border-radius: var(--radius-md);
-  background: var(--surface);
-  color: var(--text-secondary);
-  font-size: 0.9rem; line-height: 1.75;
-}
-.consent-doc:focus-visible { outline: 2px solid var(--accent-ring); outline-offset: 2px; }
-.consent-doc h1 { font-size: 1.05rem; }
-.consent-doc h2 { font-size: 0.97rem; margin: 18px 0 8px; }
-.consent-doc h3 { font-size: 0.92rem; margin: 14px 0 6px; }
-.consent-doc p, .consent-doc li { font-size: 0.87rem; }
-.consent-doc .legal-callout { padding: 10px 12px; }
-.consent-scroll-hint {
-  min-height: 1em; text-align: right;
-  font-size: 0.79rem; line-height: 1.5; color: var(--text-tertiary);
-}
-.consent-scroll-hint.done { color: var(--success); }
 .consent-checks { display: flex; flex-direction: column; gap: 8px; }
 .consent-check {
   display: flex; align-items: flex-start; gap: 10px; cursor: pointer;
@@ -2163,6 +2157,13 @@ body.app-mode { overflow: hidden; }
 .consent-check-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .consent-check small { font-size: 0.79rem; line-height: 1.5; color: var(--text-tertiary); }
 .modal-consent .form-error { margin-bottom: 0; }
+
+/* 登录页的同意勾选：放在登录按钮正上方，字号比正文小一号。
+   注意必须把 .consent-check-text 的列布局改回普通流 —— 弹窗里它是「标题 + 小字」
+   两行（flex column），照搬到登录页会把每个协议链接都排成独立一行。 */
+.login-consent { margin: 2px 0 14px; padding: 8px 11px; font-size: 0.84rem; }
+.login-consent .consent-check-text { display: block; line-height: 1.6; }
+.login-consent a { white-space: nowrap; }
 
 /* ── 个人中心：关于软件里的「用户协议」行 + 授权管理弹窗 ── */
 .consent-summary { font-size: 0.86rem; color: var(--text-secondary); }
@@ -2188,7 +2189,6 @@ body.app-mode { overflow: hidden; }
 
 @media (max-width: 640px) {
   .modal-consent { width: 100%; }
-  .consent-doc { max-height: 40vh; min-height: 140px; padding: 12px; }
   .consent-check { font-size: 0.88rem; padding: 9px 10px; }
   .legal-page { padding: 18px 14px 56px; }
   .legal-content { padding: 22px 18px; border-radius: var(--radius-md); }
@@ -2261,24 +2261,110 @@ body.app-mode { overflow: hidden; }
 .todo-summary-when.urgent { color: var(--danger); font-weight: 600; }
 
 /* ── 待办页：工具条 / 分段 / 提示条 / 标签筛选 ───────────────── */
+/* 滑轨与右侧「更多」按钮同一行：滑轨吃掉剩余宽度，按钮固定 44×44（触屏命中区）垂直居中。
+   尺寸必须写死 —— 用 stretch + aspect-ratio 让按钮「跟滑轨等高」时，包裹层是行里最后一个
+   flex 项、宽度按内容算，算出来的宽度小于按钮的实际宽度，多出的部分会溢出到页面右边。 */
+.todo-seg-row { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+.todo-seg { flex: 1; min-width: 0; margin-bottom: 0; }
+/* 菜单本体是 fixed，包裹层只负责按钮的位置；不让它参与 flex 缩放 */
+.todo-menu-wrap { flex: none; display: flex; }
+.todo-menu-btn { width: 44px; height: 44px; flex: none; }
+/* 下拉菜单：内容层实色，不叠玻璃（同屏玻璃面留给导航与弹窗）。
+   坐标由 todos.js 的 positionTodoMenu() 按按钮实测值写入（fixed + 夹回可视区），
+   这里只给尺寸上限与外观 —— 纯 CSS 的 right/top 在 iframe 里容易被顶出边界。 */
+.todo-menu {
+    position: fixed; top: 0; left: 0; z-index: 130;
+    min-width: 168px; max-width: calc(100vw - 16px); padding: 4px;
+    display: flex; flex-direction: column; gap: 1px;
+    background: var(--material-strong);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-overlay);
+    /* 贴着按钮的那个角为原点；菜单往上翻时由 JS 改成 bottom right */
+    transform-origin: top right;
+}
+/* 展开动画：从略小一点长到实际尺寸。关闭不做退场 —— 只有三项，
+   退场动画的收益小于多一层状态机（hidden 立即生效，也不会有残影）。 */
+.todo-menu.is-open { animation: todoMenuIn var(--dur-fast) var(--ease-standard) both; }
+@keyframes todoMenuIn {
+    from { opacity: 0; transform: scale(0.94); }
+    to   { opacity: 1; transform: none; }
+}
+.todo-menu-item {
+    display: flex; align-items: center; width: 100%; min-height: 34px;
+    padding: 5px 10px; border: none; background: none; border-radius: var(--radius-sm);
+    font-family: inherit; font-size: 0.9rem; font-weight: 600; color: var(--text);
+    text-align: left; cursor: pointer; line-height: 1.3;
+    transition: background-color var(--dur-fast) var(--ease-standard);
+}
+/* 逐项入场：错开一点点，读起来是「摊开」而不是整块闪现 */
+.todo-menu.is-open .todo-menu-item { animation: todoMenuItemIn var(--dur-base) var(--ease-standard) backwards; }
+.todo-menu.is-open .todo-menu-item:nth-child(2) { animation-delay: 30ms; }
+.todo-menu.is-open .todo-menu-item:nth-child(3) { animation-delay: 60ms; }
+@keyframes todoMenuItemIn {
+    from { opacity: 0; transform: translateY(-2px); }
+    to   { opacity: 1; transform: none; }
+}
+@media (hover: hover) { .todo-menu-item:hover { background: var(--accent-soft); } }
+.todo-menu-item:active { background: var(--accent-soft); }
+/* 同步中 / 冷却倒计时：按钮只置灰，文案由 todos.js 的 renderSyncUI 改写 */
+.todo-menu-item:disabled { opacity: 0.42; cursor: not-allowed; }
+.todo-menu-item:disabled:active { background: none; }
+
+/* 手机端：行距再收一档，菜单项抬到 44px 命中区。
+   这两条必须写在上面的基础规则**之后** —— 同为单类选择器，媒体查询不增加特异度，
+   写在前面的会被基础规则反超（21.2 那一段里就发生过一次）。 */
+@media (max-width: 768px), (max-height: 500px) and (pointer: coarse) {
+    .todo-seg-row { gap: 8px; margin-bottom: 12px; }
+    /* 手机上只把命中区抬到 44px，左右内边距跟着收 —— 高度由 min-height 定，再加 padding 只会更胖 */
+    .todo-menu-item { min-height: var(--tap-min); padding: 4px 10px; font-size: 0.92rem; }
+    /* 新建待办：手机上撑满一行；桌面端靠 .todo-toolbar 的 justify-content: flex-end 右对齐 */
+    .todo-toolbar { display: block; }
+    .todo-toolbar .btn { width: 100%; }
+}
+
 .todo-toolbar {
     display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px;
     margin-bottom: 18px;
 }
-/* 分段控件默认 margin-bottom 24，这一页下面紧跟标签筛选，收一档更紧凑 */
-.todo-seg { margin-bottom: 16px; }
 
-.todo-flash {
-    margin-bottom: 16px; padding: 10px 14px;
-    font-size: 0.86rem; line-height: 1.5;
-    background: var(--accent-soft); color: var(--accent);
-    border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
-    border-radius: var(--radius-md);
+/* ── 吐司（浮层，不参与布局） ─────────────────────────────────────
+   本页所有一次性提示都走这里：页面不为它让出一行，也不会因为一次操作把列表往下顶。
+   从屏幕上方落下、居中：宽度按文案伸缩（fit-content），最长不超过「屏宽 − 两侧留白」。
+   居中不能用 left:50% + translateX(-50%) —— 那样「收缩适应」的可用宽度是从 50% 处到
+   右边缘（屏幕的一半），max-width 再大也只能长到半屏。改成 left:0 + right:0 让可用宽度
+   等于整个视口，再用 margin:auto 居中。 */
+.toast-host {
+    position: fixed; left: 0; right: 0; top: calc(12px + var(--safe-top)); z-index: 180;
+    margin: 0 auto;
+    transform: translateY(-12px);
+    display: flex; align-items: center; gap: 8px;
+    width: fit-content; max-width: calc(100vw - 24px);
+    padding: 10px 14px; border-radius: var(--radius-sm);
+    background: var(--material-strong); color: var(--text);
+    border: 1px solid var(--border-strong);
+    box-shadow: var(--shadow-overlay);
+    font-size: 0.86rem; font-weight: 600; line-height: 1.45; text-align: center;
+    opacity: 0; pointer-events: none;
+    transition: opacity var(--dur-base) var(--ease-standard),
+                transform var(--dur-base) var(--ease-standard);
 }
-.todo-flash.error {
-    background: var(--danger-soft); color: var(--danger);
-    border-color: color-mix(in srgb, var(--danger) 30%, transparent);
+/* 图标：与整段文字上下居中（换行成两行时也在垂直中线上），颜色跟文字一起变 */
+.toast-host svg { flex: none; width: 16px; height: 16px; color: var(--text-secondary); }
+.toast-host .toast-text { min-width: 0; }
+.toast-host.show { opacity: 1; transform: translateY(0); }
+/* 成功：蓝 */
+.toast-host.success {
+    color: var(--accent);
+    border-color: color-mix(in srgb, var(--accent) 32%, transparent);
 }
+.toast-host.success svg { color: var(--accent); }
+/* 失败：红 */
+.toast-host.error {
+    color: var(--danger);
+    border-color: color-mix(in srgb, var(--danger) 32%, transparent);
+}
+.toast-host.error svg { color: var(--danger); }
 
 .todo-filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
 .todo-filter {
@@ -2306,8 +2392,10 @@ body.app-mode { overflow: hidden; }
 }
 .todo-hidden-toggle:hover { text-decoration: underline; }
 /* 同步状态：按钮下方的弱提示，失败原因与上次成功时间都放这里 */
-.todo-sync-note {
-    margin: -8px 0 16px; font-size: 0.84rem; line-height: 1.5;
+/* 需要用户动手的同步问题（未授权 / 未绑定 / 上次失败原因）：放在分类标签下面，
+   所以上边距是正的；顶部那行不再常驻，进度与结果改走吐司。 */
+.todo-notice {
+    margin: 0 0 16px; font-size: 0.84rem; line-height: 1.5;
     color: var(--text-secondary);
 }
 .todo-more-wrap { margin-top: 16px; }
@@ -2417,15 +2505,10 @@ body.app-mode { overflow: hidden; }
     gap: 8px; margin-top: 12px;
 }
 
-/* ── 待办页：弹窗里的标签选择与成员多选 ─────────────────────── */
+/* ── 待办的标签选择与成员多选（待办弹窗 + 管理面板的「代加待办」共用） ── */
 .todo-tag-picker { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
 .todo-tag-add { display: flex; align-items: center; gap: 8px; }
 .todo-tag-add .form-input { flex: 1; min-height: 38px; padding: 6px 12px; font-size: 0.9rem; }
-.todo-member-head {
-    display: flex; align-items: center; justify-content: space-between; gap: 10px;
-    margin-bottom: 10px;
-}
-.todo-member-hint { font-size: 0.82rem; color: var(--text-secondary); }
 
 /* 窄屏：标题与截止时间分两行，别把标题挤成一个字一行 */
 @media (max-width: 640px) {

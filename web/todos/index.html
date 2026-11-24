@@ -29,36 +29,41 @@
                 <p class="page-desc">自己的作业、考试与杂事都记在这里；截止前会按「红色 / 黄色」两档提醒，班委也可以直接给你加一条。</p>
             </div>
 
-            <!-- 操作区：代加 / 同步学习通 / 同步 MOOC / 提醒 / 新建，整体靠右（右手单手操作时拇指刚好在最右）。
-                 顺序是反着的：越常用的越靠右，新建排在最后一个。代加只对 content:write 显示（见 todos.js）。
-                 两个同步按钮各自维护冷却与进度（todos.js 的 syncUi），互不复用对方状态：
-                 服务端虽然共用一个 60 秒窗口，但按钮文案/禁用只由自己那次点击决定。 -->
+            <!-- 滑轨（进行中 / 历史）紧跟标题，右侧是低频操作的入口：
+                 两个同步与提醒设置都收进圆形三点按钮的下拉菜单，主行只留守家操作。
+                 滑块（.tab-pill）由 todos.js 的 moveSegPill() 定位，与学业页的三段控件同一套实现。 -->
+            <div class="todo-seg-row">
+                <div class="tabs todo-seg" id="todoSeg">
+                    <span class="tab-pill" id="todoSegPill" aria-hidden="true"></span>
+                    <button type="button" class="tab active" data-act="switch-tab" data-tab="open">进行中</button>
+                    <button type="button" class="tab" data-act="switch-tab" data-tab="history">历史</button>
+                </div>
+                <div class="todo-menu-wrap" id="todoMenuWrap">
+                    <button type="button" class="icon-btn todo-menu-btn" id="todoMenuBtn"
+                            data-act="toggle-todo-menu" aria-haspopup="true" aria-expanded="false"
+                            title="同步与提醒" aria-label="同步与提醒">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                    </button>
+                    <div class="todo-menu" id="todoMenu" hidden>
+                        <button type="button" class="todo-menu-item" id="syncBtn" data-act="sync-chaoxing">同步学习通</button>
+                        <button type="button" class="todo-menu-item" id="moocSyncBtn" data-act="sync-mooc">同步中国大学MOOC</button>
+                        <button type="button" class="todo-menu-item" data-act="open-prefs">提醒设置</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 操作区：新建待办。桌面端右对齐，手机端撑满一行（见 style.css 的 .todo-toolbar）。
+                 代加待办入口在管理员面板（account/admin.html），点它会切回本页并直接打开代加弹窗。 -->
             <div class="todo-toolbar">
-                <button type="button" class="btn btn-outline" id="delegateBtn" hidden data-act="open-delegate">代加待办</button>
-                <button type="button" class="btn btn-outline" id="syncBtn" data-act="sync-chaoxing">同步学习通</button>
-                <button type="button" class="btn btn-outline" id="moocSyncBtn" data-act="sync-mooc">同步中国大学MOOC</button>
-                <button type="button" class="btn btn-outline" data-act="open-prefs">提醒设置</button>
                 <button type="button" class="btn btn-primary" data-act="new-todo">+ 新建待办</button>
             </div>
 
-            <!-- 同步状态：上次成功时间 / 失败原因 / 手动按钮 60 秒降温。
-                 服务端只有一条共享的同步状态（todo_sync_state），所以这行文案是两项共用的；
-                 两个按钮自己的「同步中 / 冷却」由 syncUi 分开渲染。 -->
-            <p class="todo-sync-note" id="syncNote" hidden></p>
-
-            <!-- 进行中 / 历史 分段控件。滑块（.tab-pill）由 todos.js 的 moveSegPill() 定位，
-                 与学业页的三段控件同一套实现。 -->
-            <div class="tabs todo-seg" id="todoSeg">
-                <span class="tab-pill" id="todoSegPill" aria-hidden="true"></span>
-                <button type="button" class="tab active" data-act="switch-tab" data-tab="open">进行中</button>
-                <button type="button" class="tab" data-act="switch-tab" data-tab="history">历史</button>
-            </div>
-
-            <!-- 一次性提示（如「已给 3 位同学添加待办」）：不打断操作，几秒后自己消失 -->
-            <div class="todo-flash" id="todoFlash" hidden></div>
-
             <!-- 标签筛选：点位由 renderTagFilter() 生成（全部 + 各标签） -->
             <div class="todo-filters" id="tagFilter"></div>
+
+            <!-- 需要用户去处理的问题（未授权 / 未绑定 / 上次失败原因）放在分类标签下面，
+                 不占顶部的空间；同步进度这类「说着就过去」的信息走 #toastHost 的吐司。 -->
+            <p class="todo-notice" id="syncNotice" hidden></p>
 
             <!-- 历史页顶部的一句统计：「共 N 条历史待办，其中 M 条超时」；
                  学习通同步的已完成待办可以收起来，右侧按钮在隐藏视图与历史列表之间切换。 -->
@@ -74,9 +79,9 @@
                 <button type="button" class="btn btn-outline btn-block mt-12" id="moreBtn" hidden data-act="load-more">加载更多</button>
             </div>
 
-            <!-- 新建 / 编辑 / 代加 三合一弹窗。三者的字段完全一样，差的只是：
-                 1) 标题文案；2) 代加模式多一块成员多选；3) 提交的接口。
-                 合成一个弹窗是为了少维护两份几乎相同的表单。 -->
+            <!-- 新建 / 编辑 二合一弹窗：字段完全一样，差的只是标题文案与提交的接口（POST / PUT）。
+                 代加待办不在这里 —— 那是一次给多个人的操作，整块搬到了管理员面板
+                 （account/admin.html 的「代加待办」卡）。 -->
             <div class="modal-overlay" id="todoModal">
                 <div class="modal">
                     <div class="modal-head">
@@ -87,16 +92,6 @@
                     </div>
                     <div class="modal-body">
                         <div class="form-error" id="todoError"></div>
-
-                        <!-- 代加模式：先选人。名单是懒加载的（打开这个模式时才请求） -->
-                        <div class="form-field" id="memberField" hidden>
-                            <label class="form-label">加给谁</label>
-                            <div class="todo-member-head">
-                                <button type="button" class="btn btn-outline btn-sm" data-act="select-all-members">全选</button>
-                                <span class="todo-member-hint" id="memberHint"></span>
-                            </div>
-                            <div class="remind-members" id="memberBox"></div>
-                        </div>
 
                         <div class="form-field">
                             <label class="form-label" for="tdTitle">标题</label>
@@ -176,6 +171,10 @@
             </div>
         </div>
     </div>
+
+    <!-- 吐司：固定定位、不参与布局。同步进度与同步结果都走这里，
+         手机上要避开底栏与 Home 指示条（见 style.css 的 .toast-host）。 -->
+    <div class="toast-host" id="toastHost" role="status" aria-live="polite" hidden></div>
 
     <script src="../assets/js/app.js"></script>
     <script src="../assets/js/todos.js"></script>

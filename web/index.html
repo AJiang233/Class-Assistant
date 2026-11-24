@@ -25,7 +25,7 @@
     <!-- 应用壳（未登录也显示，登录后加载活动） -->
     <div class="app-shell" id="appShell">
         <aside class="sidebar" id="sidebar">
-            <a href="index.html" class="sidebar-brand">
+            <a href="/" class="sidebar-brand">
                 <span class="brand-mark">
                     <img src="assets/icons/icon-192.png" alt="">
                 </span>
@@ -52,13 +52,15 @@
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/></svg>
                     <span class="side-text">学业</span>
                 </button>
-                <button type="button" class="side-link" id="navAdmin" hidden data-view="admin">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
-                    <span class="side-text">管理员面板</span>
-                </button>
                 <button type="button" class="side-link" id="navAccount" data-view="account">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
                     <span class="side-text">个人中心</span>
+                </button>
+                <!-- 管理员面板排在个人中心之后：它不是日常入口，放在最末（手机端底栏没有这一项，
+                     由个人中心里的卡片进入，顺序与桌面侧栏一致）。 -->
+                <button type="button" class="side-link" id="navAdmin" hidden data-view="admin">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
+                    <span class="side-text">管理员面板</span>
                 </button>
             </nav>
             <div class="sidebar-bottom">
@@ -188,24 +190,29 @@
                                 <label class="form-label" for="loginPassword">密码</label>
                                 <input class="form-input" type="password" id="loginPassword" placeholder="请输入密码" autocomplete="current-password">
                             </div>
-                            <button class="btn btn-primary btn-block" id="loginBtn" type="submit">登录</button>
+                            <!-- 登录前必须勾选同意（对应服务端 AGREEMENT_VERSION 那一版）：
+                                 不勾就禁用登录按钮；提交时把 terms 随登录一起发过去，
+                                 服务端直接落库，不再弹第二个同意弹窗。
+                                 三项是可点开的法务页（新标签打开，不打断登录）。 -->
+                            <label class="consent-check login-consent">
+                                <input type="checkbox" id="loginConsentAck">
+                                <span class="consent-check-text">我已阅读并同意<a class="legal-back" href="legal/terms.html" target="_blank" rel="noopener">《用户协议》</a><a class="legal-back" href="legal/privacy.html" target="_blank" rel="noopener">《隐私政策》</a>与<a class="legal-back" href="legal/disclaimer.html" target="_blank" rel="noopener">《免责声明》</a></span>
+                            </label>
+                            <button class="btn btn-primary btn-block" id="loginBtn" type="submit" disabled>登录</button>
                         </form>
                         <!-- 忘记密码：本期只有后端接口（/api/auth/forgot/*），页面不做流程，
                              所以这里如实写成「找班委重置」而不是给一个点不动的入口。
                              哪天把找回页面做出来，把这句话换成入口即可。 -->
                         <p class="auth-note">忘记密码？请联系班长或团支书重置。</p>
-                        <!-- 登录前就把「会代替你访问校方系统」说清楚（issue #105）：拿到密码之前
-                             应当知道这份授权意味着什么，入口指向站内法务页。 -->
-                        <p class="auth-note">使用教务 / 学习通联动时，班级助理会在你授权后代替你访问校方系统，详情见<a class="legal-back" href="legal/privacy.html" target="_blank" rel="noopener">隐私政策</a>与<a class="legal-back" href="legal/disclaimer.html" target="_blank" rel="noopener">免责声明</a>。</p>
                     </div>
                 </div>
 
             </div>
 
-            <!-- 各视图独立 iframe -->
-            <iframe id="frameActivities" class="app-frame" data-loaded="0" hidden title="活动"></iframe>
+            <!-- 各视图独立 iframe。通知与活动合成一页（/affairs/），所以只有一个事务 iframe：
+                 两个视图名共用它，切换是页内的标签（见 app.js 的 showAffairsPane）。 -->
             <iframe id="frameAcademic" class="app-frame" data-loaded="0" hidden title="学业"></iframe>
-            <iframe id="frameNotices" class="app-frame" data-loaded="0" hidden title="通知"></iframe>
+            <iframe id="frameNotices" class="app-frame" data-loaded="0" hidden title="班级事务"></iframe>
             <iframe id="frameTodos" class="app-frame" data-loaded="0" hidden title="待办"></iframe>
             <iframe id="frameAccount" class="app-frame" data-loaded="0" hidden title="个人中心"></iframe>
             <iframe id="frameAdmin" class="app-frame" data-loaded="0" hidden title="管理员面板"></iframe>
@@ -237,45 +244,6 @@
                 <span>个人中心</span>
             </a>
         </nav>
-    </div>
-
-    <!-- 用户协议弹窗（两种场景共用：登录前 412 同意；已登录老用户启动时补同意）。
-         正文从 legal/terms.html 注入，同意按钮要等正文滑到底部才可点；勾选项默认全不勾，
-         其中第 1 项《用户协议》是必选。弹窗放在登录视图外面，是因为已登录补同意时
-         登录视图是 hidden 的，放在里面会看不见。 -->
-    <div class="modal-overlay" id="consentModal">
-        <div class="modal modal-consent">
-            <div class="modal-head">
-                <span class="modal-title">用户协议与授权</span>
-                <button type="button" class="modal-close" id="consentCloseBtn" aria-label="关闭">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                </button>
-            </div>
-            <div class="modal-body">
-                <p class="consent-lead" id="consentLead">使用本服务前，请先阅读《用户协议》并确认下方授权；下滑到正文底部后即可点击「同意并登录」。</p>
-                <div class="consent-doc" id="consentDoc" tabindex="0">正在加载协议正文…</div>
-                <p class="consent-scroll-hint" id="consentScrollHint">请向下滑动阅读至底部</p>
-                <div class="consent-checks">
-                    <label class="consent-check">
-                        <input type="checkbox" id="consentTerms">
-                        <span class="consent-check-text">同意本软件用户协议<small>如不同意将无法使用我们的服务</small></span>
-                    </label>
-                    <label class="consent-check">
-                        <input type="checkbox" id="consentChaoxing">
-                        <span class="consent-check-text">同意本软件使用你的身份登录学习通<small>如不同意将无法同步学习通作业，考试等消息</small></span>
-                    </label>
-                    <label class="consent-check">
-                        <input type="checkbox" id="consentAcademic">
-                        <span class="consent-check-text">同意本软件使用你的身份登录教务系统<small>如不同意将无法同步教务系统学业情况及课表</small></span>
-                    </label>
-                </div>
-                <div class="form-error" id="consentError"></div>
-            </div>
-            <div class="modal-foot">
-                <button type="button" class="btn btn-outline" id="consentCancelBtn">取消</button>
-                <button type="button" class="btn btn-primary" id="consentAgreeBtn" disabled>同意并登录</button>
-            </div>
-        </div>
     </div>
 
     <script src="assets/js/app.js"></script>

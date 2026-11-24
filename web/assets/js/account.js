@@ -1166,6 +1166,9 @@ function moveThemeSegPill() {
     // 首帧布局稳定后再定位一次；旋屏/尺寸变化时重算
     setTimeout(moveThemeSegPill, 0);
     window.addEventListener('resize', moveThemeSegPill);
+    // 这一页是预载的，初始化时还在 display:none 里，滑块的宽度量不到；
+    // 外壳把个人中心显示出来时会通知一次（见 app.js 的 onFrameShown）。
+    onFrameShown(moveThemeSegPill);
 })();
 
 // ===== 修改密码 =====
@@ -2176,6 +2179,10 @@ async function doUnbindMooc() {
     moveAccountTabPill();
     setTimeout(moveAccountTabPill, 0);
     window.addEventListener('resize', moveAccountTabPill);
+    // 预载的个人中心在 display:none 里初始化，两个滑块的宽度都量不到；
+    // 外壳显示这一页时会通知一次（见 app.js 的 onFrameShown）。
+    // 主题分段的滑块在它自己的 IIFE 里已经登记过，这里只补这两个页签的。
+    onFrameShown(moveAccountTabPill);
     if (wantBinding) {
         switchAccountPane('binding');
     } else {

@@ -2,7 +2,7 @@
 // ===== 需要登录 =====
 if (!requireAuth()) return;
 
-var modalOverlay = document.getElementById('detailModal');
+var modalOverlay = document.getElementById('actDetailModal');
 
 // ===== 编辑入口：仅 content:write 权限者可用 =====
 if (canContentWrite()) loadRemindChoices();
@@ -24,12 +24,12 @@ async function loadRemindChoices() {
 }
 
 function renderRemindChoices(checkedNames) {
-    renderRemindBox('editRemind', remindChoices, checkedNames, remindLoadFailed);
+    renderRemindBox('actEditRemind', remindChoices, checkedNames, remindLoadFailed);
 }
 
 function collectRemind() {
     var names = [];
-    document.querySelectorAll('#editRemind .remind-cb:checked').forEach(function (el) { names.push(el.value); });
+    document.querySelectorAll('#actEditRemind .remind-cb:checked').forEach(function (el) { names.push(el.value); });
     return names;
 }
 
@@ -131,7 +131,7 @@ document.addEventListener('keydown', function (e) {
 });
 
 // ===== 编辑弹窗 =====
-var editOverlay = document.getElementById('editModal');
+var editOverlay = document.getElementById('actEditModal');
 function openEdit() {
     editOverlay.classList.add('show');
     document.body.style.overflow = 'hidden';
@@ -158,7 +158,7 @@ function todoBlockHTML(todo, kind, id) {
     // 已加入的人只能看到禁用态：重复加入由后端做幂等，这里不必给按钮
     var btn = todo.joined
         ? '<button type="button" class="btn btn-outline" disabled>已加入我的待办</button>'
-        : '<button type="button" class="btn btn-primary" data-act="add-todo-from-source" data-kind="' + escAttr(kind)
+        : '<button type="button" class="btn btn-primary" data-act="act-add-todo-from-source" data-kind="' + escAttr(kind)
           + '" data-id="' + escAttr(id) + '">加入我的待办</button>';
     return '<div class="mt-12" data-todo-block>'
         + '<div class="detail-remind"><span>' + icon('clock') + '待办：' + esc(todo.title) + '</span>'
@@ -198,7 +198,7 @@ async function addTodoFromSource(btn) {
 }
 
 async function showDetail(id) {
-    var card = document.getElementById('detailCard');
+    var card = document.getElementById('actDetailCard');
     card.innerHTML = stateHTML('正在加载…', false, 'clock');
     openDetail();
     try {
@@ -248,12 +248,12 @@ function startEdit(id) {
     api('/api/activities/' + id).then(function (res) {
         var a = res.data;
         editingActivityId = id;
-        document.getElementById('editError').classList.remove('show');
-        document.getElementById('editTitle').value = a.title || '';
-        document.getElementById('editContent').value = a.content || '';
-        document.getElementById('editLocation').value = a.location || '';
-        document.getElementById('editStart').value = (a.start_time || '').replace(' ', 'T').slice(0, 16);
-        document.getElementById('editEnd').value = (a.end_time || '').replace(' ', 'T').slice(0, 16);
+        document.getElementById('actEditError').classList.remove('show');
+        document.getElementById('actEditTitle').value = a.title || '';
+        document.getElementById('actEditContent').value = a.content || '';
+        document.getElementById('actEditLocation').value = a.location || '';
+        document.getElementById('actEditStart').value = (a.start_time || '').replace(' ', 'T').slice(0, 16);
+        document.getElementById('actEditEnd').value = (a.end_time || '').replace(' ', 'T').slice(0, 16);
         var names = [];
         if (a.remind_people) { try { var arr = JSON.parse(a.remind_people); if (Array.isArray(arr)) names = arr; } catch (e) {} }
         // 名单上次没加载出来：先重取一次再渲染，否则用户会永远困在错误态里（issue #78）
@@ -269,13 +269,13 @@ function cancelEdit() {
 }
 
 async function submitEdit() {
-    var errBox = document.getElementById('editError');
+    var errBox = document.getElementById('actEditError');
     errBox.classList.remove('show');
-    var title = document.getElementById('editTitle').value.trim();
-    var content = document.getElementById('editContent').value.trim();
-    var location = document.getElementById('editLocation').value.trim();
-    var start_time = document.getElementById('editStart').value;
-    var end_time = document.getElementById('editEnd').value;
+    var title = document.getElementById('actEditTitle').value.trim();
+    var content = document.getElementById('actEditContent').value.trim();
+    var location = document.getElementById('actEditLocation').value.trim();
+    var start_time = document.getElementById('actEditStart').value;
+    var end_time = document.getElementById('actEditEnd').value;
     if (!title || !start_time) {
         errBox.textContent = '标题、开始时间为必填';
         errBox.classList.add('show'); return;
@@ -286,7 +286,7 @@ async function submitEdit() {
         errBox.textContent = '提醒对象名单尚未加载成功，请关闭弹窗重试';
         errBox.classList.add('show'); return;
     }
-    var btn = document.getElementById('editSubmitBtn');
+    var btn = document.getElementById('actEditSubmitBtn');
     btn.disabled = true; var t = btn.textContent; btn.textContent = '保存中…';
     try {
         var body = { title: title, content: content, location: location, start_time: start_time, end_time: end_time, remind_people: collectRemind() };
@@ -304,18 +304,24 @@ async function submitEdit() {
 // ===== 事件绑定 =====
 // CSP 的 script-src 只放行 'self'，页面里不能再写内联 onclick：
 // 动态列表行用 data-act 标记 + 委托（列表重绘也不用重新绑），静态按钮直接按 id 绑。
-var editSubmitBtn = document.getElementById('editSubmitBtn');
+var editSubmitBtn = document.getElementById('actEditSubmitBtn');
 if (editSubmitBtn) editSubmitBtn.addEventListener('click', submitEdit);
-delegate(document, 'click', '[data-act="close-detail"]', function () { closeDetail(); });
-delegate(document, 'click', '[data-act="cancel-edit"]', function () { cancelEdit(); });
+delegate(document, 'click', '[data-act="act-close-detail"]', function () { closeDetail(); });
+delegate(document, 'click', '[data-act="act-cancel-edit"]', function () { cancelEdit(); });
 delegate(document, 'click', '[data-act="edit-activity"]', function (el) { startEdit(el.getAttribute('data-id')); });
 delegate(document, 'click', '[data-act="del-activity"]', function (el) { deleteActivity(el.getAttribute('data-id')); });
 delegate(document, 'click', '[data-act="activity-detail"]', function (el) { showDetail(el.getAttribute('data-id')); });
-delegate(document, 'click', '[data-act="add-todo-from-source"]', function (el) { addTodoFromSource(el); });
+delegate(document, 'click', '[data-act="act-add-todo-from-source"]', function (el) { addTodoFromSource(el); });
 
-// 班级事务子标签（issue #95）：通知/活动合并成一个导航项，页内切换
-initAffairsTabs('activities');
+// 通知与活动现在同处一页（affairs/index.html），两侧的弹窗、动作名都带 act 前缀：
+// 共用一套 id / data-act 会让两个弹窗互相写错内容、一次点击触发两份请求。
+// 标签切换与滑块由 app.js 的 initAffairsPage / showAffairsPane 统一管，这里不再调 initAffairsTabs。
 
-var deepActivityId = new URLSearchParams(location.search).get('id');
-if (deepActivityId) showDetail(deepActivityId);
+// 深链（推送 / 通知里的 ?id=）只在活动视图是当前视图时才开详情：
+// 同一页里两份脚本都会读到 ?id=，不加这道判断会拿同一个 id 去开错的通知/活动。
+document.addEventListener('DOMContentLoaded', function () {
+    if (window.__caAffairsPane && window.__caAffairsPane() !== 'activities') return;
+    var deepActivityId = new URLSearchParams(location.search).get('id');
+    if (deepActivityId) showDetail(deepActivityId);
+});
 })();

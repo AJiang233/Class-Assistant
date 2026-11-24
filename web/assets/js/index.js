@@ -6,7 +6,9 @@ var activeDate = null;
 
 // 视图 → iframe 映射。switchView / slideShownView 在下面的初始化里就要读它，
 // 所以必须声明在初始化之前：靠 var 提升拿到的是 undefined，会导致 ?view=xxx 抛错、白屏。
-var FRAME_KEYS = { academic: 'frameAcademic', activities: 'frameActivities', notices: 'frameNotices', todos: 'frameTodos', account: 'frameAccount', admin: 'frameAdmin' };
+// 通知与活动合成了一页（/affairs/），只剩一个 iframe：两个视图名共用它，切换靠页面内的
+// 标签（见 frameKeyOf / notifyAffairsPane）。视图名本身保留，历史、深链、回到上一页都照旧。
+var FRAME_KEYS = { academic: 'frameAcademic', notices: 'frameNotices', todos: 'frameTodos', account: 'frameAccount', admin: 'frameAdmin' };
 
 // 视图 → 子页地址（web/ 按导航分成四个文件夹，首页壳留在根目录）。
 // 与 FRAME_KEYS 分开两张表：前者是 DOM 里的 iframe id，这张是磁盘上的路径，
@@ -14,12 +16,16 @@ var FRAME_KEYS = { academic: 'frameAcademic', activities: 'frameActivities', not
 // 免得在「/ 上的壳」与「子文件夹里的页」之间算相对路径。
 var FRAME_URLS = {
     notices: '/affairs/',
-    activities: '/affairs/activities.html',
     todos: '/todos/',
     academic: '/academic/',
     account: '/account/',
     admin: '/account/admin.html'
 };
+
+/** 视图名 → iframe 键：活动与通知是同一份文档里的两个视图 */
+function frameKeyOf(view) {
+    return view === 'activities' ? 'notices' : view;
+}
 
 // 当前视图（供移动端左右滑动判断相邻页）。同样必须在初始化之前赋值：init 里的 switchView
 // 会写它，若声明留在初始化之后，那句 `var currentView = 'home'` 会把深链视图重置成主页。
@@ -74,6 +80,35 @@ function loadFrame(k, src) {
     f.setAttribute('data-loaded', '1');
     f.addEventListener('load', function () { bindFrameSwipe(f); });
     f.src = src || FRAME_URLS[k];
+}
+
+/**
+ * 告诉刚显示出来的子页「你可见了」。
+ *
+ * 子页是预载的：src 在 display:none 的状态下就加载完、跑过初始化，那时页内元素
+ * offsetWidth 全是 0 —— 分段控件的滑块只能先隐身。切过来时再叫它排一次，
+ * 页面自己通过 app.js 的 onFrameShown 登记要重排什么。
+ *
+ * iframe 还没加载完（此时 contentWindow 里没有 __caFrameShown）或内容跨域时静默跳过。
+ */
+function notifyFrameShown(f) {
+    try {
+        var win = f.contentWindow;
+        if (win && typeof win.__caFrameShown === 'function') win.__caFrameShown();
+    } catch (e) { /* 还没加载完或跨域：忽略 */ }
+}
+
+/**
+ * 让班级事务页切到指定视图（通知 / 活动）。
+ *
+ * 两个视图现在是同一份文档里的两块，切视图不再换 iframe，只叫页面翻一下 hidden。
+ * 页面还没加载完时静默跳过 —— 它的初始视图本来就会从 ?tab= / 会话里读。
+ */
+function notifyAffairsPane(f, view) {
+    try {
+        var win = f.contentWindow;
+        if (win && typeof win.__caAffairsShow === 'function') win.__caAffairsShow(view);
+    } catch (e) { /* 还没加载完或跨域：忽略 */ }
 }
 
 // ===== 视图历史（安卓返回键 / 浏览器后退） =====
@@ -182,10 +217,11 @@ window.addEventListener('popstate', onHistoryPop);
     } catch (e) {}
     // ?view=affairs 是导航别名，落到上次看的子页；历史里记的也应是真实子页
     if (target === 'affairs') target = lastAffairsTab();
-    // ?view=notices&id=123 深链（App 点提醒会带过来）：先把 iframe 的 src 指到带 id 的地址，
-    // 再切视图。子页自己读 ?id= 开详情。
+    // ?view=activities&id=123 深链（App 点提醒会带过来）：一个 iframe 同时表达「哪个视图」，
+    // 所以 tab 与 id 一起拼进地址，班级事务页自己读它们决定初始视图并开详情。
     if (authed && deepId && (target === 'notices' || target === 'activities')) {
-        loadFrame(target, FRAME_URLS[target] + '?id=' + encodeURIComponent(deepId));
+        loadFrame('notices', FRAME_URLS.notices + '?tab=' + target
+            + '&id=' + encodeURIComponent(deepId));
     }
     // 先把入口这条记录钉成「主页」，再把深链视图作为新记录压上去 —— 深链进来时
     // 按一次返回也是回主页，而不是退出 App（实现见上面「视图历史」）。
@@ -266,18 +302,21 @@ function switchView(key, slideDir) {
     var isLogin = key === 'login';
     document.getElementById('homeView').hidden = !isHome;
     document.getElementById('loginView').hidden = !isLogin;
-    // 班级事务的两个子页一起预载：页内子标签互相切换时不用再等 iframe 首次加载。
-    // 只填 src、不改 hidden，显隐仍交给下面统一的循环。
-    if (key === 'notices' || key === 'activities') {
-        ['notices', 'activities'].forEach(function (k) { loadFrame(k); });
-    }
+    // 班级事务只剩一个 iframe：进这一块时按需载入，显隐交给下面统一的循环
+    if (key === 'notices' || key === 'activities') loadFrame('notices');
     for (var fk in FRAME_KEYS) {
         var f = document.getElementById(FRAME_KEYS[fk]);
         // 缓存里 HTML 与 JS 半新半旧时可能缺某个 iframe：跳过它，别让一处 null 把整个切换打断
         if (!f) continue;
-        var show = !isHome && !isLogin && fk === key;
+        var show = !isHome && !isLogin && fk === frameKeyOf(key);
         f.hidden = !show;
-        if (show) loadFrame(fk);
+        if (show) {
+            loadFrame(fk);
+            // 预载的子页初始化时量不到宽度（display:none），切过来这一刻补一次重排
+            notifyFrameShown(f);
+            // 通知 / 活动是同一页里的两块：视图名变了就让它翻到对应那块
+            if (fk === 'notices') notifyAffairsPane(f, key);
+        }
     }
     if (isHome) {
         document.getElementById('homeView').scrollTop = 0;
@@ -374,7 +413,7 @@ function bindFrameSwipe(frame) {
 /** 切页入场：手势切页时新视图从对应一侧滑入；非手势切换则清掉残留类，保持原淡入 */
 function slideShownView(isHome, isLogin, key, dir) {
     var el = isHome ? document.getElementById('homeView')
-        : (isLogin ? document.getElementById('loginView') : document.getElementById(FRAME_KEYS[key]));
+        : (isLogin ? document.getElementById('loginView') : document.getElementById(FRAME_KEYS[frameKeyOf(key)]));
     if (!el) return;
     el.classList.remove('slide-in-next', 'slide-in-prev');
     if (!dir) return;
@@ -843,12 +882,30 @@ async function showNoticeDetail(id) {
 // ===== 登录（应用壳内） =====
 var loginForm = document.getElementById('loginForm');
 if (loginForm) {
+    // 登录页的同意勾选：不勾就禁用登录按钮（服务端仍会校验，这里只是别让人白填一遍密码）。
+    // 勾上之后随登录一起把 terms 发过去，服务端直接落库，不再走第二个同意弹窗。
+    var loginAck = document.getElementById('loginConsentAck');
+    var loginBtnEl = document.getElementById('loginBtn');
+    function syncLoginBtn() {
+        if (!loginBtnEl) return;
+        // 正在登录时（文案已改成「登录中…」）不要重新放开按钮
+        if (loginBtnEl.textContent === '登录中…') return;
+        loginBtnEl.disabled = !(loginAck && loginAck.checked);
+    }
+    if (loginAck) loginAck.addEventListener('change', syncLoginBtn);
+    syncLoginBtn();
+
     loginForm.addEventListener('submit', async function (e) {
         e.preventDefault();
         var errBox = document.getElementById('loginError');
         errBox.classList.remove('show');
         var student_id = document.getElementById('loginStudentId').value.trim();
         var password = document.getElementById('loginPassword').value;
+        if (!loginAck || !loginAck.checked) {
+            errBox.textContent = '请先阅读并同意《用户协议》《隐私政策》《免责声明》';
+            errBox.classList.add('show');
+            return;
+        }
         if (!student_id || !password) {
             errBox.textContent = '请填写学号和密码';
             errBox.classList.add('show');
@@ -857,224 +914,36 @@ if (loginForm) {
         var btn = document.getElementById('loginBtn');
         btn.disabled = true; btn.textContent = '登录中…';
         try {
-            var res = await api('/api/auth/login', { method: 'POST', body: JSON.stringify({ student_id: student_id, password: password }) });
+            // consent 里只声明「同意了协议」；学习通 / 教务是两项可选授权，登录页不代勾，
+            // 之后在「个人中心 → 用户协议与授权」里各自开启（服务端也只认显式的 true）。
+            var res = await api('/api/auth/login', {
+                method: 'POST',
+                body: JSON.stringify({ student_id: student_id, password: password, consent: { terms: true } })
+            });
             saveSession(res.data);
             window.location.reload(); // 重载后进入已登录状态
         } catch (err) {
             if (err.code === 'CONSENT_REQUIRED') {
-                // 密码已通过校验，只差协议同意：暂存凭据（仅内存）后弹窗，不显示红色登录错误
-                pendingLogin = { student_id: student_id, password: password };
-                openConsentModal();
+                // 理论上不该发生：登录页的勾选会随请求带上 consent。
+                // 兜底只提示重来，不再弹第二个协议窗（弹窗已删）。
+                errBox.textContent = '协议同意未记录成功，请重新勾选同意后再登录';
+                errBox.classList.add('show');
             } else {
                 errBox.textContent = err.message;
                 errBox.classList.add('show');
             }
         } finally {
-            btn.disabled = false; btn.textContent = '登录';
+            btn.textContent = '登录';
+            syncLoginBtn();
         }
     });
 }
-
-// ===== 用户协议同意（登录前弹窗）=====
-// 后端契约：密码正确但尚未同意协议（或协议版本过期）时，登录返回 412 CONSENT_REQUIRED 且不发 token；
-// 所以登录按钮先走一次普通登录，收到这个码才弹窗。待提交的学号密码只放内存变量、绝不写
-// localStorage —— 刷新页面就没了，比把半个凭据落盘安全。同意过之后由服务端保证不再返回 412，
-// 这里不需要任何「已弹过窗」的本地缓存。
-var pendingLogin = null;
-var consentScrolled = false;
-// 'login' = 登录前同意（412 后弹窗，提交时连同学号密码重新登录）；'gate' = 已登录会话补同意
-var consentMode = 'login';
-
-/** 三个勾选框恢复未选中、错误条清空、按钮重新锁死（每次打开弹窗都要回到初始态） */
-function resetConsentModal() {
-    var ids = ['consentTerms', 'consentChaoxing', 'consentAcademic'];
-    for (var i = 0; i < ids.length; i++) {
-        var el = document.getElementById(ids[i]);
-        if (el) el.checked = false;
-    }
-    var err = document.getElementById('consentError');
-    if (err) { err.textContent = ''; err.classList.remove('show'); }
-    var btn = document.getElementById('consentAgreeBtn');
-    if (btn) { btn.disabled = true; btn.textContent = '同意并登录'; }
-    var hint = document.getElementById('consentScrollHint');
-    if (hint) { hint.textContent = '请向下滑动阅读至底部'; hint.classList.remove('done'); }
-}
-
-/** 正文滑到底部（留 8px 容差，避免半像素/滚动惯性差一点）才算读完 */
-function consentAtBottom(el) {
-    return el.scrollTop + el.clientHeight >= el.scrollHeight - 8;
-}
-function markConsentRead() {
-    if (consentScrolled) return;
-    consentScrolled = true;
-    var hint = document.getElementById('consentScrollHint');
-    if (hint) { hint.textContent = '已阅读到底，请勾选下方授权'; hint.classList.add('done'); }
-    var btn = document.getElementById('consentAgreeBtn');
-    if (btn) btn.disabled = false;
-}
-
-/** 取同源静态条款页的正文注入弹窗（只解析 HTML，不执行任何脚本） */
-var consentDocReq = 0;
-function loadConsentDoc() {
-    var box = document.getElementById('consentDoc');
-    if (!box) return;
-    // 连续开关弹窗会有多次请求：只让最后一次的结果落地，避免慢的那次把新内容/滚动位置顶掉
-    var req = ++consentDocReq;
-    box.textContent = '正在加载协议正文…';
-    fetch('legal/terms.html', { cache: 'no-store' })
-        .then(function (res) {
-            if (!res.ok) throw new Error('HTTP ' + res.status);
-            return res.text();
-        })
-        .then(function (html) {
-            if (req !== consentDocReq) return;
-            var parsed = new DOMParser().parseFromString(html, 'text/html');
-            var content = parsed.querySelector('.legal-content') || parsed.querySelector('main') || parsed.body;
-            box.innerHTML = content.innerHTML;
-            // 正文里的链（隐私政策、问题反馈）在弹窗里点开不能把整个应用导航走：
-            // 统一改成新标签页打开，同意流程不中断
-            var links = box.querySelectorAll('a[href]');
-            for (var li = 0; li < links.length; li++) {
-                links[li].setAttribute('target', '_blank');
-                links[li].setAttribute('rel', 'noopener');
-            }
-            // 短内容没有滚动事件：不足一屏（含同样的 8px 容差）直接视为已读完
-            if (box.scrollHeight <= box.clientHeight + 8) markConsentRead();
-            else box.scrollTop = 0;
-        })
-        .catch(function () {
-            if (req !== consentDocReq) return;
-            box.textContent = '协议加载失败，请检查网络后重试';
-            var btn = document.getElementById('consentAgreeBtn');
-            if (btn) btn.disabled = true;
-        });
-}
-
-/** 按场景配置标题/引导语/按钮：登录场景可取消；补同意场景没有取消，只能同意或退出登录 */
-function configureConsentModal(mode) {
-    var gate = mode === 'gate';
-    var title = document.querySelector('#consentModal .modal-title');
-    if (title) title.textContent = gate ? '用户协议已更新' : '用户协议与授权';
-    var lead = document.getElementById('consentLead');
-    if (lead) {
-        lead.textContent = gate
-            ? '《用户协议》已更新，请阅读至正文底部并确认授权后继续使用；如不同意，可退出登录。'
-            : '使用本服务前，请先阅读《用户协议》并确认下方授权；下滑到正文底部后即可点击「同意并登录」。';
-    }
-    // 补同意是强制门禁：不给右上角关闭，下方按钮改成「退出登录」
-    var closeBtn = document.getElementById('consentCloseBtn');
-    if (closeBtn) closeBtn.hidden = gate;
-    var cancelBtn = document.getElementById('consentCancelBtn');
-    if (cancelBtn) cancelBtn.textContent = gate ? '退出登录' : '取消';
-    var agreeBtn = document.getElementById('consentAgreeBtn');
-    if (agreeBtn) agreeBtn.textContent = gate ? '同意并继续' : '同意并登录';
-}
-
-/** 打开弹窗：mode 省略时按登录场景处理；gate 模式可传入服务端已有的授权记录用于预勾选 */
-function openConsentModal(mode, existing) {
-    var ov = document.getElementById('consentModal');
-    if (!ov) return;
-    consentMode = mode === 'gate' ? 'gate' : 'login';
-    consentScrolled = false;
-    resetConsentModal();
-    configureConsentModal(consentMode);
-    if (consentMode === 'gate' && existing) {
-        // 协议版本过期但可选授权仍在有效期内：把已开启的两项照旧勾上，用户可自行改
-        var ch = document.getElementById('consentChaoxing');
-        var ac = document.getElementById('consentAcademic');
-        if (ch) ch.checked = !!existing.chaoxing;
-        if (ac) ac.checked = !!existing.academic;
-    }
-    loadConsentDoc();
-    ov.classList.add('show');
-    document.body.style.overflow = 'hidden';
-}
-function closeConsentModal() {
-    // gate 模式不允许关掉：要么「同意并继续」，要么「退出登录」，否则 ESC/遮罩能绕过门禁
-    if (consentMode === 'gate') return;
-    var ov = document.getElementById('consentModal');
-    if (ov) ov.classList.remove('show');
-    document.body.style.overflow = '';
-    // 待提交凭据保留在内存里：用户再点一次「登录」会重新走接口，无需在这里清掉
-}
-
-/** 提交同意：登录场景连同学号密码重新登录；补同意场景只更新服务端授权记录 */
-async function submitConsent() {
-    var btn = document.getElementById('consentAgreeBtn');
-    var err = document.getElementById('consentError');
-    if (!btn || btn.disabled) return;
-    if (err) { err.textContent = ''; err.classList.remove('show'); }
-    var terms = document.getElementById('consentTerms');
-    if (!terms || !terms.checked) {
-        if (err) { err.textContent = '请勾选同意本软件用户协议'; err.classList.add('show'); }
-        return;
-    }
-    var ch = document.getElementById('consentChaoxing');
-    var ac = document.getElementById('consentAcademic');
-    var consent = { terms: true, chaoxing: !!(ch && ch.checked), academic: !!(ac && ac.checked) };
-    if (consentMode === 'gate') {
-        btn.disabled = true; btn.textContent = '保存中…';
-        try {
-            await api('/api/auth/consent', { method: 'POST', body: JSON.stringify(consent) });
-            consentMode = 'login';
-            // 重跑启动检查确认门禁解除，同时刷新壳里各视图的授权状态
-            window.location.reload();
-        } catch (e) {
-            if (err) { err.textContent = e.message; err.classList.add('show'); }
-            btn.disabled = false; btn.textContent = '同意并继续';
-        }
-        return;
-    }
-    if (!pendingLogin) {
-        if (err) { err.textContent = '登录信息已失效，请关闭弹窗后重新登录'; err.classList.add('show'); }
-        return;
-    }
-    btn.disabled = true; btn.textContent = '登录中…';
-    try {
-        var res = await api('/api/auth/login', {
-            method: 'POST',
-            body: JSON.stringify({
-                student_id: pendingLogin.student_id,
-                password: pendingLogin.password,
-                consent: consent
-            })
-        });
-        saveSession(res.data);
-        window.location.reload();
-    } catch (e) {
-        // 401/400 等情况保留弹窗，用户可改勾选重试或点「取消」回登录页改密码
-        if (err) { err.textContent = e.message; err.classList.add('show'); }
-        btn.disabled = false; btn.textContent = '同意并登录';
-    }
-}
-
-(function bindConsentModal() {
-    var ov = document.getElementById('consentModal');
-    if (!ov) return;
-    // 滚动判定只挂在协议正文上：滑动正文到 8px 内触底即解锁
-    var doc = document.getElementById('consentDoc');
-    if (doc) doc.addEventListener('scroll', function () { if (consentAtBottom(doc)) markConsentRead(); });
-    // 点遮罩空白处 / ESC 关闭（gate 模式下 closeConsentModal 自己会忽略）
-    ov.addEventListener('click', function (e) { if (e.target === ov) closeConsentModal(); });
-    document.addEventListener('keydown', function (e) {
-        if (e.key === 'Escape' && ov.classList.contains('show')) closeConsentModal();
-    });
-    var cancelBtn = document.getElementById('consentCancelBtn');
-    if (cancelBtn) cancelBtn.addEventListener('click', function () {
-        // gate 模式下这个按钮是「退出登录」：不同意协议就清会话回登录页
-        if (consentMode === 'gate') { logout(); return; }
-        closeConsentModal();
-    });
-    var closeBtn = document.getElementById('consentCloseBtn');
-    if (closeBtn) closeBtn.addEventListener('click', closeConsentModal);
-    var agreeBtn = document.getElementById('consentAgreeBtn');
-    if (agreeBtn) agreeBtn.addEventListener('click', submitConsent);
-})();
 
 // ===== 已登录会话的协议门禁 =====
-// 老用户（本功能上线前就登录的）本地 token 仍然有效，但服务端没有 user_consents 记录。
-// 每次应用启动问一次 GET /api/auth/consent：未同意或协议版本过期就弹「补同意」弹窗。
-// 接口异常时放行（console.warn），避免后端抖动把所有人挡在壳外；401 由 api() 统一退登录。
+// 协议同意现在只在登录页做：勾选后随登录请求一起提交，服务端落库。
+// 这里只剩「会话里的协议已过期」这一种情况 —— 版本升级后老 token 仍有效，但库里记的是旧版本，
+// 与其再弹一个协议窗，不如直接清会话回登录页重新勾选（顺带保证用户真读到了新版本）。
+// 接口异常时放行（console.warn）：后端抖动不该把所有人挡在壳外；401 由 api() 统一退登录。
 async function ensureConsentCurrent() {
     var res;
     try {
@@ -1085,7 +954,8 @@ async function ensureConsentCurrent() {
     }
     var data = (res && res.data) || {};
     if (data.agreed) return;
-    openConsentModal('gate', data.consent || null);
+    clearSession();
+    redirectToIndex();
 }
 
 // ===== 事件绑定 =====

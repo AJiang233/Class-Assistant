@@ -11,8 +11,16 @@ var formId = new URLSearchParams(location.search).get('id') || '';
 var submitBtn = document.getElementById('submitBtn');
 var errorBox = document.getElementById('formError');
 
+// 返回首页：本页在 /affairs/ 里，写 'index.html' 只会跳到同目录的班级事务页。
+// 在应用壳里就让壳切回主页（保留导航与返回历史），单独打开时才整页跳到站点根。
 document.getElementById('backBtn').addEventListener('click', function () {
-    location.href = 'index.html';
+    try {
+        if (window.top && window.top !== window && typeof window.top.switchView === 'function') {
+            window.top.switchView('home');
+            return;
+        }
+    } catch (e) { /* 跨域或被阻止：退回整页跳转 */ }
+    location.href = '/';
 });
 
 function showError(msg) {

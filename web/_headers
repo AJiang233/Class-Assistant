@@ -53,7 +53,7 @@
   Cache-Control: public, max-age=0, must-revalidate
 
 # 子页按导航分进四个文件夹，文件夹首页用目录地址（/todos/、/academic/、/account/、/affairs/），
-# 其余子页仍是带扩展名的文件名（/affairs/activities.html，已被上面 /*.html 覆盖）。
+# 其余子页仍是带扩展名的文件名（/affairs/forms.html，已被上面 /*.html 覆盖）。
 # sw.js 的预热清单与离线回退用的也是这几个地址，两边必须一一对上。
 # 目录地址既不匹配 /*.html 也不匹配 /，不显式写出来就拿不到 no-cache（部署后会停在旧壳）。
 /affairs

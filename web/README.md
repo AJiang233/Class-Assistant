@@ -30,9 +30,8 @@
 ```
 web/
 ├── index.html                  应用壳：侧栏 + 内容区（iframe 嵌入子页）；小屏改为底部导航
-├── affairs/                    班级事务
-│   ├── index.html              通知列表 / 详情（/affairs/）
-│   ├── activities.html         活动列表 / 详情（/affairs/activities.html）
+├── affairs/                    班级事务（一份文档、两个视图，靠页内标签切换）
+│   ├── index.html              通知 + 活动列表 / 详情（/affairs/，活动视图是 ?tab=activities）
 │   └── forms.html              表单填写页（/affairs/forms.html），不在导航中
 ├── todos/index.html            我的待办（/todos/）
 ├── academic/index.html         学业：课表 / 学业达成 / 成绩（/academic/）
@@ -253,8 +252,7 @@ web/
 | 页面 | 地址 | 脚本 |
 | --- | --- | --- |
 | 应用壳 + 主页 | `/` | `index.js` |
-| 通知 | `/affairs/` | `notices.js` |
-| 活动 | `/affairs/activities.html` | `activities.js` |
+| 班级事务（通知 / 活动） | `/affairs/`（活动视图为 `?tab=activities`） | `notices.js` + `activities.js` |
 | 表单填写 | `/affairs/forms.html` | `forms.js` |
 | 待办 | `/todos/` | `todos.js` |
 | 学业 | `/academic/` | `academic.js` |
