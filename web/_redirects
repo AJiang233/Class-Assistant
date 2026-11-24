@@ -1,0 +1,22 @@
+# 旧地址 → 新地址
+#
+# web/ 根目录现在只留应用壳 index.html，子页按导航收进四个文件夹
+# （affairs / todos / academic / account），文件名规则见 web/README.md 的目录结构。
+# 这些旧地址还在外面流传，不能让它们变成 404：
+#   - 已经发出去的通知里「去填写」链接（/forms.html?id=N）
+#   - 装了旧版 App 的深链与推送模板（/?view=... 不受影响，但历史记录里存过 .html 写法）
+#   - 用户收藏、书签、以及搜索引擎收录的页面
+#
+# 用 308（永久 + 保留请求方法），与站点此前把 /notices.html 跳到 /notices 的那套行为一致；
+# 查询串由 Pages 原样带到新地址，/forms.html?id=3 → /affairs/forms.html?id=3。
+/notices.html        /affairs/                308
+/notices             /affairs/                308
+/activities.html     /affairs/activities.html 308
+/activities          /affairs/activities.html 308
+/forms.html          /affairs/forms.html      308
+/forms               /affairs/forms.html      308
+/todos.html          /todos/                  308
+/academic.html       /academic/               308
+/account.html        /account/                308
+/admin.html          /account/admin.html      308
+/admin               /account/admin.html      308

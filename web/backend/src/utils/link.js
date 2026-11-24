@@ -1,6 +1,6 @@
 /**
  * 通知 link 只允许站内相对路径。
- * 允许 /forms.html?id=1 这类；拒绝 //evil.com（协议相对外站）、http(s):、javascript:、data:。
+ * 允许 /affairs/forms.html?id=1 这类；拒绝 //evil.com（协议相对外站）、http(s):、javascript:、data:。
  */
 const SAFE_LINK = /^\/[A-Za-z0-9._\-\/?=&%#]*$/;
 

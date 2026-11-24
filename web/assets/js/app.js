@@ -444,7 +444,7 @@ function filterRemindMembers(input) {
 }
 
 /* ===== PWA：安装到桌面 =====
-   安装入口在个人页（account.html）的「安装到桌面」卡片里，不再挂主页横幅。
+   安装入口在个人页（/account/）的「安装到桌面」卡片里，不再挂主页横幅。
    只有 iOS 与 PC 需要它 —— 安卓与鸿蒙都已有原生 App，装网页版只会让人困惑。
    个人页跑在 iframe 里，而 beforeinstallprompt 只在顶层窗口触发、
    display-mode / navigator.standalone 也以顶层为准（iframe 内未必反映真实状态），

@@ -7,8 +7,8 @@ import { readFileSync } from 'node:fs';
 
 const read = (p) => readFileSync(new URL('../../' + p, import.meta.url), 'utf8');
 const indexHtml = read('index.html');
-const noticesHtml = read('notices.html');
-const activitiesHtml = read('activities.html');
+const noticesHtml = read('affairs/index.html');
+const activitiesHtml = read('affairs/activities.html');
 const indexJs = read('assets/js/index.js');
 const appJs = read('assets/js/app.js');
 const noticesJs = read('assets/js/notices.js');

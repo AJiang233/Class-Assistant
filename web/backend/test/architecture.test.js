@@ -93,7 +93,7 @@ describe('迁移与生命周期的数据库契约', () => {
     const id = await model.createWithNotice(formData, noticeData);
     const row = await model.findById(id);
     const notice = await new NoticeModel(db).findById(row.notice_id);
-    assert.equal(notice.link, `/forms.html?id=${id}`);
+    assert.equal(notice.link, `/affairs/forms.html?id=${id}`);
     assert.equal(count(db, 'outbox_events'), 2);
     await model.submit(row, 1, '001', me.name, '{}');
     await model.remove(id);

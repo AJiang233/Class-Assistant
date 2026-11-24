@@ -8,6 +8,19 @@ var activeDate = null;
 // 所以必须声明在初始化之前：靠 var 提升拿到的是 undefined，会导致 ?view=xxx 抛错、白屏。
 var FRAME_KEYS = { academic: 'frameAcademic', activities: 'frameActivities', notices: 'frameNotices', todos: 'frameTodos', account: 'frameAccount', admin: 'frameAdmin' };
 
+// 视图 → 子页地址（web/ 按导航分成四个文件夹，首页壳留在根目录）。
+// 与 FRAME_KEYS 分开两张表：前者是 DOM 里的 iframe id，这张是磁盘上的路径，
+// 改了目录结构只动这一张表。地址一律以 / 开头 —— 深链、预载、SW 缓存键都用同一份，
+// 免得在「/ 上的壳」与「子文件夹里的页」之间算相对路径。
+var FRAME_URLS = {
+    notices: '/affairs/',
+    activities: '/affairs/activities.html',
+    todos: '/todos/',
+    academic: '/academic/',
+    account: '/account/',
+    admin: '/account/admin.html'
+};
+
 // 当前视图（供移动端左右滑动判断相邻页）。同样必须在初始化之前赋值：init 里的 switchView
 // 会写它，若声明留在初始化之后，那句 `var currentView = 'home'` 会把深链视图重置成主页。
 var currentView = 'home';
@@ -60,7 +73,7 @@ function loadFrame(k, src) {
     if (!f || f.getAttribute('data-loaded') === '1') return;
     f.setAttribute('data-loaded', '1');
     f.addEventListener('load', function () { bindFrameSwipe(f); });
-    f.src = src || (k + '.html');
+    f.src = src || FRAME_URLS[k];
 }
 
 // ===== 视图历史（安卓返回键 / 浏览器后退） =====
@@ -172,7 +185,7 @@ window.addEventListener('popstate', onHistoryPop);
     // ?view=notices&id=123 深链（App 点提醒会带过来）：先把 iframe 的 src 指到带 id 的地址，
     // 再切视图。子页自己读 ?id= 开详情。
     if (authed && deepId && (target === 'notices' || target === 'activities')) {
-        loadFrame(target, target + '.html?id=' + encodeURIComponent(deepId));
+        loadFrame(target, FRAME_URLS[target] + '?id=' + encodeURIComponent(deepId));
     }
     // 先把入口这条记录钉成「主页」，再把深链视图作为新记录压上去 —— 深链进来时
     // 按一次返回也是回主页，而不是退出 App（实现见上面「视图历史」）。
@@ -631,7 +644,7 @@ function formRowHTML(f, submitted) {
     // 映射表命中才渲染：后端将来加了新策略而这里没跟上时，宁可不显示，也别露出英文原值
     var policy = EDIT_POLICY_LABEL[f.edit_policy];
     var policyBadge = policy ? '<span class="badge badge-policy">' + esc(policy) + '</span>' : '';
-    return '<a class="list-row" href="forms.html?id=' + encodeURIComponent(f.id) + '">'
+    return '<a class="list-row" href="/affairs/forms.html?id=' + encodeURIComponent(f.id) + '">'
         + '<div class="list-row-main">'
         + '<div class="list-row-title">'
         + '<span class="list-row-name">' + esc(f.title) + '</span>'
@@ -644,7 +657,7 @@ function formRowHTML(f, submitted) {
         + '</a>';
 }
 
-// ===== 首页待办摘要（决策 1.C：首页只放一条摘要，整页在 todos.html） =====
+// ===== 首页待办摘要（决策 1.C：首页只放一条摘要，整页在 /todos/） =====
 /** 列表里的截止时间：今年省掉年份，与待办页的写法保持一致 */
 function todoSummaryWhen(v) {
     if (!v) return '';

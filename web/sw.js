@@ -42,20 +42,21 @@ const CACHE = 'ca-shell';
 /**
  * 首次安装时预热的应用壳，保证从主屏图标打开即离线可用（不依赖用户是否访问过某个页面）。
  *
- * 写的是**规范地址**（去扩展名），不是 .html：站点把 /notices.html 308 跳到 /notices，
- * 跟着这个跳转取回来的响应会带上 redirected 标记，而规范禁止把这种响应交给导航请求
- * （页面与 iframe 的加载都算导航）—— 浏览器直接判成网络错误，用户看到的就是
- * 「网页无法打开」。写规范地址压根不产生跳转，存下来的就是能用的那一份。
+ * 写的是**规范地址**，与页面里 iframe / 链接实际请求的地址逐字一致：
+ * 子页按导航分进四个文件夹（affairs / todos / academic / account），文件夹首页用
+ * 目录形式（/todos/），其余仍是带扩展名的文件名（/affairs/activities.html）。
+ * 两者都**不产生跳转** —— 跟着 308 取回来的响应带 redirected 标记，而规范禁止把这种
+ * 响应交给导航请求（页面与 iframe 的加载都算导航），用户看到的就是「网页无法打开」。
  */
 const PRECACHE = [
   '/',
-  '/notices',
-  '/activities',
-  '/academic',
-  '/forms',
-  '/admin',
-  '/account',
-  '/todos',
+  '/affairs/',
+  '/affairs/activities.html',
+  '/affairs/forms.html',
+  '/todos/',
+  '/academic/',
+  '/account/',
+  '/account/admin.html',
   '/assets/css/style.css',
   // 脚本按页面拆分（CSP 的 script-src 只放行 'self'，内联脚本全部外置），
   // 每一个都得进预热清单，否则某页断网打开时缺脚本、按钮点不动。
@@ -82,22 +83,49 @@ const PRECACHE = [
 ];
 
 /**
- * 规范地址：/notices.html → /notices，/index.html → /。
+ * 规范地址：把各种写法都收敛到预热清单里那个键上。
  *
- * 页面里的 iframe、链接、以及后端下发的表单链接写的都是 .html 写法（在线时靠站点的 308 纠正），
- * 而缓存里存的是规范地址 —— 两边对不上就会「在线能打开、断网打不开」。所以离线回退时按规范地址再找一次。
+ * 要处理三类历史写法：
+ *   1) 文件夹首页：/todos/index.html、/todos/index → /todos/
+ *   2) 分文件夹**之前**的旧地址：/notices.html → /affairs/、/admin → /account/admin.html
+ *      （旧推送、已发出去的通知链接、装了旧版 App 的用户还会带这些地址进来）
+ *   3) 站点对 /todos（无尾斜杠）的 308：中间一步也是 /todos/ 这个键
+ *
+ * 页面里的 iframe、链接、以及后端下发的表单链接都已经写成新地址；之所以还要认旧的，
+ * 是因为缓存里存的只有新地址 —— 两边对不上就会「在线能打开、断网打不开」。
  */
+const LEGACY_PATHS = {
+  '/index': '/',
+  '/index.html': '/',
+  '/notices': '/affairs/',
+  '/notices.html': '/affairs/',
+  '/activities': '/affairs/activities.html',
+  '/activities.html': '/affairs/activities.html',
+  '/forms': '/affairs/forms.html',
+  '/forms.html': '/affairs/forms.html',
+  '/admin': '/account/admin.html',
+  '/admin.html': '/account/admin.html',
+  '/todos': '/todos/',
+  '/todos.html': '/todos/',
+  '/academic': '/academic/',
+  '/academic.html': '/academic/',
+  '/account': '/account/',
+  '/account.html': '/account/'
+};
+
 function canonical(url) {
-  const path = url.pathname === '/index' || url.pathname === '/index.html'
-    ? '/'
-    : url.pathname.replace(/\.html$/, '');
+  let path = url.pathname;
+  // 文件夹首页先归一（/todos/index.html → /todos/），再去查旧地址表
+  path = path.replace(/\/index(\.html)?$/, '/');
+  if (Object.prototype.hasOwnProperty.call(LEGACY_PATHS, path)) path = LEGACY_PATHS[path];
   return new Request(url.origin + path + url.search);
 }
 
 /**
- * 连查询串也去掉的规范地址：/notices.html?id=123 → /notices（/ 页面带 ?view= 同理 → /）。
+ * 连查询串也去掉的规范地址：/affairs/activities.html?id=123 → /affairs/activities.html
+ * （/ 页面带 ?view= 同理 → /）。
  *
- * 深链天然带查询串：App 点提醒时 iframe 的地址就是 notices.html?id=123，推送载荷里的
+ * 深链天然带查询串：App 点提醒时 iframe 的地址就是 /todos/?id=3，推送载荷里的
  * data.url 也是 /?view=notices&id=3。而预热清单与落缓存用的都是不带查询串的键，
  * 所以只按 canonical() 再找一次仍然落空 —— 断网时点通知直接进浏览器错误页。
  *
@@ -113,8 +141,8 @@ function canonicalPath(url) {
 /**
  * 去掉 redirected 标记的副本。
  *
- * 这是上面那条规范限制的兜底：在线访问 /notices.html 时网络返回的是「跟过跳转」的响应，
- * 原样塞进缓存的话，断网回放时又会踩同一个坑。所以落缓存前复制一份干净的。
+ * 这是上面那条规范限制的兜底：在线访问 /todos（无尾斜杠）或改结构之前的旧地址时，
+ * 网络返回的是「跟过跳转」的响应，原样塞进缓存的话，断网回放时又会踩同一个坑。所以落缓存前复制一份干净的。
  */
 function plain(response) {
   if (!response.redirected) return response;
@@ -143,7 +171,8 @@ const REFETCH = { cache: 'no-cache' };
 /**
  * 按三级顺序找缓存：
  *   1) 请求原样命中：静态资源就是按原地址存的（/assets/js/*.js 等）
- *   2) 规范地址：页面请求的是 .html，缓存里存的是去扩展名的那份
+ *   2) 规范地址：页面请求的可能是 /todos/index.html、/todos，或改结构之前的旧地址，
+ *      缓存里存的是 canonical() 归一后的那个键
  *   3) 去掉查询串的规范地址：深链带 ?id= / ?view=，缓存键里没有查询串
  *
  * 第 3 级只用于**查找**、不参与写入（理由见 canonicalPath）。命中任一级都算命中：

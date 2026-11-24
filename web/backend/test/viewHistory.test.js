@@ -87,7 +87,7 @@ test('深链进来：地址原样保留（含 id），按一次返回回主页',
   assert.equal(t.replaces.length, 1);
   assert.equal(t.replaces[0].url, '/index.html');
   assert.equal(t.pushes.length, 1);
-  // 压的是原始 href：刷新还能落回 notices.html?id=3 那条详情
+  // 压的是原始 href：刷新还能落回 ?view=notices&id=3 那条详情
   assert.equal(t.pushes[0].url, 'http://class.test/index.html?view=notices&id=3');
   assert.equal(t.sb.history.state.caView, 'notices');
 });

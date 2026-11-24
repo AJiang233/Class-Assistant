@@ -16,7 +16,7 @@ export async function expandEvent(env, event) {
   if (!KINDS[kind]) throw new Error('未知的投递事件类型');
   const users = await resolveRemindUsers(env, row.remind_people, { excludeUserId: row.created_by ?? row.creator_id });
   const ids = users.map((u) => u.id);
-  const path = kind === 'forms' ? `/forms.html?id=${row.id}` : (row.link || `/?view=${kind}&id=${row.id}`);
+  const path = kind === 'forms' ? `/affairs/forms.html?id=${row.id}` : (row.link || `/?view=${kind}&id=${row.id}`);
   const link = new URL(path, env.SITE_ORIGIN).href;
   const render = { notices: renderNoticeEmail, activities: renderActivityEmail, forms: renderFormEmail }[kind];
   const subject = `【班级助理】新${LABELS[kind]}：${row.title}`;

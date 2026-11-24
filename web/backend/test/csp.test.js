@@ -18,8 +18,20 @@ import { dirname, join } from 'node:path';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const WEB = join(HERE, '../..');
 
-/** 全站的页面：每一个都受 _headers 管辖，都要能过 CSP */
-const PAGES = ['index', 'notices', 'activities', 'academic', 'forms', 'account', 'admin'];
+/** 全站的页面：每一个都受 _headers 管辖，都要能过 CSP。
+ *  子页按导航分在四个文件夹里（根目录只留壳），页面文件名与脚本名不再同名，
+ *  所以这里成对给出：html 是相对 web/ 的真实路径，script 是它自己的外置脚本。 */
+const PAGES = [
+  { html: 'index.html', script: 'assets/js/index.js' },
+  { html: 'affairs/index.html', script: 'assets/js/notices.js' },
+  { html: 'affairs/activities.html', script: 'assets/js/activities.js' },
+  { html: 'affairs/forms.html', script: 'assets/js/forms.js' },
+  { html: 'todos/index.html', script: 'assets/js/todos.js' },
+  { html: 'academic/index.html', script: 'assets/js/academic.js' },
+  { html: 'account/index.html', script: 'assets/js/account.js' },
+  { html: 'account/admin.html', script: 'assets/js/admin.js' }
+];
+const PAGE_HTMLS = PAGES.map((p) => p.html);
 
 const read = (rel) => readFileSync(join(WEB, rel), 'utf8');
 
@@ -43,7 +55,7 @@ const scriptFiles = () => readdirSync(join(WEB, 'assets/js')).filter((f) => f.en
 
 test('页面与脚本里都没有内联事件处理器（CSP 下会被直接拦掉）', () => {
   const files = [
-    ...PAGES.map((p) => p + '.html'),
+    ...PAGE_HTMLS,
     ...scriptFiles().map((f) => 'assets/js/' + f)
   ];
   for (const rel of files) {
@@ -53,9 +65,9 @@ test('页面与脚本里都没有内联事件处理器（CSP 下会被直接拦�
 });
 
 test('页面里没有内联 <script>（页面逻辑全部外置）', () => {
-  for (const page of PAGES) {
-    const hits = inlineScriptsIn(read(page + '.html'));
-    assert.equal(hits.length, 0, `${page}.html 里还有内联脚本：${hits.join(', ')}`);
+  for (const page of PAGE_HTMLS) {
+    const hits = inlineScriptsIn(read(page));
+    assert.equal(hits.length, 0, `${page} 里还有内联脚本：${hits.join(', ')}`);
   }
 });
 
@@ -63,7 +75,7 @@ test('页面与脚本里都没有内联 style 属性（CSP 下会被整条丢掉
   // 注意是「整条丢掉」：style-src 不含 'unsafe-inline' 时，标签上的 style="…" 里
   // 的声明一条都不会生效（不是只丢某一条），表现就是「样式莫名其妙没了」。
   const files = [
-    ...PAGES.map((p) => p + '.html'),
+    ...PAGE_HTMLS,
     ...scriptFiles().map((f) => 'assets/js/' + f)
   ];
   for (const rel of files) {
@@ -73,16 +85,17 @@ test('页面与脚本里都没有内联 style 属性（CSP 下会被整条丢掉
 });
 
 test('页面里没有 <style> 块（样式统一在 assets/css/style.css）', () => {
-  for (const page of PAGES) {
-    assert.equal(/<style[\s>]/i.test(read(page + '.html')), false, `${page}.html 里有内联 <style>`);
+  for (const page of PAGE_HTMLS) {
+    assert.equal(/<style[\s>]/i.test(read(page)), false, `${page} 里有内联 <style>`);
   }
 });
 
 test('每个页面都引到了自己的外置脚本，且文件确实存在', () => {
   for (const page of PAGES) {
-    const html = read(page + '.html');
-    for (const rel of ['assets/js/theme.js', 'assets/js/app.js', `assets/js/${page}.js`]) {
-      assert.ok(html.includes(rel), `${page}.html 没有引入 ${rel}`);
+    const html = read(page.html);
+    // 子页在文件夹里，引用写的是 ../assets/...，比对时只看文件名那段
+    for (const rel of ['assets/js/theme.js', 'assets/js/app.js', page.script]) {
+      assert.ok(html.includes(rel), `${page.html} 没有引入 ${rel}`);
       assert.ok(existsSync(join(WEB, rel)), `${rel} 不存在`);
     }
   }
@@ -101,18 +114,18 @@ test('data-act 双向对齐：页面标记的动作都有委托注册，注册�
   for (const page of PAGES) {
     // 标记可能写在 HTML 里，也可能写在 JS 拼的 innerHTML 字符串里，两边一起收
     const marked = new Set(
-      [...`${read(page + '.html')}\n${read(`assets/js/${page}.js`)}`.matchAll(/data-act="([^"]*)"/g)]
+      [...`${read(page.html)}\n${read(page.script)}`.matchAll(/data-act="([^"]*)"/g)]
         .map((m) => m[1])
     );
     const registered = new Set(
-      [...read(`assets/js/${page}.js`).matchAll(/\[data-act="([^"]*)"\]/g)].map((m) => m[1])
+      [...read(page.script).matchAll(/\[data-act="([^"]*)"\]/g)].map((m) => m[1])
     );
     for (const act of marked) {
       // 漏注册 = 按钮点下去没反应，且控制台不报错，最难查
-      assert.ok(registered.has(act), `${page}.js 里没有 data-act="${act}" 的委托注册`);
+      assert.ok(registered.has(act), `${page.script} 里没有 data-act="${act}" 的委托注册`);
     }
     for (const act of registered) {
-      assert.ok(marked.has(act), `${page}.js 注册了 [data-act="${act}"]，但页面里没人用它`);
+      assert.ok(marked.has(act), `${page.script} 注册了 [data-act="${act}"]，但页面里没人用它`);
     }
   }
 });

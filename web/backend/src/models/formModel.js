@@ -70,7 +70,7 @@ export class FormModel {
           data.deadline, data.creator_id, data.creator_name, data.remind_people),
       this.db.prepare('INSERT INTO form_notice_links(operation_key,form_id) VALUES(?,last_insert_rowid())').bind(key),
       this.db.prepare(`INSERT INTO notices(title,content,publish_time,publisher,created_by,remind_people,
-        source,expire_time,link) SELECT ?,?,?,?,?,?,'form',?,'/forms.html?id=' || form_id
+        source,expire_time,link) SELECT ?,?,?,?,?,?,'form',?,'/affairs/forms.html?id=' || form_id
         FROM form_notice_links WHERE operation_key=?`)
         .bind(notice.title, notice.content, notice.publish_time, data.creator_name,
           data.creator_id, data.remind_people, notice.expire_time ?? null, key),
@@ -197,7 +197,7 @@ export class FormModel {
    */
   async listSubmissions(formId, anonymous) {
     // created_at / updated_at 是 CURRENT_TIMESTAMP（UTC），而结果弹窗和导出的 CSV 都按北京时间看，
-    // 所以在这一层统一 +8 小时换算；展示层（admin.html）和导出层（handleExportForm）都不要再各转一次。
+    // 所以在这一层统一 +8 小时换算；展示层（/account/admin.html）和导出层（handleExportForm）都不要再各转一次。
     const timeCols = "datetime(created_at, '+8 hours') AS created_at, "
       + "datetime(updated_at, '+8 hours') AS updated_at";
     const cols = anonymous

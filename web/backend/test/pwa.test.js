@@ -148,12 +148,13 @@ test('缓存写入要 await 完成后再返回响应（否则 SW 被回收会静
 });
 
 test('跟过跳转的响应落缓存前去掉 redirected 标记', async () => {
-  // 站点把 /notices.html 308 跳到 /notices。带 redirected 标记的响应被规范禁止用于
-  // 导航请求（页面/iframe 的加载），原样存下来断网回放时会直接变成「网页无法打开」。
+  // 旧地址 /notices.html 仍会 308 跳到分文件夹后的 /affairs/。带 redirected 标记的响应
+  // 被规范禁止用于导航请求（页面/iframe 的加载），原样存下来断网回放时会直接变成
+  // 「网页无法打开」。这里专门走一遍旧地址，顺带钉住「旧地址也归到新缓存键上」。
   const sw = loadSW(async () => followedRedirect('shell'));
   await fire(sw.handlers.fetch, new Request(ORIGIN + '/notices.html')).promise;
-  const stored = sw.stores.get('ca-shell').get(ORIGIN + '/notices');
-  assert.ok(stored, '应存在规范地址 /notices 下');
+  const stored = sw.stores.get('ca-shell').get(ORIGIN + '/affairs/');
+  assert.ok(stored, '旧地址应归到新缓存键 /affairs/ 下');
   assert.equal(stored.redirected, false, '存下来的必须是能应答导航的那一份');
 });
 
@@ -251,12 +252,12 @@ test('回源发现部署了，就把整个壳按清单重取一遍（issue #23�
   await Promise.all(got.waits);
 
   const refreshed = [...new Set(asked)];
-  assert.ok(refreshed.includes('/notices'), '用户没打开的页面也要刷新，实际取了：' + refreshed.join(' '));
+  assert.ok(refreshed.includes('/affairs/'), '用户没打开的页面也要刷新，实际取了：' + refreshed.join(' '));
   assert.ok(refreshed.includes('/assets/js/admin.js'), '没进过管理页的用户，那份 admin.js 也得换新');
   assert.ok(caches.every((c) => c === 'no-cache'),
     '重刷必须绕开 CDN 那份 max-age=14400 的 HTTP 缓存，否则取回来的还是旧的');
-  // 落缓存的键是规范地址（不带 .html）—— 与预热、与离线回退查找共用同一套键
-  assert.equal(await sw.stores.get('ca-shell').get(ORIGIN + '/notices').text(), '壳：/notices');
+  // 落缓存的键是规范地址（文件夹首页是目录形式）—— 与预热、与离线回退查找共用同一套键
+  assert.equal(await sw.stores.get('ca-shell').get(ORIGIN + '/affairs/').text(), '壳：/affairs/');
 });
 
 test('只通知停在同一个页面的客户端', async () => {
@@ -264,7 +265,7 @@ test('只通知停在同一个页面的客户端', async () => {
   // 各有各的客户端，正好各刷各的）。
   let body = 'v1';
   const sw = loadSW(async () => ok(body), {
-    clients: [ORIGIN + '/notices', ORIGIN + '/?view=notices']
+    clients: [ORIGIN + '/affairs/', ORIGIN + '/?view=notices']
   });
   await fire(sw.handlers.fetch, navigateRequest(ORIGIN + '/index.html')).promise;
 
@@ -314,15 +315,16 @@ test('断网且缓存命中时回退到缓存（离线壳）', async () => {
   assert.equal(await res.text(), 'v1');
 });
 
-test('断网时 .html 请求回退到规范地址的缓存', async () => {
-  // 页面里的 iframe 请求的正是 notices.html，而预热/落缓存存的是 /notices。
-  // 只按请求地址找缓存的话，这里会取不到 —— 现场就是「主页能开、点别的标签全打不开」。
+test('断网时旧地址回退到新地址的缓存', async () => {
+  // 分文件夹之前的地址仍会有人带着进来（旧推送、已发出的通知、书签）。预热/落缓存存的是
+  // /affairs/，请求的却是 /notices.html —— 只按请求地址找缓存就取不到，现场就是
+  // 「主页能开、点别的标签全打不开」。
   let online = true;
   const sw = loadSW(async () => {
     if (!online) throw new TypeError('Failed to fetch');
     return ok('shell');
   });
-  await fire(sw.handlers.fetch, new Request(ORIGIN + '/notices')).promise;
+  await fire(sw.handlers.fetch, new Request(ORIGIN + '/affairs/')).promise;
   online = false;
 
   const got = fire(sw.handlers.fetch, new Request(ORIGIN + '/notices.html'));
@@ -331,15 +333,15 @@ test('断网时 .html 请求回退到规范地址的缓存', async () => {
 });
 
 test('断网时带查询串的深链回退到去掉查询串的预缓存页面', async () => {
-  // 深链天然带查询串：App 点提醒时把 iframe 的 src 指到 notices.html?id=123，推送载荷里的
+  // 深链天然带查询串：App 点提醒时把 iframe 的 src 指到 /todos/?id=123，推送载荷里的
   // data.url 同样是带 ?id= 的地址。而预热清单与落缓存用的键都不带查询串，
-  // 只按 /notices?id=123 找必然落空 —— 现场就是断网时点通知直接进浏览器错误页。
+  // 只按 /affairs/?id=123 找必然落空 —— 现场就是断网时点通知直接进浏览器错误页。
   let online = true;
   const sw = loadSW(async (path) => {
     if (!online) throw new TypeError('Failed to fetch');
     return ok('壳：' + path);
   });
-  // 照真实场景预热：断网前的那次安装已经把 /notices 存进去了
+  // 照真实场景预热：断网前的那次安装已经把 /affairs/ 存进去了
   let installWork = null;
   sw.handlers.install({ waitUntil(p) { installWork = p; } });
   await installWork;
@@ -347,11 +349,11 @@ test('断网时带查询串的深链回退到去掉查询串的预缓存页面',
 
   // 前提：缓存里压根没有带查询串的键，本条断言是用来固定这个前提的
   // （写缓存的键始终走 canonical()，带查询串的查找只用于**读取**，不参与写入）
-  assert.equal(sw.stores.get('ca-shell').has(ORIGIN + '/notices?id=123'), false);
+  assert.equal(sw.stores.get('ca-shell').has(ORIGIN + '/affairs/?id=123'), false);
 
-  const got = fire(sw.handlers.fetch, new Request(ORIGIN + '/notices.html?id=123'));
+  const got = fire(sw.handlers.fetch, new Request(ORIGIN + '/affairs/?id=123'));
   const res = await got.promise;
-  assert.equal(await res.text(), '壳：/notices');
+  assert.equal(await res.text(), '壳：/affairs/');
 });
 
 test('断网导航到从没缓存过的地址时回退到主页壳，而不是把网络错误甩给用户', async () => {
@@ -401,7 +403,7 @@ test('断网且没有缓存时，如实抛出网络错误', async () => {
 
 test('安装时预热应用壳，且单个资源失败不影响整体', async () => {
   const sw = loadSW(async (path) => {
-    if (String(path) === '/admin') throw new Error('该页临时取不到');
+    if (String(path) === '/account/admin.html') throw new Error('该页临时取不到');
     return ok('shell');
   });
   let installWork = null;
@@ -409,13 +411,13 @@ test('安装时预热应用壳，且单个资源失败不影响整体', async ()
   await installWork;
 
   const entries = sw.stores.get('ca-shell');
-  assert.ok(entries.size >= 9, '预热的资源数量应接近清单长度（10 条里故意失败 1 条）');
-  // 预热用规范地址：写成 .html 会让站点 308 跳转，存下来的响应带着 redirected 标记，
+  assert.ok(entries.size >= 9, '预热的资源数量应接近清单长度（故意失败 1 条）');
+  // 预热用规范地址：写成会触发 308 的地址，存下来的响应带着 redirected 标记，
   // 断网时交给导航请求会被浏览器判成网络错误 —— 也就是「断网后除主页都打不开」
-  assert.ok(entries.has(ORIGIN + '/notices'), '预热的是去扩展名的地址');
-  assert.equal(entries.has(ORIGIN + '/notices.html'), false);
+  assert.ok(entries.has(ORIGIN + '/affairs/'), '文件夹首页预热的是目录地址');
+  assert.equal(entries.has(ORIGIN + '/affairs/index.html'), false);
   assert.ok(entries.has(ORIGIN + '/assets/js/app.js'));
-  assert.equal(entries.has(ORIGIN + '/admin'), false);
+  assert.equal(entries.has(ORIGIN + '/account/admin.html'), false);
   assert.equal(sw.state.skipped, true, '安装后应立即接管，避免用户停在旧版本');
 });
 
@@ -450,21 +452,44 @@ function precacheList() {
 
 test('预热清单里的每一条都对应仓库里真实存在的文件', () => {
   for (const path of precacheList()) {
-    // 页面写的是规范地址（/notices），磁盘上那份叫 notices.html；'/' 对应 index.html
-    const candidates = path === '/' ? ['index.html'] : [path.slice(1), path.slice(1) + '.html'];
+    // 三种形状各对应一种磁盘布局：
+    //   '/'              → 根目录的 index.html
+    //   '/todos/'        → 文件夹首页 todos/index.html
+    //   '/affairs/activities.html' → 带扩展名的真实文件
+    const rel = path.slice(1);
+    const candidates = path === '/'
+      ? ['index.html']
+      : (path.endsWith('/') ? [rel + 'index.html'] : [rel, rel + '.html']);
     assert.ok(candidates.some((p) => existsSync(join(WEB_ROOT, p))),
       path + ' 在仓库里找不到对应文件：路由改了没同步清单，只有断网的用户会发现');
   }
 });
 
+/** 根目录 + 四个按导航分的文件夹里的页面（legal/ 的法务页按单独两条预热，不在此列） */
+function pageFiles() {
+  const dirs = ['', 'affairs', 'todos', 'academic', 'account'];
+  const pages = [];
+  for (const dir of dirs) {
+    const abs = dir ? join(WEB_ROOT, dir) : WEB_ROOT;
+    for (const f of readdirSync(abs)) {
+      if (f.endsWith('.html')) pages.push(dir ? dir + '/' + f : f);
+    }
+  }
+  return pages;
+}
+
 test('每个页面自身、以及它引用的脚本与样式，都在预热清单里', () => {
   const list = precacheList();
-  const pages = readdirSync(WEB_ROOT).filter((f) => f.endsWith('.html'));
+  const pages = pageFiles();
   assert.ok(pages.length >= 6, '没扫到页面文件，测试的路径要跟着仓库结构走');
 
   for (const page of pages) {
     // 页面自身：缓存键、预热键、离线回退查找用的都是规范地址
-    const canonicalPath = page === 'index.html' ? '/' : '/' + page.replace(/\.html$/, '');
+    //   根目录 index.html → '/'，文件夹首页 affairs/index.html → '/affairs/'，
+    //   其余原样（/affairs/activities.html）
+    const canonicalPath = page === 'index.html'
+      ? '/'
+      : (page.endsWith('/index.html') ? '/' + page.slice(0, -'index.html'.length) : '/' + page);
     assert.ok(list.includes(canonicalPath), page + ' 不在预热清单里：断网打开它就是浏览器错误页');
 
     const html = readFileSync(join(WEB_ROOT, page), 'utf8');
@@ -476,9 +501,10 @@ test('每个页面自身、以及它引用的脚本与样式，都在预热清�
     ];
     assert.ok(refs.length > 0, page + ' 里没扫到脚本或样式引用，正则要跟着页面走');
 
+    // 子页在文件夹里，引用写的是 ../assets/...，所以要按页面所在目录解析
+    const pageDir = page.includes('/') ? '/' + page.slice(0, page.lastIndexOf('/') + 1) : '/';
     for (const ref of refs) {
-      // 页面里写的是相对路径（assets/js/app.js），清单里是站内绝对路径
-      const abs = ref.startsWith('/') ? ref : '/' + ref;
+      const abs = new URL(ref, 'https://class.example' + pageDir).pathname;
       assert.ok(list.includes(abs),
         page + ' 引用了 ' + ref + '，它却不在预热清单里：断网时这一页会缺' + (abs.endsWith('.css') ? '样式' : '脚本'));
     }
