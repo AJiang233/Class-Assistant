@@ -33,8 +33,12 @@
             <div class="todo-toolbar">
                 <button type="button" class="btn btn-primary" data-act="new-todo">+ 新建待办</button>
                 <button type="button" class="btn btn-outline" data-act="open-prefs">提醒设置</button>
+                <button type="button" class="btn btn-outline" id="syncBtn" data-act="sync-chaoxing">同步学习通</button>
                 <button type="button" class="btn btn-outline" id="delegateBtn" hidden data-act="open-delegate">代加待办</button>
             </div>
+
+            <!-- 学习通同步状态：上次成功时间 / 失败原因 / 手动按钮 60 秒降温 -->
+            <p class="todo-sync-note" id="syncNote" hidden></p>
 
             <!-- 进行中 / 历史 分段控件。滑块（.tab-pill）由 todos.js 的 moveSegPill() 定位，
                  与学业页的三段控件同一套实现。 -->
@@ -50,8 +54,12 @@
             <!-- 标签筛选：点位由 renderTagFilter() 生成（全部 + 各标签） -->
             <div class="todo-filters" id="tagFilter"></div>
 
-            <!-- 历史页顶部的一句统计：「共 N 条历史待办，其中 M 条超时」 -->
-            <p class="todo-history-note" id="historyNote" hidden></p>
+            <!-- 历史页顶部的一句统计：「共 N 条历史待办，其中 M 条超时」；
+                 学习通同步的已完成待办可以收起来，右侧按钮在隐藏视图与历史列表之间切换。 -->
+            <div class="todo-history-bar">
+                <p class="todo-history-note" id="historyNote" hidden></p>
+                <button type="button" class="todo-hidden-toggle" id="hiddenToggle" hidden data-act="toggle-hidden">查看已隐藏</button>
+            </div>
 
             <div id="todoList"></div>
 

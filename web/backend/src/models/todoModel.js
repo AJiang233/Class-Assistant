@@ -25,29 +25,46 @@ export class TodoModel {
     ).bind(ownerId, now).run();
   }
 
-  /** 首页/页签要的三个计数：进行中、历史总数、其中超时数。 */
+  /**
+   * 首页/页签要的计数：进行中、可见历史数、其中可见超时数、已隐藏数。
+   * 隐藏只作用于历史（学习通完成的作业可以收起来），所以进行中永远不扣。
+   */
   async counts(ownerId) {
     const result = await this.db.prepare(
-      'SELECT status, count(*) AS n FROM todos WHERE owner_id = ? GROUP BY status'
+      `SELECT status, count(*) AS n,
+              sum(CASE WHEN hidden = 1 THEN 1 ELSE 0 END) AS hidden
+       FROM todos WHERE owner_id = ? GROUP BY status`
     ).bind(ownerId).all();
     const byStatus = { open: 0, done: 0, expired: 0 };
-    for (const row of result.results || []) byStatus[row.status] = row.n;
+    const hiddenByStatus = { open: 0, done: 0, expired: 0 };
+    for (const row of result.results || []) {
+      if (!(row.status in byStatus)) continue;
+      byStatus[row.status] = row.n;
+      hiddenByStatus[row.status] = row.hidden || 0;
+    }
     return {
       open: byStatus.open,
-      history: byStatus.done + byStatus.expired,
-      overdue: byStatus.expired
+      history: byStatus.done + byStatus.expired - hiddenByStatus.done - hiddenByStatus.expired,
+      overdue: byStatus.expired - hiddenByStatus.expired,
+      hidden: hiddenByStatus.done + hiddenByStatus.expired
     };
   }
 
   /**
    * 取一页待办。
-   * @param {{ownerId:number, status?:'open'|'history', tag?:string|null, limit?:number, offset?:number}} options
+   * @param {{ownerId:number, status?:'open'|'history', tag?:string|null, hidden?:boolean,
+   *          limit?:number, offset?:number}} options
    */
-  async list({ ownerId, status = 'open', tag = null, limit = 50, offset = 0 }) {
+  async list({ ownerId, status = 'open', tag = null, hidden = false, limit = 50, offset = 0 }) {
     const where = ['t.owner_id = ?'];
     const args = [ownerId];
-    if (status === 'history') where.push("t.status IN ('done','expired')");
-    else where.push("t.status = 'open'");
+    if (status === 'history') {
+      where.push("t.status IN ('done','expired')");
+      // 隐藏只是历史页的一个视图：默认看不到，hidden=1 时只看被收起来的那些。
+      where.push(hidden ? 't.hidden = 1' : 't.hidden = 0');
+    } else {
+      where.push("t.status = 'open'");
+    }
     if (tag) {
       // tags 存 JSON 数组；坏数据按空数组处理，不让一条脏行把整个列表查挂
       where.push(`EXISTS (
@@ -65,8 +82,8 @@ export class TodoModel {
       : 'ORDER BY t.due_at ASC, t.id ASC';
     const result = await this.db.prepare(
       `SELECT t.id, t.owner_id, t.title, t.description, t.start_at, t.due_at, t.status,
-              t.tags, t.source, t.source_id, t.created_by, t.completed_at, t.created_at,
-              u.name AS created_by_name
+              t.tags, t.source, t.source_id, t.external_id, t.hidden, t.created_by,
+              t.completed_at, t.created_at, u.name AS created_by_name
        FROM todos t LEFT JOIN users u ON u.id = t.created_by
        WHERE ${whereSql} ${order} LIMIT ? OFFSET ?`
     ).bind(...args, limit, offset).all();
@@ -76,8 +93,8 @@ export class TodoModel {
   async findById(id) {
     return this.db.prepare(
       `SELECT t.id, t.owner_id, t.title, t.description, t.start_at, t.due_at, t.status,
-              t.tags, t.source, t.source_id, t.created_by, t.completed_at, t.created_at,
-              u.name AS created_by_name
+              t.tags, t.source, t.source_id, t.external_id, t.hidden, t.created_by,
+              t.completed_at, t.created_at, u.name AS created_by_name
        FROM todos t LEFT JOIN users u ON u.id = t.created_by
        WHERE t.id = ?`
     ).bind(id).first();
@@ -86,13 +103,13 @@ export class TodoModel {
   async create(data) {
     const {
       owner_id, title, description = null, start_at = null, due_at,
-      tags = null, source = 'manual', source_id = null, created_by = null
+      tags = null, source = 'manual', source_id = null, external_id = null, created_by = null
     } = data;
     const row = await this.db.prepare(
-      `INSERT INTO todos (owner_id, title, description, start_at, due_at, tags, source, source_id, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO todos (owner_id, title, description, start_at, due_at, tags, source, source_id, external_id, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        RETURNING id`
-    ).bind(owner_id, title, description, start_at, due_at, tags, source, source_id, created_by).first();
+    ).bind(owner_id, title, description, start_at, due_at, tags, source, source_id, external_id, created_by).first();
     return row ? row.id : null;
   }
 
@@ -164,6 +181,73 @@ export class TodoModel {
       if (/UNIQUE/i.test(String(e && e.message))) return null;
       throw e;
     }
+  }
+
+  // ===== 学习通外部来源（作业 / 考试自动加入）=====
+
+  /** 按 external_id 找本人已有的那条学业待办（`work:<id>` / `exam:<id>`）。 */
+  async findExternal(ownerId, externalId) {
+    return this.db.prepare(
+      `SELECT id, status, hidden, title, description, start_at, due_at
+       FROM todos WHERE owner_id = ? AND external_id = ?`
+    ).bind(ownerId, externalId).first();
+  }
+
+  /** 外部来源仍在进行中时刷新文案与时间；用户手动改过的也能被覆盖，保证与学习通一致。 */
+  async refreshExternal(id, { title, description, start_at, due_at }) {
+    return this.db.prepare(
+      `UPDATE todos SET title = ?, description = ?, start_at = ?, due_at = ?,
+              updated_at = CURRENT_TIMESTAMP
+       WHERE id = ? AND status = 'open'`
+    ).bind(title, description, start_at, due_at, id).run();
+  }
+
+  /** 学习通显示作业已交 / 考试已考：把本地进行中或已超时的待办并进历史。 */
+  async completeExternal(id, now = formatLocalDateTime()) {
+    return this.db.prepare(
+      `UPDATE todos SET status = 'done', completed_at = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE id = ? AND status IN ('open','expired')`
+    ).bind(now, id).run();
+  }
+
+  /** 隐藏 / 取消隐藏（只对历史学业待办开放，校验在 handler）。 */
+  async setHidden(id, hidden) {
+    return this.db.prepare(
+      'UPDATE todos SET hidden = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
+    ).bind(hidden ? 1 : 0, id).run();
+  }
+
+  // ===== 学习通同步状态 =====
+
+  async getSyncState(ownerId) {
+    return this.db.prepare(
+      `SELECT last_synced_at, last_attempt_at, last_result, last_message
+       FROM todo_sync_state WHERE owner_id = ?`
+    ).bind(ownerId).first();
+  }
+
+  /** 每轮同步开头写一次尝试时间：手动按钮的 60 秒降温按这个字段续算。 */
+  async markSyncAttempt(ownerId, now = formatLocalDateTime()) {
+    return this.db.prepare(
+      `INSERT INTO todo_sync_state (owner_id, last_attempt_at)
+       VALUES (?, ?)
+       ON CONFLICT(owner_id) DO UPDATE SET
+         last_attempt_at = excluded.last_attempt_at,
+         updated_at = CURRENT_TIMESTAMP`
+    ).bind(ownerId, now).run();
+  }
+
+  /** 整轮结束后落结果；syncedAt 为空表示失败，保留上一次成功时间。 */
+  async finishSync(ownerId, { result, message = null, syncedAt = null }) {
+    return this.db.prepare(
+      `INSERT INTO todo_sync_state (owner_id, last_synced_at, last_result, last_message)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(owner_id) DO UPDATE SET
+         last_synced_at = COALESCE(excluded.last_synced_at, todo_sync_state.last_synced_at),
+         last_result = excluded.last_result,
+         last_message = excluded.last_message,
+         updated_at = CURRENT_TIMESTAMP`
+    ).bind(ownerId, syncedAt, result, message).run();
   }
 
   // ===== 通知/活动附带的待办模板 =====

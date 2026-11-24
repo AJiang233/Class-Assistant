@@ -1,6 +1,8 @@
 import { TodoModel } from '../models/todoModel.js';
+import { ConsentModel } from '../models/consentModel.js';
+import { SettingModel } from '../models/settingModel.js';
 import { success, error, jsonResponse } from '../utils/response.js';
-import { formatLocalDateTime, parseLocalDateTime, toLocalDateTime } from '../utils/datetime.js';
+import { formatLocalDateTime, parseLocalDateTime, toLocalDateTime, addMinutes } from '../utils/datetime.js';
 import { pageLimit, pageOffset } from '../utils/query.js';
 
 /**
@@ -105,6 +107,8 @@ export async function handleListTodos(request, env, user) {
     const url = new URL(request.url);
     const status = url.searchParams.get('status') === 'history' ? 'history' : 'open';
     const tag = (url.searchParams.get('tag') || '').trim().slice(0, TAG_MAX) || null;
+    // 历史页的「已隐藏」视图：只有 status=history 时有意义，进行中永远不返回隐藏项。
+    const hidden = status === 'history' && url.searchParams.get('hidden') === '1';
     const limit = pageLimit(url, 50, 100);
     const offset = pageOffset(url);
 
@@ -112,9 +116,10 @@ export async function handleListTodos(request, env, user) {
     const now = formatLocalDateTime();
     await model.expireOverdue(user.id, now);
 
-    const page = await model.list({ ownerId: user.id, status, tag, limit, offset });
+    const page = await model.list({ ownerId: user.id, status, tag, hidden, limit, offset });
     const counts = await model.counts(user.id);
     const prefs = await model.getPrefs(user.id);
+    const syncState = await model.getSyncState(user.id);
     const nowMs = parseLocalDateTime(now);
 
     return jsonResponse(success({
@@ -122,7 +127,18 @@ export async function handleListTodos(request, env, user) {
       total: page.total,
       counts,
       prefs,
-      tags: TODO_TAGS
+      tags: TODO_TAGS,
+      // 前端据此决定进页是否自动同步；synced_today 按北京时间日期比，跨天即重新拉一轮。
+      sync: syncState
+        ? {
+            last_synced_at: syncState.last_synced_at || null,
+            last_attempt_at: syncState.last_attempt_at || null,
+            last_result: syncState.last_result || null,
+            last_message: syncState.last_message || null,
+            synced_today: !!syncState.last_synced_at
+              && String(syncState.last_synced_at).slice(0, 10) === now.slice(0, 10)
+          }
+        : null
     }));
   } catch (e) {
     console.error('获取待办列表失败:', e);
@@ -406,4 +422,431 @@ export function parseContentTodo(raw, fallbackTitle, now = formatLocalDateTime()
       tags: built.value.tags
     }
   };
+}
+
+// ===== 学习通作业 / 考试自动加入待办 =====
+
+/** 分批拉课程作业：一批 6 门并发，39 门课约 7 个请求，每个请求都在 30s 前端超时以内。 */
+const SYNC_BATCH_DEFAULT = 6;
+const SYNC_BATCH_MAX = 10;
+/** 单轮最多同步的课程数：私有 Worker 一次调用只有 50 个子请求预算，留出余量。 */
+const SYNC_MAX_COURSES = 40;
+/** 手动按钮点击后的降温窗口（需求：变灰 60 秒）。服务端也校验，避免多标签页绕过。 */
+const SYNC_COOLDOWN_MS = 60 * 1000;
+
+class ChaoxingCallError extends Error {
+  constructor(message, code, status = 502) {
+    super(message);
+    this.name = 'ChaoxingCallError';
+    this.code = code;
+    this.status = status;
+  }
+}
+
+/** 会话类错误说明 Cookie 已失效，继续逐门课重试只会白白打满上游。 */
+function isSessionError(code) {
+  return code === 'CHAOXING_EXPIRED' || code === 'CHAOXING_INVALID'
+    || code === 'CHAOXING_NEED_CAPTCHA' || code === 'CHAOXING_UNREACHABLE';
+}
+
+function chaoxingHeaders(env, user) {
+  const headers = new Headers();
+  headers.set('X-Internal-Token', env.INTERNAL_TOKEN);
+  headers.set('X-User-Id', String(user.id));
+  headers.set('X-Student-Id', user.student_id || '');
+  headers.set('X-User-Name', encodeURIComponent(user.name || ''));
+  return headers;
+}
+
+/** 以门户身份调用私有学习通 Worker，返回 data；失败统一抛 ChaoxingCallError。 */
+async function callChaoxing(env, user, path, timeoutMs = 20000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let res;
+  try {
+    res = await env.CHAOXING_API.fetch(`https://private-api.local${path}`, {
+      method: 'GET',
+      headers: chaoxingHeaders(env, user),
+      signal: controller.signal
+    });
+  } catch (e) {
+    const aborted = e && (e.name === 'AbortError' || e.name === 'TimeoutError');
+    throw new ChaoxingCallError(
+      aborted ? '学习通响应超时，请稍后再试' : '学习通服务暂时不可用，请稍后再试',
+      aborted ? 'CHAOXING_TIMEOUT' : 'CHAOXING_UNAVAILABLE',
+      503
+    );
+  } finally {
+    clearTimeout(timer);
+  }
+
+  const body = await res.json().catch(() => null);
+  if (!res.ok || !body || body.success === false) {
+    throw new ChaoxingCallError(
+      (body && body.error) || '学习通服务返回异常',
+      (body && body.code) || 'CHAOXING_BAD_RESPONSE',
+      res.status || 502
+    );
+  }
+  return body.data || {};
+}
+
+/** 「剩余 263 小时 6 分钟」→ 分钟；没有数字（已过期 / 空）返回 null。 */
+function parseRemainingMinutes(text) {
+  const s = String(text || '');
+  const day = s.match(/(\d+)\s*天/);
+  const hour = s.match(/(\d+)\s*小时/);
+  const minute = s.match(/(\d+)\s*分钟/);
+  if (!day && !hour && !minute) return null;
+  return (day ? Number(day[1]) : 0) * 1440
+    + (hour ? Number(hour[1]) : 0) * 60
+    + (minute ? Number(minute[1]) : 0);
+}
+
+/** 「2026-11-15 18:30 至 2026-12-20 18:30」→ { start, end, endMs }。 */
+function parseExamWindow(text) {
+  const m = String(text || '').match(
+    /(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})(?::\d{2})?\s*(?:至|~|—|－|-)\s*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})(?::\d{2})?/
+  );
+  if (!m) return null;
+  const start = toLocalDateTime(m[1]);
+  const end = toLocalDateTime(m[2]);
+  const endMs = end ? parseLocalDateTime(end) : null;
+  if (!end || endMs == null) return null;
+  return { start, end, endMs };
+}
+
+/** 学习通的「未交 / 未考 / 空」算未完成，其余（已交 / 待批阅 / 已考）算完成。 */
+function isFinished(status) {
+  return !!status && status !== '未交' && status !== '未考';
+}
+
+function trimTitle(title) {
+  const t = String(title || '').trim() || '学习通待办';
+  return t.length > TITLE_MAX ? `${t.slice(0, TITLE_MAX - 1)}…` : t;
+}
+
+function examDescription(courseName, time, url) {
+  return [
+    '学习通考试',
+    courseName,
+    time ? `时间：${time}` : '',
+    url ? `原页面：${url}` : ''
+  ].filter(Boolean).join(' · ').slice(0, DESC_MAX);
+}
+
+function workDescription(courseName, status, url) {
+  return [
+    '学习通作业',
+    courseName,
+    status ? `状态：${status}` : '',
+    url ? `原页面：${url}` : ''
+  ].filter(Boolean).join(' · ').slice(0, DESC_MAX);
+}
+
+/**
+ * 把一条学习通作业 / 考试落到待办：
+ *   · 本地没有 → 只在「未完成且截止还没过」时新建；
+ *   · 本地有、来源已完成 → open/expired 一律并进历史（用户手动改过也以学习通为准）；
+ *   · 本地有、来源仍未完成 → 只刷新进行中的那条，已完成的不重新打开。
+ * @returns {'created'|'updated'|'completed'|'skipped'}
+ */
+async function syncSourceItem(model, user, item) {
+  const row = await model.findExternal(user.id, item.externalId);
+  if (row) {
+    if (item.finished) {
+      if (row.status === 'open' || row.status === 'expired') {
+        await model.completeExternal(row.id, item.now);
+        return 'completed';
+      }
+      return 'skipped';
+    }
+    if (row.status === 'open' && item.dueMs > item.nowMs) {
+      await model.refreshExternal(row.id, {
+        title: item.title,
+        description: item.description,
+        start_at: item.startAt,
+        due_at: item.dueAt
+      });
+      return 'updated';
+    }
+    return 'skipped';
+  }
+
+  if (item.finished || item.dueMs <= item.nowMs) return 'skipped';
+  try {
+    await model.create({
+      owner_id: user.id,
+      title: item.title,
+      description: item.description,
+      start_at: item.startAt,
+      due_at: item.dueAt,
+      tags: item.tags,
+      source: 'academic',
+      external_id: item.externalId,
+      created_by: user.id
+    });
+    return 'created';
+  } catch (e) {
+    // 两个标签页同时同步时唯一索引会撞：对方已经建好，这一条跳过即可。
+    if (/UNIQUE/i.test(String(e && e.message))) return 'skipped';
+    throw e;
+  }
+}
+
+/** 作业响应 → 统一的待办字段；解析不出截止时间（已过期 / 页面改版）返回 null。 */
+function workToTodo(entry, courseName, now, nowMs) {
+  const minutes = parseRemainingMinutes(entry.deadline);
+  if (minutes == null) return null;
+  const dueAt = addMinutes(now, minutes);
+  const dueMs = parseLocalDateTime(dueAt);
+  if (dueMs == null) return null;
+  const externalId = entry.workId ? `work:${entry.workId}` : '';
+  if (!externalId) return null;
+  return {
+    externalId,
+    title: trimTitle(`${courseName ? `[${courseName}] ` : ''}${entry.title}`),
+    description: workDescription(courseName, entry.status, entry.url),
+    startAt: null,
+    dueAt,
+    dueMs,
+    finished: isFinished(entry.status),
+    tags: JSON.stringify(['作业']),
+    now,
+    nowMs
+  };
+}
+
+/** 考试响应 → 统一字段；时间解析失败或没有 examId 返回 null。 */
+function examToTodo(entry, courseName, now, nowMs) {
+  const win = parseExamWindow(entry.time);
+  if (!win) return null;
+  const externalId = entry.examId ? `exam:${entry.examId}` : '';
+  if (!externalId) return null;
+  return {
+    externalId,
+    title: trimTitle(`${courseName ? `[${courseName}] ` : ''}${entry.title}`),
+    description: examDescription(courseName, entry.time, entry.url),
+    startAt: win.start,
+    dueAt: win.end,
+    dueMs: win.endMs,
+    finished: isFinished(entry.status),
+    tags: JSON.stringify(['考试']),
+    now,
+    nowMs
+  };
+}
+
+function countResult(stats, result) {
+  if (result === 'created' || result === 'updated' || result === 'completed' || result === 'skipped') {
+    stats[result] += 1;
+  }
+}
+
+async function recordSyncFailure(model, user, e) {
+  const code = (e && e.code) || 'SYNC_FAILED';
+  const message = (e && e.message) || '同步失败，请稍后再试';
+  if (code === 'NOT_BOUND') {
+    await model.finishSync(user.id, { result: 'not_bound', message });
+    return jsonResponse(success({
+      bound: false,
+      done: true,
+      message: '还没绑定学习通，绑定后会自动同步作业和考试'
+    }));
+  }
+  await model.finishSync(user.id, { result: 'error', message });
+  return jsonResponse(error(message, code), (e && e.status) || 502);
+}
+
+/**
+ * POST /api/todos/sync-chaoxing
+ * body: { cursor?:number, batch?:number, refresh?:boolean }
+ *
+ * 分页而不是一次拉完 39 门课：每个请求只抓 batch 门，前端拿到 next_cursor 继续，
+ * 既能显示进度，也不会让单个 Pages Function 跑太久 / 超过私有 Worker 的子请求预算。
+ */
+export async function handleSyncChaoxingTodos(request, env, user) {
+  try {
+    const body = await request.json().catch(() => ({}));
+    const cursor = Math.max(0, Number.parseInt(body.cursor, 10) || 0);
+    const batchSize = Math.min(
+      SYNC_BATCH_MAX,
+      Math.max(1, Number.parseInt(body.batch, 10) || SYNC_BATCH_DEFAULT)
+    );
+    const refresh = body.refresh !== false;
+
+    if (!(await new SettingModel(env.DB).isEnabled('chaoxing'))) {
+      return jsonResponse(
+        {
+          success: false,
+          error: '该功能正在维护中，请稍后再试',
+          code: 'FEATURE_DISABLED',
+          data: { feature: 'chaoxing', retry_after: 30 }
+        },
+        503,
+        { 'Retry-After': '30' }
+      );
+    }
+    if (!env.CHAOXING_API || !env.INTERNAL_TOKEN) {
+      return jsonResponse(error('学习通功能暂时不可用，请稍后重试', 'CHAOXING_UNAVAILABLE'), 503);
+    }
+    const consent = await new ConsentModel(env.DB).get(user.id);
+    if (!consent || Number(consent.chaoxing) !== 1) {
+      return jsonResponse(
+        error(
+          '尚未同意「使用身份登录学习通」，请到「个人中心 → 用户协议与授权」开启学习通授权',
+          'CHAOXING_CONSENT_REQUIRED'
+        ),
+        403
+      );
+    }
+
+    const model = new TodoModel(env.DB);
+    const now = formatLocalDateTime();
+    const nowMs = parseLocalDateTime(now);
+
+    if (cursor === 0) {
+      const state = await model.getSyncState(user.id);
+      const lastMs = state && state.last_attempt_at ? parseLocalDateTime(state.last_attempt_at) : null;
+      if (lastMs != null && nowMs - lastMs < SYNC_COOLDOWN_MS) {
+        const retryAfter = Math.max(1, Math.ceil((SYNC_COOLDOWN_MS - (nowMs - lastMs)) / 1000));
+        return jsonResponse(
+          {
+            success: false,
+            error: `同步太频繁，请 ${retryAfter} 秒后再试`,
+            code: 'SYNC_COOLDOWN',
+            data: { retry_after: retryAfter }
+          },
+          429,
+          { 'Retry-After': String(retryAfter) }
+        );
+      }
+      await model.markSyncAttempt(user.id, now);
+      // 先把已过截止时间的进行中待办挪进历史，同步结果与列表状态才是同一口径。
+      await model.expireOverdue(user.id, now);
+    }
+
+    let courses = [];
+    try {
+      const data = await callChaoxing(env, user, '/api/chaoxing/courses');
+      courses = Array.isArray(data.courses) ? data.courses : [];
+    } catch (e) {
+      return recordSyncFailure(model, user, e);
+    }
+
+    const capped = courses.slice(0, SYNC_MAX_COURSES);
+    const total = capped.length;
+    const batch = capped.slice(cursor, cursor + batchSize);
+    const stats = { created: 0, updated: 0, completed: 0, skipped: 0 };
+    const errors = [];
+
+    // 考试只需在第一批发一次全量请求：私有 Worker 会一次抓完学校考试系统并按课程写缓存。
+    if (cursor === 0 && refresh) {
+      try {
+        const data = await callChaoxing(env, user, '/api/chaoxing/exams?refresh=1');
+        for (const entry of data.items || []) {
+          const item = examToTodo(entry, entry.courseName || '', now, nowMs);
+          if (!item) { stats.skipped += 1; continue; }
+          countResult(stats, await syncSourceItem(model, user, item));
+        }
+      } catch (e) {
+        if (isSessionError(e.code) || e.code === 'NOT_BOUND') {
+          return recordSyncFailure(model, user, e);
+        }
+        errors.push(`考试：${e.message}`);
+      }
+    }
+
+    // 作业必须逐门抓（私有 Worker 的 /works 只在带 courseId 时出网），这里并发 6 门。
+    if (batch.length) {
+      const settled = await Promise.allSettled(batch.map((course) => callChaoxing(
+        env,
+        user,
+        `/api/chaoxing/works?courseId=${encodeURIComponent(course.courseId)}&refresh=1`
+      )));
+      for (let i = 0; i < settled.length; i += 1) {
+        const result = settled[i];
+        const course = batch[i];
+        if (result.status === 'rejected') {
+          const e = result.reason;
+          if (isSessionError(e && e.code) || (e && e.code) === 'NOT_BOUND') {
+            return recordSyncFailure(model, user, e);
+          }
+          errors.push(`${course.name || course.courseId}：${(e && e.message) || '同步失败'}`);
+          continue;
+        }
+        const data = result.value || {};
+        const courseName = data.courseName || course.name || '';
+        for (const entry of data.items || []) {
+          const item = workToTodo(entry, courseName, now, nowMs);
+          if (!item) { stats.skipped += 1; continue; }
+          countResult(stats, await syncSourceItem(model, user, item));
+        }
+      }
+    }
+
+    const processed = Math.min(cursor + batch.length, total);
+    const done = processed >= total;
+    let message = '';
+    if (done) {
+      const parts = [];
+      if (stats.created) parts.push(`新增 ${stats.created} 条`);
+      if (stats.updated) parts.push(`更新 ${stats.updated} 条`);
+      if (stats.completed) parts.push(`完成 ${stats.completed} 条`);
+      message = parts.join('，') || '已是最新';
+      if (errors.length) message += `；${errors.length} 门课程暂时失败`;
+      await model.finishSync(user.id, { result: 'ok', message, syncedAt: now });
+    }
+
+    return jsonResponse(success({
+      bound: true,
+      done,
+      next_cursor: processed,
+      total_courses: total,
+      processed,
+      created: stats.created,
+      updated: stats.updated,
+      completed: stats.completed,
+      skipped: stats.skipped,
+      errors: errors.slice(0, 5),
+      message,
+      truncated: courses.length > SYNC_MAX_COURSES
+    }));
+  } catch (e) {
+    console.error('同步学习通待办失败:', e);
+    return jsonResponse(error('同步学习通待办失败，请稍后重试', 'SYNC_CHAOXING_FAILED'), 500);
+  }
+}
+
+/**
+ * POST /api/todos/:id/hide body {hidden:true|false}
+ * 只允许本人把「已完成 / 已超时」的学业待办收进隐藏视图；手动待办不提供隐藏。
+ */
+export async function handleHideTodo(request, env, user, params) {
+  try {
+    const id = parseInt(params.id);
+    if (!id) return jsonResponse(error('待办不存在', 'INVALID_ID'), 400);
+
+    const body = await request.json().catch(() => ({}));
+    const hidden = body.hidden === true || body.hidden === 1;
+
+    const model = new TodoModel(env.DB);
+    const row = await model.findById(id);
+    if (!row) return jsonResponse(error('待办不存在', 'TODO_NOT_FOUND'), 404);
+    if (Number(row.owner_id) !== Number(user.id)) {
+      return jsonResponse(error('只能操作自己的待办', 'FORBIDDEN'), 403);
+    }
+    if (row.source !== 'academic') {
+      return jsonResponse(error('只有学习通同步的待办可以隐藏', 'TODO_NOT_HIDEABLE'), 400);
+    }
+    if (row.status !== 'done' && row.status !== 'expired') {
+      return jsonResponse(error('只有已完成的待办可以隐藏', 'TODO_NOT_HISTORY'), 400);
+    }
+
+    await model.setHidden(id, hidden);
+    return jsonResponse(success({ message: hidden ? '已隐藏' : '已取消隐藏', hidden }));
+  } catch (e) {
+    console.error('隐藏待办失败:', e);
+    return jsonResponse(error('操作失败，请稍后重试', 'HIDE_TODO_FAILED'), 500);
+  }
 }

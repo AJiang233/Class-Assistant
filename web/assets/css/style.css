@@ -2268,6 +2268,23 @@ body.app-mode { overflow: hidden; }
 .todo-filter.on { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
 
 .todo-history-note { margin: 0 0 14px; font-size: 0.86rem; color: var(--text-secondary); }
+/* 历史页统计与「查看已隐藏」同一行：统计在左，入口在右，窄屏时允许换行 */
+.todo-history-bar {
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+    gap: 4px 12px; margin-bottom: 0;
+}
+.todo-history-bar.show { margin-bottom: 14px; }
+.todo-history-bar .todo-history-note { margin: 0; }
+.todo-hidden-toggle {
+    padding: 4px 0; border: 0; background: none; cursor: pointer;
+    font-family: inherit; font-size: 0.84rem; color: var(--accent);
+}
+.todo-hidden-toggle:hover { text-decoration: underline; }
+/* 同步状态：按钮下方的弱提示，失败原因与上次成功时间都放这里 */
+.todo-sync-note {
+    margin: -8px 0 16px; font-size: 0.84rem; line-height: 1.5;
+    color: var(--text-secondary);
+}
 .todo-more-wrap { margin-top: 16px; }
 
 /* ── 待办页：列表行 ────────────────────────────────────────────── */

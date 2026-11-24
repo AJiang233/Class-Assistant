@@ -393,3 +393,21 @@ CREATE TABLE IF NOT EXISTS todo_prefs (
   warn_hours   INTEGER NOT NULL DEFAULT 36,
   updated_at   TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+-- 学习通待办联动（对应 migrations-v2/0008_todo_chaoxing.sql，DDL 必须逐字一致）。
+-- 新列必须用 ALTER 追加：0007 的 CREATE TABLE 已在迁移链里执行过，直接改建表语句会让
+-- sqlite_master 与「基线 + 迁移」不一致。SQLite 追加列后会把 `\n, external_id TEXT` 拼进
+-- 原始 SQL，这里保持与迁移文件逐字相同的写法。
+ALTER TABLE todos ADD COLUMN external_id TEXT;
+ALTER TABLE todos ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_todos_owner_external ON todos(owner_id, external_id) WHERE external_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS todo_sync_state (
+  owner_id       INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  last_synced_at TEXT,
+  last_attempt_at TEXT,
+  last_result    TEXT,
+  last_message   TEXT,
+  updated_at     TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);

@@ -13,11 +13,15 @@ var DEFAULT_TAGS = ['作业', '考试', '班会', '活动', '材料', '缴费'];
 var state = {
     tab: 'open',          // open = 进行中；history = 历史
     tag: '',              // 标签筛选（空串 = 全部）
+    hidden: false,        // 历史页是否在看「已隐藏」视图
     list: [],
     total: 0,
-    counts: { open: 0, history: 0, overdue: 0 },
+    counts: { open: 0, history: 0, overdue: 0, hidden: 0 },
     prefs: { urgent_hours: 24, warn_hours: 36 },
-    tags: DEFAULT_TAGS.slice()
+    tags: DEFAULT_TAGS.slice(),
+    sync: null,           // 后端返回的学习通同步状态（见 GET /api/todos 的 data.sync）
+    syncing: false,
+    autoSynced: false     // 每次进页面最多自动同步一次，避免失败后无限重试
 };
 
 // ===== 编辑弹窗状态 =====
@@ -133,6 +137,7 @@ function applyListData(data, more) {
     if (data.counts) state.counts = data.counts;
     if (data.prefs) state.prefs = data.prefs;
     if (data.tags && data.tags.length) state.tags = data.tags;
+    if (data.sync !== undefined) state.sync = data.sync;
     state.total = typeof data.total === 'number' ? data.total : 0;
     var page = data.list || [];
     state.list = more ? state.list.concat(page) : page;
@@ -152,21 +157,24 @@ async function loadList(more, force) {
     var url = '/api/todos?status=' + encodeURIComponent(state.tab)
         + '&limit=' + PAGE_SIZE
         + '&offset=' + (more ? state.list.length : 0)
-        + (state.tag ? '&tag=' + encodeURIComponent(state.tag) : '');
+        + (state.tag ? '&tag=' + encodeURIComponent(state.tag) : '')
+        + (state.tab === 'history' && state.hidden ? '&hidden=1' : '');
     var reqTab = state.tab;
     var reqTag = state.tag || '';
+    var reqHidden = state.hidden;
     if (!more) {
         // App 壳：本地有缓存时原生先回一帧，随后把后台刷新的新数据推到「不带 refresh=1」
         // 的键上（缓存键就是 URL）。不注册的话页面会一直停在旧数据上，直到用户手动操作。
-        // 推回来时已经切了页签 / 标签的，直接丢掉 —— 别把上一个筛选的结果画到当前列表里。
+        // 推回来时已经切了页签 / 标签 / 隐藏视图的，直接丢掉 —— 别把上一个筛选的结果画到当前列表里。
         onApiData(url, function (data) {
-            if (state.tab !== reqTab || (state.tag || '') !== reqTag) return;
+            if (state.tab !== reqTab || (state.tag || '') !== reqTag || state.hidden !== reqHidden) return;
             applyListData(data, false);
         });
     }
     try {
         var res = await api(force ? url + '&refresh=1' : url);
         applyListData(res.data, more);
+        if (!more) maybeAutoSync();
     } catch (err) {
         if (more) {
             flash(err.message, true);
@@ -176,6 +184,7 @@ async function loadList(more, force) {
             document.getElementById('moreBtn').hidden = true;
             document.getElementById('tagFilter').innerHTML = '';
             document.getElementById('historyNote').hidden = true;
+            document.getElementById('hiddenToggle').hidden = true;
         }
     }
 }
@@ -184,18 +193,29 @@ function render() {
     var el = document.getElementById('todoList');
     renderTagFilter();
 
-    // 历史页顶部那句统计：「共 N 条历史待办，其中 M 条超时」
+    // 历史页顶部那句统计：「共 N 条历史待办，其中 M 条超时」；
+    // 右侧「查看已隐藏」只在真的有隐藏项时出现，隐藏视图里变成「返回历史」。
     var note = document.getElementById('historyNote');
+    var hiddenToggle = document.getElementById('hiddenToggle');
+    var bar = document.querySelector('.todo-history-bar');
+    if (bar) bar.classList.toggle('show', state.tab === 'history');
     if (state.tab === 'history') {
         note.hidden = false;
-        note.textContent = '共 ' + state.counts.history + ' 条历史待办，其中 ' + state.counts.overdue + ' 条超时';
+        note.textContent = state.hidden
+            ? '已隐藏 ' + state.counts.hidden + ' 条学业待办'
+            : '共 ' + state.counts.history + ' 条历史待办，其中 ' + state.counts.overdue + ' 条超时';
+        // 隐藏视图里即使已经全部取消隐藏也要保留「返回历史」，
+        // 否则用户会把最后一条放出来之后被困在一个空的隐藏视图里。
+        hiddenToggle.hidden = !state.counts.hidden && !state.hidden;
+        hiddenToggle.textContent = state.hidden ? '返回历史' : '查看已隐藏（' + state.counts.hidden + '）';
     } else {
         note.hidden = true;
+        hiddenToggle.hidden = true;
     }
 
     if (!state.list.length) {
         el.innerHTML = stateHTML(state.tab === 'history'
-            ? '还没有完成或超时的待办'
+            ? (state.hidden ? '没有隐藏的待办' : '还没有完成或超时的待办')
             : '暂无待办，点上面「+ 新建待办」记一条');
     } else {
         el.innerHTML = '<div class="list">' + state.list.map(rowHTML).join('') + '</div>';
@@ -204,6 +224,7 @@ function render() {
     // 还有下一页才给「加载更多」
     var moreBtn = document.getElementById('moreBtn');
     moreBtn.hidden = state.list.length >= state.total;
+    renderSyncUI();
 }
 
 function rowHTML(t) {
@@ -252,6 +273,14 @@ function rowActionsHTML(t, history) {
         btns.push('<button type="button" class="btn btn-sm btn-outline" data-act="done-todo" data-id="' + escAttr(t.id) + '">完成</button>');
         btns.push('<button type="button" class="btn btn-sm btn-outline" data-act="edit-todo" data-id="' + escAttr(t.id) + '">编辑</button>');
     }
+    // 历史页里，学习通同步来的待办可以收进「已隐藏」；手动 / 通知 / 活动待办不提供这个入口。
+    if (history && t.source === 'academic') {
+        if (state.hidden) {
+            btns.push('<button type="button" class="btn btn-sm btn-outline" data-act="unhide-todo" data-id="' + escAttr(t.id) + '">取消隐藏</button>');
+        } else {
+            btns.push('<button type="button" class="btn btn-sm btn-outline" data-act="hide-todo" data-id="' + escAttr(t.id) + '">隐藏</button>');
+        }
+    }
     // 代加件的「删除」对我和对班委是两件事：我用「撤回」这个词，说明它不是我自己的计划
     var label = (!history && isDelegated(t)) ? '撤回' : '删除';
     btns.push('<button type="button" class="btn btn-sm btn-danger" data-act="del-todo" data-id="' + escAttr(t.id) + '">' + label + '</button>');
@@ -297,6 +326,7 @@ function switchTab(name) {
     if (name !== 'open' && name !== 'history') return;
     if (state.tab === name) return;
     state.tab = name;
+    state.hidden = false;   // 换页签回到「进行中 / 全部历史」，别把上一次的隐藏视图带过去
     var tabs = document.querySelectorAll('#todoSeg .tab');
     for (var i = 0; i < tabs.length; i++) {
         tabs[i].classList.toggle('active', tabs[i].getAttribute('data-tab') === name);
@@ -554,6 +584,134 @@ async function deleteTodo(id) {
     }
 }
 
+// ===== 学习通同步 =====
+// 前端只负责「分批把服务端跑完」和「把 60 秒降温画出来」：
+// 拉哪些课、怎么判定完成、什么时候并进历史，全部在 todoHandler.handleSyncChaoxingTodos 里。
+var SYNC_COOLDOWN_MS = 60 * 1000;
+var syncClock = 0;
+
+/** 服务端记的 last_attempt_at 换算成本地剩余冷却毫秒（换设备 / 刷新页面也能续上）。 */
+function syncCooldownLeft() {
+    if (!state.sync || !state.sync.last_attempt_at) return 0;
+    var ms = dueMs(state.sync.last_attempt_at);
+    if (!ms) return 0;
+    return Math.max(0, ms + SYNC_COOLDOWN_MS - Date.now());
+}
+
+function stopSyncClock() {
+    if (syncClock) { clearInterval(syncClock); syncClock = 0; }
+}
+
+function renderSyncUI() {
+    var btn = document.getElementById('syncBtn');
+    var note = document.getElementById('syncNote');
+    if (!btn) return;
+
+    var left = syncCooldownLeft();
+    if (state.syncing) {
+        btn.disabled = true;
+        btn.textContent = '同步中…';
+    } else if (left > 0) {
+        btn.disabled = true;
+        btn.textContent = '同步学习通（' + Math.ceil(left / 1000) + ' 秒）';
+        if (!syncClock) syncClock = setInterval(function () {
+            renderSyncUI();
+            if (syncCooldownLeft() <= 0) stopSyncClock();
+        }, 1000);
+    } else {
+        stopSyncClock();
+        btn.disabled = false;
+        btn.textContent = '同步学习通';
+    }
+
+    if (!note) return;
+    var text = '';
+    var s = state.sync;
+    if (state.syncing) {
+        text = '正在从学习通拉取未交作业和未考考试，第一次同步可能要一会儿…';
+    } else if (s && s.last_result === 'not_bound') {
+        text = '还没绑定学习通，绑定后每天会自动同步。';
+    } else if (s && s.last_result === 'error') {
+        text = s.last_message || '上次同步失败，可以稍后手动重试。';
+    } else if (s && s.last_synced_at) {
+        text = '上次同步 ' + fmtWhen(s.last_synced_at) + (s.synced_today ? '（今天已同步）' : '');
+    } else if (s) {
+        text = '今天还没同步，进入本页时会自动同步。';
+    }
+    note.textContent = text;
+    note.hidden = !text;
+}
+
+/** 每天第一次进页面自动同步一次；页面内失败不反复重试，交给手动按钮。 */
+function maybeAutoSync() {
+    if (state.autoSynced || state.syncing) return;
+    state.autoSynced = true;
+    var s = state.sync;
+    if (!s || s.synced_today) return;
+    if (s.last_result === 'not_bound') return;
+    if (syncCooldownLeft() > 0) return;
+    syncNow();
+}
+
+async function syncNow() {
+    if (state.syncing || syncCooldownLeft() > 0) { renderSyncUI(); return; }
+    state.syncing = true;
+    renderSyncUI();
+
+    var cursor = 0;
+    var guard = 0;
+    var message = '';
+    try {
+        // 服务端一批只抓 6–10 门课（避开 Pages / Worker 的时长与子请求限制），这里循环到 done。
+        while (guard < 12) {
+            guard += 1;
+            var res = await api('/api/todos/sync-chaoxing', {
+                method: 'POST',
+                body: JSON.stringify({ cursor: cursor, batch: 8, refresh: cursor === 0 })
+            });
+            var data = res.data || {};
+            if (data.bound === false) {
+                message = data.message || '还没绑定学习通';
+                break;
+            }
+            if (data.done) {
+                message = data.message || '同步完成';
+                break;
+            }
+            var next = typeof data.next_cursor === 'number' ? data.next_cursor : cursor;
+            // next_cursor 没前进说明服务端没有更多可抓的了：宁可停下报「完成」，也别原地打转。
+            if (next <= cursor) { message = data.message || '同步完成'; break; }
+            cursor = next;
+        }
+        if (message) flash(message);
+    } catch (err) {
+        // 429 说明服务端刚记过一次尝试（例如另一个标签页刚点过）：提示并靠刷新拿回冷却状态。
+        flash(err.message, true);
+    } finally {
+        state.syncing = false;
+        await loadList(false, true);
+    }
+}
+
+function toggleHidden() {
+    if (state.tab !== 'history') return;
+    state.hidden = !state.hidden;
+    loadList(false);
+}
+
+async function setTodoHidden(id, hidden) {
+    try {
+        var res = await api('/api/todos/' + id + '/hide', {
+            method: 'POST',
+            body: JSON.stringify({ hidden: hidden })
+        });
+        flash((res.data && res.data.message) || (hidden ? '已隐藏' : '已取消隐藏'));
+        loadList(false, true);
+    } catch (err) {
+        flash(err.message, true);
+    }
+}
+
 // ===== 提醒设置 =====
 /** 原生侧的待办提醒设置；网页版没有桥，返回 null */
 function readTodoRemindSettings() {
@@ -637,6 +795,10 @@ delegate(document, 'click', '[data-act="del-todo"]', function (el) { deleteTodo(
 delegate(document, 'click', '[data-act="add-tag"]', function () { addCustomTag(); });
 delegate(document, 'click', '[data-act="select-all-members"]', function () { toggleAllMembers(); });
 delegate(document, 'click', '[data-act="load-more"]', function () { loadList(true); });
+delegate(document, 'click', '[data-act="sync-chaoxing"]', function () { syncNow(); });
+delegate(document, 'click', '[data-act="toggle-hidden"]', function () { toggleHidden(); });
+delegate(document, 'click', '[data-act="hide-todo"]', function (el) { setTodoHidden(el.getAttribute('data-id'), true); });
+delegate(document, 'click', '[data-act="unhide-todo"]', function (el) { setTodoHidden(el.getAttribute('data-id'), false); });
 // 勾选变化：标签超过 4 个要立刻拦、成员数要实时报给用户
 delegate(document, 'change', '#tagPicker .tag-cb', onTagChange);
 delegate(document, 'change', '#memberBox .member-cb', updateMemberHint);

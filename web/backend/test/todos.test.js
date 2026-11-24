@@ -333,6 +333,167 @@ describe('待办：通知/活动附带的一键加入', () => {
   });
 });
 
+describe('待办：学习通作业 / 考试自动同步', () => {
+  /** 假的私有学习通 Worker：按路径返回课程 / 作业 / 考试，状态由外层 state 控制。 */
+  function chaoxingFetch(state) {
+    return async (url) => {
+      const path = new URL(url).pathname;
+      let data;
+      if (path === '/api/chaoxing/courses') {
+        data = { courses: [{ courseId: '101', clazzId: 'c1', name: '高等数学', teacher: '王老师' }] };
+      } else if (path === '/api/chaoxing/exams') {
+        const start = formatLocalDateTime(Date.now() + 24 * 3600 * 1000);
+        const end = formatLocalDateTime(Date.now() + 48 * 3600 * 1000);
+        data = {
+          items: [{
+            examId: 'e1', courseId: '101', courseName: '高等数学', title: '期末考试',
+            status: state.examStatus, time: `${start} 至 ${end}`, url: 'https://mooc.example/e1'
+          }]
+        };
+      } else if (path === '/api/chaoxing/works') {
+        data = {
+          courseId: '101', courseName: '高等数学',
+          items: [{
+            workId: 'w1', title: '第三章作业', status: state.workStatus,
+            deadline: '剩余 47 小时 0 分钟', url: 'https://mooc.example/w1'
+          }]
+        };
+      } else {
+        return new Response(JSON.stringify({ success: false, error: '未知接口', code: 'NOT_FOUND' }), {
+          status: 404, headers: { 'Content-Type': 'application/json' }
+        });
+      }
+      return new Response(JSON.stringify({ success: true, data }), {
+        status: 200, headers: { 'Content-Type': 'application/json' }
+      });
+    };
+  }
+
+  function bindChaoxing(db) {
+    db.sqlite.prepare(
+      "INSERT INTO user_consents(user_id,version,terms,chaoxing,academic) VALUES(1,'v1',1,1,0)"
+    ).run();
+  }
+
+  it('新建、去重、完成后并进历史、隐藏与取消隐藏、60 秒冷却', async (t) => {
+    const db = createSqliteDb(t);
+    await seedUser(db);
+    bindChaoxing(db);
+    const state = { workStatus: '未交', examStatus: '未交' };
+    const env = {
+      DB: db, JWT_SECRET: SECRET, INTERNAL_TOKEN: 'internal',
+      CHAOXING_API: { fetch: chaoxingFetch(state) }
+    };
+
+    // 第一批：课程 1 门 → 作业 + 考试各一条
+    let res = await call(env, '/api/todos/sync-chaoxing', { method: 'POST', body: { cursor: 0, batch: 8 } });
+    assert.equal(res.status, 200);
+    assert.equal(res.data.bound, true);
+    assert.equal(res.data.done, true);
+    assert.equal(res.data.created, 2);
+    assert.equal(res.data.total_courses, 1);
+
+    let list = await call(env, '/api/todos');
+    assert.deepEqual(
+      list.data.list.map((x) => x.title).sort(),
+      ['[高等数学] 第三章作业', '[高等数学] 期末考试'].sort()
+    );
+    assert.equal(list.data.list[0].source, 'academic');
+    assert.equal(list.data.sync.synced_today, true);
+    assert.ok(list.data.sync.last_synced_at);
+    assert.ok(db.sqlite.prepare('SELECT external_id FROM todos ORDER BY id').all()
+      .every((row) => /^(work|exam):/.test(row.external_id)));
+
+    // 同一天再拉一次：external_id 去重，不能重复建
+    db.sqlite.prepare('UPDATE todo_sync_state SET last_attempt_at = ?').run(past(2));
+    res = await call(env, '/api/todos/sync-chaoxing', { method: 'POST', body: { cursor: 0, batch: 8 } });
+    assert.equal(res.status, 200);
+    assert.equal(res.data.created, 0);
+    assert.equal(res.data.updated, 2);
+    assert.equal(db.sqlite.prepare('SELECT count(*) AS n FROM todos').get().n, 2);
+
+    // 学习通显示已交 / 已考：本地进行中的两条自动并进历史
+    state.workStatus = '已交';
+    state.examStatus = '已考';
+    db.sqlite.prepare('UPDATE todo_sync_state SET last_attempt_at = ?').run(past(2));
+    res = await call(env, '/api/todos/sync-chaoxing', { method: 'POST', body: { cursor: 0, batch: 8 } });
+    assert.equal(res.status, 200);
+    assert.equal(res.data.completed, 2);
+
+    const history = await call(env, '/api/todos?status=history');
+    assert.equal(history.status, 200);
+    assert.equal(history.data.list.length, 2);
+    assert.ok(history.data.list.every((x) => x.status === 'done'));
+    assert.equal(history.data.counts.history, 2);
+
+    // 隐藏一条：历史列表少一条，隐藏视图能看到，计数单独给出
+    const hideId = history.data.list[0].id;
+    const hide = await call(env, `/api/todos/${hideId}/hide`, { method: 'POST', body: { hidden: true } });
+    assert.equal(hide.status, 200);
+    assert.equal(hide.data.hidden, true);
+
+    const visible = await call(env, '/api/todos?status=history');
+    assert.equal(visible.data.list.length, 1);
+    assert.equal(visible.data.counts.history, 1);
+    assert.equal(visible.data.counts.hidden, 1);
+
+    const hidden = await call(env, '/api/todos?status=history&hidden=1');
+    assert.equal(hidden.data.list.length, 1);
+    assert.equal(hidden.data.list[0].id, hideId);
+
+    const unhide = await call(env, `/api/todos/${hideId}/hide`, { method: 'POST', body: { hidden: false } });
+    assert.equal(unhide.status, 200);
+    assert.equal((await call(env, '/api/todos?status=history')).data.list.length, 2);
+
+    // 刚跑完一轮，60 秒内再点同步要被服务端拦住
+    const cooled = await call(env, '/api/todos/sync-chaoxing', { method: 'POST', body: { cursor: 0 } });
+    assert.equal(cooled.status, 429);
+    assert.equal(cooled.body.code, 'SYNC_COOLDOWN');
+    assert.ok(cooled.body.data.retry_after > 0);
+  });
+
+  it('未同意返回 403；未绑定返回 bound=false；只有学业历史待办能隐藏', async (t) => {
+    const db = createSqliteDb(t);
+    await seedUser(db, { id: 1, name: '张三' });
+    await seedUser(db, { id: 2, studentId: '2022103072', name: '李四' });
+    const env = {
+      DB: db, JWT_SECRET: SECRET, INTERNAL_TOKEN: 'internal',
+      CHAOXING_API: {
+        fetch: async () => new Response(JSON.stringify({
+          success: false, error: '还没绑定学习通', code: 'NOT_BOUND'
+        }), { status: 400, headers: { 'Content-Type': 'application/json' } })
+      }
+    };
+
+    let res = await call(env, '/api/todos/sync-chaoxing', { method: 'POST', body: { cursor: 0 } });
+    assert.equal(res.status, 403);
+    assert.equal(res.body.code, 'CHAOXING_CONSENT_REQUIRED');
+
+    bindChaoxing(db);
+    res = await call(env, '/api/todos/sync-chaoxing', { method: 'POST', body: { cursor: 0 } });
+    assert.equal(res.status, 200);
+    assert.equal(res.data.bound, false);
+    assert.equal(res.data.done, true);
+
+    // 手动待办不能隐藏
+    const manual = await call(env, '/api/todos', { method: 'POST', body: { title: '自己的事', due_at: future() } });
+    const manualHide = await call(env, `/api/todos/${manual.data.todo.id}/hide`, {
+      method: 'POST', body: { hidden: true }
+    });
+    assert.equal(manualHide.status, 400);
+    assert.equal(manualHide.body.code, 'TODO_NOT_HIDEABLE');
+
+    // 别人的学业历史待办也不能隐藏
+    db.sqlite.prepare(
+      `INSERT INTO todos(owner_id,title,due_at,status,source,external_id)
+       VALUES(2,'李四的作业',?,'done','academic','work:other')`
+    ).run(past(1));
+    const otherId = db.sqlite.prepare("SELECT id FROM todos WHERE owner_id=2").get().id;
+    const otherHide = await call(env, `/api/todos/${otherId}/hide`, { method: 'POST', body: { hidden: true } });
+    assert.equal(otherHide.status, 403);
+  });
+});
+
 describe('待办：每人自定义红黄阈值', () => {
   it('默认 24/36；改阈值后同一个待办的紧急度跟着变', async (t) => {
     const db = createSqliteDb(t);

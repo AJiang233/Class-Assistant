@@ -7,7 +7,9 @@ import {
   handleDelegateTodos,
   handleAddTodoFromSource,
   handleGetTodoPrefs,
-  handleUpdateTodoPrefs
+  handleUpdateTodoPrefs,
+  handleSyncChaoxingTodos,
+  handleHideTodo
 } from '../handlers/todoHandler.js';
 import { withAuth, withPermission } from '../middleware/auth.js';
 
@@ -34,6 +36,11 @@ export async function todoRoutes(request, env, ctx) {
     return withAuth(handleAddTodoFromSource)(request, env, ctx);
   }
 
+  // 学习通作业/考试同步（分批拉取，前端按 next_cursor 继续）。
+  if (path === '/api/todos/sync-chaoxing' && method === 'POST') {
+    return withAuth(handleSyncChaoxingTodos)(request, env, ctx);
+  }
+
   if (path === '/api/todos') {
     if (method === 'GET') return withAuth(handleListTodos)(request, env, ctx);
     if (method === 'POST') return withAuth(handleCreateTodo)(request, env, ctx);
@@ -43,6 +50,12 @@ export async function todoRoutes(request, env, ctx) {
   if (statusMatch && method === 'POST') {
     const params = { id: statusMatch[1] };
     return withAuth((req, env, user) => handleUpdateTodoStatus(req, env, user, params))(request, env, ctx);
+  }
+
+  const hideMatch = path.match(/^\/api\/todos\/(\d+)\/hide$/);
+  if (hideMatch && method === 'POST') {
+    const params = { id: hideMatch[1] };
+    return withAuth((req, env, user) => handleHideTodo(req, env, user, params))(request, env, ctx);
   }
 
   const match = path.match(/^\/api\/todos\/(\d+)$/);

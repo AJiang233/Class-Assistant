@@ -23,6 +23,7 @@ const loginAttemptsUpgrade = readFileSync(new URL('../../migrations-v2/0004_logi
 const auditLogsUpgrade = readFileSync(new URL('../../migrations-v2/0005_audit_logs.sql', import.meta.url), 'utf8');
 const appSettingsUpgrade = readFileSync(new URL('../../migrations-v2/0006_app_settings.sql', import.meta.url), 'utf8');
 const todosUpgrade = readFileSync(new URL('../../migrations-v2/0007_todos.sql', import.meta.url), 'utf8');
+const todoChaoxingUpgrade = readFileSync(new URL('../../migrations-v2/0008_todo_chaoxing.sql', import.meta.url), 'utf8');
 const formData = { title: '填写报名', description: '', fields, edit_policy: 'always', anonymous: 0,
   deadline: null, creator_id: 2, creator_name: '发布人', remind_people: '[1]' };
 const noticeData = { title: '通知', content: '内容', publish_time: '2026-09-30 08:00:00',
@@ -68,6 +69,7 @@ describe('迁移与生命周期的数据库契约', () => {
     old.sqlite.exec(auditLogsUpgrade);
     old.sqlite.exec(appSettingsUpgrade);
     old.sqlite.exec(todosUpgrade);
+    old.sqlite.exec(todoChaoxingUpgrade);
     const structure = (db) => db.sqlite.prepare("SELECT type,name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY name").all();
     assert.deepEqual(structure(old), structure(fresh));
     assert.deepEqual(old.sqlite.prepare('PRAGMA foreign_key_check').all(), []);
