@@ -181,10 +181,16 @@ async function loadList(more, force) {
         } else {
             // 列表整块失败：连「加载更多」一起收起，否则用户会对着一个永远没反应的按钮点
             el.innerHTML = stateHTML(err.message, true);
-            document.getElementById('moreBtn').hidden = true;
-            document.getElementById('tagFilter').innerHTML = '';
-            document.getElementById('historyNote').hidden = true;
-            document.getElementById('hiddenToggle').hidden = true;
+            // 旧版应用壳（Service Worker 里的 HTML 还没换新）可能缺这几个节点：
+            // 逐个判空，别让一个缺失的按钮把整页脚本打断。
+            var moreBtn = document.getElementById('moreBtn');
+            if (moreBtn) moreBtn.hidden = true;
+            var tagFilter = document.getElementById('tagFilter');
+            if (tagFilter) tagFilter.innerHTML = '';
+            var historyNote = document.getElementById('historyNote');
+            if (historyNote) historyNote.hidden = true;
+            var hiddenToggle = document.getElementById('hiddenToggle');
+            if (hiddenToggle) hiddenToggle.hidden = true;
         }
     }
 }
@@ -199,18 +205,25 @@ function render() {
     var hiddenToggle = document.getElementById('hiddenToggle');
     var bar = document.querySelector('.todo-history-bar');
     if (bar) bar.classList.toggle('show', state.tab === 'history');
+    // 旧版应用壳可能没有历史栏节点（升级当次「新脚本 + 旧 HTML」），判空后再写：
+    // 这里在首屏 render() 的必经路径上，少一个判空就是整页脚本中断。
+    var hiddenCount = (state.counts && state.counts.hidden) || 0;
     if (state.tab === 'history') {
-        note.hidden = false;
-        note.textContent = state.hidden
-            ? '已隐藏 ' + state.counts.hidden + ' 条学业待办'
-            : '共 ' + state.counts.history + ' 条历史待办，其中 ' + state.counts.overdue + ' 条超时';
+        if (note) {
+            note.hidden = false;
+            note.textContent = state.hidden
+                ? '已隐藏 ' + hiddenCount + ' 条学业待办'
+                : '共 ' + state.counts.history + ' 条历史待办，其中 ' + state.counts.overdue + ' 条超时';
+        }
         // 隐藏视图里即使已经全部取消隐藏也要保留「返回历史」，
         // 否则用户会把最后一条放出来之后被困在一个空的隐藏视图里。
-        hiddenToggle.hidden = !state.counts.hidden && !state.hidden;
-        hiddenToggle.textContent = state.hidden ? '返回历史' : '查看已隐藏（' + state.counts.hidden + '）';
+        if (hiddenToggle) {
+            hiddenToggle.hidden = !hiddenCount && !state.hidden;
+            hiddenToggle.textContent = state.hidden ? '返回历史' : '查看已隐藏（' + hiddenCount + '）';
+        }
     } else {
-        note.hidden = true;
-        hiddenToggle.hidden = true;
+        if (note) note.hidden = true;
+        if (hiddenToggle) hiddenToggle.hidden = true;
     }
 
     if (!state.list.length) {
@@ -223,7 +236,7 @@ function render() {
 
     // 还有下一页才给「加载更多」
     var moreBtn = document.getElementById('moreBtn');
-    moreBtn.hidden = state.list.length >= state.total;
+    if (moreBtn) moreBtn.hidden = state.list.length >= state.total;
     renderSyncUI();
 }
 
