@@ -42,7 +42,7 @@
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>
                     <span class="side-text">班级事务</span>
                 </button>
-                <!-- 待办（决策 1.C）：列表在主页面之外的独立子页 todos.html，
+                <!-- 待办（决策 1.C）：列表在主页面之外的独立子页 /todos/，
                      侧栏这一项只是切 iframe，与通知/活动同一套导航机制。 -->
                 <button type="button" class="side-link" id="navTodos" data-view="todos">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
@@ -82,7 +82,7 @@
             </div>
         </aside>
         <div class="app-content">
-            <!-- 主页视图：左日历 + 右通知/活动 -->
+            <!-- 主页视图：左日历 + 右「待办 / 通知 / 活动 / 表单」四块同级竖排 -->
             <div class="app-view" id="homeView">
                 <div class="main">
                     <div class="container">
@@ -97,16 +97,10 @@
                         <span>1.0版本公测中，仍在修复bug，敬请留意</span>
                     </div>
                     <!-- 待办摘要（决策 1.C）：首页只放一条摘要，不把整个待办页搬进来。
+                         与「当前通知 / 今日活动 / 我的表单」同级：标题在 .section-head 里、卡片在下面，
+                         四块同列竖排（见 .home-right）。
                          默认 hidden，由 index.js 的 loadTodoSummary() 拉到数据后再显示，
                          这样登录前的空壳里不会先闪一条「暂无待办」。 -->
-                    <section class="todo-summary" id="todoSummary" hidden>
-                        <div class="todo-summary-head">
-                            <h2 class="todo-summary-title">待办</h2>
-                            <button type="button" class="btn btn-outline btn-sm" data-view="todos">查看全部 ›</button>
-                        </div>
-                        <p class="todo-summary-line" id="todoSummaryLine">暂无待办</p>
-                        <div class="todo-summary-list" id="todoSummaryList"></div>
-                    </section>
                     <div class="home-layout">
                         <div class="calendar">
                             <div class="cal-head">
@@ -125,7 +119,17 @@
                             <div class="cal-grid" id="calGrid"></div>
                         </div>
                         <div class="home-right">
-                            <div class="section-block mt-0">
+                            <section class="section-block" id="todoSummary" hidden>
+                                <div class="section-head">
+                                    <h2 class="section-title">待办</h2>
+                                    <button type="button" class="btn btn-outline btn-sm" data-view="todos">查看全部</button>
+                                </div>
+                                <div class="todo-summary-card">
+                                    <p class="todo-summary-line" id="todoSummaryLine">暂无待办</p>
+                                    <div class="todo-summary-list" id="todoSummaryList"></div>
+                                </div>
+                            </section>
+                            <div class="section-block">
                                 <div class="section-head">
                                     <h2 class="section-title" id="noticeDateTitle">当前通知</h2>
                                     <button type="button" class="btn btn-outline btn-sm" data-view="notices">查看全部</button>
@@ -147,17 +151,6 @@
                             </div>
                         </div>
                     </div>
-
-                    <!-- 页脚 · 隐私与校方系统访问说明（issue #105）。首页原本没有页脚，这里沿用
-                         现有的 .section-block 分组与 .page-desc 小字写法，不新增样式；
-                         链接走 .legal-back（站内唯一的通用强调色链接样式），指向站内法务页。 -->
-                    <footer class="section-block" id="privacyFoot">
-                        <div class="section-head">
-                            <h2 class="section-title">隐私与校方系统访问</h2>
-                        </div>
-                        <p class="page-desc">使用教务系统、学习通联动功能时，班级助理会在你授权后代替你登录校方系统，仅用于同步课表、成绩、作业与考试通知。</p>
-                        <p class="page-desc">这类自动化访问存在账号被风控的风险，请先阅读<a class="legal-back" href="legal/privacy.html" target="_blank" rel="noopener">隐私政策</a>、<a class="legal-back" href="legal/terms.html" target="_blank" rel="noopener">用户协议</a>与<a class="legal-back" href="legal/disclaimer.html" target="_blank" rel="noopener">免责声明</a>。</p>
-                    </footer>
                     </div>
                 </div>
 

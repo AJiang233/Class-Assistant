@@ -50,7 +50,7 @@
   /* 标题到内容的间距：常显卡靠 .card-title 的 margin-bottom，折叠卡靠 .collapse-body 的
      margin-top —— 两处必须同值。手机端缩一档的覆盖写在 21 的媒体查询里，基础值就必须留在
      这里：同特异性的 :root 谁在后谁生效，定义放文件末尾会把媒体查询里的覆盖盖掉。 */
-  --card-title-gap: 16px;
+  --card-title-gap: 12px;
 
   /* ── 强调色 ── */
   --accent: var(--sys-blue);
@@ -353,10 +353,10 @@ body {
    6 · 布局与页头
    ═══════════════════════════════════════════════════════════════════ */
 
-.main { flex: 1; padding: 40px 28px 72px; }
+.main { flex: 1; padding: 32px 28px 60px; }
 .container { max-width: var(--container); margin: 0 auto; }
 
-.page-head { margin-bottom: 26px; animation: blockIn var(--dur-slow) var(--ease-standard) both; }
+.page-head { margin-bottom: 20px; animation: blockIn var(--dur-slow) var(--ease-standard) both; }
 .page-title {
   font-size: clamp(1.6rem, 3.2vw, 2.05rem); font-weight: 700;
   letter-spacing: -0.022em; line-height: 1.18; color: var(--text);
@@ -380,7 +380,7 @@ body {
 .btn {
   position: relative; isolation: isolate;
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-  min-height: 40px; padding: 10px 20px; border-radius: var(--radius-pill);
+  min-height: 38px; padding: 8px 18px; border-radius: var(--radius-pill);
   font-size: 0.94rem; font-weight: 600; letter-spacing: -0.008em;
   border: 1px solid transparent; cursor: pointer;
   font-family: inherit; text-decoration: none; line-height: 1.4; white-space: nowrap;
@@ -418,7 +418,10 @@ body {
 }
 .btn-outline:active { background: var(--material-muted); }
 
-.btn-sm { min-height: 30px; padding: 5px 14px; font-size: 0.84rem; }
+/* 小号按钮（各区块标题右侧的「查看全部」）：比 .btn 再收一档纵向留白。
+   注意手机端 21.2 里还要再写一条：那边有一条同特异度的 .btn 覆盖，
+   写在它之前会被盖掉（小按钮在手机上会悄悄长回 40px）。 */
+.btn-sm { min-height: 28px; padding: 4px 12px; font-size: 0.84rem; }
 
 .btn-danger {
   background: var(--danger-soft); border-color: color-mix(in srgb, var(--danger) 32%, transparent);
@@ -445,7 +448,7 @@ body {
 
 .list-row {
   display: flex; align-items: center; gap: 16px; width: 100%;
-  padding: 17px 22px; border-bottom: 1px solid var(--separator);
+  padding: 14px 20px; border-bottom: 1px solid var(--separator);
   background: none; border-top: none; border-left: none; border-right: none;
   text-align: left; cursor: pointer; font-family: inherit;
   transition: background-color var(--dur-fast) var(--ease-standard);
@@ -668,7 +671,7 @@ a.list-row { color: inherit; text-decoration: none; }
   pointer-events: none;
 }
 
-.form-field { margin-bottom: 18px; }
+.form-field { margin-bottom: 14px; }
 .form-label {
   display: block; font-size: 0.89rem; font-weight: 600;
   color: var(--text); margin-bottom: 7px; letter-spacing: -0.008em;
@@ -852,7 +855,7 @@ input[type="checkbox"]:disabled { opacity: 0.5; cursor: not-allowed; }
   background: var(--material);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  padding: 34px 38px; max-width: 600px;
+  padding: 28px 32px; max-width: 600px;
   box-shadow: var(--material-shadow), var(--specular);
   animation: blockIn var(--dur-slow) var(--ease-standard) both;
 }
@@ -860,7 +863,7 @@ input[type="checkbox"]:disabled { opacity: 0.5; cursor: not-allowed; }
 .profile-card h3 { font-weight: 650; letter-spacing: -0.008em; color: var(--text); }
 .profile-head {
   display: flex; align-items: center; gap: 18px;
-  padding-bottom: 22px; border-bottom: 1px solid var(--separator);
+  padding-bottom: 18px; border-bottom: 1px solid var(--separator);
 }
 .profile-avatar {
   width: 56px; height: 56px; border-radius: 50%; flex-shrink: 0;
@@ -887,7 +890,7 @@ input[type="checkbox"]:disabled { opacity: 0.5; cursor: not-allowed; }
 .info-list { margin-top: 10px; }
 .info-row {
   display: flex; justify-content: space-between; align-items: center; gap: 16px;
-  padding: 13px 4px; border-bottom: 1px solid var(--separator); font-size: 0.94rem;
+  padding: 11px 4px; border-bottom: 1px solid var(--separator); font-size: 0.94rem;
 }
 .info-row:last-child { border-bottom: none; }
 .info-row .k { color: var(--text-secondary); flex-shrink: 0; font-weight: 600; }
@@ -989,10 +992,12 @@ input[type="checkbox"]:disabled { opacity: 0.5; cursor: not-allowed; }
    16 · 首页 / 区块
    ═══════════════════════════════════════════════════════════════════ */
 
-.section-block { margin-top: 40px; }
+/* 区块之间的纵向间隔。同一列里用 flex/grid 的 gap 排（如首页 .home-right），
+   靠那边的 `> .section-block { margin-top: 0 }` 关掉这一条，免得 gap + margin 叠加。 */
+.section-block { margin-top: 32px; }
 .section-head {
   display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
-  margin-bottom: 14px;
+  margin-bottom: 10px;
 }
 .section-title { font-size: 1.08rem; font-weight: 700; color: var(--text); letter-spacing: -0.014em; }
 .section-count { font-size: 0.86rem; color: var(--text-secondary); font-weight: 600; white-space: nowrap; }
@@ -1010,7 +1015,7 @@ input[type="checkbox"]:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .beta-banner {
   display: flex; align-items: center; gap: 9px;
-  padding: 11px 15px; margin-bottom: 22px;
+  padding: 11px 15px; margin-bottom: 16px;
   border-radius: var(--radius-md);
   background: var(--accent-soft);
   color: var(--accent);
@@ -1248,16 +1253,19 @@ body.app-mode { overflow: hidden; }
   background: var(--material);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  padding: 22px; position: sticky; top: 0;
+  padding: 18px; position: sticky; top: 0;
   box-shadow: var(--material-shadow), var(--specular);
   animation: blockIn var(--dur-slow) var(--ease-standard) both;
 }
 .cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
 .cal-title { font-size: 1.02rem; font-weight: 700; letter-spacing: -0.014em; color: var(--text); }
+/* 日历右上角三个控件（今天 / 上个月 / 下个月）：
+   圆形图标按钮没有 padding 可收，它的「内边距」就是盒子本身 —— 所以尺寸收小才是收留白。
+   这两个值在 21.2 / 21.3 还有移动端覆盖，改基础值不会连带影响手机上那两处。 */
 .cal-nav { display: flex; align-items: center; gap: 4px; }
-.cal-nav .icon-btn { width: 30px; height: 30px; }
+.cal-nav .icon-btn { width: 26px; height: 26px; }
 .cal-today-btn {
-  height: 30px; padding: 0 12px; margin-right: 2px;
+  height: 26px; padding: 0 9px; margin-right: 2px;
   display: inline-flex; align-items: center;
   background: var(--material-muted); border: 1px solid var(--border); border-radius: var(--radius-pill);
   color: var(--text-secondary); font-size: 0.79rem; font-weight: 600; cursor: pointer;
@@ -1301,7 +1309,10 @@ body.app-mode { overflow: hidden; }
 .cal-day.active.has-event::after { background: var(--accent); }
 .cal-day.active.today { background: linear-gradient(180deg, #2b8dff, var(--sys-blue)); color: #fff; box-shadow: var(--specular), 0 6px 16px -6px rgba(0, 122, 255, 0.55); }
 
-.home-right { display: flex; flex-direction: column; gap: 26px; min-width: 0; }
+/* 右列：待办 / 通知 / 活动 / 表单同级竖排。间距只由 gap 给 ——
+   四块都是 .section-block，它们自带的 margin-top 会把间隔叠成 gap + 32，看着忽大忽小。 */
+.home-right { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+.home-right > .section-block { margin-top: 0; }
 
 @media (max-width: 900px) {
   .home-layout { grid-template-columns: 1fr; }
@@ -1416,9 +1427,9 @@ body.app-mode { overflow: hidden; }
      边缘留白够，卡片才不像被屏幕裁掉。相应地下面各元素的内边距再收一档 ——
      一增一减之后，卡片里的正文宽度基本没变，变的是「屏幕边到卡片」与「卡片边到文字」的分配。 */
   .main {
-    padding: 24px max(20px, var(--safe-right)) calc(var(--nav-height) + var(--safe-bottom) + 24px) max(20px, var(--safe-left));
+    padding: 18px max(20px, var(--safe-right)) calc(var(--nav-height) + var(--safe-bottom) + 20px) max(20px, var(--safe-left));
   }
-  .page-head { margin-bottom: 18px; }
+  .page-head { margin-bottom: 12px; }
   .page-title { font-size: 1.45rem; }
   .page-desc { font-size: 0.88rem; margin-top: 5px; }
 
@@ -1426,16 +1437,16 @@ body.app-mode { overflow: hidden; }
      卡片、行、按钮、输入框各减 1~2px，把留白从元素内部挪到屏幕边缘。
      命中区不受影响：.form-input / .btn / .chip 都有 min-height 兜着，收掉的只是文字到边框的距离。
      唯一没动的是下面分段控件的 .tab —— 它没有 min-height，那 11px 内边距**就是**它的命中区。 */
-  .profile-card, .split-grid .profile-card { padding: 16px 14px; }
+  .profile-card, .split-grid .profile-card { padding: 14px 13px; }
   /* 日历是手机首页最上面那张大卡，桌面的 22px 在手机上偏肥。学业卡片 .ac-card 同理，
      但它的基础规则定义在文件更后面（源码顺序），写在会被那里盖掉，只能放到 ≤640 那块去——
      那边有说明。这两张卡的目标值保持一致。 */
-  .calendar { padding: 16px 14px; }
+  .calendar { padding: 14px 12px; }
   .profile-head { gap: 14px; padding-bottom: 14px; }
   .profile-avatar { width: 46px; height: 46px; font-size: 1.06rem; }
   .profile-name { font-size: 1.07rem; }
   .profile-sub { font-size: 0.84rem; }
-  .info-row { padding: 9px 2px; font-size: 0.89rem; }
+  .info-row { padding: 8px 2px; font-size: 0.89rem; }
   /* 「关于软件 → 用户协议」行：摘要最长是「未同意（请退出后重新登录并同意）」，
      已同意时也有一串授权状态，与「查看与修改」挤在同一行会把按钮挤出卡片
      （360px 宽的手机上按钮右边缘比卡片多出约 68px）。手机布局里把摘要折到第二行：
@@ -1454,14 +1465,19 @@ body.app-mode { overflow: hidden; }
     text-overflow: clip; line-height: 1.5;
   }
   /* .card-title 与 .collapse-body 一起跟着缩，两处始终同值 */
-  :root { --card-title-gap: 12px; }
+  :root { --card-title-gap: 10px; }
 
-  .list-row { padding: 12px 13px; gap: 12px; }
+  /* 区块纵向间隔：手机上一屏要装下更多块，40 → 22 */
+  .section-block { margin-top: 22px; }
+  .section-head { margin-bottom: 8px; }
+  .home-right { gap: 16px; }
+
+  .list-row { padding: 10px 12px; gap: 12px; }
   .list-row-title { font-size: 0.98rem; margin-bottom: 4px; }
   .list-row-meta { font-size: 0.82rem; gap: 11px; }
   .badge { padding: 3px 8px; font-size: 0.74rem; }
 
-  .form-field { margin-bottom: 16px; }
+  .form-field { margin-bottom: 12px; }
   .form-label { font-size: 0.86rem; margin-bottom: 7px; }
   /* 关键：iOS Safari 在聚焦 font-size < 16px 的输入框时会强制放大整个页面。
      用 max() 兜住 16px 下限 —— 字号只会变大不会变小，从而消除聚焦缩放跳动。 */
@@ -1474,26 +1490,30 @@ body.app-mode { overflow: hidden; }
      特异度更高会盖掉上面的 16px，这里显式加一级权重复位，同样避开聚焦缩放。 */
   .form-input.ac-select { font-size: max(16px, 0.95rem); }
   select.form-input { padding-right: 36px; background-position: right 11px center; }
-  /* 按钮纵向收紧：min-height 44→40，padding 同步减小（与 chip 的 38px 折中同一量级）。
-     左右再各收 2px：min-height 兜住命中区，收掉的只是文字到边框的距离。 */
-  .btn { padding: 7px 14px; font-size: 0.89rem; min-height: 40px; }
+  /* 按钮纵向收紧：min-height 44→36，padding 同步减小（与 chip 的 38px 折中同一量级）。
+     左右再各收 4px：min-height 兜住命中区，收掉的只是文字到边框的距离。 */
+  .btn { padding: 6px 14px; font-size: 0.89rem; min-height: 36px; }
+  /* 小按钮必须写在上面 .btn 之后：同为单类选择器，谁在后谁生效 ——
+     否则「查看全部」这类小按钮在手机上会跟着长到 36px，白收一档。 */
+  .btn-sm { min-height: 30px; padding: 3px 11px; font-size: 0.81rem; }
   .btn-row .btn { padding-left: 4px; padding-right: 4px; font-size: 0.84rem; }
   /* chip 是多选标签，成组密集排列，取 38px 折中（仍明显大于桌面端） */
   .chip { padding: 6px 10px; font-size: 0.85rem; min-height: 38px; }
-  .tabs { padding: 3px; margin-bottom: 18px; }
+  .tabs { padding: 3px; margin-bottom: 14px; }
   .tab { padding: 11px 0; font-size: 0.88rem; }
 
-  /* 日历：格子在窄屏本就接近 46px，这里只调整操作按钮的命中区 */
+  /* 日历：格子在窄屏本就接近 46px，操作按钮不再按 44px 命中区撑满一格 ——
+     那样三个圆钮比日期格子还壮。收到 34px（仍然是这一排里最好点的目标）。 */
   .cal-day { font-size: 0.83rem; }
-  .cal-nav .icon-btn { width: var(--tap-min); height: var(--tap-min); }
-  .cal-today-btn { height: var(--tap-min); padding: 0 14px; }
+  .cal-nav .icon-btn { width: 34px; height: 34px; }
+  .cal-today-btn { height: 34px; padding: 0 10px; }
 
   .detail-title { font-size: 1.34rem; margin-bottom: 10px; }
   .detail-meta { font-size: 0.84rem; gap: 6px 16px; padding-bottom: 12px; margin-bottom: 18px; }
   .detail-body { font-size: 1rem; line-height: 1.8; }
   .detail-byline { margin-top: 18px; padding-top: 12px; }
 
-  .beta-banner { padding: 10px 12px; font-size: 0.84rem; margin-bottom: 16px; }
+  .beta-banner { padding: 10px 12px; font-size: 0.84rem; margin-bottom: 12px; }
 
   /* 移动端减少逐条错峰，避免长列表出现等待感 */
   .list-row { animation-delay: 0ms !important; }
@@ -1506,13 +1526,15 @@ body.app-mode { overflow: hidden; }
 /* ── 21.3 小屏手机（≤400px，如 iPhone SE / mini）────────────────── */
 @media (max-width: 400px) {
   .main {
-    padding: 20px max(16px, var(--safe-right)) calc(var(--nav-height) + var(--safe-bottom) + 20px) max(16px, var(--safe-left));
+    padding: 16px max(16px, var(--safe-right)) calc(var(--nav-height) + var(--safe-bottom) + 16px) max(16px, var(--safe-left));
   }
   .page-title { font-size: 1.32rem; }
 
   .calendar, .ac-card, .profile-card, .split-grid .profile-card { padding: 14px 12px; }
   .cal-day { font-size: 0.78rem; }
-  .cal-nav .icon-btn { width: 40px; height: 40px; }
+  /* 小屏再收一档：32px 圆钮 + 今天按钮同步矮下来，跟 40px 上下的日期格子齐平 */
+  .cal-nav .icon-btn { width: 32px; height: 32px; }
+  .cal-today-btn { height: 32px; padding: 0 9px; }
 
   .modal-head { padding: 13px 14px; }
   .modal-body { padding: 14px; }
@@ -1964,7 +1986,7 @@ body.app-mode { overflow: hidden; }
    这样两行仍属于同一个 <p>，不会吃到 .profile-sub-lead 那 14px 的段落间距 */
 .profile-sub-lines { white-space: pre-line; }
 /* 卡片下半区（通知 / 后台常驻 / 课程提醒 / 日历订阅…）：用一条分隔线与上一块断开 */
-.card-divider { margin-top: 24px; padding-top: 22px; border-top: 1px solid var(--separator); }
+.card-divider { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--separator); }
 
 /* ── 表单 ── */
 /* 按钮行：默认三列（.btn-row），这两个是「两列」与「单行等高」 */
@@ -2202,23 +2224,21 @@ body.app-mode { overflow: hidden; }
 }
 
 /* ── 首页摘要卡 ───────────────────────────────────────────────── */
-.todo-summary {
-    display: flex; flex-direction: column; gap: 10px;
-    margin: 0 0 24px; padding: 18px 20px;
+/* 与通知 / 活动 / 表单同级：标题在 .section-head 里（卡片之外），
+   这里只画卡片本体，材质、圆角、投影都跟 .list 一致，四块并排才是一套。
+   行距全交给行自己的上下内边距，卡片只留左右内边距 + 首尾一点点呼吸。 */
+.todo-summary-card {
+    padding: 6px 20px 4px;
     background: var(--material);
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
     box-shadow: var(--material-shadow), var(--specular);
     animation: blockIn var(--dur-slow) var(--ease-standard) both;
 }
-.todo-summary-head {
-    display: flex; align-items: center; justify-content: space-between; gap: 12px;
-}
-.todo-summary-title {
-    margin: 0; font-size: 1.02rem; font-weight: 700;
-    letter-spacing: -0.01em; color: var(--text);
-}
-.todo-summary-line { margin: 0; font-size: 0.87rem; color: var(--text-secondary); }
+.todo-summary-line { margin: 8px 0 2px; font-size: 0.87rem; color: var(--text-secondary); }
+/* 空态 / 失败态直接复用 .state（与通知、活动、表单同一套图标 + 文案），
+   只把它的竖向留白收一档：摘要卡本身不高，.state 默认的 56px 会把它撑成一整块空屏。 */
+.todo-summary-card > .state { padding: 20px 0 16px; }
 .todo-summary-list { display: flex; flex-direction: column; }
 /* 摘要里的一行：整行可点（data-view="todos"），所以用 button 而不是 div */
 .todo-summary-item {
@@ -2411,7 +2431,7 @@ body.app-mode { overflow: hidden; }
 @media (max-width: 640px) {
     .todo-head { padding: 14px; gap: 8px; }
     .todo-detail { padding: 0 14px 14px 31px; }
-    .todo-summary { padding: 16px 16px; }
+    .todo-summary-card { padding: 4px 14px 2px; }
 }
 @media (max-width: 420px) {
     .todo-head-main { flex-direction: column; align-items: flex-start; gap: 2px; }

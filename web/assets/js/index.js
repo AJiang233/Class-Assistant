@@ -12,6 +12,13 @@ var FRAME_KEYS = { academic: 'frameAcademic', activities: 'frameActivities', not
 // 会写它，若声明留在初始化之后，那句 `var currentView = 'home'` 会把深链视图重置成主页。
 var currentView = 'home';
 
+// 首页待办摘要的请求地址。同理必须在初始化之前赋值：init 的 switchView('home') 会走
+// 到 loadTodoSummary()，而函数声明是提升的、这个 var 却是 undefined —— 那样请求会打到
+// `/undefined`（Pages 对未知路径回 200 的 HTML，json 解析失败后退化成 `{}`），
+// 首页首屏就永远显示「暂无待办」，切一次视图再回来才正常。
+// 带参数，所以 onApiData 的键必须与它一字不差（见下面 loadTodoSummary 附近）。
+var TODO_SUMMARY_KEY = '/api/todos?status=open&limit=3';
+
 // ===== 视图入口（侧栏 + 底栏）统一在这里捕获 =====
 // 必须**最早期**注册，而且走捕获阶段：index.js 后半段还有几十个顶层绑定，只要前面有一条
 // 语句抛错（缓存里 HTML/JS 半新半旧、依赖脚本没加载上等），后面的绑定就全都不会执行。
@@ -649,9 +656,8 @@ function todoSummaryWhen(v) {
  * 取 3 条最近截止的进行中待办 + 服务端的 counts 画一条摘要。
  * 失败时卡片仍然显示、换一行错误文案：首页其余内容不该被这个次要模块拖住，
  * 但也不能继续摆「暂无待办」——那会让用户以为自己的待办丢了。
+ * 请求地址是文件顶部那个 TODO_SUMMARY_KEY（不能写在这里：首屏的 switchView 会先跑到）。
  */
-var TODO_SUMMARY_KEY = '/api/todos?status=open&limit=3';
-
 function renderTodoSummary(data) {
     var box = document.getElementById('todoSummary');
     var line = document.getElementById('todoSummaryLine');
@@ -664,8 +670,15 @@ function renderTodoSummary(data) {
     var overdue = counts.overdue || 0;
     // 超时数来自 counts 而不是 items：items 只有 3 条，数不出全量（已超时的件也不在 open 列表里）
     if (!open && !overdue) {
-        line.textContent = '暂无待办';
-    } else if (overdue) {
+        // 空态与通知 / 活动 / 表单同一套：stateHTML 的图标 + 文案，而不是单独摆一行灰字。
+        // 那句话仍在 HTML 里（避免首帧闪一下空），这里改成 hidden，由 .state 接管。
+        line.hidden = true;
+        list.innerHTML = stateHTML('暂无待办', false, 'inbox');
+        box.hidden = false;
+        return;
+    }
+    line.hidden = false;
+    if (overdue) {
         line.textContent = open + ' 条进行中，' + overdue + ' 条已超时';
     } else {
         line.textContent = open + ' 条进行中';
@@ -685,16 +698,16 @@ function renderTodoSummary(data) {
 }
 
 async function loadTodoSummary() {
-    var line = document.getElementById('todoSummaryLine');
     try {
         var res = await api(TODO_SUMMARY_KEY);
         renderTodoSummary(res.data || {});
     } catch (err) {
-        if (!line) return;
-        line.textContent = '待办摘要加载失败：' + err.message;
+        // 失败也走同一套空态组件（红色三角 + 文案），不另写一行灰字
+        var line = document.getElementById('todoSummaryLine');
         var list = document.getElementById('todoSummaryList');
-        if (list) list.innerHTML = '';
         var box = document.getElementById('todoSummary');
+        if (line) line.hidden = true;
+        if (list) list.innerHTML = stateHTML('待办摘要加载失败：' + err.message, true);
         if (box) box.hidden = false;
     }
 }
