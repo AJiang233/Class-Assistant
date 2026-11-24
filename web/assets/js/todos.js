@@ -615,6 +615,56 @@ function stopSyncClock() {
     if (syncClock) { clearInterval(syncClock); syncClock = 0; }
 }
 
+/**
+ * 补齐旧版应用壳缺失的节点。
+ *
+ * 升级当次可能拿到「新脚本 + Service Worker 里的旧 HTML」：旧壳没有同步按钮、
+ * 没有同步状态行，历史统计也还是单独一个 <p>。这些节点缺了不会让脚本报错，
+ * 但用户会找不到入口、已隐藏的待办也放不出来。这里按需重建，保证功能在旧壳上可用。
+ * 新壳走一遍只会命中已有的 id，不会重复插入。
+ */
+function ensureTodoShell() {
+    var toolbar = document.querySelector('.todo-toolbar');
+
+    if (toolbar && !document.getElementById('syncBtn')) {
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn btn-outline';
+        btn.id = 'syncBtn';
+        btn.setAttribute('data-act', 'sync-chaoxing');
+        btn.textContent = '同步学习通';
+        var delegateBtn = document.getElementById('delegateBtn');
+        if (delegateBtn && delegateBtn.parentNode === toolbar) toolbar.insertBefore(btn, delegateBtn);
+        else toolbar.appendChild(btn);
+    }
+
+    if (toolbar && !document.getElementById('syncNote')) {
+        var note = document.createElement('p');
+        note.className = 'todo-sync-note';
+        note.id = 'syncNote';
+        note.hidden = true;
+        toolbar.insertAdjacentElement('afterend', note);
+    }
+
+    var historyNote = document.getElementById('historyNote');
+    if (historyNote && !document.querySelector('.todo-history-bar')) {
+        var bar = document.createElement('div');
+        bar.className = 'todo-history-bar';
+        historyNote.parentNode.insertBefore(bar, historyNote);
+        bar.appendChild(historyNote);
+    }
+    if (document.querySelector('.todo-history-bar') && !document.getElementById('hiddenToggle')) {
+        var toggle = document.createElement('button');
+        toggle.type = 'button';
+        toggle.className = 'todo-hidden-toggle';
+        toggle.id = 'hiddenToggle';
+        toggle.hidden = true;
+        toggle.setAttribute('data-act', 'toggle-hidden');
+        toggle.textContent = '查看已隐藏';
+        document.querySelector('.todo-history-bar').appendChild(toggle);
+    }
+}
+
 function renderSyncUI() {
     var btn = document.getElementById('syncBtn');
     var note = document.getElementById('syncNote');
@@ -847,6 +897,9 @@ if (canContentWrite()) {
     var delegateBtn = document.getElementById('delegateBtn');
     if (delegateBtn) delegateBtn.hidden = false;
 }
+
+// 先补齐旧壳缺失的节点，再进入首屏渲染：后面的 render() 会直接读写这些入口。
+ensureTodoShell();
 
 // 滑块在布局完成后才有尺寸：首帧排一次，窗口变化再排一次
 moveSegPill();
