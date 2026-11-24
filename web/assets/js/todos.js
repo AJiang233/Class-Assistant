@@ -635,7 +635,8 @@ function renderSyncUI() {
         text = s.last_message || '上次同步失败，可以稍后手动重试。';
     } else if (s && s.last_synced_at) {
         text = '上次同步 ' + fmtWhen(s.last_synced_at) + (s.synced_today ? '（今天已同步）' : '');
-    } else if (s) {
+    } else {
+        // 从没同步过（sync 为 null）也要给一句提示，否则按钮旁边是空的。
         text = '今天还没同步，进入本页时会自动同步。';
     }
     note.textContent = text;
@@ -647,8 +648,9 @@ function maybeAutoSync() {
     if (state.autoSynced || state.syncing) return;
     state.autoSynced = true;
     var s = state.sync;
-    if (!s || s.synced_today) return;
-    if (s.last_result === 'not_bound') return;
+    // s 为 null 表示这个账号从没同步过（还没有 todo_sync_state 行），同样应该自动跑第一次。
+    if (s && s.synced_today) return;
+    if (s && s.last_result === 'not_bound') return;
     if (syncCooldownLeft() > 0) return;
     syncNow();
 }
