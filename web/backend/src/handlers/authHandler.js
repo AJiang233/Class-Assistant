@@ -60,7 +60,7 @@ function publicUser(user, permissions) {
  *
  * 必须统一，否则 `A@qq.com` 与 `a@qq.com` 会被当成两个账号 ——
  * 一份邮箱两个账号的后果是找回密码时分不清该重置谁。
- * 唯一索引上另有 COLLATE NOCASE 兜底（migrations/2026-09-19-email.sql），那道是防绕过的，
+ * 唯一索引上另有 COLLATE NOCASE 兜底（db/migrations/2026-09-19-email.sql），那道是防绕过的，
  * 不是这里的替代品。
  */
 function normalizeEmail(v) {

@@ -126,7 +126,7 @@ export function canViewItem(raw, viewer) {
 /**
  * 这条内容是谁发的。通知 / 活动写的是 `created_by`，表单写的是 `creator_id` ——
  * 语义相同（发布那一刻的作者），字段名不同只是因为表单表建得更早：
- * migrations/2026-09-14-content-owner.sql 只给通知 / 活动补了 created_by。
+ * db/migrations/2026-09-14-content-owner.sql 只给通知 / 活动补了 created_by。
  * 归属判定要同时认这两处，所以在这里取一次，别在各自的 handler 里各写一份。
  */
 function ownerIdOf(row) {
@@ -140,7 +140,7 @@ function ownerIdOf(row) {
  * 这条内容能不能被修改 / 删除：创建者本人，或持有 user:manage 的班委。
  * 通知 / 活动 / 表单共用这一条（表单的改、删、明细、进度、导出都走它）。
  *
- * 归属字段为空 = 迁移（migrations/2026-09-14-content-owner.sql）之前发的，
+ * 归属字段为空 = 迁移（db/migrations/2026-09-14-content-owner.sql）之前发的，
  * 不知道归谁，一律按「需要 user:manage」处理 —— 不一刀切拒绝，否则老内容谁都动不了。
  */
 export function canManageItem(row, viewer) {

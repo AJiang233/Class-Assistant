@@ -1,5 +1,5 @@
 -- 邮箱验证与邮件订阅（与 qxwkaccount 同款能力）
--- wrangler d1 execute class-assistant-db --remote --file=./migrations/2026-09-19-email.sql
+-- wrangler d1 execute class-assistant-db --remote --file=./db/migrations/2026-09-19-email.sql
 -- 或 npm run db:migrate:email
 --
 -- 三块：

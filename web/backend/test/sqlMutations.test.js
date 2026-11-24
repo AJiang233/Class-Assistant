@@ -10,7 +10,7 @@ const mutations = [
   ['受众比较失效', 'backend/src/utils/recipients.js', 'CAST(value AS TEXT) = ?', 'CAST(value AS TEXT) != ?'],
   ['旧消费者错误确认', 'backend/src/services/outbox.js', "lease_token=? AND state='sending'", "lease_token IS NOT NULL AND ? IS NOT NULL AND state='sending'"],
   ['游标重复读取', 'backend/src/handlers/syncHandler.js', 'WHERE seq>? AND seq<=?', 'WHERE seq>=? AND seq<=?'],
-  ['缺失级联删除', 'schema.sql', 'REFERENCES forms(id) ON DELETE CASCADE', 'REFERENCES forms(id) ON DELETE RESTRICT']
+  ['缺失级联删除', 'db/schema.sql', 'REFERENCES forms(id) ON DELETE CASCADE', 'REFERENCES forms(id) ON DELETE RESTRICT']
 ];
 
 it('关键 SQL 变异均被真实数据库回归断言捕获', () => {
@@ -18,10 +18,10 @@ it('关键 SQL 变异均被真实数据库回归断言捕获', () => {
   mkdirSync(base, { recursive: true });
   const dir = mkdtempSync(join(base, 'run-'));
   try {
-    for (const name of ['backend/src', 'backend/test/helpers', 'migrations-v2']) {
+    for (const name of ['backend/src', 'backend/test/helpers', 'db/migrations-v2']) {
       cpSync(join(root, 'web', name), join(dir, name), { recursive: true });
     }
-    for (const name of ['schema.sql', 'package.json', 'backend/test/architecture.test.js']) {
+    for (const name of ['db/schema.sql', 'package.json', 'backend/test/architecture.test.js']) {
       cpSync(join(root, 'web', name), join(dir, name));
     }
     for (const [label, path, before, after] of mutations) {

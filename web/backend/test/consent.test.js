@@ -21,9 +21,9 @@ const INTERNAL_TOKEN = 'test-internal-token';
 const STUDENT_ID = '2022103071';
 const PASSWORD = 'pw123456';
 
-const baseline = readFileSync(new URL('../../migrations-v2/0001_baseline.sql', import.meta.url), 'utf8');
-const lifecycle = readFileSync(new URL('../../migrations-v2/0002_lifecycle.sql', import.meta.url), 'utf8');
-const consentUpgrade = readFileSync(new URL('../../migrations-v2/0003_consent.sql', import.meta.url), 'utf8');
+const baseline = readFileSync(new URL('../../db/migrations-v2/0001_baseline.sql', import.meta.url), 'utf8');
+const lifecycle = readFileSync(new URL('../../db/migrations-v2/0002_lifecycle.sql', import.meta.url), 'utf8');
+const consentUpgrade = readFileSync(new URL('../../db/migrations-v2/0003_consent.sql', import.meta.url), 'utf8');
 
 function count(db, table) {
   return db.sqlite.prepare(`SELECT count(*) AS n FROM ${table}`).get().n;

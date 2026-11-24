@@ -1,5 +1,5 @@
 -- 删除本库里教务那几张旧表（随「教务访问代码拆到私有 Worker」后的收尾）
--- wrangler d1 execute class-assistant-db --remote --file=./migrations/2026-09-19-drop-academic-tables.sql
+-- wrangler d1 execute class-assistant-db --remote --file=./db/migrations/2026-09-19-drop-academic-tables.sql
 -- 或 npm run db:migrate:drop-academic
 --
 -- 这几张表随教务实现一起搬到了私有 Worker 的库 class-assistant-private-api

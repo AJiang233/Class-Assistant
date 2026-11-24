@@ -6,7 +6,7 @@
  *   - JSON 字符串数组，如 '["班长","学习委员"]'
  *   - **没有职务的人一律存 '学生'（STUDENT_ROLE），只有这一种写法**：
  *     注册与编辑成员两条写入路径都过 positionsToStore，空数组 / 空串 / '[]' / NULL
- *     在入库前就归一成它。历史库里三种写法都出现过，靠 migrations/2026-09-17-student-role.sql
+ *     在入库前就归一成它。历史库里三种写法都出现过，靠 db/migrations/2026-09-17-student-role.sql
  *     刷平；parsePositions 仍然容忍旧写法，因为线上库先于代码存在。
  *     '学生' 不在 ROLE_PERMISSIONS 里，也永远不允许进 roles 表（见 RESERVED_ROLES），
  *     所以这个值本身不带任何权限 —— 它的作用是当职务徽章的兜底文案，

@@ -6,7 +6,7 @@ export function createSqliteDb(t, schema = true) {
   const sqlite = new DatabaseSync(':memory:');
   t.after(() => sqlite.close());
   sqlite.exec('PRAGMA foreign_keys=ON');
-  if (schema) sqlite.exec(readFileSync(new URL('../../../schema.sql', import.meta.url), 'utf8'));
+  if (schema) sqlite.exec(readFileSync(new URL('../../../db/schema.sql', import.meta.url), 'utf8'));
   const db = {
     sqlite,
     prepare(sql) {

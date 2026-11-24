@@ -3,7 +3,7 @@ import { formatLocalDateTime } from '../utils/datetime.js';
 /**
  * 待办数据模型（issue #99）
  *
- * 表结构见 schema.sql / migrations-v2/0007_todos.sql：
+ * 表结构见 db/schema.sql / db/migrations-v2/0007_todos.sql：
  *   todos         个人待办（owner_id 是「谁的待办」，created_by 是「谁加的」）
  *   content_todos 通知/活动随发布附带的待办模板
  *   todo_prefs    每人的红/黄阈值

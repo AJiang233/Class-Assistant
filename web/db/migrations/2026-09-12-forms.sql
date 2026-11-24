@@ -1,5 +1,5 @@
 -- 已有 D1 执行一次即可。新库直接跑 schema.sql，不必跑本文件。
--- wrangler d1 execute class-assistant-db --remote --file=./migrations/2026-09-12-forms.sql
+-- wrangler d1 execute class-assistant-db --remote --file=./db/migrations/2026-09-12-forms.sql
 --
 -- 1) 表单功能两张表（forms / form_submissions）
 -- 2) 通知加 link 列：表单下发通知时指向填写页

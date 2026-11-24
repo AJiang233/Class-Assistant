@@ -16,14 +16,14 @@ import { expandEvent, claimDeliveries, completeDelivery, deliver } from '../src/
 
 const me = { id: 1, name: '同名', student_id: '001', positions: '学生' };
 const fields = '[{"key":"note","label":"备注","type":"text"}]';
-const baseline = readFileSync(new URL('../../migrations-v2/0001_baseline.sql', import.meta.url), 'utf8');
-const upgrade = readFileSync(new URL('../../migrations-v2/0002_lifecycle.sql', import.meta.url), 'utf8');
-const consentUpgrade = readFileSync(new URL('../../migrations-v2/0003_consent.sql', import.meta.url), 'utf8');
-const loginAttemptsUpgrade = readFileSync(new URL('../../migrations-v2/0004_login_attempts.sql', import.meta.url), 'utf8');
-const auditLogsUpgrade = readFileSync(new URL('../../migrations-v2/0005_audit_logs.sql', import.meta.url), 'utf8');
-const appSettingsUpgrade = readFileSync(new URL('../../migrations-v2/0006_app_settings.sql', import.meta.url), 'utf8');
-const todosUpgrade = readFileSync(new URL('../../migrations-v2/0007_todos.sql', import.meta.url), 'utf8');
-const todoChaoxingUpgrade = readFileSync(new URL('../../migrations-v2/0008_todo_chaoxing.sql', import.meta.url), 'utf8');
+const baseline = readFileSync(new URL('../../db/migrations-v2/0001_baseline.sql', import.meta.url), 'utf8');
+const upgrade = readFileSync(new URL('../../db/migrations-v2/0002_lifecycle.sql', import.meta.url), 'utf8');
+const consentUpgrade = readFileSync(new URL('../../db/migrations-v2/0003_consent.sql', import.meta.url), 'utf8');
+const loginAttemptsUpgrade = readFileSync(new URL('../../db/migrations-v2/0004_login_attempts.sql', import.meta.url), 'utf8');
+const auditLogsUpgrade = readFileSync(new URL('../../db/migrations-v2/0005_audit_logs.sql', import.meta.url), 'utf8');
+const appSettingsUpgrade = readFileSync(new URL('../../db/migrations-v2/0006_app_settings.sql', import.meta.url), 'utf8');
+const todosUpgrade = readFileSync(new URL('../../db/migrations-v2/0007_todos.sql', import.meta.url), 'utf8');
+const todoChaoxingUpgrade = readFileSync(new URL('../../db/migrations-v2/0008_todo_chaoxing.sql', import.meta.url), 'utf8');
 const formData = { title: '填写报名', description: '', fields, edit_policy: 'always', anonymous: 0,
   deadline: null, creator_id: 2, creator_name: '发布人', remind_people: '[1]' };
 const noticeData = { title: '通知', content: '内容', publish_time: '2026-09-30 08:00:00',
