@@ -221,26 +221,28 @@
         <!-- 移动端底部导航（小屏显示，替代侧边栏） -->
         <nav class="bottom-nav" id="bottomNav">
             <span class="bottom-nav-pill" id="bottomNavPill" aria-hidden="true"></span>
-            <button type="button" class="bottom-nav-item active" data-nav="home" data-view="home">
+            <!-- 导航项写成真链接：脚本万一没绑上（缓存半旧、某个顶层语句抛错），点一下也能整页跳到目标视图，
+                 不至于卡在某一页。href 与 data-view 必须一致，脚本拦截后就改成无刷新切换。 -->
+            <a class="bottom-nav-item active" data-nav="home" data-view="home" href="?view=home">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
                 <span>我的主页</span>
-            </button>
-            <button type="button" class="bottom-nav-item" data-nav="affairs" data-view="affairs">
+            </a>
+            <a class="bottom-nav-item" data-nav="affairs" data-view="affairs" href="?view=affairs">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>
                 <span>班级事务</span>
-            </button>
-            <button type="button" class="bottom-nav-item" data-nav="todos" data-view="todos">
+            </a>
+            <a class="bottom-nav-item" data-nav="todos" data-view="todos" href="?view=todos">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
                 <span>我的待办</span>
-            </button>
-            <button type="button" class="bottom-nav-item" data-nav="academic" data-view="academic">
+            </a>
+            <a class="bottom-nav-item" data-nav="academic" data-view="academic" href="?view=academic">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/></svg>
                 <span>学业</span>
-            </button>
-            <button type="button" class="bottom-nav-item" data-nav="account" data-view="account">
+            </a>
+            <a class="bottom-nav-item" data-nav="account" data-view="account" href="?view=account">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
                 <span>个人中心</span>
-            </button>
+            </a>
         </nav>
     </div>
 

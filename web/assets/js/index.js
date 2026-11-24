@@ -12,6 +12,27 @@ var FRAME_KEYS = { academic: 'frameAcademic', activities: 'frameActivities', not
 // 会写它，若声明留在初始化之后，那句 `var currentView = 'home'` 会把深链视图重置成主页。
 var currentView = 'home';
 
+// ===== 视图入口（侧栏 + 底栏）统一在这里捕获 =====
+// 必须**最早期**注册，而且走捕获阶段：index.js 后半段还有几十个顶层绑定，只要前面有一条
+// 语句抛错（缓存里 HTML/JS 半新半旧、依赖脚本没加载上等），后面的绑定就全都不会执行。
+// 历史上出现过「从桌面小组件深链进来后停在学业页、底栏怎么点都没反应」——学业页能显示，
+// 说明初始化已经跑过一段，偏偏后注册的点击委托没绑上。把切视图这条主链路提前到文件最前面，
+// 后面无论哪一步失败都不再影响导航；底栏锚点的 href 还留了一层整页跳转兜底。
+document.addEventListener('click', function (e) {
+    var t = e.target;
+    var el = t && t.nodeType === 1 && t.closest ? t.closest('[data-view]') : null;
+    if (!el) return;
+    // 组合键 / 非左键：交给浏览器默认行为（新标签页打开等），不拦
+    if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    try {
+        switchView(el.getAttribute('data-view'));
+    } catch (err) {
+        // 切换失败就别拦默认行为：锚点会整页跳到 ?view=xxx，用户仍然到得了目标页
+        return;
+    }
+    e.preventDefault();
+}, true);
+
 // 班级事务（issue #95）：通知与活动在导航上合并为一项，但实际仍是两个子页。
 // 记住上次看的是哪一块，点「班级事务」时落回同一块，而不是每次都被拽回通知。
 // 用 sessionStorage：同一个标签页里有效，关掉 App 重进从头开始，符合「上次看到哪」的语义。
@@ -232,6 +253,8 @@ function switchView(key, slideDir) {
     }
     for (var fk in FRAME_KEYS) {
         var f = document.getElementById(FRAME_KEYS[fk]);
+        // 缓存里 HTML 与 JS 半新半旧时可能缺某个 iframe：跳过它，别让一处 null 把整个切换打断
+        if (!f) continue;
         var show = !isHome && !isLogin && fk === key;
         f.hidden = !show;
         if (show) loadFrame(fk);
@@ -1042,7 +1065,8 @@ async function ensureConsentCurrent() {
 // ===== 事件绑定 =====
 // CSP 的 script-src 只放行 'self'，页面里不能再写内联 onclick：
 // 带参数的（视图名、日期、条目 id）统一用 data-* 标记 + 委托，无参数的按 id 直接绑。
-delegate(document, 'click', '[data-view]', function (el) { switchView(el.getAttribute('data-view')); });
+// [data-view] 的点击在文件顶部就用捕获阶段绑过了（那里最先执行，任何后续初始化失败都不影响导航），
+// 这里不能再绑一次：捕获 + 冒泡各切一次会让历史里压两条记录，安卓返回键要按两下才退得回去。
 delegate(document, 'click', '[data-date]', function (el) { selectDate(el.getAttribute('data-date')); });
 delegate(document, 'click', '[data-act="cal-today"]', function () { calToday(); });
 delegate(document, 'click', '[data-act="cal-prev"]', function () { calPrev(); });
