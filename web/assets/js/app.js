@@ -1132,7 +1132,9 @@ if ('serviceWorker' in navigator) {
   window.addEventListener('load', function () {
     // updateViaCache: 'none' —— 连 sw.js 脚本本身也不走 HTTP 缓存。
     // 本域名的 CDN 会把 sw.js 的 Cache-Control 改写成 4 小时，不显式声明的话更新会被拖住。
-    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).catch(function (e) {
+    // 必须用站点绝对路径：这一份脚本也会被 /account/ 这类子页加载，相对的 'sw.js' 会解析成
+    // /account/sw.js（页面上没有这个文件，拿回来的是兜底 HTML，注册静默失败）。
+    navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' }).catch(function (e) {
       console.warn('Service Worker 注册失败：', e);
     });
   });
