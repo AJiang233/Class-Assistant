@@ -415,7 +415,7 @@
                         </div>
                     </div>
 
-                    <!-- 功能开关（issue #106）：教务 / 学习通访问的紧急停用。
+                    <!-- 功能开关（issue #106）：教务 / 学习通 / 中国大学MOOC 访问的紧急停用。
                          停用后在门户转发前就拦下，不调用私有 Worker；恢复同样即时生效。 -->
                     <div class="profile-card collapse" id="featureCard" hidden>
                         <button type="button" class="collapse-head" data-act="toggle-collapse" data-arg="featureCard" aria-expanded="false">
@@ -431,6 +431,10 @@
                             <label class="check-row">
                                 <input type="checkbox" id="featureChaoxing" disabled>
                                 <span>学习通访问（课程 / 作业 / 考试）</span>
+                            </label>
+                            <label class="check-row">
+                                <input type="checkbox" id="featureMooc" disabled>
+                                <span>中国大学MOOC访问（课程 / 任务点 / 截止时间）</span>
                             </label>
                             <button type="button" class="btn btn-primary btn-block" data-act="save-features">保存开关</button>
                             <div class="member-sub" id="featureHint"></div>

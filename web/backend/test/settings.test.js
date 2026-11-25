@@ -165,6 +165,24 @@ describe('全局功能开关（issue #106-A）', () => {
     assert.equal(await new SettingModel(db).isEnabled('chaoxing'), false);
   });
 
+  it('中国大学MOOC 开关可保存并立即生效（管理页第三个开关）', async (t) => {
+    const db = createSqliteDb(t);
+    await seedUser(db, { positions: '班长' });
+
+    const read = await settingsOf(db, 'GET');
+    const readBody = await read.res.json();
+    assert.equal(readBody.data.mooc, true, '缺省按开启');
+    assert.equal(readBody.data.mooc_available, true, '门户已接 MOOC 转发层，管理页应启用开关');
+
+    const write = await settingsOf(db, 'PUT', { mooc: false });
+    assert.equal(write.res.status, 200);
+    const writeBody = await write.res.json();
+    assert.equal(writeBody.data.settings.mooc, false);
+    assert.equal(await new SettingModel(db).isEnabled('mooc'), false);
+    const row = db.sqlite.prepare("SELECT value FROM app_settings WHERE key='mooc_enabled'").get();
+    assert.equal(row.value, '0');
+  });
+
   it('非法开关值一律 400，不会把字符串 "false" 当成关闭', async (t) => {
     const db = createSqliteDb(t);
     await seedUser(db, { positions: '班长' });

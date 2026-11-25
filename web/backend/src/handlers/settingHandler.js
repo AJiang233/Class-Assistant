@@ -27,7 +27,7 @@ export async function handleGetSettings(request, env, user) {
 /**
  * 修改全局功能开关（需 user:manage 权限）。
  *
- * body: { academic?: boolean, chaoxing?: boolean }，至少给一个。
+ * body: { academic?: boolean, chaoxing?: boolean, mooc?: boolean }，至少给一个。
  * 只接受真正的布尔值：把 "false" 这种字符串当成 false 会让前端一次拼错就把功能关掉，
  * 而管理员以为自己只是没改。
  */

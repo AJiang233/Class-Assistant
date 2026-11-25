@@ -882,9 +882,9 @@ async function loadAuditLogs(reset) {
 }
 
 // ===== 功能开关（issue #106） =====
-// 开关状态存在后端 app_settings；门户已经接上 /api/chaoxing/* 转发层，所以学习通开关
-// 与教务开关一样可操作（chaoxing_available 只作为旧环境的兜底灰态）。读取失败只提示、
-// 不清空两个勾选框：清空会让人误以为开关被关掉了。
+// 开关状态存在后端 app_settings；门户已经接上 /api/chaoxing/* 与 /api/mooc/* 转发层，
+// 所以学习通、中国大学MOOC 开关与教务开关一样可操作（*_available 只作为旧环境的兜底灰态）。
+// 读取失败只提示、不清空三个勾选框：清空会让人误以为开关被关掉了。
 async function loadFeatureSettings() {
     var hint = document.getElementById('featureHint');
     try {
@@ -894,6 +894,9 @@ async function loadFeatureSettings() {
         var chaoxing = document.getElementById('featureChaoxing');
         chaoxing.checked = data.chaoxing !== false;
         chaoxing.disabled = data.chaoxing_available === false;
+        var mooc = document.getElementById('featureMooc');
+        mooc.checked = data.mooc !== false;
+        mooc.disabled = data.mooc_available === false;
         if (hint) hint.textContent = '';
     } catch (e) {
         if (hint) hint.textContent = '读取开关失败：' + e.message;
@@ -908,13 +911,15 @@ async function saveFeatureSettings(el) {
             method: 'PUT',
             body: JSON.stringify({
                 academic: document.getElementById('featureAcademic').checked,
-                chaoxing: document.getElementById('featureChaoxing').checked
+                chaoxing: document.getElementById('featureChaoxing').checked,
+                mooc: document.getElementById('featureMooc').checked
             })
         });
         var saved = (res.data && res.data.settings) || {};
         if (hint) {
             hint.textContent = '已保存：教务' + (saved.academic !== false ? '开启' : '停用')
-                + '，学习通' + (saved.chaoxing !== false ? '开启' : '停用');
+                + '，学习通' + (saved.chaoxing !== false ? '开启' : '停用')
+                + '，中国大学MOOC' + (saved.mooc !== false ? '开启' : '停用');
         }
     } catch (e) {
         if (hint) hint.textContent = '保存失败：' + e.message;
