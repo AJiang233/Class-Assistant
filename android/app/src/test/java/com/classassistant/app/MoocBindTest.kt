@@ -1,6 +1,7 @@
 package com.classassistant.app
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -74,7 +75,7 @@ class MoocBindTest {
     }
 
     @Test
-    fun `Cookie 判据是 NTESSTUDYSI，汇总 www 优先并丢掉主机级会话`() {
+    fun `Cookie 判据同时要 NTESSTUDYSI 与 STUDY_INFO，汇总 www 优先并丢掉主机级会话`() {
         assertTrue(
             "没从 MoocCookieJar 汇总 Cookie：只读 www 会丢掉 reg 下发的登录临时凭据",
             mooc.contains("MoocCookieJar.merge(MoocCookieJar.ORIGINS.map")
@@ -82,6 +83,10 @@ class MoocBindTest {
         assertTrue(
             "没检查 NTESSTUDYSI：它是所有 /web/j/*.rpc 的 csrfKey，没有它服务端一个请求都发不出去",
             cookieJar.contains("NTESSTUDYSI=") && mooc.contains("MoocCookieJar.hasLogin")
+        )
+        assertTrue(
+            "登录判据没要求 STUDY_INFO：访客也拿得到 NTESSTUDYSI，小窗一打开就会误判成功",
+            cookieJar.contains("STUDY_INFO") && cookieJar.contains("fun hasLogin")
         )
         // 三个来源都要在，且 www 必须排第一（csrfKey 取的是 www 那份）
         assertTrue(
@@ -105,18 +110,34 @@ class MoocBindTest {
 
     @Test
     fun `登录页上的旧 Cookie 不会触发自动完成`() {
-        assertTrue("没有 isMoocLoginPage：登录页会被当成已登录", main.contains("isMoocLoginPage"))
         assertTrue(
-            "登录页判定没覆盖 /member/login 与 reg 子域",
-            main.contains("/member/login") && main.contains("reg.")
+            "没记下打开小窗时的身份基线：罐里遗留的旧会话会被当成这次登录并自动绑定",
+            mooc.contains("initialIdentityKey")
         )
         assertTrue(
-            "没记下打开小窗时的 Cookie 基线：罐里遗留的旧 NTESSTUDYSI 会让小窗一开就自动关",
-            mooc.contains("initialCookie") && mooc.contains("cookie == moocState.initialCookie")
+            "身份基线不是从 MoocCookieJar.identityOf 取的（NTESSTUDYSI 访客也有，不能当身份）",
+            mooc.contains("MoocCookieJar.identityOf(moocCookie())?.key")
         )
         assertTrue(
-            "检测到登录前没排除登录页",
-            mooc.contains("isMoocLoginPage(moocState.webView.url)")
+            "refreshMoocLoginState 没先解析 Identity",
+            mooc.contains("val identity = MoocCookieJar.identityOf(cookie) ?: return")
+        )
+        assertTrue(
+            "旧会话没有「只提示、不自动完成」的分支",
+            mooc.contains("identity.key == moocState.initialIdentityKey") &&
+                mooc.contains("alreadySignedInHinted")
+        )
+        assertTrue(
+            "旧会话提示里没告诉用户当前账号 / 怎么换号：用户无法判断是不是自己的账号",
+            mooc.contains("当前已登录：") && mooc.contains("退出登录")
+        )
+        assertFalse(
+            "isMoocLoginPage 应随新判据删除：匿名登录页没有 STUDY_INFO，不再需要按 URL 排除（留着是死代码）",
+            main.contains("isMoocLoginPage")
+        )
+        assertTrue(
+            "登录判据退回了只认 NTESSTUDYSI：访客 Cookie 会再次触发 1.4.5 的误判",
+            cookieJar.contains("STUDY_INFO") && cookieJar.contains("identityOf")
         )
     }
 

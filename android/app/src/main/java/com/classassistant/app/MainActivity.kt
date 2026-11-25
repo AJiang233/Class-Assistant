@@ -167,7 +167,7 @@ class MainActivity : AppCompatActivity() {
      * 中国大学MOOC 登录小窗的状态。
      *
      * 与 [ChaoxingLoginState] 同一套「只回调一次」的约定（[delivered] 覆盖成功与取消），
-     * 多两样东西：打开时的 Cookie 基线（区分旧会话与本次登录）和登录态轮询定时器
+     * 多两样东西：打开时的账号基线（区分旧会话与本次登录）和登录态轮询定时器
      * （icourse163 的登录表单在跨域 iframe 里，主框架不一定有 onPageFinished）。
      */
     private class MoocLoginState(
@@ -176,7 +176,7 @@ class MainActivity : AppCompatActivity() {
         val doneButton: Button,
         val hint: TextView
     ) {
-        /** 是否已检测到 icourse163 登录（Cookie 里出现 NTESSTUDYSI） */
+        /** 是否已检测到本次 icourse163 登录（Cookie 同时有 NTESSTUDYSI 与 STUDY_INFO） */
         var signedIn = false
 
         /** 是否已经给页面回调过（成功 / 取消都算），防止重复回调 */
@@ -185,8 +185,11 @@ class MainActivity : AppCompatActivity() {
         /** 检测到登录后 1.5s 自动完成的延时任务；弹窗关掉后即便醒来也会被身份校验挡掉 */
         var autoFinish: Runnable? = null
 
-        /** 打开小窗那一刻的 Cookie（可能为 null），用来识别「罐里遗留的旧会话」 */
-        var initialCookie: String? = null
+        /** 打开小窗那一刻已登录账号的身份标识（[MoocCookieJar.Identity.key]）；本来没登录就是空串 */
+        var initialIdentityKey: String = ""
+
+        /** 是否已经提示过「打开时就已经登录着」；只提示一次，避免每次轮询都重设文案 */
+        var alreadySignedInHinted = false
 
         /** 轮询登录态的定时器；dismiss 时统一 removeCallbacksAndMessages 清掉 */
         val handler = Handler(Looper.getMainLooper())
@@ -1370,8 +1373,9 @@ class MainActivity : AppCompatActivity() {
      * 服务端（Cloudflare Worker 的数据中心 IP）过不去这几道门，所以这里只提供一个真浏览器
      * 环境，登录动作完全交给人 —— 和学习通小窗同形，但原生不代填任何字段。
      *
-     * 登录成功的判据见 [refreshMoocLoginState]：Cookie 罐里出现 NTESSTUDYSI，且与打开小窗
-     * 那一刻的旧 Cookie 不同（或在登录页之外的页面上检测到）。
+     * 登录成功的判据见 [refreshMoocLoginState]：Cookie 罐里**同时**有 NTESSTUDYSI 与 STUDY_INFO
+     * （访客也会拿到 NTESSTUDYSI，只看它会在登录页刚加载时就误判），且账号与打开小窗那一刻
+     * 不同 —— 打开时就已经登录着的旧会话只提示账号、不自动绑定。
      */
     @SuppressLint("SetJavaScriptEnabled")
     private fun showMoocLogin() {
@@ -1392,9 +1396,9 @@ class MainActivity : AppCompatActivity() {
         dialog.setCanceledOnTouchOutside(false)
 
         val moocState = MoocLoginState(dialog, webView, doneButton, hint)
-        // 打开这一刻的 Cookie 就是「登录前」的基线：罐里可能留着上一次（甚至已失效）的
-        // NTESSTUDYSI，不记下来就没法区分「旧会话」和「这次刚登进去」。
-        moocState.initialCookie = moocCookie()
+        // 打开这一刻已登录的账号就是「登录前」的基线：罐里可能留着上一次（甚至已失效）的登录，
+        // 不记下来就没法区分「旧会话」和「这次刚登进去」。访客会话来时这里是空串。
+        moocState.initialIdentityKey = MoocCookieJar.identityOf(moocCookie())?.key ?: ""
         moocLogin = moocState
 
         webView.settings.apply {
@@ -1489,29 +1493,46 @@ class MainActivity : AppCompatActivity() {
     /**
      * 检测是否已经登录 icourse163。
      *
-     * 判据是 Cookie（不是 URL）：登录成功后 NTESSTUDYSI 一定落到 Cookie 罐里，而顶层页面
-     * 可能由脚本改写、未必发一次导航。两个来源会让「登录」和「旧会话」混淆，这里都挡掉：
+     * 判据是 Cookie（不是 URL）：登录成功后 NTESSTUDYSI 与 STUDY_INFO 都会落进 Cookie 罐，
+     * 而顶层页面可能由脚本改写、未必发一次导航。几个坑都挡在这里：
      *
-     * 1. 还在登录页上（www/member/login.htm 或 reg.icourse163.org）时，只有 Cookie 与打开
-     *    小窗时的基线不同才算登录成功 —— 否则罐里那份旧凭据会让小窗一打开就自动关；
-     * 2. 已经离开登录页（跳回 www 首页或课程页），Cookie 有 NTESSTUDYSI 就算登录成功。
+     * 1. 访客也会拿到 NTESSTUDYSI（登录页一打开就有），所以还要求 STUDY_INFO ——
+     *    只看 NTESSTUDYSI 会在「刚打开、什么都没做」时误判成功（1.4.5 线上事故）；
+     * 2. 罐里可能留着上一次（甚至已失效）的登录：账号与打开小窗时的基线相同时，只提示
+     *    「当前已登录：X」并启用按钮，**不自动完成** —— 否则用户什么都没做就会绑上一个
+     *    不是自己的账号；
+     * 3. 用户退出后重新登录同一账号时身份会回到基线值，此时同样只提示、不自动完成，
+     *    点「完成绑定」即可（比误绑他人账号安全得多）。
      *
-     * 检测到就启用按钮并等 [MOOC_AUTO_FINISH_MS] 自动完成（与教务 / 学习通一致）。
+     * 检测到**本次**登录就启用按钮并等 [MOOC_AUTO_FINISH_MS] 自动完成（与教务 / 学习通一致）。
      */
     private fun refreshMoocLoginState(moocState: MoocLoginState) {
         if (moocLogin !== moocState || moocState.delivered || moocState.signedIn) return
         val cookie = moocCookie() ?: return
-        val onLoginPage = isMoocLoginPage(moocState.webView.url)
-        if (onLoginPage && cookie == moocState.initialCookie) return
-        markMoocSignedIn(moocState)
+        val identity = MoocCookieJar.identityOf(cookie) ?: return
+        if (identity.key == moocState.initialIdentityKey) {
+            // 打开小窗时就登录着的旧会话：不自动绑定，只把账号告诉用户
+            if (!moocState.alreadySignedInHinted) {
+                moocState.alreadySignedInHinted = true
+                moocState.doneButton.isEnabled = true
+                moocState.hint.text =
+                    "当前已登录：${identity.displayName}。若是你的账号，可直接点「完成绑定」；要换账号请先在页面里退出登录。"
+            }
+            return
+        }
+        markMoocSignedIn(moocState, identity.displayName)
     }
 
     /** 登录态已就绪：启用按钮并延后自动完成。 */
-    private fun markMoocSignedIn(moocState: MoocLoginState) {
+    private fun markMoocSignedIn(moocState: MoocLoginState, account: String) {
         if (moocLogin !== moocState || moocState.delivered || moocState.signedIn) return
         moocState.signedIn = true
         moocState.doneButton.isEnabled = true
-        moocState.hint.text = "已检测到中国大学MOOC 登录，正在返回…"
+        moocState.hint.text = if (account.isEmpty()) {
+            "已检测到中国大学MOOC 登录，正在返回…"
+        } else {
+            "已检测到登录：$account，正在返回…"
+        }
         val auto = Runnable { completeMoocLogin(moocState) }
         moocState.autoFinish = auto
         moocState.dialog.window?.decorView?.postDelayed(auto, MOOC_AUTO_FINISH_MS)
@@ -1549,29 +1570,18 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * 汇总 icourse163 登录 Cookie；只有出现 `NTESSTUDYSI` 才算已登录，否则返回 null。
+     * 汇总 icourse163 登录 Cookie；只有**同时**有 `NTESSTUDYSI` 与可解析的 `STUDY_INFO`
+     * 才算已登录，否则返回 null。
      *
-     * NTESSTUDYSI 是所有 `/web/j/` 下 `*.rpc` 的 csrfKey（服务端 moocApi.js 的 csrfKeyOf 直接取它，
-     * 没有就抛 MoocSessionExpired），所以它是「能不能读数据」的唯一硬门槛；STUDY_INFO 只影响
-     * 展示的账号名，缺了不影响绑定。合并规则见 [MoocCookieJar]。
+     * 访客也会拿到 NTESSTUDYSI（打开登录页就下发），只看它会把「什么都没做」当成登录成功；
+     * STUDY_INFO 才能证明这是某个人登录后的会话。NTESSTUDYSI 是所有 `/web/j/` 下 `*.rpc`
+     * 的 csrfKey（服务端 moocApi.js 的 csrfKeyOf 直接取它），能不能读数据还要服务端再验一次
+     * （见 moocHandler 的 inspectCookies）。合并规则见 [MoocCookieJar]。
      */
     private fun moocCookie(): String? {
         val manager = CookieManager.getInstance()
         val cookie = MoocCookieJar.merge(MoocCookieJar.ORIGINS.map { manager.getCookie(it) })
         return if (MoocCookieJar.hasLogin(cookie)) cookie else null
-    }
-
-    /**
-     * 是不是 icourse163 的登录入口页：`/member/login.htm`，以及登录表单所在的
-     * reg.icourse163.org。登录页本身绝不算登录成功（否则罐里的旧 Cookie 会让小窗一开就关）。
-     */
-    private fun isMoocLoginPage(url: String?): Boolean {
-        if (url.isNullOrBlank()) return true
-        val uri = Uri.parse(url)
-        val host = uri.host?.lowercase()
-        if (host == "reg.$MOOC_HOST") return true
-        val path = uri.path ?: return false
-        return path.startsWith("/member/login")
     }
 
     /**
@@ -1700,9 +1710,6 @@ class MainActivity : AppCompatActivity() {
          * 登录完成后页面自己跳回 www 首页 —— 用户看到的是熟悉的那个登录界面。
          */
         const val MOOC_LOGIN_URL = "https://www.icourse163.org/member/login.htm"
-
-        /** icourse163 主域（www / reg / m 都是它的子域），用于判断登录页与 Cookie 归属 */
-        const val MOOC_HOST = "icourse163.org"
 
         /** 轮询登录态间隔：iframe 里的登录不触发主框架回调，用轮询兜底 */
         const val MOOC_POLL_MS = 1200L

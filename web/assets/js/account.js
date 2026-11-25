@@ -1680,21 +1680,26 @@ function renderMoocBinding(data) {
     if (data && data.bound === true) {
         var paused = !!data.paused;
         var expired = data.status === 'expired';
-        var name = data.realName || '中国大学MOOC账号';
+        // 账号与成员 ID 都空：只可能是把未登录的访客会话存了下来（1.4.5 的坑）。
+        // 按「需要重新登录」渲染，不能显示成正常已绑定 —— 否则用户以为有数据、实际一门课都读不到。
+        var missingIdentity = !data.account && !data.memberId;
+        var needLogin = expired || missingIdentity;
+        var name = data.realName || (missingIdentity ? '未知账号' : '中国大学MOOC账号');
         var count = Number(data.courseCount) || 0;
-        bindBadge('moocBindBadge', paused ? '已暂停' : (expired ? '已过期' : '已绑定'),
-            (paused || expired) ? 'muted' : 'ok');
+        bindBadge('moocBindBadge', paused ? '已暂停' : (needLogin ? '需要重新登录' : '已绑定'),
+            (paused || needLogin) ? 'muted' : 'ok');
         body.innerHTML = ''
             + '<div class="bind-identity">'
             + '<span class="bind-avatar" aria-hidden="true">' + esc(name.charAt(0)) + '</span>'
             + '<div class="bind-identity-main"><p class="bind-name">' + esc(name) + '</p>'
             + '<p class="bind-id">' + (data.account
                 ? '账号 ' + esc(data.account)
-                : (data.memberId ? 'ID ' + esc(data.memberId) : '已绑定中国大学MOOC')) + '</p></div>'
+                : (data.memberId ? 'ID ' + esc(data.memberId) : '没有账号信息')) + '</p></div>'
             + '</div>'
             + '<div class="info-list bind-meta">'
             + '<div class="info-row"><span class="k">状态</span><span class="v">'
-            + (paused ? '已暂停自动同步' : (expired ? '登录态已过期' : '正常')) + '</span></div>'
+            + (paused ? '已暂停自动同步'
+                : (missingIdentity ? '绑定信息不完整' : (expired ? '登录态已过期' : '正常'))) + '</span></div>'
             + '<div class="info-row"><span class="k">课程数</span><span class="v">' + count + ' 门</span></div>'
             + '<div class="info-row"><span class="k">绑定时间</span><span class="v">' + esc(fmtBindTime(data.boundAt)) + '</span></div>'
             + '<div class="info-row"><span class="k">最近校验</span><span class="v">' + esc(fmtBindTime(data.checkedAt)) + '</span></div>'
@@ -1702,13 +1707,17 @@ function renderMoocBinding(data) {
             + (paused ? '<p class="bind-warn">MOOC 登录态连续失效，已自动暂停同步'
                 + (data.paused_until ? '到 ' + esc(fmtBindTime(data.paused_until)) : '')
                 + '，重新登录后可恢复。</p>' : '')
-            + (expired && !paused ? '<p class="bind-warn">MOOC 登录态已过期，需要'
-                + (native ? '在 App 内重新登录' : '重新登录 www.icourse163.org 并粘贴新的 Cookie')
-                + '。</p>' : '')
+            + (needLogin && !paused ? '<p class="bind-warn">'
+                + (missingIdentity
+                    ? '绑定记录里没有账号信息，可能把未登录的访客会话误存了，请重新登录后再绑定。'
+                    : 'MOOC 登录态已过期，需要'
+                        + (native ? '在 App 内重新登录' : '重新登录 www.icourse163.org 并粘贴新的 Cookie')
+                        + '。')
+                + '</p>' : '')
             + '<div class="bind-actions">'
             + (native ? '<button class="btn btn-primary" type="button" data-act="begin-mooc-bind" data-arg="app">App 重新登录</button>' : '')
             + '<button class="btn ' + (native ? 'btn-outline' : 'btn-primary') + '" type="button" data-act="begin-mooc-bind" data-arg="cookie">'
-            + (expired ? '重新粘贴 Cookie' : '换 Cookie') + '</button>'
+            + (needLogin ? '重新粘贴 Cookie' : '换 Cookie') + '</button>'
             + '<button class="btn btn-danger" type="button" data-act="mooc-unbind">解绑</button>'
             + '</div>';
         return;
@@ -2333,10 +2342,13 @@ async function bindMoocWithCookies(cookies) {
         + '<div class="form-error" id="bindModalError"></div>'
         + '<p class="bind-hint">正在验证中国大学MOOC登录态，并读取课程列表…</p>');
     try {
-        await api('/api/mooc/bind', { method: 'POST', body: JSON.stringify({ cookies: cookies }) });
+        var res = await api('/api/mooc/bind', { method: 'POST', body: JSON.stringify({ cookies: cookies }) });
+        var bound = (res && res.data) || {};
         closeBindModal();
         await loadMoocBinding();
-        bindFlash('中国大学MOOC绑定成功');
+        // 把服务端读出来的账号带进提示：App 内登录时用户可能没看清小窗里提示的是哪个账号，
+        // 绑定成功后至少能在页面上确认一次（1.4.5 的教训是绑错号用户完全无感）。
+        bindFlash('中国大学MOOC绑定成功' + (bound.account ? '：' + bound.account : ''));
     } catch (err) {
         if (err && err.code === 'MOOC_CONSENT_REQUIRED') { openMoocConsentPrompt(err && err.message); return; }
         var native = bindNativeMooc();

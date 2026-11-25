@@ -2,6 +2,7 @@ package com.classassistant.app
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -45,13 +46,40 @@ class MoocCookieJarTest {
     }
 
     @Test
-    fun `只有出现 NTESSTUDYSI 才算登录`() {
-        assertTrue(MoocCookieJar.hasLogin("STUDY_SESS=s; NTESSTUDYSI=abc"))
-        // 只有展示用的 STUDY_INFO 不算：没有 csrfKey 一个接口都发不出去
+    fun `访客会话不算登录：还要能从 STUDY_INFO 解析出账号`() {
+        // 打开 /member/login.htm 时 icourse163 会给未登录访客下发 NTESSTUDYSI（实测），
+        // 只看它会在「刚打开、什么都没做」时误判成功 —— 1.4.5 绑上访客会话的根因
+        assertFalse(MoocCookieJar.hasLogin("NTESSTUDYSI=guest-token; EDUWEBDEVICE=dev"))
+        // 只有展示用的 STUDY_INFO 也不算：没有 csrfKey 一个接口都发不出去
         assertFalse(MoocCookieJar.hasLogin("STUDY_INFO=yd.abc@163.com|8|1|2"))
+        assertTrue(
+            MoocCookieJar.hasLogin(
+                "STUDY_SESS=s; NTESSTUDYSI=abc; STUDY_INFO=yd.abc%40163.com%7C8%7C159%7C2"
+            )
+        )
         assertFalse(MoocCookieJar.hasLogin(null))
         assertFalse(MoocCookieJar.hasLogin(""))
         assertFalse(MoocCookieJar.hasLogin("   "))
+    }
+
+    @Test
+    fun `STUDY_INFO 解析出账号与成员 ID`() {
+        val identity = MoocCookieJar.identityOf(
+            "NTESSTUDYSI=t; STUDY_INFO=yd.abc%40163.com%7C8%7C159%7C2"
+        )
+        assertEquals("yd.abc@163.com", identity?.account)
+        assertEquals("159", identity?.memberId)
+        assertEquals("yd.abc@163.com#159", identity?.key)
+        assertEquals("yd.abc@163.com", identity?.displayName)
+    }
+
+    @Test
+    fun `STUDY_INFO 缺失或拆不出身份时返回 null`() {
+        assertNull(MoocCookieJar.identityOf("NTESSTUDYSI=t"))
+        assertNull(MoocCookieJar.identityOf("STUDY_INFO="))
+        assertNull(MoocCookieJar.identityOf("STUDY_INFO=%7C%7C"))
+        // 账号为空但有成员 ID：仍算登录（展示名退回成员 ID）
+        assertEquals("159", MoocCookieJar.identityOf("STUDY_INFO=%7C8%7C159")?.displayName)
     }
 
     @Test
