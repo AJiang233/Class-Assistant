@@ -22,6 +22,17 @@ var FRAME_URLS = {
     admin: '/account/admin.html'
 };
 
+// 个人中心的功能分类：每类一个二级页，都由 frameAccount 这一个 iframe 承载
+// （页内互跳是普通链接，iframe 自己被导航，不经过外壳；回总览点「← 个人中心」）。
+var ACCOUNT_PAGES = {
+    overview: '/account/',
+    profile: '/account/profile.html',
+    binding: '/account/binding.html',
+    notifications: '/account/notifications.html',
+    preferences: '/account/preferences.html',
+    about: '/account/about.html'
+};
+
 /** 视图名 → iframe 键：活动与通知是同一份文档里的两个视图 */
 function frameKeyOf(view) {
     return view === 'activities' ? 'notices' : view;
@@ -209,16 +220,23 @@ window.addEventListener('popstate', onHistoryPop);
     // 支持 ?view=xxx 直达（App 内绑定教务系统后会跳回课表页）
     var target = 'home';
     var deepId = '';
+    var deepPage = '';
     try {
         var params = new URLSearchParams(window.location.search);
         var v = params.get('view');
         if (v && ['academic', 'activities', 'notices', 'affairs', 'todos', 'account', 'admin'].indexOf(v) >= 0) target = v;
         deepId = params.get('id') || '';
+        deepPage = params.get('page') || '';
     } catch (e) {}
     // ?view=affairs 是导航别名，落到上次看的子页；历史里记的也应是真实子页
     if (target === 'affairs') target = lastAffairsTab();
     // ?view=activities&id=123 深链（App 点提醒会带过来）：一个 iframe 同时表达「哪个视图」，
     // 所以 tab 与 id 一起拼进地址，班级事务页自己读它们决定初始视图并开详情。
+    // ?view=account&page=binding 直达个人中心的某一类（推送、收藏链接用）
+    if (authed && target === 'account' && deepPage
+        && ACCOUNT_PAGES[deepPage] && ACCOUNT_PAGES[deepPage] !== ACCOUNT_PAGES.overview) {
+        loadFrame('account', ACCOUNT_PAGES[deepPage]);
+    }
     if (authed && deepId && (target === 'notices' || target === 'activities')) {
         loadFrame('notices', FRAME_URLS.notices + '?tab=' + target
             + '&id=' + encodeURIComponent(deepId));

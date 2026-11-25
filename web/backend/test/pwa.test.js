@@ -9,7 +9,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -901,7 +901,7 @@ test('开启通知失败：认不出的异常也有兜底话术，不会把空�
 // 而用户正是靠它判断「是不是被系统压制了」。
 
 test('后台通知：系统待机档五档都能表达出来', () => {
-  const src = readFileSync(join(HERE, '../../assets/js/account.js'), 'utf8');
+  const src = readFileSync(join(HERE, '../../assets/js/account/notify.js'), 'utf8');
   const at = src.indexOf('var STANDBY_LABEL');
   assert.ok(at >= 0, '找不到档位映射表：可能被改名或搬走了，这条断言需要跟着改');
   const map = src.slice(at, src.indexOf('function readBackgroundStatus', at));
@@ -1003,7 +1003,7 @@ test('提醒对象：admin 的三个发布入口在名单失败时也拦截（is
 // 只有 Chromium 系派发、Safari 不派发，恢复只能靠每次打开重报（接口幂等 upsert）。
 
 test('推送订阅：已订阅时打开个人中心会重报一次（issue #80）', () => {
-  const src = readFileSync(join(HERE, '../../assets/js/account.js'), 'utf8');
+  const src = readFileSync(join(HERE, '../../assets/js/account/notify.js'), 'utf8');
 
   assert.match(src, /if \(pushSub && pushServerEnabled\)/,
     'refreshNotify 没在「本地已订阅」时走重报分支：轮换后服务端那条旧的 404/410，' +
@@ -1027,7 +1027,7 @@ test('推送测试结果回调要在顶层转发给 frameAccount', () => {
   assert.match(app, /window\.top === window[\s\S]{0,200}?__caTestNotifyResult/,
     '顶层没有定义 __caTestNotifyResult 转发层：个人页在 iframe 里收不到原生回调，按钮卡「推送中…」');
   assert.match(app, /frameAccount[\s\S]{0,80}?contentWindow\.__caTestNotifyResult/,
-    '转发没指向 frameAccount 里的同名回调（account.js 的 testPush 每次点击重设它）');
+    '转发没指向 frameAccount 里的同名回调（notify.js 的 testPush 每次点击重设它）');
 });
 
 // ===== 教务手机端 CSS 的级联顺序（issue #83）=====

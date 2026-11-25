@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const ACCOUNT = readFileSync(join(HERE, '../../assets/js/account.js'), 'utf8');
+const ACCOUNT = readFileSync(join(HERE, '../../assets/js/account/binding.js'), 'utf8');
 const STYLE = readFileSync(join(HERE, '../../assets/css/style.css'), 'utf8');
 
 /** 取一个函数体：从 `function name(` 到下一个顶层 `function ` 之间 */

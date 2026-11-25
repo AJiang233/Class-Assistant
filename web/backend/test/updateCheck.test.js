@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const ACCOUNT_JS = readFileSync(join(HERE, '../../assets/js/account.js'), 'utf8');
+const ACCOUNT_JS = readFileSync(join(HERE, '../../assets/js/account/about.js'), 'utf8');
 const VERSION_JSON = JSON.parse(readFileSync(join(HERE, '../../version.json'), 'utf8'));
 
 test('检查更新读站点根目录的 /version.json，不用相对路径', () => {

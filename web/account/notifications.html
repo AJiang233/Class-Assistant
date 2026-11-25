@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>通知与提醒 - 班级助理</title>
+    <meta name="description" content="班级助理：网页通知、App 内提醒、后台通知与日历订阅。">
+    <meta name="color-scheme" content="light dark">
+    <meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#07070c" media="(prefers-color-scheme: dark)">
+    <link rel="icon" type="image/png" sizes="192x192" href="../assets/icons/icon-192.png">
+    <link rel="icon" type="image/png" sizes="512x512" href="../assets/icons/icon-512.png">
+    <link rel="manifest" href="../manifest.json">
+    <link rel="apple-touch-icon" href="../assets/icons/apple-touch-icon.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="班级助理">
+    <link rel="stylesheet" href="../assets/css/style.css">
+    <script src="../assets/js/theme.js"></script>
+</head>
+<body>
+    <div class="main">
+        <div class="container account-page">
+            <div class="page-head">
+                <a class="legal-back account-back" href="./">← 个人中心</a>
+                <h1 class="page-title">通知与提醒</h1>
+                <p class="page-desc">网页通知、App 内提醒、后台通知与日历订阅。</p>
+            </div>
+
+            <!-- 桌面端两列：先左后右（8 张卡 → 左 4 张、右 4 张）。手机端 .split-grid 并成一列，顺序仍是左列在前。 -->
+                        <!-- 桌面端两列由 CSS 多栏自动均衡高度（卡片不跨列断开），先填满左列再折到右列；
+                 手机上多栏退化成单列，顺序与这里一致。 -->
+            <div class="card-columns">
+<div class="profile-card" id="notifyCard">
+                    <h2 class="card-title">网页通知</h2>
+                    <p class="profile-sub profile-sub-lead" id="notifyStatus">正在检查本机是否支持通知…</p>
+                    <div class="btn-row btn-row-inline">
+                        <button class="btn btn-primary" id="notifyEnableBtn" type="button" data-act="enable-push" hidden>开启通知</button>
+                        <button class="btn btn-outline" id="notifyTestBtn" type="button" data-act="test-push-self" hidden>发送测试通知</button>
+                        <button class="btn btn-danger" id="notifyDisableBtn" type="button" data-act="disable-push" hidden>关闭通知</button>
+                    </div>
+                    <p class="profile-sub profile-sub-tail" id="notifyHint"></p>
+                </div>
+
+<div class="profile-card" id="appPushBlock" hidden>
+                    <h2 class="card-title">App 端通知</h2>
+                    <!-- 本机通知开关状态：通知被系统关掉时本地提醒会被静默丢弃，用户点测试
+                         没反应，得在这儿把真实原因说清而不是留白。无桥时这行也是空的。 -->
+                    <p class="profile-sub profile-sub-lead" id="appNotifyLine"></p>
+                    <p class="profile-sub profile-sub-lead">用最新一条真实内容发一条测试推送，检查手机能否收到、点击能否跳到对应详情。</p>
+                    <!-- 通知 / 活动 / 表单各一个，一行三列（.btn-row 默认就是三列） -->
+                    <div class="btn-row">
+                        <button class="btn btn-outline" id="testNoticeBtn" type="button" data-act="test-push" data-arg="notice">通知</button>
+                        <button class="btn btn-outline" id="testActivityBtn" type="button" data-act="test-push" data-arg="activity">活动</button>
+                        <button class="btn btn-outline" id="testFormBtn" type="button" data-act="test-push" data-arg="form">表单</button>
+                    </div>
+                    <p class="profile-sub profile-sub-tail" id="pushHint"></p>
+                </div>
+
+<div class="profile-card" id="courseCard" hidden>
+                    <h2 class="card-title">课程提醒</h2>
+                    <p class="profile-sub profile-sub-lead" id="courseStatus"></p>
+                    <div class="form-field mb-14">
+                        <label class="form-label" for="courseLead">提前多久提醒</label>
+                        <select class="form-input" id="courseLead" data-act="save-course-reminder">
+                            <option value="0">不提前提醒</option>
+                            <option value="5">提前 5 分钟</option>
+                            <option value="10">提前 10 分钟</option>
+                            <option value="15">提前 15 分钟</option>
+                            <option value="20">提前 20 分钟</option>
+                            <option value="30">提前 30 分钟</option>
+                            <option value="60">提前 60 分钟</option>
+                        </select>
+                    </div>
+                    <label class="switch-row">
+                        <span>开课时再提醒一次</span>
+                        <span class="switch">
+                            <input type="checkbox" id="courseAtStart" data-act="save-course-reminder">
+                            <span class="switch-track" aria-hidden="true"></span>
+                        </span>
+                    </label>
+                    <p class="profile-sub profile-sub-tail">提醒在手机本地排期，不用联网；课表跟着后台同步更新。</p>
+                </div>
+
+<div class="profile-card" id="todoCard" hidden>
+                    <h2 class="card-title">待办提醒</h2>
+                    <p class="profile-sub profile-sub-lead" id="todoStatus"></p>
+                    <div class="form-field mb-14">
+                        <label class="form-label" for="todoLead">截止前多久提醒</label>
+                        <select class="form-input" id="todoLead" data-act="save-todo-reminder">
+                            <option value="0">不提醒</option>
+                            <option value="10">提前 10 分钟</option>
+                            <option value="30">提前 30 分钟</option>
+                            <option value="60">提前 1 小时</option>
+                            <option value="120">提前 2 小时</option>
+                            <option value="180">提前 3 小时</option>
+                            <option value="360">提前 6 小时</option>
+                            <option value="720">提前 12 小时</option>
+                            <option value="1440">提前 1 天</option>
+                        </select>
+                    </div>
+                    <p class="profile-sub profile-sub-tail">到点提醒在手机本地排期，不用联网；待办列表会随后台同步更新。</p>
+                </div>
+
+<div class="profile-card" id="webTodoCard" hidden>
+                    <h2 class="card-title">网页版待办提醒</h2>
+                    <p class="profile-sub profile-sub-lead">由服务端在截止前推送，即使没打开应用也能收到（需允许通知）。</p>
+                    <label class="switch-row">
+                        <span>开启待办到期提醒</span>
+                        <span class="switch">
+                            <input type="checkbox" id="webTodoEnabled">
+                            <span class="switch-track" aria-hidden="true"></span>
+                        </span>
+                    </label>
+                    <div class="form-field mt-14">
+                        <label class="form-label" for="webTodoLead">截止前多久提醒</label>
+                        <select class="form-input" id="webTodoLead">
+                            <option value="0">不提醒</option>
+                            <option value="10">提前 10 分钟</option>
+                            <option value="30">提前 30 分钟</option>
+                            <option value="60" selected>提前 1 小时</option>
+                            <option value="120">提前 2 小时</option>
+                            <option value="180">提前 3 小时</option>
+                            <option value="360">提前 6 小时</option>
+                            <option value="720">提前 12 小时</option>
+                            <option value="1440">提前 1 天</option>
+                        </select>
+                    </div>
+                    <button class="btn btn-primary btn-block" id="webTodoSaveBtn" type="button" data-act="save-web-todo-reminder">保存</button>
+                    <p class="profile-sub profile-sub-tail" id="webTodoStatus"></p>
+                </div>
+
+<div class="profile-card" id="backgroundCard" hidden>
+                    <h2 class="card-title">后台通知</h2>
+                    <p class="profile-sub profile-sub-lead profile-sub-lines" id="backgroundStatus"></p>
+                    <label class="switch-row">
+                        <span>后台常驻，及时收到新通知</span>
+                        <span class="switch">
+                            <input type="checkbox" id="backgroundAlwaysOn" data-act="save-background-always-on">
+                            <span class="switch-track" aria-hidden="true"></span>
+                        </span>
+                    </label>
+                    <p class="profile-sub profile-sub-even">开启后状态栏会出现「班级助理正在后台运行」（系统对常驻应用的硬性要求，不响铃也不弹出）；关掉照样收提醒，只是最多晚 15 分钟。</p>
+                    <div class="btn-row btn-row-2">
+                        <button class="btn btn-outline" id="batteryBtn" type="button" data-act="open-battery-action">允许后台运行</button>
+                        <button class="btn btn-outline" id="autoStartBtn" type="button" data-act="open-auto-start">自启动设置</button>
+                    </div>
+                    <!-- 「有没有允许后台运行」紧跟按钮行，不放在上面那段状态里：这一条是用户点完
+                         系统弹窗、切回页面时最想确认的，放在按钮旁边才对得上眼睛（见 renderBackgroundStatus） -->
+                    <p class="profile-sub profile-sub-tail" id="batteryStatus"></p>
+                    <p class="profile-sub profile-sub-tail" id="backgroundHint"></p>
+                </div>
+
+<div class="profile-card" id="iosPwaCard" hidden>
+                    <h2 class="card-title">iOS 提醒说明</h2>
+                    <p class="profile-sub profile-sub-lead">从主屏幕打开时，关闭页面后网页本身不能在本机定时提醒——这是 iOS 对网页应用的限制，不是设置没生效。</p>
+                    <p class="profile-sub profile-sub-even">想在课程开始或待办截止前收到提醒，有两种办法：开启上方的「网页通知」，由服务端在到点时推送；或者订阅下方的日历，交给系统日历提醒。</p>
+                    <p class="profile-sub profile-sub-even">通知权限随时可以在「设置 → 通知 → 班级助理」里修改；权限被关掉后，页面里的开关不会让手机响。</p>
+                    <p class="profile-sub profile-sub-tail">网页推送需要 iOS 16.4 及以上，并且要先把本页「添加到主屏幕」、再从桌面图标打开。</p>
+                </div>
+
+<div class="profile-card" id="calCard">
+                    <h2 class="card-title">日历订阅</h2>
+                        <p class="profile-sub profile-sub-wide">订阅后，班级日程会自动同步到手机系统日历（iOS / 安卓 / 鸿蒙通用，订阅后无需再打开本页）。下面的选项会写进订阅链接，改完重新复制即可。</p>
+                        <div class="form-error" id="calError"></div>
+    
+                        <div class="grid-150">
+                            <div class="form-field mb-0">
+                                <label class="form-label" for="calRemind">提前提醒</label>
+                                <select class="form-input" id="calRemind">
+                                    <option value="0">不提醒</option>
+                                    <option value="5">5 分钟</option>
+                                    <option value="15">15 分钟</option>
+                                    <option value="30" selected>30 分钟</option>
+                                    <option value="60">1 小时</option>
+                                    <option value="1440">1 天</option>
+                                </select>
+                            </div>
+                            <div class="form-field mb-0">
+                                <label class="form-label" for="calPast">包含过去</label>
+                                <select class="form-input" id="calPast">
+                                    <option value="0">不包含</option>
+                                    <option value="7">最近 7 天</option>
+                                    <option value="30" selected>最近 30 天</option>
+                                    <option value="90">最近 90 天</option>
+                                </select>
+                            </div>
+                            <div class="form-field mb-0">
+                                <label class="form-label" for="calFuture">包含未来</label>
+                                <select class="form-input" id="calFuture">
+                                    <option value="30">1 个月</option>
+                                    <option value="90">3 个月</option>
+                                    <option value="180">6 个月</option>
+                                    <option value="365" selected>1 年</option>
+                                    <option value="730">2 年</option>
+                                </select>
+                            </div>
+                        </div>
+    
+                        <!-- 订阅内容：课程 / 待办默认包含（后端 courses、todos 参数默认 1）。
+                             两个开关会显式写进订阅链接（courses=1/0、todos=1/0），
+                             复制出去的链接自带完整配置，换设备订阅结果一致。 -->
+                        <label class="switch-row">
+                            <span>包含课程</span>
+                            <span class="switch">
+                                <input type="checkbox" id="calCourses" checked>
+                                <span class="switch-track" aria-hidden="true"></span>
+                            </span>
+                        </label>
+    
+                        <label class="switch-row">
+                            <span>包含待办</span>
+                            <span class="switch">
+                                <input type="checkbox" id="calTodos" checked>
+                                <span class="switch-track" aria-hidden="true"></span>
+                            </span>
+                        </label>
+    
+                        <label class="switch-row">
+                            <span>把班级通知加进日历（全天显示）</span>
+                            <span class="switch">
+                                <input type="checkbox" id="calNotices">
+                                <span class="switch-track" aria-hidden="true"></span>
+                            </span>
+                        </label>
+    
+                        <div class="form-field">
+                            <label class="form-label" for="calUrl">订阅链接</label>
+                            <input class="form-input" id="calUrl" type="text" readonly placeholder="正在获取订阅地址…">
+                        </div>
+                        <div class="btn-row">
+                            <button class="btn btn-primary" id="calCopyBtn" type="button">复制链接</button>
+                            <!-- href 由 calRefresh() 设为后端返回的 webcal 链接（见 account.js）：
+                                 iOS 上点它直接打开系统日历的「添加订阅」，不必先复制再粘贴。
+                                 target="_top" 保证个人页在 iframe 里也能让顶层窗口导航到 webcal。 -->
+                            <a class="btn btn-outline" id="calOpenBtn" href="#" target="_top" rel="noopener">打开订阅</a>
+                            <button class="btn btn-danger" id="calResetBtn" type="button">重置密钥</button>
+                        </div>
+                        <p class="profile-sub profile-sub-tail">复制链接后，在手机日历里选择「添加订阅日历 / 从网址导入」粘贴即可；iPhone 上点「打开订阅」会直接打开系统日历，若没有反应就复制链接手动添加。重置密钥会让旧链接立即失效（已订阅的设备需重新订阅）。</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="../assets/js/app.js"></script>
+    <script src="../assets/js/account/core.js"></script>
+    <script src="../assets/js/account/notify.js"></script>
+</body>
+</html>

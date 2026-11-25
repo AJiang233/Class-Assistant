@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>关于与支持 - 班级助理</title>
+    <meta name="description" content="班级助理：版本、检查更新、安装到桌面与法务信息。">
+    <meta name="color-scheme" content="light dark">
+    <meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#07070c" media="(prefers-color-scheme: dark)">
+    <link rel="icon" type="image/png" sizes="192x192" href="../assets/icons/icon-192.png">
+    <link rel="icon" type="image/png" sizes="512x512" href="../assets/icons/icon-512.png">
+    <link rel="manifest" href="../manifest.json">
+    <link rel="apple-touch-icon" href="../assets/icons/apple-touch-icon.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="班级助理">
+    <link rel="stylesheet" href="../assets/css/style.css">
+    <script src="../assets/js/theme.js"></script>
+</head>
+<body>
+    <div class="main">
+        <div class="container account-page">
+            <div class="page-head">
+                <a class="legal-back account-back" href="./">← 个人中心</a>
+                <h1 class="page-title">关于与支持</h1>
+                <p class="page-desc">版本、检查更新、安装到桌面与法务信息。</p>
+            </div>
+
+                        <!-- 桌面端两列由 CSS 多栏自动均衡高度（卡片不跨列断开），先填满左列再折到右列；
+                 手机上多栏退化成单列，顺序与这里一致。 -->
+            <div class="card-columns">
+<div class="profile-card about-hero" id="aboutHero">
+                <img class="about-hero-logo" src="../assets/icons/icon-192.png" width="64" height="64" alt="班级助理图标">
+                <div class="about-hero-main">
+                    <h2 class="about-hero-title">班级助理</h2>
+                    <p class="about-hero-sub">班级通知、活动、待办与学业，一处搞定</p>
+                </div>
+            </div>
+
+<div class="profile-card" id="installCard" hidden>
+                <h2 class="card-title">安装到桌面</h2>
+                <p class="profile-sub install-entry-text profile-sub-lead"></p>
+                <button class="btn btn-primary btn-block install-entry-action" type="button" data-act="install-app" hidden>安装</button>
+            </div>
+
+<div class="profile-card" id="aboutCard">
+                <h2 class="card-title">关于软件</h2>
+                <div class="info-list">
+                    <div class="info-row"><span class="k">版本号</span><span class="v" id="aboutVersion">—</span></div>
+                    <div class="info-row"><span class="k">检查更新</span><span class="v"><button class="btn btn-outline btn-sm" type="button" id="updateBtn" data-act="check-update">检查更新</button></span></div>
+                    <div class="info-row"><span class="k">开源仓库</span><span class="v"><a href="https://github.com/AJiang233/Class-Assistant" target="_blank" rel="noopener">Class-Assistant</a></span></div>
+                    <div class="info-row"><span class="k">开发者</span><span class="v">阿江_233 · 汐星楠 · TsoiTZF</span></div>
+                </div>
+                <p class="profile-sub profile-sub-tail" id="updateHint"></p>
+            </div>
+
+<div class="profile-card" id="legalCard">
+                <h2 class="card-title">协议与声明</h2>
+                <div class="info-list">
+                    <div class="info-row"><span class="k">用户协议</span><span class="v"><a href="../legal/terms.html" target="_blank" rel="noopener">查看</a></span></div>
+                    <div class="info-row"><span class="k">隐私政策</span><span class="v"><a href="../legal/privacy.html" target="_blank" rel="noopener">查看</a></span></div>
+                    <div class="info-row"><span class="k">免责声明</span><span class="v"><a href="../legal/disclaimer.html" target="_blank" rel="noopener">查看</a></span></div>
+                </div>
+            </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="../assets/js/app.js"></script>
+    <script src="../assets/js/account/core.js"></script>
+    <script src="../assets/js/account/about.js"></script>
+</body>
+</html>

@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>外观与偏好 - 班级助理</title>
+    <meta name="description" content="班级助理：主题外观与其他本机偏好。">
+    <meta name="color-scheme" content="light dark">
+    <meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#07070c" media="(prefers-color-scheme: dark)">
+    <link rel="icon" type="image/png" sizes="192x192" href="../assets/icons/icon-192.png">
+    <link rel="icon" type="image/png" sizes="512x512" href="../assets/icons/icon-512.png">
+    <link rel="manifest" href="../manifest.json">
+    <link rel="apple-touch-icon" href="../assets/icons/apple-touch-icon.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="班级助理">
+    <link rel="stylesheet" href="../assets/css/style.css">
+    <script src="../assets/js/theme.js"></script>
+</head>
+<body>
+    <div class="main">
+        <div class="container account-page">
+            <div class="page-head">
+                <a class="legal-back account-back" href="./">← 个人中心</a>
+                <h1 class="page-title">外观与偏好</h1>
+                <p class="page-desc">主题外观与其他本机偏好。</p>
+            </div>
+
+                                    <!-- 桌面端两列由 CSS 多栏自动均衡高度（卡片不跨列断开），先填满左列再折到右列；
+                 手机上多栏退化成单列，顺序与这里一致。 -->
+            <div class="card-columns">
+<div class="profile-card" id="prefCard">
+                <h2 class="card-title">外观</h2>
+                        <div class="form-field mb-0">
+                            <label class="form-label">主题外观</label>
+                            <div class="tabs pref-seg" id="themeSeg">
+                                <span class="tab-pill" id="themeSegPill" aria-hidden="true"></span>
+                                <button type="button" class="tab" data-theme-choice="system">跟随系统</button>
+                                <button type="button" class="tab" data-theme-choice="light">浅色</button>
+                                <button type="button" class="tab" data-theme-choice="dark">深色</button>
+                            </div>
+                        </div>
+            </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="../assets/js/app.js"></script>
+    <script src="../assets/js/account/core.js"></script>
+    <script src="../assets/js/account/prefs.js"></script>
+</body>
+</html>

@@ -14,6 +14,10 @@
 # 活动视图已并入 /affairs/（页内 tab=activities），旧地址带查询串一起转过去
 /activities.html     /affairs/?tab=activities 308
 /activities          /affairs/?tab=activities 308
+# 旧的整页地址 /affairs/activities.html 现在没有对应文件了：不写这条就会被 Pages 兜底成
+# 应用壳（书架/旧推送点进来会落在主页，看着像「活动页消失了」）。与上面两条转同一处。
+/affairs/activities.html  /affairs/?tab=activities 308
+/affairs/activities       /affairs/?tab=activities 308
 /forms.html          /affairs/forms.html      308
 /forms               /affairs/forms.html      308
 /todos.html          /todos/                  308

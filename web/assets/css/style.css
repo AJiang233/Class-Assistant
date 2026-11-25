@@ -896,6 +896,46 @@ input[type="checkbox"]:disabled { opacity: 0.5; cursor: not-allowed; }
 .info-row .k { color: var(--text-secondary); flex-shrink: 0; font-weight: 600; }
 .info-row .v { color: var(--text); text-align: right; word-break: break-all; }
 
+/* 关于页顶部身份卡：左大 logo + 右标题 / 副标题。
+   logo 用应用图标同一份（PWA 安装图标），这里按 64px 显示，圆角比卡片略大一点才不像生硬方图。 */
+.about-hero { display: flex; align-items: center; gap: 16px; }
+.about-hero-logo {
+    flex: none; width: 64px; height: 64px; border-radius: 18px;
+    box-shadow: var(--material-shadow);
+}
+.about-hero-main { min-width: 0; }
+.about-hero-title { font-size: 1.3rem; line-height: 1.25; letter-spacing: -0.02em; color: var(--text); }
+.about-hero-sub { margin-top: 4px; font-size: 0.86rem; line-height: 1.5; color: var(--text-secondary); }
+
+/* 个人中心各页的卡片分栏：桌面端两列按**高度**自动均衡 —— 用 CSS 多栏而不是写死左右两个 div。
+   好处是卡片多于/少于预期（App 壳隐藏若干张、桌面只有部分卡显示）时，仍然一边高一边低地尽量对齐；
+   填法是先填满左列再折到右列，顺序与 DOM 一致。
+   break-inside: avoid 保证卡片不会被拆到两列；margin-bottom 代替列内 gap（多栏不支持 gap）。
+   手机上多栏退化成单列，顺序不变。 */
+.card-columns { columns: 2; column-gap: 16px; }
+.card-columns > .profile-card {
+    break-inside: avoid;
+    -webkit-column-break-inside: avoid;
+    margin: 0 0 16px;
+}
+@media (max-width: 720px) {
+    .card-columns { columns: 1; }
+}
+
+/* 个人中心二级页：卡片之间统一留 16px 空隙（总览页与管理面板用 split-grid 自带的 gap） */
+.account-page > .profile-card + .profile-card { margin-top: 16px; }
+
+.account-consent .consent-on { color: var(--success); font-weight: 600; }
+.account-consent .consent-off { color: var(--text-tertiary); }
+
+/* 个人中心总览：五个分类做成整行可点的入口（沿用 info-row 的排版，去掉链接下划线）。
+   右侧的 v 是「一句话说明 ›」，hover 时染成强调色，暗示可点。 */
+.account-entry { text-decoration: none; }
+.account-entry:hover .v { color: var(--accent); }
+.account-entry .v { color: var(--text-tertiary); }
+/* 二级页顶部的「← 个人中心」：贴在页头上方，比正文小一号 */
+.account-back { margin-bottom: 8px; font-size: 0.86rem; }
+
 .member-row { align-items: flex-start; }
 .member-main { min-width: 0; }
 .member-line { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
@@ -1447,23 +1487,6 @@ body.app-mode { overflow: hidden; }
   .profile-name { font-size: 1.07rem; }
   .profile-sub { font-size: 0.84rem; }
   .info-row { padding: 8px 2px; font-size: 0.89rem; }
-  /* 「关于软件 → 用户协议」行：摘要最长是「未同意（请退出后重新登录并同意）」，
-     已同意时也有一串授权状态，与「查看与修改」挤在同一行会把按钮挤出卡片
-     （360px 宽的手机上按钮右边缘比卡片多出约 68px）。手机布局里把摘要折到第二行：
-     第一行「用户协议 + 查看与修改」，第二行摘要右对齐、允许换行。
-     两个 .v 用 display:contents 让摘要与按钮直接参与 .info-row 的 flex 排布，
-     display 规则要压过 style.css 后面 .info-row .v-actions 的 inline-flex，故带上级选择器。 */
-  .info-row-consent { flex-wrap: wrap; row-gap: 4px; }
-  .info-row.info-row-consent .v,
-  .info-row.info-row-consent .v-actions { display: contents; }
-  .info-row-consent #openConsentBtn { order: 1; }
-  /* 摘要的 white-space / overflow 在文件后面有 .info-row .v-actions > span:first-child
-     的 nowrap + 省略号，这里必须用 id 提高优先级才能改成允许换行 */
-  .info-row.info-row-consent #consentSummary {
-    order: 2; flex: 1 1 100%;
-    text-align: right; white-space: normal; overflow: visible;
-    text-overflow: clip; line-height: 1.5;
-  }
   /* .card-title 与 .collapse-body 一起跟着缩，两处始终同值 */
   :root { --card-title-gap: 10px; }
 
@@ -2166,7 +2189,6 @@ body.app-mode { overflow: hidden; }
 .login-consent a { white-space: nowrap; }
 
 /* ── 个人中心：关于软件里的「用户协议」行 + 授权管理弹窗 ── */
-.consent-summary { font-size: 0.86rem; color: var(--text-secondary); }
 .consent-fixed-row {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   padding: 12px 0; border-bottom: 1px solid var(--separator);
@@ -2526,8 +2548,6 @@ body.app-mode { overflow: hidden; }
    末尾追加，不改动上面任何既有规则：tab 复用 .tabs/.tab-pill，卡片复用
    .profile-card/.info-list/.btn/switch，这里只补绑定卡自己的布局与身份块。
    ═══════════════════════════════════════════════════════════════════ */
-.account-tabs { max-width: 480px; margin-bottom: 20px; }
-.account-pane[hidden] { display: none; }
 
 .bind-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
 .bind-card { max-width: none; }
@@ -2539,6 +2559,9 @@ body.app-mode { overflow: hidden; }
     background: var(--accent-soft); color: var(--accent);
     border: 1px solid var(--border);
 }
+/* 教务系统（正方）：默认就是 accent 蓝，这里只把底色/文字调成与另两个一致的手感 */
+.bind-logo-academic { background: rgba(64, 110, 255, 0.14); color: #2f52d8; }
+:root[data-theme="dark"] .bind-logo-academic { background: rgba(120, 150, 255, 0.20); color: #9db2ff; }
 .bind-logo-chaoxing { background: rgba(0, 168, 132, 0.14); color: #00876b; }
 :root[data-theme="dark"] .bind-logo-chaoxing { background: rgba(48, 209, 176, 0.18); color: #4cd7b6; }
 /* 中国大学MOOC 用品牌绿：与学习通的青绿区分开，又不抢主色 */
@@ -2612,7 +2635,6 @@ body.app-mode { overflow: hidden; }
     .bind-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 640px) {
-    .account-tabs { margin-bottom: 16px; }
     .bind-card { padding: 22px 20px; }
     .bind-actions .btn { flex-basis: 100%; }
     .bind-footnote { margin-top: 14px; font-size: 0.78rem; }

@@ -35,16 +35,22 @@ web/
 │   └── forms.html              表单填写页（/affairs/forms.html），不在导航中
 ├── todos/index.html            我的待办（/todos/）
 ├── academic/index.html         学业：课表 / 学业达成 / 成绩（/academic/）
-├── account/
-│   ├── index.html              个人中心（/account/）
-│   └── admin.html              管理员面板（/account/admin.html）
+├── account/                    个人中心：入口总览 + 五个功能分类（同级 html 文件）
+│   ├── index.html              总览（/account/）：资料摘要 + 分类入口
+│   ├── profile.html            账号与资料：联系方式 / 邮箱订阅 / 改密 / 退出
+│   ├── binding.html            绑定与授权：教务 / 学习通 / MOOC + 用户协议授权
+│   ├── notifications.html      通知与提醒：Web Push / App 内提醒 / 日历订阅
+│   ├── preferences.html        外观与偏好：主题外观
+│   ├── about.html              关于与支持：版本 / 检查更新 / 安装 / 法务
+│   └── admin.html              管理员面板
 ├── legal/                      隐私政策 / 用户协议 / 免责声明（站内静态页）
 ├── assets/
 │   ├── css/style.css           共享样式（令牌 + 组件 + 响应式 + 降级）
 │   ├── js/
 │   │   ├── theme.js            主题：首帧前写 data-theme，防浅色闪一下
 │   │   ├── app.js              API 客户端 + 会话 + 权限判断 + 工具 + 事件委托 + 原生桥
-│   │   └── <页面>.js           各页逻辑：index / notices / activities / todos / academic / forms / account / admin
+│   │   ├── account/            个人中心拆分后的脚本：core（共用）+ overview / profile / binding / notify / prefs / about
+│   │   └── <页面>.js           各页逻辑：index / notices / activities / todos / academic / forms / admin
 │   └── icons/                  PWA 图标
 ├── backend/
 │   ├── src/
@@ -257,7 +263,12 @@ web/
 | 表单填写 | `/affairs/forms.html` | `forms.js` |
 | 待办 | `/todos/` | `todos.js` |
 | 学业 | `/academic/` | `academic.js` |
-| 个人中心 | `/account/` | `account.js` |
+| 个人中心总览 | `/account/` | `account/core.js` + `account/overview.js` |
+| 账号与资料 | `/account/profile.html` | `account/core.js` + `account/profile.js` |
+| 绑定与授权 | `/account/binding.html` | `account/core.js` + `account/binding.js` |
+| 通知与提醒 | `/account/notifications.html` | `account/core.js` + `account/notify.js` |
+| 外观与偏好 | `/account/preferences.html` | `account/core.js` + `account/prefs.js` |
+| 关于与支持 | `/account/about.html` | `account/core.js` + `account/about.js` |
 | 管理员面板 | `/account/admin.html` | `admin.js` |
 
 每个页面都是独立的 HTML 文档，引入顺序固定为 `theme.js`（head，同步）→ `app.js` → 自己的脚本。

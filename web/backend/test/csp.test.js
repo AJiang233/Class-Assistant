@@ -28,7 +28,12 @@ const PAGES = [
   { html: 'affairs/forms.html', scripts: ['assets/js/forms.js'] },
   { html: 'todos/index.html', scripts: ['assets/js/todos.js'] },
   { html: 'academic/index.html', scripts: ['assets/js/academic.js'] },
-  { html: 'account/index.html', scripts: ['assets/js/account.js'] },
+  { html: 'account/index.html', scripts: ['assets/js/account/core.js', 'assets/js/account/overview.js'] },
+  { html: 'account/profile.html', scripts: ['assets/js/account/core.js', 'assets/js/account/profile.js'] },
+  { html: 'account/binding.html', scripts: ['assets/js/account/core.js', 'assets/js/account/binding.js'] },
+  { html: 'account/notifications.html', scripts: ['assets/js/account/core.js', 'assets/js/account/notify.js'] },
+  { html: 'account/preferences.html', scripts: ['assets/js/account/core.js', 'assets/js/account/prefs.js'] },
+  { html: 'account/about.html', scripts: ['assets/js/account/core.js', 'assets/js/account/about.js'] },
   { html: 'account/admin.html', scripts: ['assets/js/admin.js'] }
 ];
 const PAGE_HTMLS = PAGES.map((p) => p.html);
