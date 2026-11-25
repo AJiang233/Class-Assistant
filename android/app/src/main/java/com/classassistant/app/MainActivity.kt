@@ -1515,8 +1515,13 @@ class MainActivity : AppCompatActivity() {
             if (!moocState.alreadySignedInHinted) {
                 moocState.alreadySignedInHinted = true
                 moocState.doneButton.isEnabled = true
-                moocState.hint.text =
+                // STUDY_INFO 里的账号是网易内部别名（yd.<hash>@163.com），不是用户本人的邮箱。
+                // 别名没有展示价值（真实姓名/学号由服务端绑定后读出），只说清「已登录」，别让用户以为登错号。
+                moocState.hint.text = if (identity.displayName.isEmpty()) {
+                    "当前已登录：中国大学MOOC 账号（网易内部别名，绑定后会显示真实姓名和学号）。若是你的账号，可直接点「完成绑定」；要换账号请先在页面里退出登录。"
+                } else {
                     "当前已登录：${identity.displayName}。若是你的账号，可直接点「完成绑定」；要换账号请先在页面里退出登录。"
+                }
             }
             return
         }

@@ -43,7 +43,18 @@ internal object MoocCookieJar {
     /** STUDY_INFO 拆出来的身份；比较「是不是同一个人」只认这两个字段 */
     data class Identity(val account: String, val memberId: String) {
         val key: String get() = account + "#" + memberId
-        val displayName: String get() = account.ifEmpty { memberId }
+
+        /**
+         * 网易内部账号别名，形如 `yd.<hash>@163.com`。
+         *
+         * STUDY_INFO 的第一段对**每个**真实用户都长这样，它既不是手机号也不是邮箱；直接当账号
+         * 展示会让用户以为「登上了别人的号」（1.4.6 线上反馈）。真实姓名/学号由服务端
+         * memberBean.getMocMember 取，所以这里宁可不显示，也不要显示别名。
+         */
+        val isInternalAlias: Boolean get() = account.contains("@163.com")
+
+        /** 可展示的名字；内部别名与空账号都退化成空串，由调用方换成中性文案 */
+        val displayName: String get() = if (isInternalAlias) "" else account.ifEmpty { memberId }
     }
 
     /** 把多次 `CookieManager.getCookie()` 的结果合成一个 Cookie 请求头。 */

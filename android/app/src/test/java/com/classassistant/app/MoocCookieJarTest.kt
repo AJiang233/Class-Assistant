@@ -70,7 +70,16 @@ class MoocCookieJarTest {
         assertEquals("yd.abc@163.com", identity?.account)
         assertEquals("159", identity?.memberId)
         assertEquals("yd.abc@163.com#159", identity?.key)
-        assertEquals("yd.abc@163.com", identity?.displayName)
+        // 网易内部别名（yd.<hash>@163.com）不当展示名：所有用户都长这样，展示出来像「登上了别人的号」
+        assertEquals(true, identity?.isInternalAlias)
+        assertEquals("", identity?.displayName)
+    }
+
+    @Test
+    fun `非别名账号照常展示，用于其它（非网易）来源的 STUDY_INFO`() {
+        val identity = MoocCookieJar.identityOf("NTESSTUDYSI=t; STUDY_INFO=13800138000%7C8%7C159")
+        assertEquals(false, identity?.isInternalAlias)
+        assertEquals("13800138000", identity?.displayName)
     }
 
     @Test
