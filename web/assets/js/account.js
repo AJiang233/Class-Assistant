@@ -996,7 +996,12 @@ function platformKey() {
 
 // 「最新版本」写在站点根目录的 version.json，按端分段（发版时改对应那段，
 // 与该端安装包的版本号保持一致）；带时间戳 + no-store 是绕开 Cloudflare 与
-// Service Worker 的缓存，否则检查更新永远看到旧值
+// Service Worker 的缓存，否则检查更新永远看到旧值。
+//
+// 路径必须写成绝对 `/version.json`：个人页跑在 #frameAccount 这个 iframe 里，
+// 文档地址是 /account/，相对路径会被解析成 /account/version.json —— Pages 的
+// SPA 回退对不存在的路径也回 200 HTML，res.json() 于是抛错，页面一直显示
+// 「检查更新失败」（1.4.6 用户反馈的就是这个）。
 async function checkUpdate() {
     var btn = document.getElementById('updateBtn');
     var hint = document.getElementById('updateHint');
@@ -1005,7 +1010,7 @@ async function checkUpdate() {
     btn.textContent = '检查中…';
     hint.textContent = '';
     try {
-        var res = await fetch('version.json?_=' + Date.now(), { cache: 'no-store' });
+        var res = await fetch('/version.json?_=' + Date.now(), { cache: 'no-store' });
         if (!res.ok) throw new Error('HTTP ' + res.status);
         var data = (await res.json()) || {};
         var key = platformKey();

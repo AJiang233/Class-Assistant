@@ -372,6 +372,8 @@
                          「检查更新」先问 CAHost.platform() 自己是什么端，再从站点根目录的
                          version.json 里读对应那一段（android / harmony）的 version + url 与当前版本比较；
                          没有桥就不读任何一段；缺 version 或 url 只提示「检查更新失败」，不猜地址也不退回别的页面。
+                         取 version.json 必须用绝对路径 `/version.json`：这一页是嵌在 #frameAccount 里的
+                         独立文档，地址是 /account/，相对写法会变成 /account/version.json（SPA 回退成 HTML）。
                          这张卡不折叠：一共就五行，属于「短卡常显」那一类（同管理员入口 / 退出登录），
                          而且它的高度正好把右列垫到与左列齐平。 -->
                     <div class="profile-card" id="aboutCard">
