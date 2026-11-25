@@ -2572,6 +2572,20 @@ body.app-mode { overflow: hidden; }
 .bind-id { margin: 3px 0 0; font-size: 0.82rem; color: var(--text-tertiary); word-break: break-all; }
 .bind-meta { margin-top: 12px; }
 .bind-meta .info-row { padding: 9px 0; }
+/* 已读取的课程名：光一个「4 门」用户没法确认读到的到底是不是自己的课 */
+.bind-courses { margin-top: 14px; }
+.bind-courses-title { margin: 0 0 8px; font-size: 0.82rem; color: var(--text-tertiary); }
+.bind-course-list {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    margin: 0; padding: 0; list-style: none;
+}
+.bind-course-list li {
+    padding: 4px 10px; border-radius: 999px;
+    font-size: 0.8rem; line-height: 1.5;
+    color: var(--text-secondary);
+    background: var(--material-muted); border: 1px solid var(--border);
+}
+.bind-course-meta { color: var(--text-tertiary); }
 .bind-warn {
     margin: 12px 0 0; padding: 10px 12px;
     font-size: 0.82rem; line-height: 1.6;

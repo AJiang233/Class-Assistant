@@ -1691,15 +1691,22 @@ function renderMoocBinding(data) {
         var needLogin = expired || missingIdentity;
         var name = data.realName || (missingIdentity ? '未知账号' : '中国大学MOOC账号');
         var count = Number(data.courseCount) || 0;
+        var account = String(data.account || '');
+        // STUDY_INFO 里的账号是网易内部别名（yd.<hash>@163.com），不是用户本人的邮箱。
+        // 服务端会顺手换成真实姓名 + 学号，但登录态过期/暂停时不会出网纠正，仍可能拿到别名。
+        var aliasLike = /@163\.com$/i.test(account) || /@163\.com$/i.test(String(data.realName || ''));
+        var idLine = account
+            ? (/^\d{4,}$/.test(account) ? '学号 ' + esc(account) : '账号 ' + esc(account))
+            : (data.memberId ? 'ID ' + esc(data.memberId) : '没有账号信息');
+        // 课程名比「课程数」有用得多：用户要靠它确认读到的确实是自己的课（0 门 = 没读到）。
+        var courses = (data.courses && data.courses.length) ? data.courses : [];
         bindBadge('moocBindBadge', paused ? '已暂停' : (needLogin ? '需要重新登录' : '已绑定'),
             (paused || needLogin) ? 'muted' : 'ok');
         body.innerHTML = ''
             + '<div class="bind-identity">'
             + '<span class="bind-avatar" aria-hidden="true">' + esc(name.charAt(0)) + '</span>'
             + '<div class="bind-identity-main"><p class="bind-name">' + esc(name) + '</p>'
-            + '<p class="bind-id">' + (data.account
-                ? '账号 ' + esc(data.account)
-                : (data.memberId ? 'ID ' + esc(data.memberId) : '没有账号信息')) + '</p></div>'
+            + '<p class="bind-id">' + idLine + '</p></div>'
             + '</div>'
             + '<div class="info-list bind-meta">'
             + '<div class="info-row"><span class="k">状态</span><span class="v">'
@@ -1709,6 +1716,19 @@ function renderMoocBinding(data) {
             + '<div class="info-row"><span class="k">绑定时间</span><span class="v">' + esc(fmtBindTime(data.boundAt)) + '</span></div>'
             + '<div class="info-row"><span class="k">最近校验</span><span class="v">' + esc(fmtBindTime(data.checkedAt)) + '</span></div>'
             + '</div>'
+            + (courses.length
+                ? '<div class="bind-courses"><p class="bind-courses-title">已读取课程</p><ul class="bind-course-list">'
+                    + courses.map(function (c) {
+                        var label = esc(c.name || c.courseId || '未命名课程');
+                        var meta = Number(c.lessons)
+                            ? (Number(c.learned) || 0) + '/' + Number(c.lessons) + ' 节'
+                            : '';
+                        return '<li>' + label
+                            + (meta ? '<span class="bind-course-meta"> ' + esc(meta) + '</span>' : '')
+                            + '</li>';
+                    }).join('')
+                    + '</ul></div>'
+                : '')
             + (paused ? '<p class="bind-warn">MOOC 登录态连续失效，已自动暂停同步'
                 + (data.paused_until ? '到 ' + esc(fmtBindTime(data.paused_until)) : '')
                 + '，重新登录后可恢复。</p>' : '')
@@ -1719,6 +1739,8 @@ function renderMoocBinding(data) {
                         + (native ? '在 App 内重新登录' : '重新登录 www.icourse163.org 并粘贴新的 Cookie')
                         + '。')
                 + '</p>' : '')
+            // 登录态过期/暂停时服务端不会出网纠正身份，别名仍可能出现，说明白免得用户以为登错号
+            + (aliasLike && !needLogin ? '<p class="bind-hint">这个账号显示的是中国大学MOOC的内部别名；重新登录一次后会换成真实姓名和学号。</p>' : '')
             + '<div class="bind-actions">'
             + (native ? '<button class="btn btn-primary" type="button" data-act="begin-mooc-bind" data-arg="app">App 重新登录</button>' : '')
             + '<button class="btn ' + (native ? 'btn-outline' : 'btn-primary') + '" type="button" data-act="begin-mooc-bind" data-arg="cookie">'
@@ -2353,7 +2375,7 @@ async function bindMoocWithCookies(cookies) {
         await loadMoocBinding();
         // 把服务端读出来的账号带进提示：App 内登录时用户可能没看清小窗里提示的是哪个账号，
         // 绑定成功后至少能在页面上确认一次（1.4.5 的教训是绑错号用户完全无感）。
-        bindFlash('中国大学MOOC绑定成功' + (bound.account ? '：' + bound.account : ''));
+        bindFlash('中国大学MOOC绑定成功' + (bound.realName || bound.account ? '：' + (bound.realName || bound.account) : ''));
     } catch (err) {
         if (err && err.code === 'MOOC_CONSENT_REQUIRED') { openMoocConsentPrompt(err && err.message); return; }
         var native = bindNativeMooc();
